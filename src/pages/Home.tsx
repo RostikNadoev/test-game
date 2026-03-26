@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { GameCard } from '../components/GameCard';
 
-// Определяем тип Game прямо здесь
 interface Game {
   id: string;
   name: string;
@@ -28,7 +27,7 @@ export const Home = () => {
     <div className="p-4 pb-20">
       <div className="mb-6">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-          Игры на двоих
+          TwinGames
         </h1>
         <p className="text-gray-400 text-sm">Выбери битву и найди соперника</p>
       </div>

@@ -8,16 +8,13 @@ export const Lobbies = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
   
-  // Получаем все лобби из store
   const allLobbies = useStore((state) => state.lobbies);
   const joinLobby = useStore((state) => state.joinLobby);
   
-  // Мемоизируем фильтрацию, чтобы избежать бесконечных циклов
   const lobbies = useMemo(() => {
     return allLobbies.filter(l => l.gameId === gameId && l.status === 'waiting');
   }, [allLobbies, gameId]);
   
-  // Имитация названия игры
   const gameNames: Record<string, string> = {
     tanks: 'Tanks 2D',
     race: 'Street Race',
@@ -27,6 +24,16 @@ export const Lobbies = () => {
     chess: 'Chess',
     airhockey: 'Air Hockey',
     darts: 'Darts',
+  };
+
+  const handleJoinAndPlay = (lobbyId: string) => {
+    joinLobby(lobbyId);
+    // Если это гоночная игра, переходим сразу в игру
+    if (gameId === 'race') {
+      navigate('/game/race/play');
+    } else {
+      alert(`Игра ${gameNames[gameId || '']} будет доступна в следующем обновлении!`);
+    }
   };
 
   return (
@@ -71,10 +78,10 @@ export const Lobbies = () => {
                   </div>
                 </div>
                 <button
-                  onClick={() => joinLobby(lobby.id)}
+                  onClick={() => handleJoinAndPlay(lobby.id)}
                   className="bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition"
                 >
-                  Присоединиться
+                  Играть
                 </button>
               </div>
             </motion.div>

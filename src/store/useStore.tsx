@@ -25,6 +25,7 @@ interface AppState {
   convertStarsToCoins: (amount: number) => void;
   createLobby: (lobby: Omit<Lobby, 'id' | 'createdAt' | 'players' | 'status'>) => void;
   joinLobby: (lobbyId: string) => void;
+  startRaceGame: (lobbyId: string) => boolean;
   getLobbiesByGame: (gameId: string) => Lobby[];
 }
 
@@ -52,6 +53,26 @@ export const useStore = create<AppState>()(
           gameName: 'Tanks 2D',
           name: "Новички",
           betAmount: 50,
+          players: ['player1'],
+          status: 'waiting',
+          createdAt: Date.now(),
+        },
+        {
+          id: '3',
+          gameId: 'race',
+          gameName: 'Street Race',
+          name: "Гоночная битва",
+          betAmount: 100,
+          players: ['player1'],
+          status: 'waiting',
+          createdAt: Date.now(),
+        },
+        {
+          id: '4',
+          gameId: 'race',
+          gameName: 'Street Race',
+          name: "Ночная гонка",
+          betAmount: 150,
           players: ['player1'],
           status: 'waiting',
           createdAt: Date.now(),
@@ -94,7 +115,14 @@ export const useStore = create<AppState>()(
               : lobby
           )
         }));
-        alert('Вы присоединились к лобби! (Демо)');
+      },
+      
+      startRaceGame: (lobbyId) => {
+        const lobby = get().lobbies.find(l => l.id === lobbyId);
+        if (lobby && lobby.gameId === 'race') {
+          return true;
+        }
+        return false;
       },
       
       getLobbiesByGame: (gameId) => {
