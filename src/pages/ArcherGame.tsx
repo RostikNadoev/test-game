@@ -5,12 +5,25 @@ interface Player { x: number; y: number; hp: number; color: string; }
 interface Particle { x: number; y: number; vx: number; vy: number; alpha: number; color: string; size: number; life: number; }
 interface WindStreak { x: number; y: number; len: number; speed: number; }
 
+// Настройки генерации гор
+const MOUNTAIN_SETTINGS = [
+  { count: 3,  baseHeight: 0.6, variance: 0.15, color: '#1a1f35', speed: 0.3, detail: 50 }, // Дальний план
+  { count: 4,  baseHeight: 0.4, variance: 0.1,  color: '#242c49', speed: 0.6, detail: 30 }, // Средний план
+  { count: 5,  baseHeight: 0.2, variance: 0.05, color: '#2d375a', speed: 1.0, detail: 15 }  // Ближний план
+];
+
+interface MountainRange {
+  points: { x: number; y: number }[];
+  color: string;
+  parallaxSpeed: number;
+}
+
 const SETTINGS = {
   gravity: 0.018, 
   groundY: 100,
   playerSize: 50,
-  maxPower: 50, // Увеличено для поддержки новой скорости (было 20)
-  worldWidth: 3000,
+  maxPower: 50, 
+  worldWidth: 4500, // Увеличено в 1.5 раза (было 3000)
   maxHP: 3,
 };
 
@@ -20,8 +33,8 @@ export const ArcherGame: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [turn, setTurn] = useState<1 | 2>(1);
-  const [p1, setP1] = useState<Player>({ x: 400, y: 0, hp: 3, color: '#FF3B3B' });
-  const [p2, setP2] = useState<Player>({ x: 2600, y: 0, hp: 3, color: '#3B82FF' });
+  const [p1, setP1] = useState<Player>({ x: 600, y: 0, hp: 3, color: '#FF3B3B' }); // Сдвинут правее
+  const [p2, setP2] = useState<Player>({ x: 3900, y: 0, hp: 3, color: '#3B82FF' }); // Сдвинут сильно левее
   const [wind, setWind] = useState(0);
   const [winner, setWinner] = useState<number | null>(null);
 
@@ -30,6 +43,7 @@ export const ArcherGame: React.FC = () => {
   const drag = useRef({ active: false, startX: 0, startY: 0, currX: 0, currY: 0 });
   const particles = useRef<Particle[]>([]);
   const windStreaks = useRef<WindStreak[]>([]); 
+  const mountainRanges = useRef<MountainRange[]>([]);
   
   const grassBlades = useRef<{x: number, h: number, offset: number, color: string}[]>([]);
   const trees = useRef<{ x: number, s: number }[]>([]);
@@ -49,6 +63,7 @@ export const ArcherGame: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Инициализация травы
     const blades = [];
     for (let i = 0; i < SETTINGS.worldWidth; i += 4) {
       blades.push({
@@ -57,16 +72,41 @@ export const ArcherGame: React.FC = () => {
       });
     }
     grassBlades.current = blades;
-    trees.current = Array.from({ length: 20 }, () => ({
+
+    // Инициализация деревьев
+    trees.current = Array.from({ length: 30 }, () => ({
       x: Math.random() * SETTINGS.worldWidth, s: 0.6 + Math.random() * 1.0
     }));
 
+    // Инициализация ветра
     windStreaks.current = Array.from({ length: 40 }, () => ({
       x: Math.random() * window.innerWidth,
-      y: Math.random() * (window.innerHeight - 200),
+      y: Math.random() * (window.innerHeight - 300),
       len: 20 + Math.random() * 40,
       speed: 0.5 + Math.random() * 2
     }));
+
+    // Инициализация реалистичных гор
+    mountainRanges.current = MOUNTAIN_SETTINGS.map(layer => {
+      const points = [];
+      const step = SETTINGS.worldWidth / layer.detail;
+      const viewHeight = window.innerHeight;
+      
+      for (let i = 0; i <= layer.detail; i++) {
+        const x = i * step;
+        // Создаем неровности
+        const noise = Math.sin(i * 0.5) * 0.3 + Math.sin(i * 1.2) * 0.2 + (Math.random() - 0.5) * 0.1;
+        const yHeight = layer.baseHeight + noise * layer.variance;
+        // Конвертируем относительную высоту в пиксели от земли
+        const y = viewHeight - SETTINGS.groundY - (yHeight * viewHeight);
+        points.push({ x, y });
+      }
+      return {
+        points,
+        color: layer.color,
+        parallaxSpeed: layer.speed
+      };
+    });
 
     updateWind();
   }, []);
@@ -92,6 +132,7 @@ export const ArcherGame: React.FC = () => {
       const w = canvas.width;
       const h = canvas.height;
 
+      // Логика камеры (слежение)
       if (projectile.current.active) {
         camera.current.targetX = projectile.current.x - w / 2;
       } else if (!projectile.current.landed) {
@@ -101,19 +142,58 @@ export const ArcherGame: React.FC = () => {
       const camLerp = projectile.current.active ? 0.3 : 0.03; 
       camera.current.x += (camera.current.targetX - camera.current.x) * camLerp;
 
+      // Фон - Небо
       const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
-      skyGrad.addColorStop(0, '#020617'); skyGrad.addColorStop(1, '#1e1b4b');
+      skyGrad.addColorStop(0, '#040a1a'); skyGrad.addColorStop(1, '#1e1b4b');
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, w, h);
 
       drawMoon(ctx, w);
       drawWindVisuals(ctx, w); 
 
+      // Отрисовка ГОР с параллаксом
+      mountainRanges.current.forEach(range => {
+        ctx.save();
+        // Применяем параллакс: смещение зависит от скорости слоя и положения камеры
+        ctx.translate(-camera.current.x * range.parallaxSpeed, 0);
+        
+        ctx.fillStyle = range.color;
+        ctx.beginPath();
+        if (range.points.length > 0) {
+          ctx.moveTo(range.points[0].x, h); // Начинаем снизу
+          range.points.forEach(p => ctx.lineTo(p.x, p.y));
+          ctx.lineTo(SETTINGS.worldWidth, h); // Заканчиваем снизу в конце мира
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // Добавляем снежные шапки на самые высокие пики дальнего и среднего планов
+        if (range.parallaxSpeed < 1.0) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+          range.points.forEach((p, i) => {
+            // Если точка достаточно высокая (низкий y) и является локальным пиком
+            const prev = range.points[i-1];
+            const next = range.points[i+1];
+            if (prev && next && p.y < prev.y && p.y < next.y && p.y < h * 0.5) {
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(prev.x, (p.y + prev.y) / 2 + 5);
+                ctx.lineTo(next.x, (p.y + next.y) / 2 + 5);
+                ctx.closePath();
+                ctx.fill();
+            }
+          });
+        }
+        
+        ctx.restore();
+      });
+
+      // Мир (земля и объекты)
       ctx.save();
       ctx.translate(-camera.current.x + (Math.random() - 0.5) * camera.current.shake, 0);
       if (camera.current.shake > 0) camera.current.shake *= 0.85;
 
-      drawHills(ctx, h);
+      drawHillsGround(ctx, h); // Только земля
       [p1, p2].forEach(p => drawStylizedPlayer(ctx, p));
 
       if (drag.current.active && !projectile.current.active) {
@@ -122,7 +202,6 @@ export const ArcherGame: React.FC = () => {
 
       if (projectile.current.active) {
         const pr = projectile.current;
-        // Ускорение физики полета
         for(let i = 0; i < 2.5; i++) {
             pr.vx += wind * 0.01;
             pr.x += pr.vx; pr.vy += SETTINGS.gravity; pr.y += pr.vy;
@@ -137,6 +216,7 @@ export const ArcherGame: React.FC = () => {
       updateParticles(ctx);
       drawLushGrass(ctx, h);
       ctx.restore();
+      
       raf = requestAnimationFrame(render);
     };
 
@@ -159,7 +239,7 @@ export const ArcherGame: React.FC = () => {
     const drawMoon = (ctx: CanvasRenderingContext2D, w: number) => {
       ctx.save();
       const mx = w / 2;
-      const my = 150; // Опустили луну
+      const my = 180; // Опустили еще на 30px (было 150)
       const glow = ctx.createRadialGradient(mx, my, 0, mx, my, 60);
       glow.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
       glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
@@ -170,17 +250,20 @@ export const ArcherGame: React.FC = () => {
       ctx.restore();
     };
 
-    const drawHills = (ctx: CanvasRenderingContext2D, h: number) => {
-      ctx.fillStyle = '#161e2e';
+    const drawHillsGround = (ctx: CanvasRenderingContext2D, h: number) => {
+      // Деревья (теперь рисуются перед землей)
+      ctx.fillStyle = '#111827';
       trees.current.forEach(t => {
         ctx.beginPath();
-        ctx.moveTo(t.x, h - SETTINGS.groundY);
-        ctx.lineTo(t.x + 25 * t.s, h - SETTINGS.groundY - 140 * t.s);
-        ctx.lineTo(t.x + 50 * t.s, h - SETTINGS.groundY);
+        ctx.moveTo(t.x, h - SETTINGS.groundY + Math.sin(t.x/300)*20 + 5); // Чуть утоплены в землю
+        ctx.lineTo(t.x + 25 * t.s, h - SETTINGS.groundY + Math.sin(t.x/300)*20 - 140 * t.s);
+        ctx.lineTo(t.x + 50 * t.s, h - SETTINGS.groundY + Math.sin(t.x/300)*20 + 5);
         ctx.fill();
       });
+
+      // Земля
       const hillGrad = ctx.createLinearGradient(0, h - SETTINGS.groundY, 0, h);
-      hillGrad.addColorStop(0, '#064e3b'); hillGrad.addColorStop(1, '#022c22');
+      hillGrad.addColorStop(0, '#052e16'); hillGrad.addColorStop(1, '#021109');
       ctx.fillStyle = hillGrad;
       ctx.beginPath(); ctx.moveTo(0, h);
       for(let x = 0; x <= SETTINGS.worldWidth; x += 10) ctx.lineTo(x, h - SETTINGS.groundY + Math.sin(x/300)*20);
@@ -224,15 +307,14 @@ export const ArcherGame: React.FC = () => {
 
     const drawStylizedPlayer = (ctx: CanvasRenderingContext2D, p: Player) => {
       ctx.save();
-      // Тело и голова
       ctx.shadowBlur = 15; ctx.shadowColor = p.color; ctx.fillStyle = p.color;
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(p.x + 10, p.y + 15, 30, 35, 10) : ctx.rect(p.x + 10, p.y + 15, 30, 35); ctx.fill();
       ctx.beginPath(); ctx.arc(p.x + 25, p.y + 5, 12, 0, Math.PI * 2); ctx.fill();
       
-      // ГЛАЗА (возвращены)
+      // ГЛАЗА
       ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      const lookDir = p.x < SETTINGS.worldWidth / 2 ? 4 : -4; // Смотрят к центру
+      const lookDir = p.x < SETTINGS.worldWidth / 2 ? 4 : -4;
       ctx.beginPath();
       ctx.arc(p.x + 25 + lookDir, p.y + 3, 2.5, 0, Math.PI * 2);
       ctx.arc(p.x + 25 + lookDir + (lookDir > 0 ? 6 : -6), p.y + 3, 2.5, 0, Math.PI * 2);
@@ -337,18 +419,21 @@ export const ArcherGame: React.FC = () => {
       style={{ touchAction: 'none', overscrollBehavior: 'none' }}
     >
       
-      <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+      {/* Кнопка Exit - опущена еще на 30px (было top-14, стало top-20 или pt-20 ниже) */}
+      <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
         <button onClick={() => navigate('/')} className="px-3 py-1 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-full text-[9px] text-white/70 font-bold tracking-[0.2em] uppercase transition-all active:scale-90">Exit</button>
       </div>
 
-      <div className="absolute inset-0 pt-14 px-8 flex justify-between items-start z-10 pointer-events-none">
+      {/* Интерфейс - опущен еще на 30px (pt-14 -> pt-20) */}
+      <div className="absolute inset-0 pt-20 px-8 flex justify-between items-start z-10 pointer-events-none">
         <div className={`flex flex-col gap-2 transition-all duration-500 ${turn === 1 ? 'scale-100' : 'opacity-40 scale-90'}`}>
           <div className="flex flex-col gap-2 bg-black/40 p-2 rounded-xl border border-white/10 shadow-2xl backdrop-blur-sm">
             {[...Array(SETTINGS.maxHP)].map((_, i) => <HeartIcon key={i} filled={p1.hp > i} color={p1.color} />)}
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-4 mt-40">
+        {/* Ветер тоже опущен mt-40 -> mt-44 */}
+        <div className="flex flex-col items-center gap-4 mt-44">
           <div className="bg-black/60 backdrop-blur-xl px-4 py-2 rounded-full border border-white/10 text-[9px] font-bold text-white tracking-[0.2em] uppercase shadow-2xl">
              WIND: {Math.abs(wind * 10000).toFixed(0)} {(wind > 0 ? '>>>' : '<<<')}
           </div>
