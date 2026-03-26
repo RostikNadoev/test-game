@@ -40,7 +40,6 @@ export const RaceGame: React.FC = () => {
   const [bestLap, setBestLap] = useState<number | null>(null);
   const [delta, setDelta] = useState<{ val: string, color: string } | null>(null);
 
-  // Ссылки для аудио
   const audioCtx = useRef<AudioContext | null>(null);
   const oscillator = useRef<OscillatorNode | null>(null);
   const gainNode = useRef<GainNode | null>(null);
@@ -57,7 +56,7 @@ export const RaceGame: React.FC = () => {
   const decorations = useRef<Decor[]>([]);
   const particles = useRef<Particle[]>([]);
 
-  // Вспомогательная функция для расчета дистанции до сегмента дороги
+  // Функция расчета дистанции (исправляет ошибку отсутствия getDist)
   const getDist = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
     const l2 = (x1 - x2)**2 + (y1 - y2)**2;
     const t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
@@ -69,7 +68,8 @@ export const RaceGame: React.FC = () => {
   const initAudio = () => {
     if (audioCtx.current) return;
     try {
-      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const Context = window.AudioContext || (window as any).webkitAudioContext;
+      audioCtx.current = new Context();
       oscillator.current = audioCtx.current.createOscillator();
       gainNode.current = audioCtx.current.createGain();
       
@@ -80,9 +80,7 @@ export const RaceGame: React.FC = () => {
       oscillator.current.connect(gainNode.current);
       gainNode.current.connect(audioCtx.current.destination);
       oscillator.current.start();
-    } catch (e) {
-      console.error("Audio init failed", e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const updateEngineSound = (currentSpeed: number) => {
@@ -92,28 +90,6 @@ export const RaceGame: React.FC = () => {
     const volume = joystick.current.active ? 0.05 + (Math.abs(currentSpeed) * 0.01) : 0.02;
     gainNode.current.gain.setTargetAtTime(volume, audioCtx.current.currentTime, 0.1);
   };
-
-  const generateDecor = useCallback((track: {x: number, y: number}[]) => {
-    const items: Decor[] = [];
-    track.forEach((p, i) => {
-      if (i % 8 !== 0) return;
-      const p2 = track[(i + 1) % track.length];
-      const angle = Math.atan2(p2.y - p.y, p2.x - p.x);
-      const nx = -Math.sin(angle);
-      const ny = Math.cos(angle);
-      const side = Math.random() > 0.5 ? 1 : -1;
-      const dist = 140 + Math.random() * 100;
-      const x = p.x + nx * dist * side;
-      const y = p.y + ny * dist * side;
-
-      const rand = Math.random();
-      if (rand > 0.7) items.push({ x, y, type: 'tree', size: 15 + Math.random() * 25 });
-      else if (rand > 0.5) items.push({ x, y, type: 'stand', size: 60, angle: angle });
-      else if (rand > 0.3) items.push({ x, y, type: 'light', size: 10 });
-      else items.push({ x, y, type: 'tent', size: 30 + Math.random() * 20, angle: Math.random() * Math.PI });
-    });
-    decorations.current = items;
-  }, []);
 
   const buildTrack = useCallback(() => {
     let pts = [...TRACK_NODES];
@@ -129,8 +105,7 @@ export const RaceGame: React.FC = () => {
       pts = next;
     }
     smoothTrack.current = pts;
-    generateDecor(pts);
-  }, [generateDecor]);
+  }, []);
 
   useEffect(() => {
     buildTrack();
@@ -151,21 +126,12 @@ export const RaceGame: React.FC = () => {
       const now = Date.now();
       const elapsed = (now - timing.current.start) / 1000;
       setCurrentLapTime(elapsed);
-
       updateEngineSound(c.speed);
-
-      if (timing.current.best) {
-        const diff = elapsed - timing.current.best;
-        setDelta({ val: (diff > 0 ? "+" : "") + diff.toFixed(2), color: diff <= 0 ? "#2ecc71" : "#e74c3c" });
-      }
 
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
-        if (Math.abs(diff) < Math.PI / 1.5) {
-          c.speed += SETTINGS.physics.accel;
-          if (Math.random() > 0.5) particles.current.push({ x: c.x, y: c.y, life: 1.0, size: 2 + Math.random() * 5 });
-        } else c.speed *= 0.94;
+        c.speed += SETTINGS.physics.accel;
         c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 3, 1);
       }
       c.speed *= SETTINGS.physics.friction;
@@ -187,10 +153,7 @@ export const RaceGame: React.FC = () => {
       if (onRoad) { c.x = nX; c.y = nY; }
       else {
         const mag = Math.sqrt(wall.nx**2 + wall.ny**2);
-        if (mag > 0) {
-          c.x -= (wall.nx/mag) * 3; c.y -= (wall.ny/mag) * 3;
-        }
-        c.vX *= SETTINGS.physics.wallFriction; c.vY *= SETTINGS.physics.wallFriction;
+        if (mag > 0) { c.x -= (wall.nx/mag) * 3; c.y -= (wall.ny/mag) * 3; }
         c.speed *= SETTINGS.physics.wallFriction;
       }
 
@@ -198,38 +161,24 @@ export const RaceGame: React.FC = () => {
       if (fDist < 70 && !c.passedFinish) {
         c.passedFinish = true;
         if (timing.current.best === null || elapsed < timing.current.best) {
-          timing.current.best = elapsed; setBestLap(elapsed);
+          timing.current.best = elapsed; 
+          setBestLap(elapsed); 
         }
-        setLap(l => l + 1); timing.current.start = Date.now();
+        if (timing.current.best) {
+          const dVal = elapsed - timing.current.best;
+          setDelta({ val: (dVal > 0 ? "+" : "") + dVal.toFixed(2), color: dVal <= 0 ? "#2ecc71" : "#e74c3c" });
+        }
+        setLap(l => l + 1); 
+        timing.current.start = Date.now();
         setTimeout(() => { car.current.passedFinish = false; }, 2000);
       }
 
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
-
       ctx.save();
       ctx.translate(canvas.width / 2 - c.x, canvas.height / 2 - c.y);
       ctx.fillStyle = '#1b4d1b'; ctx.fillRect(c.x-2000, c.y-2000, 4000, 4000);
-
-      const drawCurbs = (side: number) => {
-        let dash = 0;
-        for (let i = 0; i < st.length; i++) {
-          const p1 = st[i]; const p2 = st[(i+1)%st.length];
-          const dx = p2.x - p1.x; const dy = p2.y - p1.y;
-          const len = Math.sqrt(dx*dx+dy*dy);
-          const nx = -dy/len * side; const ny = dx/len * side;
-          ctx.lineWidth = SETTINGS.visual.curbWidth;
-          for (let l = 0; l < len; l += SETTINGS.visual.curbLen) {
-            ctx.strokeStyle = (dash % 2 === 0) ? '#fff' : '#e74c3c';
-            ctx.beginPath();
-            ctx.moveTo(p1.x + (dx*l/len) + nx, p1.y + (dy*l/len) + ny);
-            ctx.lineTo(p1.x + (dx*Math.min(l+SETTINGS.visual.curbLen, len)/len) + nx, p1.y + (dy*Math.min(l+SETTINGS.visual.curbLen, len)/len) + ny);
-            ctx.stroke(); dash++;
-          }
-        }
-      };
-      drawCurbs(SETTINGS.visual.trackWidth/2); drawCurbs(-SETTINGS.visual.trackWidth/2);
-
+      
       ctx.strokeStyle = '#2c3e50'; ctx.lineWidth = SETTINGS.visual.trackWidth;
       ctx.beginPath(); st.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.closePath(); ctx.stroke();
@@ -243,7 +192,6 @@ export const RaceGame: React.FC = () => {
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-
     return () => {
       cancelAnimationFrame(raf);
       container.removeEventListener('touchmove', handleTouchMove);
@@ -255,28 +203,15 @@ export const RaceGame: React.FC = () => {
     initAudio();
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
-    let clientX, clientY;
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
-    const x = clientX - rect.left; 
-    const y = clientY - rect.top;
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    const x = clientX - rect.left; const y = clientY - rect.top;
 
     if (type === 'start') { 
-      joystick.current.active = true; 
-      joystick.current.startX = x; 
-      joystick.current.startY = y; 
+      joystick.current.active = true; joystick.current.startX = x; joystick.current.startY = y; 
     } else if (type === 'move' && joystick.current.active) {
-      const dx = x - joystick.current.startX; 
-      const dy = y - joystick.current.startY;
-      const d = Math.max(1, Math.sqrt(dx*dx+dy*dy)); 
-      const lim = 50;
+      const dx = x - joystick.current.startX; const dy = y - joystick.current.startY;
+      const d = Math.max(1, Math.sqrt(dx*dx+dy*dy)); const lim = 50;
       joystick.current.visualX = (dx/d) * Math.min(d, lim);
       joystick.current.visualY = (dy/d) * Math.min(d, lim);
       joystick.current.inputX = joystick.current.visualX / lim;
@@ -293,21 +228,17 @@ export const RaceGame: React.FC = () => {
       style={{ height: 'calc(100vh - 164px)', top: '100px' }}
     >
       <canvas ref={canvasRef} className="w-full h-full block" />
-      
       <div className="absolute top-6 left-6 pointer-events-none flex flex-col scale-90 origin-top-left">
         <div className="text-7xl font-black italic tracking-tighter leading-none">{speed}</div>
         <div className="text-xs opacity-50 uppercase tracking-[0.3em] mt-1">KMH</div>
         <div className="mt-4 border-l-4 border-yellow-500 pl-4">
           <div className="text-sm font-bold opacity-70">Lap {lap || 1}</div>
           <div className="text-3xl font-bold">{currentLapTime.toFixed(2)}s</div>
+          {bestLap && <div className="text-xs font-bold text-yellow-500 mt-1 uppercase">Best: {bestLap.toFixed(2)}s</div>}
           {delta && <div className="text-xl font-bold" style={{ color: delta.color }}>{delta.val}s</div>}
         </div>
       </div>
-
-      <button onClick={() => navigate('/')} className="absolute top-4 right-4 text-white/30 border border-white/10 bg-white/5 px-4 py-2 rounded-sm text-xs z-50">
-        EXIT
-      </button>
-
+      <button onClick={() => navigate('/')} className="absolute top-4 right-4 text-white/30 border border-white/10 bg-white/5 px-4 py-2 rounded-sm text-xs z-50">EXIT</button>
       <div 
         className="absolute bottom-20 right-8 w-32 h-32 rounded-full bg-white/5 border-2 border-white/10 backdrop-blur-md flex items-center justify-center z-50"
         onMouseDown={(e) => handleJoystick(e, 'start')} 
@@ -318,11 +249,8 @@ export const RaceGame: React.FC = () => {
         onTouchEnd={() => handleJoystick({} as any, 'end')}
       >
         <div 
-          className="w-14 h-14 bg-white rounded-full pointer-events-none" 
-          style={{ 
-            transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, 
-            transition: joystick.current.active ? 'none' : 'transform 0.1s ease-out' 
-          }} 
+          className="w-14 h-14 bg-white rounded-full" 
+          style={{ transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, transition: joystick.current.active ? 'none' : 'transform 0.1s ease-out' }} 
         />
       </div>
     </div>
