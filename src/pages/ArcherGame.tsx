@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 interface Player { x: number; y: number; hp: number; color: string; }
 interface Particle { x: number; y: number; vx: number; vy: number; alpha: number; color: string; size: number; life: number; }
@@ -14,7 +13,6 @@ const SETTINGS = {
 };
 
 export const ArcherGame: React.FC = () => {
-  const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
