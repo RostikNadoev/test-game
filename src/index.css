@@ -2,74 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html {
-  position: fixed;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
 body {
-  margin: 0;
-  width: 100%;
-  height: 100%;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-  touch-action: none; /* КЛЮЧЕВОЙ МОМЕНТ - запрещаем все жесты на body */
-  background: #0A0A0F;
-  display: flex;
-  justify-content: center;
-}
-
-#root {
-  width: 100%;
-  max-width: 480px;
-  height: 100%;
-  position: relative;
-  overflow-y: auto; /* Разрешаем скролл только здесь */
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y; /* Разрешаем только вертикальный скролл внутри контента */
-  overscroll-behavior: contain;
   background-color: #0A0A0F;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y; /* запрещает вертикальную навигацию */
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
-/* Стили для скроллбара */
-#root::-webkit-scrollbar {
-  width: 4px;
-}
-
-#root::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-#root::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-}
-
-/* Для кнопки "Назад" */
-.tg-back-button {
-  color: white !important;
-  fill: white !important;
-}
-
-.tg-header {
-  color: white !important;
-}
-
-.tg-nav-button {
-  color: #FFFFFF !important;
+/* Для мобильного вида */
+#root {
+  max-width: 480px;
+  margin: 0 auto;
+  background-color: #0A0A0F;
+  min-height: 100vh;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
