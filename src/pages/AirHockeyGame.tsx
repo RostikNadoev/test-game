@@ -22,14 +22,21 @@ export const AirHockeyGame: React.FC = () => {
   const p2 = useRef({ x: 0, y: 0 }); 
   const particles = useRef<Particle[]>([]);
 
-  // Теперь шайба просто появляется на половине игрока без скорости
   const spawnPuck = (w: number, h: number, targetPlayer: 'p1' | 'p2') => {
     puck.current = {
       x: w / 2,
-      y: targetPlayer === 'p1' ? h * 0.75 : h * 0.25, // Спавн прямо на половине игрока
+      y: targetPlayer === 'p1' ? h * 0.75 : h * 0.25,
       vx: 0,
       vy: 0
     };
+    
+    // Если шайба у ИИ, он дает пас игроку через 500мс
+    if (targetPlayer === 'p2') {
+      setTimeout(() => {
+        puck.current.vx = (Math.random() - 0.5) * 5;
+        puck.current.vy = 8; 
+      }, 500);
+    }
   };
 
   const updateAI = (w: number, h: number) => {
@@ -64,6 +71,11 @@ export const AirHockeyGame: React.FC = () => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+
+    // Блокировка системных жестов
+    const prevent = (e: TouchEvent) => e.preventDefault();
+    container.addEventListener('touchstart', prevent, { passive: false });
+    container.addEventListener('touchmove', prevent, { passive: false });
 
     const ctx = canvas.getContext('2d')!;
     const w = container.clientWidth;
@@ -146,14 +158,9 @@ export const AirHockeyGame: React.FC = () => {
       ctx.fillStyle = '#0A0A0F';
       ctx.fillRect(0, 0, w, h);
 
-      // Разметка поля и КАРКАСЫ ворот цветами команд
       ctx.lineWidth = 4;
-      
-      // Ворота ИИ (Синие)
       ctx.strokeStyle = '#3b82f6';
       ctx.strokeRect(w * 0.3, 0, w * 0.4, 5);
-      
-      // Ворота Игрока (Красные)
       ctx.strokeStyle = '#ef4444';
       ctx.strokeRect(w * 0.3, h - 5, w * 0.4, 5);
 
@@ -179,11 +186,9 @@ export const AirHockeyGame: React.FC = () => {
 
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#fff';
-      
       ctx.fillStyle = '#ef4444';
       ctx.beginPath(); ctx.arc(p1.current.x, p1.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
       ctx.stroke();
-      
       ctx.fillStyle = '#3b82f6';
       ctx.beginPath(); ctx.arc(p2.current.x, p2.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
       ctx.stroke();
@@ -192,7 +197,11 @@ export const AirHockeyGame: React.FC = () => {
     };
 
     raf = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      container.removeEventListener('touchstart', prevent);
+      container.removeEventListener('touchmove', prevent);
+    };
   }, []);
 
   const handleStart = (e: any) => {
@@ -230,7 +239,11 @@ export const AirHockeyGame: React.FC = () => {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-[#0A0A0F] overflow-hidden touch-none select-none">
+    <div 
+      ref={containerRef} 
+      className="relative w-full h-full bg-[#0A0A0F] overflow-hidden touch-none select-none"
+      style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+    >
       <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-20">
         <div className="text-6xl font-black text-blue-500">{score.p2}</div>
         <div className="w-12 h-1 bg-white/20" />
