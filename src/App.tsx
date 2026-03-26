@@ -8,6 +8,7 @@ import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
+import { ArcherGame } from './pages/ArcherGame'; // Импорт новой игры
 import { useEffect } from 'react';
 
 function App() {
@@ -21,7 +22,6 @@ function App() {
       tg.setBackgroundColor('#0A0A0F');
     }
 
-    // Исправлено: убрали неиспользуемую 'e', чтобы билд не падал
     const preventDefault = (event: TouchEvent) => {
       if (event.touches.length > 1) event.preventDefault();
     };
@@ -41,6 +41,7 @@ function App() {
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
+            <Route path="/game/archer/play" element={<ArcherGame />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
             <Route path="/games" element={<Home />} />

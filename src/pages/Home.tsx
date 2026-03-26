@@ -1,22 +1,14 @@
 import { useNavigate } from 'react-router-dom';
 import { GameCard } from '../components/GameCard';
 
-interface Game {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  color: string;
-}
-
-const games: Game[] = [
-  { id: 'tanks', name: 'Tanks 2D', icon: '🎮', description: '1vs1 танковый бой', color: 'from-red-500 to-orange-500' },
+const games = [
+  { id: 'archer', name: 'Neon Duel', icon: '🏹', description: 'Битва на копьях', color: 'from-orange-500 to-red-600' },
   { id: 'race', name: 'Street Race', icon: '🏎️', description: 'Гонки на скорость', color: 'from-blue-500 to-cyan-500' },
+  { id: 'airhockey', name: 'Air Hockey', icon: '🏒', description: 'Аэрохоккей', color: 'from-indigo-500 to-purple-500' },
   { id: 'cards', name: 'Card Wars', icon: '🃏', description: 'Тактическая карточная', color: 'from-green-500 to-emerald-500' },
   { id: 'snake', name: 'Snake Duel', icon: '🐍', description: 'Классика на двоих', color: 'from-lime-500 to-green-500' },
   { id: 'pingpong', name: 'Pong', icon: '🏓', description: 'Настольный теннис', color: 'from-yellow-500 to-amber-500' },
   { id: 'chess', name: 'Chess', icon: '♟️', description: 'Шахматы блиц', color: 'from-stone-500 to-neutral-700' },
-  { id: 'airhockey', name: 'Air Hockey', icon: '🏒', description: 'Аэрохоккей', color: 'from-indigo-500 to-purple-500' },
   { id: 'darts', name: 'Darts', icon: '🎯', description: 'Дартс на точность', color: 'from-pink-500 to-rose-500' },
 ];
 

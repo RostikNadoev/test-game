@@ -16,23 +16,25 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
   
   const gameNames: Record<string, string> = {
-    tanks: 'Tanks 2D',
+    archer: 'Neon Duel',
     race: 'Street Race',
+    airhockey: 'Air Hockey',
     cards: 'Card Wars',
     snake: 'Snake Duel',
     pingpong: 'Pong',
     chess: 'Chess',
-    airhockey: 'Air Hockey',
     darts: 'Darts',
   };
 
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
-    // Проверка ID игры для редиректа
+    
     if (gameId === 'race') {
       navigate('/game/race/play');
     } else if (gameId === 'airhockey') {
-      navigate('/game/airhockey/play'); // Переход в аэрохоккей
+      navigate('/game/airhockey/play');
+    } else if (gameId === 'archer') {
+      navigate('/game/archer/play'); // Редирект в новую игру
     } else {
       alert(`Игра ${gameNames[gameId || '']} в разработке!`);
     }
