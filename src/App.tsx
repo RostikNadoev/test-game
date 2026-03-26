@@ -26,11 +26,6 @@ function App() {
         console.warn('⚠️ disableVerticalSwipes not available');
       }
       
-      // Блокируем масштабирование
-      if (tg.disableVerticalSwipes) {
-        tg.disableVerticalSwipes();
-      }
-      
       // Fullscreen
       if (tg.requestFullscreen) {
         try {
@@ -97,9 +92,9 @@ function App() {
         if (e.touches.length === 1) {
           startY = e.touches[0].clientY;
         }
+        // Просто проверяем наличие мультитача, без сохранения переменных
         if (e.touches.length === 2) {
-          const dx = e.touches[0].clientX - e.touches[1].clientX;
-          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          // Мультитач будет заблокирован в handleTouchMove
         }
       };
       
