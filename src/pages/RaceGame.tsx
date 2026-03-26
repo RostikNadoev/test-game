@@ -287,9 +287,9 @@ export const RaceGame: React.FC = () => {
       ctx.rotate(angle + Math.PI/2);
       const fWidth = SETTINGS.visual.trackWidth; 
       for(let r=0; r<2; r++) {
-        for(let col=0; col < fWidth/15; col++) {
+        for(let col=0; col < fWidth/12; col++) {
           ctx.fillStyle = (r+col)%2 === 0 ? '#fff' : '#000';
-          ctx.fillRect(r*15 - 15, col*15 - fWidth/1.6, 15, 15);
+          ctx.fillRect(r*15 -15, col*15 - fWidth/1.3, 15, 15);
         }
       }
       ctx.restore();
