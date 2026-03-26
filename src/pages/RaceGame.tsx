@@ -186,7 +186,7 @@ export const RaceGame: React.FC = () => {
       for(let r=0; r<2; r++) {
         for(let col=0; col < fWidth/15; col++) {
           ctx.fillStyle = (r+col)%2 === 0 ? '#fff' : '#000';
-          ctx.fillRect(r*15 - 15, col*15 - fWidth/2, 15, 15);
+          ctx.fillRect(r*15 - 15, col*15 - fWidth/1.6, 15, 15);
         }
       }
       ctx.restore();
