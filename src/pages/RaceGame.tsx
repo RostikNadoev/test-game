@@ -114,14 +114,7 @@ export const RaceGame: React.FC = () => {
     }
     
     // Агрессивная блокировка touch-событий
-    let startY = 0;
-    let startX = 0;
-    
     const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        startY = e.touches[0].clientY;
-        startX = e.touches[0].clientX;
-      }
       // Блокируем все мультитач жесты
       if (e.touches.length > 1) {
         e.preventDefault();
