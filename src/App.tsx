@@ -9,22 +9,20 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { useEffect } from 'react';
 
-
-
-useEffect(() => {
-  const tg = (window as any).Telegram?.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand(); // Расширяет на все доступное пространство
-    
-    // Отключает свайп вниз для закрытия (доступно в новых версиях API)
-    if (tg.isVerticalSwipesEnabled) {
-      tg.disableVerticalSwipes();
-    }
-  }
-}, []);
-
 function App() {
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand(); // Расширяет на все доступное пространство
+      
+      // Отключает свайп вниз для закрытия (доступно в новых версиях API)
+      if (tg.isVerticalSwipesEnabled) {
+        tg.disableVerticalSwipes();
+      }
+    }
+  }, []);
+
   return (
     <BrowserRouter>
       <div className="relative min-h-screen pb-16">
