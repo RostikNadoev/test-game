@@ -9,7 +9,7 @@ const SETTINGS = {
   gravity: 0.018, 
   groundY: 100,
   playerSize: 50,
-  maxPower: 12,
+  maxPower: 20, 
   worldWidth: 3000,
   maxHP: 3,
 };
@@ -29,13 +29,28 @@ export const ArcherGame: React.FC = () => {
   const camera = useRef({ x: 0, targetX: 0, shake: 0 });
   const drag = useRef({ active: false, startX: 0, startY: 0, currX: 0, currY: 0 });
   const particles = useRef<Particle[]>([]);
-  const windStreaks = useRef<WindStreak[]>([]); // Для визуализации ветра
+  const windStreaks = useRef<WindStreak[]>([]); 
   
   const grassBlades = useRef<{x: number, h: number, offset: number, color: string}[]>([]);
   const trees = useRef<{ x: number, s: number }[]>([]);
 
+  // ЭТА ЧАСТЬ УБИРАЕТ СВАЙПЫ И ДЕРГАНЬЕ
   useEffect(() => {
-    // Инициализация травы и деревьев
+    const preventDefault = (e: TouchEvent) => {
+      // Блокируем скролл и "потягивание" страницы, когда палец на экране
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('touchmove', preventDefault, { passive: false });
+    }
+    return () => {
+      if (container) container.removeEventListener('touchmove', preventDefault);
+    };
+  }, []);
+
+  useEffect(() => {
     const blades = [];
     for (let i = 0; i < SETTINGS.worldWidth; i += 4) {
       blades.push({
@@ -48,7 +63,6 @@ export const ArcherGame: React.FC = () => {
       x: Math.random() * SETTINGS.worldWidth, s: 0.6 + Math.random() * 1.0
     }));
 
-    // Инициализация линий ветра
     windStreaks.current = Array.from({ length: 40 }, () => ({
       x: Math.random() * window.innerWidth,
       y: Math.random() * (window.innerHeight - 200),
@@ -80,7 +94,6 @@ export const ArcherGame: React.FC = () => {
       const w = canvas.width;
       const h = canvas.height;
 
-      // Камера
       if (projectile.current.active) {
         camera.current.targetX = projectile.current.x - w / 2;
       } else if (!projectile.current.landed) {
@@ -90,14 +103,13 @@ export const ArcherGame: React.FC = () => {
       const camLerp = projectile.current.active ? 0.2 : 0.03; 
       camera.current.x += (camera.current.targetX - camera.current.x) * camLerp;
 
-      // Фон
       const skyGrad = ctx.createLinearGradient(0, 0, 0, h);
       skyGrad.addColorStop(0, '#020617'); skyGrad.addColorStop(1, '#1e1b4b');
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, w, h);
 
       drawMoon(ctx, w);
-      drawWindVisuals(ctx, w); // Рендерим визуальный ветер
+      drawWindVisuals(ctx, w); 
 
       ctx.save();
       ctx.translate(-camera.current.x + (Math.random() - 0.5) * camera.current.shake, 0);
@@ -112,7 +124,7 @@ export const ArcherGame: React.FC = () => {
 
       if (projectile.current.active) {
         const pr = projectile.current;
-        pr.vx += wind * 0.01; // Увеличил влияние ветра для заметности
+        pr.vx += wind * 0.01;
         pr.x += pr.vx; pr.vy += SETTINGS.gravity; pr.y += pr.vy;
         pr.angle = Math.atan2(pr.vy, pr.vx);
         drawSpear(ctx, pr.x, pr.y, pr.angle);
@@ -132,11 +144,9 @@ export const ArcherGame: React.FC = () => {
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.lineWidth = 1;
       windStreaks.current.forEach(s => {
-        // Движение линий. Скорость зависит от wind
         s.x += wind * 200 + (wind > 0 ? s.speed : -s.speed);
         if (s.x > w) s.x = -s.len;
         if (s.x < -s.len) s.x = w;
-
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(s.x + s.len, s.y + Math.sin(s.x * 0.01) * 2);
@@ -183,11 +193,10 @@ export const ArcherGame: React.FC = () => {
       const powerPct = Math.min(1, Math.sqrt(dx * dx + dy * dy) / 250);
       const angleDeg = Math.round(Math.atan2(dy, turn === 1 ? dx : -dx) * (180 / Math.PI) * -1);
 
-      // Прогноз траектории
       ctx.save();
       let tx = p.x + 25, ty = p.y + 25;
-      let tvx = Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dx * 0.05));
-      let tvy = Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dy * 0.05));
+      let tvx = Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dx * 0.05 * 1.7));
+      let tvy = Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dy * 0.05 * 1.7));
       for (let i = 0; i < 80; i++) {
         if (i % 3 === 0) {
           ctx.fillStyle = `rgba(255, 255, 255, ${0.4 * (1 - i/80)})`;
@@ -198,7 +207,6 @@ export const ArcherGame: React.FC = () => {
       }
       ctx.restore();
 
-      // Шкала силы (поднята)
       const bx = turn === 1 ? p.x - 60 : p.x + SETTINGS.playerSize + 45;
       const by = p.y - 150; 
       const bw = 24, bh = 200;
@@ -211,22 +219,19 @@ export const ArcherGame: React.FC = () => {
       ctx.fillText(`${angleDeg}°`, p.x + 25, p.y - 45);
     };
 
-   const drawStylizedPlayer = (ctx: CanvasRenderingContext2D, p: Player) => {
+    const drawStylizedPlayer = (ctx: CanvasRenderingContext2D, p: Player) => {
       ctx.save();
-      // Тело и голова
       ctx.shadowBlur = 20; ctx.shadowColor = p.color; ctx.fillStyle = p.color;
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(p.x + 10, p.y + 15, 30, 35, 12) : ctx.rect(p.x + 10, p.y + 15, 30, 35); ctx.fill();
       ctx.beginPath(); ctx.arc(p.x + 25, p.y + 5, 14, 0, Math.PI * 2); ctx.fill();
       
-      // ГЛАЗА
-      ctx.shadowBlur = 0; // Убираем свечение для глаз
+      ctx.shadowBlur = 0;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      const lookDir = p.x < SETTINGS.worldWidth / 2 ? 4 : -4; // Смотрим к центру поля
+      const lookDir = p.x < SETTINGS.worldWidth / 2 ? 4 : -4;
       ctx.beginPath();
-      ctx.arc(p.x + 25 + lookDir, p.y + 3, 2.5, 0, Math.PI * 2); // Первый глаз
-      ctx.arc(p.x + 25 + lookDir + (lookDir > 0 ? 6 : -6), p.y + 3, 2.5, 0, Math.PI * 2); // Второй глаз
+      ctx.arc(p.x + 25 + lookDir, p.y + 3, 2.5, 0, Math.PI * 2);
+      ctx.arc(p.x + 25 + lookDir + (lookDir > 0 ? 6 : -6), p.y + 3, 2.5, 0, Math.PI * 2);
       ctx.fill();
-      
       ctx.restore();
     };
 
@@ -254,7 +259,7 @@ export const ArcherGame: React.FC = () => {
         if (turn === 1) setP2(p => ({ ...p, hp: Math.max(0, p.hp - 1) }));
         else setP1(p => ({ ...p, hp: Math.max(0, p.hp - 1) }));
       } else {
-        createExplosion(pr.x, pr.y, '#fbbf24', 15, false); // Искры земли
+        createExplosion(pr.x, pr.y, '#fbbf24', 15, false);
       }
       setTimeout(() => {
         if (p1.hp <= 0 || p2.hp <= 0) return;
@@ -301,9 +306,9 @@ export const ArcherGame: React.FC = () => {
   };
   const handleEnd = () => {
     if (!drag.current.active) return;
-    const dx = (drag.current.startX - drag.current.currX) * 0.05;
-    const dy = (drag.current.startY - drag.current.currY) * 0.05;
-    projectile.current = { x: (turn === 1 ? p1.x : p2.x) + 25, y: (turn === 1 ? p1.y : p2.y) + 25, vx: Math.max(-12, Math.min(12, dx)), vy: Math.max(-12, Math.min(12, dy)), active: true, angle: 0, landed: false };
+    const dx = (drag.current.startX - drag.current.currX) * 0.085;
+    const dy = (drag.current.startY - drag.current.currY) * 0.085;
+    projectile.current = { x: (turn === 1 ? p1.x : p2.x) + 25, y: (turn === 1 ? p1.y : p2.y) + 25, vx: Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dx)), vy: Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dy)), active: true, angle: 0, landed: false };
     drag.current.active = false;
   };
 
@@ -314,28 +319,29 @@ export const ArcherGame: React.FC = () => {
   );
 
   return (
-    <div ref={containerRef} className="w-full h-[calc(100vh-164px)] bg-[#020617] relative touch-none overscroll-none overflow-hidden select-none font-sans" style={{ touchAction: 'none' }}>
+    <div 
+      ref={containerRef} 
+      className="w-full h-[calc(100vh-164px)] bg-[#020617] relative touch-none overscroll-none overflow-hidden select-none font-sans" 
+      style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+    >
       
       <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
         <button onClick={() => navigate('/')} className="px-4 py-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-full text-[10px] text-white/70 font-bold tracking-[0.2em] uppercase transition-all active:scale-90">Exit</button>
       </div>
 
       <div className="absolute inset-0 p-8 flex justify-between items-start z-10 pointer-events-none">
-        {/* P1 HP */}
         <div className={`flex flex-col gap-2 transition-all duration-500 ${turn === 1 ? 'scale-110' : 'opacity-40'}`}>
           <div className="flex flex-col gap-3 bg-black/40 p-2.5 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-sm">
             {[...Array(SETTINGS.maxHP)].map((_, i) => <HeartIcon key={i} filled={p1.hp > i} color={p1.color} />)}
           </div>
         </div>
 
-        {/* WIND INFO */}
         <div className="flex flex-col items-center gap-4 mt-44">
           <div className="bg-black/60 backdrop-blur-xl px-6 py-2.5 rounded-full border border-white/10 text-[10px] font-bold text-white tracking-[0.3em] uppercase shadow-2xl">
              WIND: {Math.abs(wind * 10000).toFixed(0)} {(wind > 0 ? '>>>' : '<<<')}
           </div>
         </div>
 
-        {/* P2 HP */}
         <div className={`flex flex-col items-end gap-2 transition-all duration-500 ${turn === 2 ? 'scale-110' : 'opacity-40'}`}>
           <div className="flex flex-col gap-3 bg-black/40 p-2.5 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-sm">
             {[...Array(SETTINGS.maxHP)].map((_, i) => <HeartIcon key={i} filled={p2.hp > i} color={p2.color} />)}
@@ -343,7 +349,16 @@ export const ArcherGame: React.FC = () => {
         </div>
       </div>
 
-      <canvas ref={canvasRef} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd} className="w-full h-full cursor-crosshair" />
+      <canvas 
+        ref={canvasRef} 
+        onMouseDown={handleStart} 
+        onMouseMove={handleMove} 
+        onMouseUp={handleEnd} 
+        onTouchStart={handleStart} 
+        onTouchMove={handleMove} 
+        onTouchEnd={handleEnd} 
+        className="w-full h-full cursor-crosshair" 
+      />
 
       {winner && (
         <div className="absolute inset-0 bg-slate-950/98 flex flex-col items-center justify-center z-50 p-6 text-center animate-in fade-in duration-700">
