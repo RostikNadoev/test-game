@@ -11,40 +11,200 @@ import { useEffect } from 'react';
 
 function App() {
   useEffect(() => {
-  const tg = (window as any).Telegram?.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand();
+    const tg = (window as any).Telegram?.WebApp;
     
-    // Способ 1: официальный метод
-    if (typeof tg.disableVerticalSwipes === 'function') {
-      tg.disableVerticalSwipes();
-    }
-    
-    // Способ 2: через mainButton или другой хак
-    tg.setHeaderColor?.('bg_color');
-    
-    // Способ 3: блокировка свайпа через обработчик событий
-    const preventPullToRefresh = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
+    if (tg) {
+      console.log('🚀 Telegram WebApp init...');
+      tg.ready();
+      tg.expand();
       
-      const touch = e.touches[0];
-      const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
-      
-      // Если мы в верхней части страницы и пытаемся потянуть вниз
-      if (scrollTop <= 0 && touch.clientY > 50) {
-        e.preventDefault();
+      // ГЛАВНОЕ: ЗАПРЕЩАЕМ свайпы вниз
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+        console.log('🚫 Vertical swipes disabled via Telegram API');
+      } else {
+        console.warn('⚠️ disableVerticalSwipes not available');
       }
+      
+      // Блокируем масштабирование
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+      
+      // Fullscreen
+      if (tg.requestFullscreen) {
+        try {
+          tg.requestFullscreen();
+          console.log('📱 Fullscreen requested');
+        } catch (e) {}
+      }
+      
+      // Установка высоты
+      const h = Math.max(
+        tg.viewportStableHeight || 0,
+        window.innerHeight || 0,
+        document.documentElement.clientHeight || 0
+      );
+      
+      document.documentElement.style.setProperty('--tg-viewport-height', `${h}px`);
+      document.documentElement.style.setProperty('--app-height', `${h}px`);
+      
+      // Принудительно для body и root
+      document.body.style.height = `${h}px`;
+      document.body.style.minHeight = `${h}px`;
+      const root = document.getElementById('root');
+      if (root) {
+        root.style.height = `${h}px`;
+        root.style.minHeight = `${h}px`;
+      }
+      
+      // Обработчик для изменений viewport
+      const handleViewportChange = () => {
+        if (tg.disableVerticalSwipes) {
+          tg.disableVerticalSwipes();
+        }
+        if (tg.requestFullscreen) tg.requestFullscreen();
+        tg.expand();
+        
+        const newH = tg.viewportStableHeight || window.innerHeight;
+        document.documentElement.style.setProperty('--tg-viewport-height', `${newH}px`);
+        document.documentElement.style.setProperty('--app-height', `${newH}px`);
+      };
+      
+      tg.onEvent('viewportChanged', handleViewportChange);
+      
+      return () => {
+        tg.offEvent('viewportChanged', handleViewportChange);
+      };
+    }
+  }, []);
+  
+  // Дополнительный эффект для блокировки свайпов через JS
+  useEffect(() => {
+    // Агрессивная блокировка всех жестов
+    const blockGesturesAggressively = () => {
+      // Мета-тег для запрета масштабирования
+      const metaViewport = document.querySelector('meta[name="viewport"]');
+      if (metaViewport) {
+        metaViewport.setAttribute('content', 
+          'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+        );
+      }
+      
+      let startY = 0;
+      let startDistance = 0;
+      
+      const handleTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 1) {
+          startY = e.touches[0].clientY;
+        }
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          startDistance = Math.sqrt(dx * dx + dy * dy);
+        }
+      };
+      
+      const handleTouchMove = (e: TouchEvent) => {
+        // Блокируем мультитач (масштабирование)
+        if (e.touches.length > 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+        
+        if (e.touches.length === 1) {
+          const currentY = e.touches[0].clientY;
+          const diffY = currentY - startY;
+          
+          // Если пытаемся свайпнуть вниз из верхней части
+          if (diffY > 0 && startY < 100 && window.scrollY === 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+        }
+      };
+      
+      // Блокировка двойного тапа
+      let lastTouchEnd = 0;
+      const handleTouchEnd = (e: TouchEvent) => {
+        const now = Date.now();
+        if (now - lastTouchEnd <= 300) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        lastTouchEnd = now;
+      };
+      
+      // Блокировка контекстного меню
+      const blockContextMenu = (e: Event) => {
+        e.preventDefault();
+        return false;
+      };
+      
+      // Добавляем обработчики
+      document.addEventListener('touchstart', handleTouchStart, { passive: true });
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd, { passive: false });
+      document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+      document.addEventListener('contextmenu', blockContextMenu);
+      
+      // Блокировка двойного клика для зума
+      document.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }, { passive: false });
+      
+      // Добавляем глобальные стили
+      const style = document.createElement('style');
+      style.textContent = `
+        html, body {
+          overscroll-behavior: none !important;
+          -webkit-overflow-scrolling: none !important;
+          touch-action: none !important;
+          position: fixed !important;
+          width: 100% !important;
+          height: 100% !important;
+          overflow: hidden !important;
+        }
+        
+        #root {
+          touch-action: pan-y !important;
+          overflow-y: auto !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+        
+        * {
+          -webkit-touch-callout: none !important;
+          -webkit-user-select: none !important;
+          user-select: none !important;
+        }
+        
+        img {
+          -webkit-user-drag: none !important;
+          user-drag: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+      
+      return () => {
+        document.removeEventListener('touchstart', handleTouchStart);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
+        document.removeEventListener('contextmenu', blockContextMenu);
+        document.head.removeChild(style);
+      };
     };
     
-    document.addEventListener('touchmove', preventPullToRefresh, { passive: false });
-    
+    const cleanup = blockGesturesAggressively();
     return () => {
-      document.removeEventListener('touchmove', preventPullToRefresh);
+      if (cleanup) cleanup();
     };
-  }
-}, []);
-
+  }, []);
+  
   return (
     <BrowserRouter>
       <div className="relative min-h-screen pb-16">
