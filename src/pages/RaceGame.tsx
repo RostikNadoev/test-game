@@ -4,12 +4,12 @@ import { useNavigate } from 'react-router-dom';
 // --- НАСТРОЙКИ ---
 const SETTINGS = {
   physics: {
-    maxSpeed: 8.5,       // В 2 раза быстрее (было 4.2)
-    accel: 0.22,         // Ускорение выше для динамики (было 0.09)
-    friction: 0.98,      // Чуть меньше трения для наката
-    driftFactor: 0.90,   // Чуть более выраженный дрифт
-    turnSpeed: 0.05,     
-    wallFriction: 0.7,   // Сильнее замедляет при ударе о стену на большой скорости
+    maxSpeed: 8.5,
+    accel: 0.22,
+    friction: 0.98,
+    driftFactor: 0.90,
+    turnSpeed: 0.05,
+    wallFriction: 0.7,
   },
   visual: {
     trackWidth: 160,
@@ -70,12 +70,122 @@ export const RaceGame: React.FC = () => {
     return { d: Math.sqrt((px - cx)**2 + (py - cy)**2), nx: px - cx, ny: py - cy };
   };
 
+  // Блокировка всех жестов на странице гонки
   useEffect(() => {
-    // Убираем скролл на странице
+    const tg = (window as any).Telegram?.WebApp;
+    
+    // Сохраняем оригинальные стили
+    const originalStyles = {
+      bodyOverflow: document.body.style.overflow,
+      bodyPosition: document.body.style.position,
+      htmlOverflow: document.documentElement.style.overflow,
+      htmlPosition: document.documentElement.style.position
+    };
+    
+    // Полная блокировка скролла и жестов
     document.body.style.overflow = 'hidden';
     document.body.style.position = 'fixed';
     document.body.style.width = '100%';
+    document.body.style.height = '100%';
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.position = 'fixed';
+    document.documentElement.style.width = '100%';
+    document.documentElement.style.height = '100%';
+    
+    // Блокируем свайпы через Telegram API
+    if (tg) {
+      if (tg.disableVerticalSwipes) {
+        tg.disableVerticalSwipes();
+      }
+      if (tg.expand) {
+        tg.expand();
+      }
+      if (tg.requestFullscreen) {
+        tg.requestFullscreen();
+      }
+    }
+    
+    // Мета-тег для запрета масштабирования
+    const metaViewport = document.querySelector('meta[name="viewport"]');
+    if (metaViewport) {
+      metaViewport.setAttribute('content', 
+        'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+      );
+    }
+    
+    // Агрессивная блокировка touch-событий
+    let startY = 0;
+    let startX = 0;
+    
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        startY = e.touches[0].clientY;
+        startX = e.touches[0].clientX;
+      }
+      // Блокируем все мультитач жесты
+      if (e.touches.length > 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    };
+    
+    const handleTouchMove = (e: TouchEvent) => {
+      // Полностью блокируем любые попытки скролла или свайпа
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+    
+    const handleTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+    
+    // Блокировка контекстного меню
+    const blockContextMenu = (e: Event) => {
+      e.preventDefault();
+      return false;
+    };
+    
+    // Добавляем обработчики с высоким приоритетом
+    document.addEventListener('touchstart', handleTouchStart, { passive: false });
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd, { passive: false });
+    document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    document.addEventListener('contextmenu', blockContextMenu);
+    
+    // Блокировка колесика мыши
+    const preventWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    };
+    document.addEventListener('wheel', preventWheel, { passive: false });
+    
+    return () => {
+      // Восстанавливаем стили
+      document.body.style.overflow = originalStyles.bodyOverflow;
+      document.body.style.position = originalStyles.bodyPosition;
+      document.body.style.width = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = originalStyles.htmlOverflow;
+      document.documentElement.style.position = originalStyles.htmlPosition;
+      document.documentElement.style.width = '';
+      document.documentElement.style.height = '';
+      
+      // Удаляем обработчики
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchEnd);
+      document.removeEventListener('contextmenu', blockContextMenu);
+      document.removeEventListener('wheel', preventWheel);
+    };
+  }, []);
 
+  useEffect(() => {
     buildTrack();
     const canvas = canvasRef.current;
     if (!canvas || !canvas.getContext('2d')) return;
@@ -204,9 +314,6 @@ export const RaceGame: React.FC = () => {
 
     return () => {
       cancelAnimationFrame(raf);
-      // Возвращаем скролл при уходе со страницы
-      document.body.style.overflow = 'auto';
-      document.body.style.position = 'static';
     };
   }, [buildTrack]);
 
@@ -232,7 +339,6 @@ export const RaceGame: React.FC = () => {
       joystick.current.inputX = joystick.current.visualX / lim;
       joystick.current.inputY = joystick.current.visualY / lim;
     } else if (type === 'end') {
-      // Сброс стика в центр при отпускании
       joystick.current = { 
         active: false, 
         startX: 0, 
