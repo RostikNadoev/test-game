@@ -7,7 +7,7 @@ import { CreateLobby } from './pages/CreateLobby';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
-import { AirHockeyGame } from './pages/AirHockeyGame'; // НОВЫЙ ИМПОРТ
+import { AirHockeyGame } from './pages/AirHockeyGame';
 import { useEffect } from 'react';
 
 function App() {
@@ -21,8 +21,9 @@ function App() {
       tg.setBackgroundColor('#0A0A0F');
     }
 
-    const preventDefault = (e: TouchEvent) => {
-      // Блокируем свайпы, чтобы не дергалось окно в TG
+    // Исправлено: убрали неиспользуемую 'e', чтобы билд не падал
+    const preventDefault = (event: TouchEvent) => {
+      if (event.touches.length > 1) event.preventDefault();
     };
 
     document.addEventListener('touchmove', preventDefault, { passive: false });
@@ -39,7 +40,7 @@ function App() {
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
             <Route path="/game/race/play" element={<RaceGame />} />
-            <Route path="/game/airhockey/play" element={<AirHockeyGame />} /> {/* НОВЫЙ РОУТ */}
+            <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
             <Route path="/games" element={<Home />} />

@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 const SETTINGS = {
   puckSize: 16,
   paddleSize: 30,
-  friction: 0.992,       // Чуть-чуть увеличил трение для стабильности
-  wallBounciness: 0.8,   // Немного мягче отскок от стен
-  maxPuckSpeed: 18,      // Жесткий лимит скорости
+  friction: 0.992,
+  wallBounciness: 0.8,
+  maxPuckSpeed: 18,
 };
 
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; color: string };
@@ -22,31 +22,28 @@ export const AirHockeyGame: React.FC = () => {
   const p2 = useRef({ x: 0, y: 0 }); 
   const particles = useRef<Particle[]>([]);
 
-  // Функция спавна шайбы (теперь в центр с направлением к проигравшему)
+  // Теперь шайба просто появляется на половине игрока без скорости
   const spawnPuck = (w: number, h: number, targetPlayer: 'p1' | 'p2') => {
     puck.current = {
       x: w / 2,
-      y: h / 2,
-      vx: (Math.random() - 0.5) * 4,
-      vy: targetPlayer === 'p1' ? 4 : -4 // Летит к тому, кому забили
+      y: targetPlayer === 'p1' ? h * 0.75 : h * 0.25, // Спавн прямо на половине игрока
+      vx: 0,
+      vy: 0
     };
   };
 
   const updateAI = (w: number, h: number) => {
     const targetX = puck.current.x;
-    const paddleSpeed = 0.08; // Коэффициент реакции
+    const paddleSpeed = 0.08;
     
-    // ИИ играет только на своей половине (верхняя часть)
     if (puck.current.y < h / 2) {
       const dx = targetX - p2.current.x;
       p2.current.x += dx * paddleSpeed;
     } else {
-      // Возвращаемся к защите ворот
       const dx = (w / 2) - p2.current.x;
       p2.current.x += dx * 0.03;
     }
     
-    // Ограничения ИИ
     if (p2.current.x < SETTINGS.paddleSize) p2.current.x = SETTINGS.paddleSize;
     if (p2.current.x > w - SETTINGS.paddleSize) p2.current.x = w - SETTINGS.paddleSize;
   };
@@ -84,20 +81,17 @@ export const AirHockeyGame: React.FC = () => {
       const p = puck.current;
       updateAI(w, h);
 
-      // Физика шайбы
       p.x += p.vx;
       p.y += p.vy;
       p.vx *= SETTINGS.friction;
       p.vy *= SETTINGS.friction;
 
-      // Ограничение скорости
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       if (speed > SETTINGS.maxPuckSpeed) {
         p.vx = (p.vx / speed) * SETTINGS.maxPuckSpeed;
         p.vy = (p.vy / speed) * SETTINGS.maxPuckSpeed;
       }
 
-      // Отскоки от боковых стен
       if (p.x < SETTINGS.puckSize) {
         p.x = SETTINGS.puckSize;
         p.vx *= -SETTINGS.wallBounciness;
@@ -106,17 +100,16 @@ export const AirHockeyGame: React.FC = () => {
         p.vx *= -SETTINGS.wallBounciness;
       }
 
-      // Голы и верхние/нижние границы
       if (p.y < SETTINGS.puckSize || p.y > h - SETTINGS.puckSize) {
         if (p.x > w * 0.3 && p.x < w * 0.7) {
           const isTopGoal = p.y < h / 2;
           createGoalEffect(p.x, p.y, isTopGoal ? '#3b82f6' : '#ef4444');
           if (isTopGoal) {
             setScore(s => ({ ...s, p1: s.p1 + 1 }));
-            spawnPuck(w, h, 'p2'); // Мяч летит к ИИ (ему забили)
+            spawnPuck(w, h, 'p2'); 
           } else {
             setScore(s => ({ ...s, p2: s.p2 + 1 }));
-            spawnPuck(w, h, 'p1'); // Мяч летит к игроку (ему забили)
+            spawnPuck(w, h, 'p1'); 
           }
         } else {
           p.y = p.y < SETTINGS.puckSize ? SETTINGS.puckSize : h - SETTINGS.puckSize;
@@ -124,7 +117,6 @@ export const AirHockeyGame: React.FC = () => {
         }
       }
 
-      // Столкновения с битами
       [p1.current, { x: p2.current.x, y: p2.current.y, isAI: true }].forEach((paddle, index) => {
         const dx = p.x - paddle.x;
         const dy = p.y - paddle.y;
@@ -136,12 +128,12 @@ export const AirHockeyGame: React.FC = () => {
           p.x = paddle.x + Math.cos(angle) * minDist;
           p.y = paddle.y + Math.sin(angle) * minDist;
           
-          if (index === 0) { // Игрок
+          if (index === 0) { 
             const vx = (p1.current.x - p1.current.lastX) * 0.8;
             const vy = (p1.current.y - p1.current.lastY) * 0.8;
             p.vx = vx + Math.cos(angle) * (speed + 2);
             p.vy = vy + Math.sin(angle) * (speed + 2);
-          } else { // ИИ
+          } else { 
             p.vx = Math.cos(angle) * (speed + 1.5);
             p.vy = Math.sin(angle) * (speed + 1.5);
           }
@@ -151,19 +143,25 @@ export const AirHockeyGame: React.FC = () => {
       p1.current.lastX = p1.current.x;
       p1.current.lastY = p1.current.y;
 
-      // Отрисовка
       ctx.fillStyle = '#0A0A0F';
       ctx.fillRect(0, 0, w, h);
 
-      // Разметка поля
+      // Разметка поля и КАРКАСЫ ворот цветами команд
+      ctx.lineWidth = 4;
+      
+      // Ворота ИИ (Синие)
+      ctx.strokeStyle = '#3b82f6';
+      ctx.strokeRect(w * 0.3, 0, w * 0.4, 5);
+      
+      // Ворота Игрока (Красные)
+      ctx.strokeStyle = '#ef4444';
+      ctx.strokeRect(w * 0.3, h - 5, w * 0.4, 5);
+
       ctx.strokeStyle = 'rgba(255,255,255,0.05)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(w * 0.3, 0, w * 0.4, 5); // Ворота верх
-      ctx.strokeRect(w * 0.3, h - 5, w * 0.4, 5); // Ворота низ
       ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
       ctx.beginPath(); ctx.arc(w/2, h/2, 40, 0, Math.PI*2); ctx.stroke();
 
-      // Частицы
       particles.current.forEach((part, i) => {
         ctx.fillStyle = part.color;
         ctx.globalAlpha = part.life;
@@ -174,22 +172,18 @@ export const AirHockeyGame: React.FC = () => {
       });
       ctx.globalAlpha = 1;
 
-      // Шайба
       ctx.fillStyle = '#fff';
       ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
       ctx.beginPath(); ctx.arc(p.x, p.y, SETTINGS.puckSize, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Биты
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#fff';
       
-      // Игрок 1
       ctx.fillStyle = '#ef4444';
       ctx.beginPath(); ctx.arc(p1.current.x, p1.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
       ctx.stroke();
       
-      // ИИ
       ctx.fillStyle = '#3b82f6';
       ctx.beginPath(); ctx.arc(p2.current.x, p2.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
       ctx.stroke();
@@ -210,7 +204,7 @@ export const AirHockeyGame: React.FC = () => {
     const y = clientY - rect.top;
 
     const dist = Math.sqrt((x - p1.current.x)**2 + (y - p1.current.y)**2);
-    if (dist < SETTINGS.paddleSize * 2.5) { // Увеличил зону захвата для удобства
+    if (dist < SETTINGS.paddleSize * 2.5) {
       p1.current.isDragging = true;
     }
   };
@@ -219,20 +213,14 @@ export const AirHockeyGame: React.FC = () => {
     if (!p1.current.isDragging) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
     let nextX = clientX - rect.left;
     let nextY = clientY - rect.top;
-
     const w = rect.width;
     const h = rect.height;
-
-    // Ограничения (не заходим на чужую половину и не выходим за стены)
     nextX = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, nextX));
     nextY = Math.max(h / 2 + SETTINGS.paddleSize, Math.min(h - SETTINGS.paddleSize, nextY));
-
     p1.current.x = nextX;
     p1.current.y = nextY;
   };
@@ -248,11 +236,9 @@ export const AirHockeyGame: React.FC = () => {
         <div className="w-12 h-1 bg-white/20" />
         <div className="text-6xl font-black text-red-500">{score.p1}</div>
       </div>
-
       <button onClick={() => navigate('/')} className="absolute top-6 right-6 z-20 text-white/20 text-[10px] border border-white/10 px-3 py-1 rounded tracking-widest uppercase">
         Exit
       </button>
-
       <canvas 
         ref={canvasRef}
         onMouseDown={handleStart}
