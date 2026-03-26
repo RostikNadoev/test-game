@@ -4,18 +4,18 @@ import { useNavigate } from 'react-router-dom';
 // --- НАСТРОЙКИ ---
 const SETTINGS = {
   physics: {
-    maxSpeed: 4.2,
-    accel: 0.09,
-    friction: 0.97,
-    driftFactor: 0.93,
-    turnSpeed: 0.045,
-    wallFriction: 0.82,
+    maxSpeed: 8.5,       // В 2 раза быстрее (было 4.2)
+    accel: 0.22,         // Ускорение выше для динамики (было 0.09)
+    friction: 0.98,      // Чуть меньше трения для наката
+    driftFactor: 0.90,   // Чуть более выраженный дрифт
+    turnSpeed: 0.05,     
+    wallFriction: 0.7,   // Сильнее замедляет при ударе о стену на большой скорости
   },
   visual: {
     trackWidth: 160,
     curbWidth: 14,
     curbLen: 25,
-    finishLineHeight: 30 // Ширина самой полосы финиша
+    finishLineHeight: 30 
   }
 };
 
@@ -31,7 +31,6 @@ export const RaceGame: React.FC = () => {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Состояния для UI
   const [speed, setSpeed] = useState(0);
   const [lap, setLap] = useState(0);
   const [currentLapTime, setCurrentLapTime] = useState(0);
@@ -72,6 +71,11 @@ export const RaceGame: React.FC = () => {
   };
 
   useEffect(() => {
+    // Убираем скролл на странице
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+
     buildTrack();
     const canvas = canvasRef.current;
     if (!canvas || !canvas.getContext('2d')) return;
@@ -84,16 +88,13 @@ export const RaceGame: React.FC = () => {
       const c = car.current;
       const j = joystick.current;
 
-      // 1. ТАЙМИНГ В РЕАЛЬНОМ ВРЕМЕНИ
       const now = Date.now();
       const elapsed = (now - timing.current.start) / 1000;
       setCurrentLapTime(elapsed);
 
-      // Сравнение дельты (Live Delta)
       if (timing.current.best) {
         const diff = elapsed - timing.current.best;
-        // Мы показываем дельту только если круг уже идет какое-то время
-        if (elapsed > 1) {
+        if (elapsed > 0.5) {
           setDelta({
             val: (diff > 0 ? "+" : "") + diff.toFixed(2),
             color: diff <= 0 ? "#2ecc71" : "#e74c3c"
@@ -101,13 +102,12 @@ export const RaceGame: React.FC = () => {
         }
       }
 
-      // 2. ФИЗИКА
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
         if (Math.abs(diff) < Math.PI / 1.5) c.speed += SETTINGS.physics.accel;
         else c.speed *= 0.94;
-        c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 2, 1);
+        c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 3, 1);
       }
       c.speed *= SETTINGS.physics.friction;
       
@@ -118,7 +118,6 @@ export const RaceGame: React.FC = () => {
 
       let nX = c.x + c.vX; let nY = c.y + c.vY;
 
-      // КОЛЛИЗИИ
       let onRoad = false; let wall = { nx: 0, ny: 0, d: 999 };
       const st = smoothTrack.current;
       for (let i = 0; i < st.length; i++) {
@@ -130,14 +129,13 @@ export const RaceGame: React.FC = () => {
       if (onRoad) { c.x = nX; c.y = nY; }
       else {
         const mag = Math.sqrt(wall.nx**2 + wall.ny**2);
-        c.x -= (wall.nx/mag) * 2; c.y -= (wall.ny/mag) * 2;
+        c.x -= (wall.nx/mag) * 3; c.y -= (wall.ny/mag) * 3;
         c.vX *= SETTINGS.physics.wallFriction; c.vY *= SETTINGS.physics.wallFriction;
         c.speed *= SETTINGS.physics.wallFriction;
       }
 
-      // ФИНИШ
       const fDist = Math.sqrt((c.x - TRACK_NODES[0].x)**2 + (c.y - TRACK_NODES[0].y)**2);
-      if (fDist < 60 && !c.passedFinish) {
+      if (fDist < 70 && !c.passedFinish) {
         c.passedFinish = true;
         if (timing.current.best === null || elapsed < timing.current.best) {
           timing.current.best = elapsed;
@@ -148,15 +146,12 @@ export const RaceGame: React.FC = () => {
         setTimeout(() => c.passedFinish = false, 2000);
       }
 
-      // 3. ОТРИСОВКА
       canvas.width = window.innerWidth; canvas.height = window.innerHeight;
       ctx.save();
       ctx.translate(canvas.width / 2 - c.x, canvas.height / 2 - c.y);
 
-      // Трава
       ctx.fillStyle = '#1b4d1b'; ctx.fillRect(c.x-2000, c.y-2000, 4000, 4000);
 
-      // Поребрики (Шахматка)
       const drawCurbs = (side: number) => {
         let dash = 0;
         for (let i = 0; i < st.length; i++) {
@@ -177,31 +172,28 @@ export const RaceGame: React.FC = () => {
       }
       drawCurbs(SETTINGS.visual.trackWidth/2); drawCurbs(-SETTINGS.visual.trackWidth/2);
 
-      // Асфальт
       ctx.strokeStyle = '#2c3e50'; ctx.lineWidth = SETTINGS.visual.trackWidth;
       ctx.beginPath(); st.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.closePath(); ctx.stroke();
 
-      // ФИНИШНАЯ ЛИНИЯ (Выпирающая шахматка)
       ctx.save();
       const sNode = TRACK_NODES[0];
       const nextNode = TRACK_NODES[1];
       const angle = Math.atan2(nextNode.x - sNode.x, nextNode.y - sNode.y);
       ctx.translate(sNode.x, sNode.y);
       ctx.rotate(angle + Math.PI/2);
-      const fWidth = SETTINGS.visual.trackWidth - 25; // Чуть шире трассы
+      const fWidth = SETTINGS.visual.trackWidth; 
       for(let r=0; r<2; r++) {
         for(let col=0; col < fWidth/15; col++) {
           ctx.fillStyle = (r+col)%2 === 0 ? '#fff' : '#000';
-          ctx.fillRect(r*15 - 65, col*15 - fWidth/1.5, 15, 15);
+          ctx.fillRect(r*15 - 15, col*15 - fWidth/2, 15, 15);
         }
       }
       ctx.restore();
 
-      // Машина
       ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.angle);
-      ctx.fillStyle = '#f1c40f'; ctx.fillRect(-18, -10, 36, 20); // Корпус
-      ctx.fillStyle = '#333'; ctx.fillRect(4, -8, 8, 16); // Стекло
+      ctx.fillStyle = '#f1c40f'; ctx.fillRect(-18, -10, 36, 20); 
+      ctx.fillStyle = '#333'; ctx.fillRect(4, -8, 8, 16); 
       ctx.restore();
 
       ctx.restore();
@@ -209,7 +201,13 @@ export const RaceGame: React.FC = () => {
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      // Возвращаем скролл при уходе со страницы
+      document.body.style.overflow = 'auto';
+      document.body.style.position = 'static';
+    };
   }, [buildTrack]);
 
   const handleJoystick = (e: any, type: string) => {
@@ -219,27 +217,41 @@ export const RaceGame: React.FC = () => {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const x = clientX - rect.left; const y = clientY - rect.top;
 
-    if (type === 'start') { joystick.current.active = true; joystick.current.startX = x; joystick.current.startY = y; }
+    if (type === 'start') { 
+      joystick.current.active = true; 
+      joystick.current.startX = x; 
+      joystick.current.startY = y; 
+    }
     else if (type === 'move' && joystick.current.active) {
-      const dx = x - joystick.current.startX; const dy = y - joystick.current.startY;
-      const d = Math.sqrt(dx*dx+dy*dy); const lim = 50;
+      const dx = x - joystick.current.startX; 
+      const dy = y - joystick.current.startY;
+      const d = Math.sqrt(dx*dx+dy*dy); 
+      const lim = 50;
       joystick.current.visualX = (dx/d) * Math.min(d, lim);
       joystick.current.visualY = (dy/d) * Math.min(d, lim);
       joystick.current.inputX = joystick.current.visualX / lim;
       joystick.current.inputY = joystick.current.visualY / lim;
     } else if (type === 'end') {
-      joystick.current = { active: false, startX: 0, startY: 0, visualX: 0, visualY: 0, inputX: 0, inputY: 0 };
+      // Сброс стика в центр при отпускании
+      joystick.current = { 
+        active: false, 
+        startX: 0, 
+        startY: 0, 
+        visualX: 0, 
+        visualY: 0, 
+        inputX: 0, 
+        inputY: 0 
+      };
     }
   };
 
   return (
     <div className="fixed inset-0 bg-[#000] touch-none select-none overflow-hidden font-mono text-white">
-      <canvas ref={canvasRef} className="w-full h-full" />
+      <canvas ref={canvasRef} className="w-full h-full block" />
       
-      {/* UI ВЕРХНИЙ ЛЕВЫЙ УГОЛ */}
       <div className="absolute top-8 left-8 pointer-events-none flex flex-col gap-2">
         <div className="text-8xl font-black italic tracking-tighter">{speed}</div>
-        <div className="text-xs opacity-50 uppercase tracking-[0.5em] mb-4">Speed Unit / KMH</div>
+        <div className="text-xs opacity-50 uppercase tracking-[0.5em] mb-4">KMH</div>
         
         <div className="flex flex-col gap-1 border-l-4 border-red-600 pl-4">
           <div className="text-xl font-bold">LAP {lap || 1}</div>
@@ -255,15 +267,29 @@ export const RaceGame: React.FC = () => {
         </div>
       </div>
 
-      <button onClick={() => navigate('/')} className="absolute top-8 right-8 text-white/20 hover:text-white transition-colors">EXIT</button>
+      <button 
+        onClick={() => navigate('/')} 
+        className="absolute top-8 right-8 text-white/20 hover:text-white transition-colors z-10"
+      >
+        EXIT
+      </button>
 
-      {/* ДЖОЙСТИК */}
       <div 
         className="absolute bottom-16 right-16 w-32 h-32 rounded-full bg-white/5 border-2 border-white/10 backdrop-blur-md flex items-center justify-center"
-        onMouseDown={(e) => handleJoystick(e, 'start')} onMouseMove={(e) => handleJoystick(e, 'move')} onMouseUp={() => handleJoystick(null, 'end')}
-        onTouchStart={(e) => handleJoystick(e, 'start')} onTouchMove={(e) => handleJoystick(e, 'move')} onTouchEnd={() => handleJoystick(null, 'end')}
+        onMouseDown={(e) => handleJoystick(e, 'start')} 
+        onMouseMove={(e) => handleJoystick(e, 'move')} 
+        onMouseUp={() => handleJoystick(null, 'end')}
+        onTouchStart={(e) => handleJoystick(e, 'start')} 
+        onTouchMove={(e) => handleJoystick(e, 'move')} 
+        onTouchEnd={() => handleJoystick(null, 'end')}
       >
-        <div className="w-14 h-14 bg-white rounded-full shadow-2xl" style={{ transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, transition: joystick.current.active ? 'none' : 'transform 0.2s' }} />
+        <div 
+          className="w-14 h-14 bg-white rounded-full shadow-2xl pointer-events-none" 
+          style={{ 
+            transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, 
+            transition: joystick.current.active ? 'none' : 'transform 0.15s ease-out' 
+          }} 
+        />
       </div>
     </div>
   );
