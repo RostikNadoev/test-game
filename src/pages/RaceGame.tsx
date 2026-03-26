@@ -26,7 +26,7 @@ const TRACK_NODES = [
   { x: -200, y: 600 }, { x: 100, y: 900 }
 ];
 
-type Decor = { x: number, y: number, type: 'tree' | 'stand' | 'light' | 'tent', size: number, angle?: number };
+type Decor = { x: number, y: number, type: 'tree' | 'stand', size: number, angle?: number };
 type Particle = { x: number, y: number, life: number, size: number };
 
 export const RaceGame: React.FC = () => {
@@ -56,7 +56,6 @@ export const RaceGame: React.FC = () => {
   const decorations = useRef<Decor[]>([]);
   const particles = useRef<Particle[]>([]);
 
-  // Функция расчета дистанции (исправляет ошибку отсутствия getDist)
   const getDist = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
     const l2 = (x1 - x2)**2 + (y1 - y2)**2;
     const t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
@@ -72,11 +71,9 @@ export const RaceGame: React.FC = () => {
       audioCtx.current = new Context();
       oscillator.current = audioCtx.current.createOscillator();
       gainNode.current = audioCtx.current.createGain();
-      
       oscillator.current.type = 'sawtooth'; 
       oscillator.current.frequency.setValueAtTime(40, audioCtx.current.currentTime);
       gainNode.current.gain.setValueAtTime(0, audioCtx.current.currentTime);
-      
       oscillator.current.connect(gainNode.current);
       gainNode.current.connect(audioCtx.current.destination);
       oscillator.current.start();
@@ -105,6 +102,14 @@ export const RaceGame: React.FC = () => {
       pts = next;
     }
     smoothTrack.current = pts;
+
+    const decs: Decor[] = [];
+    pts.forEach((p, i) => {
+      if (i % 10 === 0) {
+        decs.push({ x: p.x + 200, y: p.y + 200, type: 'tree', size: 20 });
+      }
+    });
+    decorations.current = decs;
   }, []);
 
   useEffect(() => {
@@ -133,6 +138,7 @@ export const RaceGame: React.FC = () => {
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
         c.speed += SETTINGS.physics.accel;
         c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 3, 1);
+        if (Math.random() > 0.6) particles.current.push({ x: c.x, y: c.y, life: 1.0, size: 4 });
       }
       c.speed *= SETTINGS.physics.friction;
       
@@ -161,15 +167,13 @@ export const RaceGame: React.FC = () => {
       if (fDist < 70 && !c.passedFinish) {
         c.passedFinish = true;
         if (timing.current.best === null || elapsed < timing.current.best) {
-          timing.current.best = elapsed; 
-          setBestLap(elapsed); 
+          timing.current.best = elapsed; setBestLap(elapsed); 
         }
         if (timing.current.best) {
           const dVal = elapsed - timing.current.best;
           setDelta({ val: (dVal > 0 ? "+" : "") + dVal.toFixed(2), color: dVal <= 0 ? "#2ecc71" : "#e74c3c" });
         }
-        setLap(l => l + 1); 
-        timing.current.start = Date.now();
+        setLap(l => l + 1); timing.current.start = Date.now();
         setTimeout(() => { car.current.passedFinish = false; }, 2000);
       }
 
@@ -182,6 +186,18 @@ export const RaceGame: React.FC = () => {
       ctx.strokeStyle = '#2c3e50'; ctx.lineWidth = SETTINGS.visual.trackWidth;
       ctx.beginPath(); st.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.closePath(); ctx.stroke();
+
+      particles.current.forEach((p, i) => {
+        ctx.fillStyle = `rgba(255,255,255,${p.life * 0.3})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+        p.life -= 0.02;
+        if (p.life <= 0) particles.current.splice(i, 1);
+      });
+
+      decorations.current.forEach(d => {
+        ctx.fillStyle = '#2d5a27';
+        ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI*2); ctx.fill();
+      });
 
       ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.angle);
       ctx.fillStyle = '#f1c40f'; ctx.fillRect(-20, -11, 40, 22);
