@@ -97,7 +97,7 @@ export const ArcherGame: React.FC = () => {
       ctx.fillRect(0, 0, w, h);
 
       drawMoon(ctx, w);
-      drawWindVisuals(ctx, w, h); // Рендерим визуальный ветер
+      drawWindVisuals(ctx, w); // Рендерим визуальный ветер
 
       ctx.save();
       ctx.translate(-camera.current.x + (Math.random() - 0.5) * camera.current.shake, 0);
@@ -127,7 +127,7 @@ export const ArcherGame: React.FC = () => {
       raf = requestAnimationFrame(render);
     };
 
-    const drawWindVisuals = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+    const drawWindVisuals = (ctx: CanvasRenderingContext2D, w: number) => {
       ctx.save();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.lineWidth = 1;
