@@ -11,17 +11,39 @@ import { useEffect } from 'react';
 
 function App() {
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg) {
-      tg.ready();
-      tg.expand(); // Расширяет на все доступное пространство
-      
-      // Отключает свайп вниз для закрытия (доступно в новых версиях API)
-      if (tg.isVerticalSwipesEnabled) {
-        tg.disableVerticalSwipes();
-      }
+  const tg = (window as any).Telegram?.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    
+    // Способ 1: официальный метод
+    if (typeof tg.disableVerticalSwipes === 'function') {
+      tg.disableVerticalSwipes();
     }
-  }, []);
+    
+    // Способ 2: через mainButton или другой хак
+    tg.setHeaderColor?.('bg_color');
+    
+    // Способ 3: блокировка свайпа через обработчик событий
+    const preventPullToRefresh = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      
+      const touch = e.touches[0];
+      const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+      
+      // Если мы в верхней части страницы и пытаемся потянуть вниз
+      if (scrollTop <= 0 && touch.clientY > 50) {
+        e.preventDefault();
+      }
+    };
+    
+    document.addEventListener('touchmove', preventPullToRefresh, { passive: false });
+    
+    return () => {
+      document.removeEventListener('touchmove', preventPullToRefresh);
+    };
+  }
+}, []);
 
   return (
     <BrowserRouter>
