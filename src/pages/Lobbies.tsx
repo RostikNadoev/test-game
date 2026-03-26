@@ -28,11 +28,13 @@ export const Lobbies = () => {
 
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
-    // Если это гоночная игра, переходим сразу в игру
+    // Проверка ID игры для редиректа
     if (gameId === 'race') {
       navigate('/game/race/play');
+    } else if (gameId === 'airhockey') {
+      navigate('/game/airhockey/play'); // Переход в аэрохоккей
     } else {
-      alert(`Игра ${gameNames[gameId || '']} будет доступна в следующем обновлении!`);
+      alert(`Игра ${gameNames[gameId || '']} в разработке!`);
     }
   };
 

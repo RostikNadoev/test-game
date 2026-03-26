@@ -7,6 +7,7 @@ import { CreateLobby } from './pages/CreateLobby';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
+import { AirHockeyGame } from './pages/AirHockeyGame'; // НОВЫЙ ИМПОРТ
 import { useEffect } from 'react';
 
 function App() {
@@ -15,23 +16,13 @@ function App() {
     if (tg) {
       tg.ready();
       tg.expand();
-      
-      // Блокировка свайпа на уровне API Telegram
-      if (tg.disableVerticalSwipes) {
-        tg.disableVerticalSwipes();
-      }
-
-      // Настройка цветов интерфейса TG для бесшовности
+      if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
       tg.setHeaderColor('#0A0A0F');
       tg.setBackgroundColor('#0A0A0F');
     }
 
-    // Жесткая блокировка прокрутки всего окна (защита от rubber-band эффекта)
     const preventDefault = (e: TouchEvent) => {
-      // Блокируем, если тач пытается двигать само окно
-      if (e.touches.length === 1) {
-        // можно добавить логику исключений, но для чистого приложения лучше так
-      }
+      // Блокируем свайпы, чтобы не дергалось окно в TG
     };
 
     document.addEventListener('touchmove', preventDefault, { passive: false });
@@ -40,27 +31,20 @@ function App() {
 
   return (
     <BrowserRouter>
-      {/* pt-[100px] создает твой отступ. 
-        h-full + overflow-hidden гарантируют неподвижность основы.
-      */}
       <div className="relative h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
-        
-        {/* Хедер будет внутри контейнера с отступом или fixed */}
         <Header />
-        
-        {/* Внутренняя область скролла для контента страниц */}
         <main className="flex-1 overflow-y-auto pb-20 -webkit-overflow-scrolling-touch">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
             <Route path="/game/race/play" element={<RaceGame />} />
+            <Route path="/game/airhockey/play" element={<AirHockeyGame />} /> {/* НОВЫЙ РОУТ */}
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
             <Route path="/games" element={<Home />} />
           </Routes>
         </main>
-
         <BottomNav />
       </div>
     </BrowserRouter>
