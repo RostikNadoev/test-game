@@ -21,39 +21,50 @@ function AppContent() {
       tg.ready();
       tg.expand(); // Разворачиваем на всю высоту
       
-      // Блокируем нативный свайп Telegram (Bot API 7.7+)
+      // ГЛАВНОЕ: Блокируем нативный свайп Telegram (Bot API 7.7+)
       if (tg.disableVerticalSwipes) {
         tg.disableVerticalSwipes();
+        console.log('✅ Vertical swipes disabled');
       }
 
-      // Настройка цветов темы, чтобы не было "бордюров" при микродвижениях
+      // Настройка цветов темы
       tg.setHeaderColor('#0A0A0F');
       tg.setBackgroundColor('#0A0A0F');
+      
+      // Дополнительная блокировка для старых версий
+      if (tg.isVerticalSwipesEnabled !== undefined) {
+        tg.isVerticalSwipesEnabled = false;
+      }
     }
 
-    // Глобальная блокировка скролла через JS (резервный метод)
-    const preventDefault = (e: TouchEvent) => {
-      // Блокируем скролл везде, если мы в режиме игры
-      // Или если контент не должен скроллиться
-      if (isGameMode || document.body.classList.contains('no-scroll')) {
-        if (e.touches.length > 1) return; // Разрешаем pinch-zoom если надо, но для игры лучше блокировать всё
-        e.preventDefault();
-      }
-    };
+    // Добавляем мета-тег для запрета масштабирования
+    let metaViewport = document.querySelector('meta[name="viewport"]');
+    if (!metaViewport) {
+      metaViewport = document.createElement('meta');
+      metaViewport.setAttribute('name', 'viewport');
+      document.head.appendChild(metaViewport);
+    }
+    metaViewport.setAttribute('content', 
+      'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+    );
 
-    document.addEventListener('touchmove', preventDefault, { passive: false });
+    // Блокируем контекстное меню
+    const preventContextMenu = (e: Event) => {
+      e.preventDefault();
+      return false;
+    };
+    document.addEventListener('contextmenu', preventContextMenu);
 
     return () => {
-      document.removeEventListener('touchmove', preventDefault);
+      document.removeEventListener('contextmenu', preventContextMenu);
     };
-  }, [isGameMode]);
+  }, []);
 
   return (
-    // Добавляем touch-none когда мы в игре, чтобы браузер даже не пытался обрабатывать жесты
-    <div className={`fixed inset-0 flex flex-col bg-[#0A0A0F] ${isGameMode ? 'touch-none' : ''}`}>
+    <div className="w-full h-full bg-[#0A0A0F]">
       {!isGameMode && <Header />}
       
-      <main className="flex-1 relative overflow-hidden">
+      <main className="flex-1 relative">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
