@@ -1,5 +1,5 @@
 import { useStore } from '../store/useStore';
-import { Star, Coins, Trophy } from 'lucide-react';
+import { Star, Coins } from 'lucide-react';
 
 export const Profile = () => {
   const user = useStore((state) => state.user);
