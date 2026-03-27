@@ -6,7 +6,7 @@ const SETTINGS = {
     maxSpeed: 10,
     accel: 0.28,
     friction: 0.982,
-    driftFactor: 0.82, 
+    driftFactor: 0.73, 
     turnSpeed: 0.07,
     wallFriction: 0.45,
     turnResistance: 0.9,
@@ -52,9 +52,20 @@ export const RaceGame: React.FC = () => {
   const decorations = useRef<Decor[]>([]);
   const particles = useRef<{x: number, y: number, life: number, size: number}[]>([]);
 
+  // Блокировка системных свайпов
+  useEffect(() => {
+    const preventDefault = (e: TouchEvent) => {
+      if (e.touches.length > 1 || (e.target as HTMLElement).closest('.touch-none')) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => document.removeEventListener('touchmove', preventDefault);
+  }, []);
+
   const generateWorld = useCallback((track: {x: number, y: number}[]) => {
     const items: Decor[] = [];
-    const safeZone = (SETTINGS.visual.trackWidth / 2) + 35; // Гарантированный отступ от центра дороги
+    const safeZone = (SETTINGS.visual.trackWidth / 2) + 35;
 
     const addDecor = (x: number, y: number, type: Decor['type'], size: number, angle = 0) => {
       items.push({ x, y, type, size, angle, detail: Math.random() });
@@ -68,22 +79,18 @@ export const RaceGame: React.FC = () => {
       const ny = Math.cos(angle);
       const side = Math.random() > 0.5 ? 1 : -1;
 
-      // Рекламные щиты
       if (i % 14 === 0) {
         addDecor(p.x + nx * (safeZone + 15) * side, p.y + ny * (safeZone + 15) * side, 'ads', 60, angle + Math.PI/2);
       }
 
-      // Трибуны
       if (Math.random() > 0.85) {
         addDecor(p.x + nx * (safeZone + 65) * side, p.y + ny * (safeZone + 65) * side, 'stand', 90, angle + (side > 0 ? 0 : Math.PI));
       }
 
-      // Фонари
       if (i % 8 === 0) {
         addDecor(p.x + nx * (safeZone + 5) * side, p.y + ny * (safeZone + 5) * side, 'light', 10);
       }
 
-      // Лес и кусты (разброс только во внешнюю сторону от safeZone)
       for (let j = 0; j < 2; j++) {
         const dist = safeZone + 50 + Math.random() * 400;
         const ox = p.x + nx * dist * (Math.random() > 0.5 ? 1 : -1);
@@ -92,7 +99,6 @@ export const RaceGame: React.FC = () => {
       }
     });
 
-    // Яхты (в зоне реки)
     for(let k=0; k<12; k++) {
       addDecor(2700 + Math.random() * 500, 1600 + k * 280, 'yacht', 60, Math.random() * 0.5);
     }
@@ -136,7 +142,6 @@ export const RaceGame: React.FC = () => {
       const elapsed = (now - timing.current.start) / 1000;
       setCurrentLapTime(elapsed);
 
-      // Физика
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
@@ -167,12 +172,9 @@ export const RaceGame: React.FC = () => {
         c.speed *= SETTINGS.physics.wallFriction;
       }
 
-      // Логика финиша и Дельта
       const finCheck = getDist(c.x, c.y, 400, 680, 400, 920);
       if (finCheck.d < 60 && !c.passedFinish && elapsed > 5) {
         c.passedFinish = true;
-        
-        // Расчет дельты
         if (timing.current.best) {
           const diff = elapsed - timing.current.best;
           setDelta({
@@ -181,7 +183,6 @@ export const RaceGame: React.FC = () => {
           });
           setTimeout(() => setDelta(null), 3000);
         }
-
         if (!timing.current.best || elapsed < timing.current.best) {
           timing.current.best = elapsed; setBestLap(elapsed);
         }
@@ -195,13 +196,11 @@ export const RaceGame: React.FC = () => {
       ctx.save();
       ctx.translate(canvas.width / 2 - c.x, canvas.height / 2 - c.y);
 
-      // Окружение
       ctx.fillStyle = '#1a331a'; ctx.fillRect(c.x-2500, c.y-2500, 8000, 8000);
       ctx.fillStyle = '#c2b280'; ctx.fillRect(2450, -3000, 750, 8000);
       ctx.fillStyle = '#1e3799'; ctx.fillRect(2550, -3000, 600, 8000);
       ctx.fillStyle = '#2c3e50'; ctx.fillRect(2300, 1310, 850, 180);
 
-      // Трасса
       const drawCurbs = (side: number) => {
         let dash = 0;
         for (let i = 0; i < st.length; i++) {
@@ -223,7 +222,6 @@ export const RaceGame: React.FC = () => {
       ctx.beginPath(); st.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.closePath(); ctx.stroke();
 
-      // Шахматный финиш
       ctx.save();
       ctx.translate(400, 800);
       const ckS = 15;
@@ -235,11 +233,9 @@ export const RaceGame: React.FC = () => {
       }
       ctx.restore();
 
-      // Декорации
       decorations.current.forEach(d => {
         const distToCar = Math.hypot(c.x - d.x, c.y - d.y);
         if (distToCar > 1200) return;
-
         if (d.type === 'tree') {
           ctx.fillStyle = '#145214'; ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI*2); ctx.fill();
           ctx.fillStyle = '#1e821e'; ctx.beginPath(); ctx.arc(d.x-d.size*0.3, d.y-d.size*0.3, d.size*0.6, 0, Math.PI*2); ctx.fill();
@@ -271,14 +267,12 @@ export const RaceGame: React.FC = () => {
         }
       });
 
-      // Машина
       ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.angle);
       ctx.fillStyle = '#f1c40f'; ctx.fillRect(-22, -12, 44, 24); 
       ctx.fillStyle = '#2c3e50'; ctx.fillRect(4, -10, 12, 20); 
       ctx.fillStyle = '#fff'; ctx.fillRect(18, -10, 5, 6); ctx.fillRect(18, 4, 5, 6);
       ctx.restore();
 
-      // Эффекты
       particles.current.forEach((p, idx) => {
         ctx.fillStyle = `rgba(255,255,255,${p.life * 0.3})`;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
@@ -312,40 +306,49 @@ export const RaceGame: React.FC = () => {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-[calc(100vh-164px)] bg-[#0A0A0F] touch-none select-none overflow-hidden font-mono text-white">
+    <div 
+      ref={containerRef} 
+      className="relative w-full h-[calc(100vh-164px)] bg-[#0A0A0F] touch-none select-none overflow-hidden font-mono text-white overscroll-none"
+      style={{ touchAction: 'none' }}
+    >
       <canvas ref={canvasRef} className="w-full h-full block" />
       
-      {/* Счётчик кругов */}
-      <div className="absolute top-6 right-24 pointer-events-none">
-         <div className="bg-yellow-500 text-black px-6 py-3 font-black italic text-3xl skew-x-[-12deg] shadow-[6px_6px_0px_#fff] border-2 border-black">
+      {/* Счётчик кругов (Уменьшен в 1.4 раза) */}
+      <div className="absolute top-4 left-52 pointer-events-none">
+         <div className="bg-yellow-500 text-black px-4 py-2 font-black italic text-xl skew-x-[-12deg] shadow-[4px_4px_0px_#fff] border-2 border-black">
             LAP {lap + 1}
          </div>
       </div>
 
-      {/* Таймер и дельта */}
-      <div className="absolute top-6 left-6 pointer-events-none flex flex-col gap-2">
-        <div className="bg-black/80 backdrop-blur-xl p-4 border-l-4 border-yellow-500 shadow-2xl">
-          <div className="text-[10px] opacity-70 uppercase tracking-widest text-yellow-500 font-bold">Live Session</div>
-          <div className="flex items-baseline gap-4">
-            <div className="text-4xl font-black tabular-nums tracking-tighter">{currentLapTime.toFixed(2)}s</div>
+      {/* Таймер и дельта (Уменьшены в 1.4 раза) */}
+      <div className="absolute top-4 left-4 pointer-events-none flex flex-col gap-1.5">
+        <div className="bg-black/80 backdrop-blur-xl p-3 border-l-[3px] border-yellow-500 shadow-2xl">
+          <div className="text-[8px] opacity-70 uppercase tracking-widest text-yellow-500 font-bold">Live Session</div>
+          <div className="flex items-baseline gap-3">
+            <div className="text-2xl font-black tabular-nums tracking-tighter">{currentLapTime.toFixed(2)}s</div>
             {delta && (
-              <div className="text-2xl font-black animate-pulse tabular-nums" style={{ color: delta.color }}>
+              <div className="text-lg font-black animate-pulse tabular-nums" style={{ color: delta.color }}>
                 {delta.val}s
               </div>
             )}
           </div>
         </div>
-        <div className="mt-2 bg-white/5 backdrop-blur-md p-3 rounded-sm border border-white/10 w-fit">
-          <div className="text-[9px] opacity-50 uppercase tracking-tighter font-bold">Circuit Record</div>
-          <div className="text-xl font-bold text-yellow-200">{bestLap ? bestLap.toFixed(2) + 's' : '--.--'}</div>
+        <div className="bg-white/5 backdrop-blur-md p-2 rounded-sm border border-white/10 w-fit">
+          <div className="text-[7px] opacity-50 uppercase tracking-tighter font-bold">Circuit Record</div>
+          <div className="text-sm font-bold text-yellow-200">{bestLap ? bestLap.toFixed(2) + 's' : '--.--'}</div>
         </div>
       </div>
 
-      <button onClick={() => navigate('/')} className="absolute top-6 right-6 text-white/50 border border-white/10 bg-white/5 px-4 py-2 rounded-sm text-xs backdrop-blur-md hover:bg-white/10 transition-colors">EXIT</button>
+      <button 
+        onClick={() => navigate('/')} 
+        className="absolute top-4 right-4 text-white/50 border border-white/10 bg-white/5 px-3 py-1.5 rounded-sm text-[10px] backdrop-blur-md hover:bg-white/10 transition-colors"
+      >
+        EXIT
+      </button>
 
-      {/* Джойстик */}
+      {/* Джойстик (Без изменений размеров для удобства управления) */}
       <div 
-        className="absolute bottom-16 right-16 w-36 h-36 rounded-full bg-black/40 border-4 border-white/10 backdrop-blur-xl flex items-center justify-center z-50 shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+        className="absolute bottom-12 right-12 w-36 h-36 rounded-full bg-black/40 border-4 border-white/10 backdrop-blur-xl flex items-center justify-center z-50 shadow-[0_0_50px_rgba(0,0,0,0.5)] touch-none"
         onMouseDown={(e) => handleJoystick(e, 'start')} 
         onMouseMove={(e) => handleJoystick(e, 'move')} 
         onMouseUp={() => handleJoystick(null, 'end')}
