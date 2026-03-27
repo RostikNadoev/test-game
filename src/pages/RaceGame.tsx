@@ -4,12 +4,12 @@ import { useNavigate } from 'react-router-dom';
 const SETTINGS = {
   physics: {
     maxSpeed: 12,
-    accel: 0.28,
-    friction: 0.982,
-    driftFactor: 0.43, 
-    turnSpeed: 0.07,
+    accel: 0.32,          // Чуть увеличил приемистость для выхода из заноса
+    friction: 0.985,      // Машина дольше катится
+    driftFactor: 0.96,    // КЛЮЧЕВОЙ ПАРАМЕТР: чем ближе к 1, тем сильнее "заносит" заднюю ось
+    turnSpeed: 0.08,      // Острота руля
     wallFriction: 0.45,
-    turnResistance: 0.9,
+    turnResistance: 0.98, // Почти не тормозим при повороте
   },
   visual: {
     trackWidth: 155,
@@ -52,7 +52,6 @@ export const RaceGame: React.FC = () => {
   const decorations = useRef<Decor[]>([]);
   const particles = useRef<{x: number, y: number, life: number, size: number}[]>([]);
 
-  // Блокировка системных свайпов
   useEffect(() => {
     const preventDefault = (e: TouchEvent) => {
       if (e.touches.length > 1 || (e.target as HTMLElement).closest('.touch-none')) {
@@ -142,19 +141,36 @@ export const RaceGame: React.FC = () => {
       const elapsed = (now - timing.current.start) / 1000;
       setCurrentLapTime(elapsed);
 
+      // --- ОБНОВЛЕННАЯ ФИЗИКА ДРИФТА ---
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
+        
+        // Почти не теряем скорость при вращении
         c.speed *= (1 - Math.abs(diff) * (1 - SETTINGS.physics.turnResistance));
+        
         if (Math.abs(diff) < Math.PI / 1.5) {
-          c.speed += SETTINGS.physics.accel;
+          // Газ: ускоряемся, но в глубоком заносе (большой diff) тяга чуть меньше
+          c.speed += SETTINGS.physics.accel * (1 - Math.abs(diff) * 0.2);
           if (Math.random() > 0.4) particles.current.push({ x: c.x, y: c.y, life: 1.0, size: 2 + Math.random() * 4 });
-        } else c.speed *= 0.93;
-        c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 3, 1);
+        } else {
+          c.speed *= 0.95; // Резкий разворот тормозит сильнее
+        }
+        
+        // Поворачиваем нос машины
+        c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 2, 1);
       }
+
       c.speed *= SETTINGS.physics.friction;
-      c.vX = c.vX * SETTINGS.physics.driftFactor + (Math.cos(c.angle) * c.speed) * (1 - SETTINGS.physics.driftFactor);
-      c.vY = c.vY * SETTINGS.physics.driftFactor + (Math.sin(c.angle) * c.speed) * (1 - SETTINGS.physics.driftFactor);
+      if (c.speed > SETTINGS.physics.maxSpeed) c.speed = SETTINGS.physics.maxSpeed;
+
+      // Ключевой момент дрифта: текущий вектор движения (vX, vY) плавно догоняет направление носа (angle)
+      // Чем МЕНЬШЕ 1 - driftFactor, тем медленнее машина "цепляется" за асфальт
+      const targetVX = Math.cos(c.angle) * c.speed;
+      const targetVY = Math.sin(c.angle) * c.speed;
+
+      c.vX = c.vX * SETTINGS.physics.driftFactor + targetVX * (1 - SETTINGS.physics.driftFactor);
+      c.vY = c.vY * SETTINGS.physics.driftFactor + targetVY * (1 - SETTINGS.physics.driftFactor);
 
       let nX = c.x + c.vX, nY = c.y + c.vY;
       let onRoad = false, wall = { nx: 0, ny: 0, d: 999 };
@@ -164,10 +180,12 @@ export const RaceGame: React.FC = () => {
         if (r.d < SETTINGS.visual.trackWidth / 2) { onRoad = true; break; }
         if (r.d < wall.d) wall = r;
       }
-      if (onRoad) { c.x = nX; c.y = nY; }
-      else {
+      
+      if (onRoad) { 
+        c.x = nX; c.y = nY; 
+      } else {
         const mag = Math.sqrt(wall.nx**2 + wall.ny**2) || 1;
-        c.x -= (wall.nx/mag) * 4; c.y -= (wall.ny/mag) * 4;
+        c.x -= (wall.nx/mag) * 5; c.y -= (wall.ny/mag) * 5;
         c.vX *= SETTINGS.physics.wallFriction; c.vY *= SETTINGS.physics.wallFriction;
         c.speed *= SETTINGS.physics.wallFriction;
       }
@@ -313,14 +331,12 @@ export const RaceGame: React.FC = () => {
     >
       <canvas ref={canvasRef} className="w-full h-full block" />
       
-      {/* Счётчик кругов (Уменьшен в 1.4 раза) */}
       <div className="absolute top-4 left-52 pointer-events-none">
          <div className="bg-yellow-500 text-black px-4 py-2 font-black italic text-xl skew-x-[-12deg] shadow-[4px_4px_0px_#fff] border-2 border-black">
             LAP {lap + 1}
          </div>
       </div>
 
-      {/* Таймер и дельта (Уменьшены в 1.4 раза) */}
       <div className="absolute top-4 left-4 pointer-events-none flex flex-col gap-1.5">
         <div className="bg-black/80 backdrop-blur-xl p-3 border-l-[3px] border-yellow-500 shadow-2xl">
           <div className="text-[8px] opacity-70 uppercase tracking-widest text-yellow-500 font-bold">Live Session</div>
@@ -346,7 +362,6 @@ export const RaceGame: React.FC = () => {
         EXIT
       </button>
 
-      {/* Джойстик (Без изменений размеров для удобства управления) */}
       <div 
         className="absolute bottom-12 right-12 w-36 h-36 rounded-full bg-black/40 border-4 border-white/10 backdrop-blur-xl flex items-center justify-center z-50 shadow-[0_0_50px_rgba(0,0,0,0.5)] touch-none"
         onMouseDown={(e) => handleJoystick(e, 'start')} 
