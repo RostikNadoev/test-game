@@ -20,7 +20,6 @@ export const VolleyGame: React.FC = () => {
   const [isLandscape, setIsLandscape] = useState(false);
   const [score, setScore] = useState({ p1: 0, p2: 0 });
   
-  // Состояния слаймов: добавляем 'wobble' для эффекта желе
   const p1 = useRef({ x: 200, y: 0, vY: 0, scaleX: 1, scaleY: 1, color: '#00F2FF', wobble: 0 });
   const p2 = useRef({ x: 800, y: 0, vY: 0, scaleX: 1, scaleY: 1, color: '#FF007A', wobble: 0 });
   
@@ -31,7 +30,6 @@ export const VolleyGame: React.FC = () => {
 
   const keys = useRef<Record<string, boolean>>({});
 
-  // Проверка ориентации
   useEffect(() => {
     const checkOrientation = () => {
       setIsLandscape(window.innerWidth > window.innerHeight);
@@ -45,7 +43,9 @@ export const VolleyGame: React.FC = () => {
     if (!isLandscape) return;
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current; // Получаем текущий элемент
+    if (!canvas || !container) return;
+
     const ctx = canvas.getContext('2d')!;
     let raf: number;
 
@@ -56,7 +56,6 @@ export const VolleyGame: React.FC = () => {
 
       // --- Логика слаймов ---
       [p1.current, p2.current].forEach((p, i) => {
-        // Управление (P1 - WASD или кнопки, P2 - пока стоит)
         if (i === 0) {
           if (keys.current['KeyA']) { p.x -= SETTINGS.speed; p.wobble = Math.sin(Date.now() * 0.1) * 0.05; }
           if (keys.current['KeyD']) { p.x += SETTINGS.speed; p.wobble = Math.sin(Date.now() * 0.1) * 0.05; }
@@ -67,7 +66,7 @@ export const VolleyGame: React.FC = () => {
         p.y += p.vY;
 
         if (p.y > 0) {
-          if (p.vY > 2) { // Приземление
+          if (p.vY > 2) { 
             p.scaleY = 0.6;
             p.scaleX = 1.3;
           }
@@ -75,17 +74,14 @@ export const VolleyGame: React.FC = () => {
           p.vY = 0;
         }
 
-        // Плавное возвращение формы желе
         p.scaleX += (1 - p.scaleX) * 0.15;
         p.scaleY += (1 - p.scaleY) * 0.15;
 
-        // Эффект вытягивания в полете
         if (p.y < 0) {
           p.scaleY = 1 + Math.abs(p.vY) * 0.03;
           p.scaleX = 1 - Math.abs(p.vY) * 0.02;
         }
 
-        // Ограничения
         const margin = SETTINGS.slimeRadius;
         if (i === 0) p.x = Math.max(margin, Math.min(cw/2 - margin - 10, p.x));
         else p.x = Math.max(cw/2 + margin + 10, Math.min(cw - margin, p.x));
@@ -101,27 +97,23 @@ export const VolleyGame: React.FC = () => {
       if (b.trail.length > 15) b.trail.shift();
       b.trail.forEach(t => t.a *= 0.85);
 
-      // Коллизия со стенами
       if (b.x < SETTINGS.ballRadius || b.x > cw - SETTINGS.ballRadius) {
         b.vX *= -0.8;
         b.x = b.x < SETTINGS.ballRadius ? SETTINGS.ballRadius : cw - SETTINGS.ballRadius;
       }
 
-      // Сетка
       const netX = cw / 2;
       if (b.y > floorY - SETTINGS.netHeight && Math.abs(b.x - netX) < SETTINGS.ballRadius + 5) {
         b.vX *= -0.8;
         b.x = b.x < netX ? netX - 20 : netX + 20;
       }
 
-      // Коллизия со слаймами (Jelly Collision)
       [p1.current, p2.current].forEach(p => {
         const dx = b.x - p.x;
         const dy = b.y - (floorY - p.y - 10);
         const dist = Math.sqrt(dx*dx + dy*dy);
 
         if (dist < SETTINGS.slimeRadius + SETTINGS.ballRadius) {
-          // Вычисляем угол отскока
           const angle = Math.atan2(dy, dx);
           const impactSpeed = Math.sqrt(b.vX * b.vX + b.vY * b.vY);
           const finalSpeed = Math.max(impactSpeed + 1, 9);
@@ -129,13 +121,11 @@ export const VolleyGame: React.FC = () => {
           b.vX = Math.cos(angle) * finalSpeed;
           b.vY = Math.sin(angle) * finalSpeed;
           
-          // Деформируем слайм при ударе мяча
           p.scaleY = 0.8;
           p.scaleX = 1.2;
         }
       });
 
-      // Гол
       if (b.y > floorY) {
         if (b.x < cw/2) setScore(s => ({ ...s, p2: s.p2 + 1 }));
         else setScore(s => ({ ...s, p1: s.p1 + 1 }));
@@ -147,14 +137,12 @@ export const VolleyGame: React.FC = () => {
       // --- Отрисовка ---
       ctx.clearRect(0, 0, cw, ch);
       
-      // Фон (Градиент)
       const grad = ctx.createLinearGradient(0, 0, 0, ch);
       grad.addColorStop(0, '#0f0c29');
       grad.addColorStop(1, '#000000');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, cw, ch);
 
-      // Сетка
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 4;
       ctx.setLineDash([5, 10]);
@@ -164,13 +152,11 @@ export const VolleyGame: React.FC = () => {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Слаймы
       [p1.current, p2.current].forEach(p => {
         ctx.save();
         ctx.translate(p.x, floorY - p.y);
         ctx.scale(p.scaleX + p.wobble, p.scaleY - p.wobble);
         
-        // Тело желе
         const sGrad = ctx.createRadialGradient(0, -20, 0, 0, -20, 50);
         sGrad.addColorStop(0, p.color);
         sGrad.addColorStop(1, '#000');
@@ -182,7 +168,6 @@ export const VolleyGame: React.FC = () => {
         ctx.arc(0, 0, SETTINGS.slimeRadius, Math.PI, 0);
         ctx.fill();
         
-        // Глаза (динамические)
         ctx.fillStyle = 'white';
         ctx.beginPath();
         ctx.arc(-15, -25, 6, 0, Math.PI * 2);
@@ -197,7 +182,6 @@ export const VolleyGame: React.FC = () => {
         ctx.restore();
       });
 
-      // Мяч (Трейл и само свечение)
       b.trail.forEach(t => {
         ctx.fillStyle = `rgba(255, 255, 255, ${t.a * 0.3})`;
         ctx.beginPath();
@@ -216,6 +200,7 @@ export const VolleyGame: React.FC = () => {
       raf = requestAnimationFrame(update);
     };
 
+    // Исправлено: используем актуальные размеры из container.clientWidth/Height
     canvas.width = container.clientWidth;
     canvas.height = container.clientHeight;
     raf = requestAnimationFrame(update);
@@ -248,7 +233,6 @@ export const VolleyGame: React.FC = () => {
         <div className="relative w-full h-full">
           <canvas ref={canvasRef} className="w-full h-full block" />
           
-          {/* Интерфейс */}
           <div className="absolute top-6 left-10 flex gap-10 items-center pointer-events-none">
             <div className="text-5xl font-black italic text-white opacity-20">{score.p1} : {score.p2}</div>
           </div>
@@ -260,24 +244,23 @@ export const VolleyGame: React.FC = () => {
             Exit
           </button>
 
-          {/* Мобильные контроллеры */}
           <div className="absolute bottom-6 left-10 flex gap-4">
             <button 
-              onPointerDown={() => keys.current['KeyA'] = true}
-              onPointerUp={() => keys.current['KeyA'] = false}
-              className="w-20 h-20 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center text-3xl active:bg-cyan-500/20 active:border-cyan-500 transition-all"
+              onPointerDown={() => { keys.current['KeyA'] = true; }}
+              onPointerUp={() => { keys.current['KeyA'] = false; }}
+              className="w-20 h-20 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center text-3xl active:bg-cyan-500/20 active:border-cyan-500 transition-all select-none"
             >←</button>
             <button 
-              onPointerDown={() => keys.current['KeyD'] = true}
-              onPointerUp={() => keys.current['KeyD'] = false}
-              className="w-20 h-20 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center text-3xl active:bg-cyan-500/20 active:border-cyan-500 transition-all"
+              onPointerDown={() => { keys.current['KeyD'] = true; }}
+              onPointerUp={() => { keys.current['KeyD'] = false; }}
+              className="w-20 h-20 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center text-3xl active:bg-cyan-500/20 active:border-cyan-500 transition-all select-none"
             >→</button>
           </div>
           
           <button 
-            onPointerDown={() => keys.current['KeyW'] = true}
-            onPointerUp={() => keys.current['KeyW'] = false}
-            className="absolute bottom-6 right-10 w-24 h-24 bg-pink-500/10 rounded-full border-2 border-pink-500/50 flex items-center justify-center font-black text-pink-500 active:scale-90 transition-all"
+            onPointerDown={() => { keys.current['KeyW'] = true; }}
+            onPointerUp={() => { keys.current['KeyW'] = false; }}
+            className="absolute bottom-6 right-10 w-24 h-24 bg-pink-500/10 rounded-full border-2 border-pink-500/50 flex items-center justify-center font-black text-pink-500 active:scale-90 transition-all select-none"
           >JUMP</button>
         </div>
       )}
