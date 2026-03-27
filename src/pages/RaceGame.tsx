@@ -285,7 +285,7 @@ export const RaceGame: React.FC = () => {
         } else if (d.type === 'ads') {
           ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
           ctx.fillStyle = '#e74c3c'; ctx.fillRect(-40, -5, 80, 10);
-          ctx.fillStyle = '#fff'; ctx.font = 'bold 8px Arial'; ctx.fillText('RACING NEXT', -35, 3);
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 8px Arial'; ctx.fillText('TWIN GAMES', -30, 3);
           ctx.restore();
         } else if (d.type === 'bush') {
           ctx.fillStyle = '#2d5a27'; ctx.beginPath(); ctx.arc(d.x, d.y, d.size/2, 0, Math.PI*2); ctx.fill();
