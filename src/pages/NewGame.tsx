@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Настройки баланса
-const BALL_FRICTION = 0.985; // Чуть больше трения для вязкости
+const BALL_FRICTION = 0.985; 
 const PLAYER_RADIUS = 16; 
 const BALL_RADIUS = 10;   
 const GOAL_WIDTH = 110;   
 const POST_RADIUS = 4;
-const PLAYER_SPEED_DIVIDER = 12; // Чем выше, тем медленнее игроки
-const HIT_FORCE = 4.5; // Сила удара по мячу (была 7)
+const PLAYER_SPEED_DIVIDER = 12; 
+const HIT_FORCE = 4.5; 
 
 export const NewGame: React.FC = () => {
   const navigate = useNavigate();
@@ -24,10 +24,21 @@ export const NewGame: React.FC = () => {
     width: 0, height: 0,
     ball: { x: 0, y: 0, vx: 0, vy: 0, angle: 0 },
     p1: { x: 0, y: 0, vx: 0, vy: 0 }, 
-    p2: { x: 0, y: 0, vx: 0, vy: 0 }, // Добавили векторы для P2               
+    p2: { x: 0, y: 0, vx: 0, vy: 0 },               
     joystick: { active: false, x: 80, y: 0, currX: 80, currY: 0 },
     isPaused: false
   });
+
+  // БЛОКИРОВКА СВАЙПОВ (из гонок)
+  useEffect(() => {
+    const preventDefault = (e: TouchEvent) => {
+      if (e.touches.length > 1 || (e.target as HTMLElement).closest('.touch-none')) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => document.removeEventListener('touchmove', preventDefault);
+  }, []);
 
   const playHitSound = (freq: number, vol: number) => {
     try {
@@ -82,7 +93,6 @@ export const NewGame: React.FC = () => {
       const { ball, p1, p2, joystick: j } = w;
 
       if (!w.isPaused) {
-        // --- ДВИЖЕНИЕ P1 (Замедлено) ---
         if (j.active) {
           const dx = j.currX - j.x; const dy = j.currY - j.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -93,27 +103,21 @@ export const NewGame: React.FC = () => {
           }
         } else { p1.vx *= 0.8; p1.vy *= 0.8; }
 
-        // --- ТОЛКАТЕЛЬНАЯ ФИЗИКА (P1 vs P2) ---
-        const dxP = p2.x - p1.x;
-        const dyP = p2.y - p1.y;
+        // Коллизия игроков
+        const dxP = p2.x - p1.x; const dyP = p2.y - p1.y;
         const distP = Math.sqrt(dxP * dxP + dyP * dyP);
-        const minDistP = PLAYER_RADIUS * 2;
-        if (distP < minDistP) {
+        if (distP < PLAYER_RADIUS * 2) {
           const angle = Math.atan2(dyP, dxP);
-          const overlap = minDistP - distP;
-          const shiftX = Math.cos(angle) * (overlap / 2);
-          const shiftY = Math.sin(angle) * (overlap / 2);
-          p1.x -= shiftX; p1.y -= shiftY;
-          p2.x += shiftX; p2.y += shiftY;
-          if (overlap > 2) playHitSound(150, 0.03);
+          const overlap = PLAYER_RADIUS * 2 - distP;
+          p1.x -= Math.cos(angle) * (overlap / 2); p1.y -= Math.sin(angle) * (overlap / 2);
+          p2.x += Math.cos(angle) * (overlap / 2); p2.y += Math.sin(angle) * (overlap / 2);
         }
 
-        // --- МЯЧ ---
         ball.x += ball.vx; ball.y += ball.vy;
         ball.vx *= BALL_FRICTION; ball.vy *= BALL_FRICTION;
         ball.angle += (Math.abs(ball.vx) + Math.abs(ball.vy)) * 0.05;
 
-        // Коллизия мяча с игроками (Ослаблена)
+        // Коллизия мяча с игроками
         [p1, p2].forEach(p => {
           const dxB = ball.x - p.x; const dyB = ball.y - p.y;
           const distB = Math.sqrt(dxB * dxB + dyB * dyB);
@@ -127,37 +131,24 @@ export const NewGame: React.FC = () => {
           }
         });
 
-        // Штанги
         const goalLeft = w.width / 2 - GOAL_WIDTH / 2;
         const goalRight = w.width / 2 + GOAL_WIDTH / 2;
-        const posts = [{x: goalLeft, y: 10}, {x: goalRight, y: 10}, {x: goalLeft, y: w.height-10}, {x: goalRight, y: w.height-10}];
-        posts.forEach(post => {
-          const dx = ball.x - post.x; const dy = ball.y - post.y;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < BALL_RADIUS + POST_RADIUS) {
-            playHitSound(440, 0.05);
-            const angle = Math.atan2(dy, dx);
-            const s = Math.sqrt(ball.vx**2 + ball.vy**2);
-            ball.vx = Math.cos(angle) * (s + 1); ball.vy = Math.sin(angle) * (s + 1);
-            ball.x = post.x + Math.cos(angle) * (BALL_RADIUS + POST_RADIUS);
-          }
-        });
-
-        // Голы
         const inGoalX = ball.x > goalLeft && ball.x < goalRight;
+
+        // Логика гола
         if (inGoalX) {
-          if (ball.y < 5) { 
+          if (ball.y < 10) { 
             w.isPaused = true; setScore(s => ({ ...s, home: s.home + 1 })); setGoalEvent({ team: 'HOME' }); setTimeout(resetPositions, 2000);
-          } else if (ball.y > w.height - 5) {
+          } else if (ball.y > w.height - 10) {
             w.isPaused = true; setScore(s => ({ ...s, away: s.away + 1 })); setGoalEvent({ team: 'AWAY' }); setTimeout(resetPositions, 2000);
           }
         }
 
-        // Стены
-        if (ball.x < BALL_RADIUS || ball.x > w.width - BALL_RADIUS) { ball.vx *= -0.8; if(Math.abs(ball.vx)>1) playHitSound(150,0.02); }
-        if (!inGoalX && (ball.y < BALL_RADIUS+10 || ball.y > w.height - BALL_RADIUS-10)) { ball.vy *= -0.8; if(Math.abs(ball.vy)>1) playHitSound(150,0.02); }
+        // Отскок от стен
+        if (ball.x < BALL_RADIUS + 10 || ball.x > w.width - BALL_RADIUS - 10) ball.vx *= -0.8;
+        if (!inGoalX && (ball.y < BALL_RADIUS + 10 || ball.y > w.height - BALL_RADIUS - 10)) ball.vy *= -0.8;
 
-        ball.x = Math.max(BALL_RADIUS, Math.min(w.width - BALL_RADIUS, ball.x));
+        ball.x = Math.max(BALL_RADIUS + 5, Math.min(w.width - BALL_RADIUS - 5, ball.x));
         [p1, p2].forEach(p => {
           p.x = Math.max(PLAYER_RADIUS + 10, Math.min(w.width - PLAYER_RADIUS - 10, p.x));
           p.y = Math.max(PLAYER_RADIUS + 10, Math.min(w.height - PLAYER_RADIUS - 10, p.y));
@@ -173,34 +164,40 @@ export const NewGame: React.FC = () => {
 
       // Разметка поля
       ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2;
-      ctx.strokeRect(10, 10, w.width - 20, w.height - 20); // Граница
-      ctx.beginPath(); ctx.moveTo(10, w.height/2); ctx.lineTo(w.width - 10, w.height/2); ctx.stroke(); // Центр
-      ctx.beginPath(); ctx.arc(w.width/2, w.height/2, 60, 0, Math.PI*2); ctx.stroke(); // Круг
-      
-      // Штрафные зоны
+      ctx.strokeRect(10, 10, w.width - 20, w.height - 20);
+      ctx.beginPath(); ctx.moveTo(10, w.height/2); ctx.lineTo(w.width - 10, w.height/2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(w.width/2, w.height/2, 60, 0, Math.PI*2); ctx.stroke();
+
+      // Штрафные площади
       ctx.strokeRect(w.width/2 - 90, 10, 180, 70);
       ctx.strokeRect(w.width/2 - 90, w.height - 80, 180, 70);
 
-      // Ворота
+      // ВИЗУАЛЬНЫЕ ВОРОТА
       const drawGoalUI = (isTop: boolean) => {
         const gx = w.width / 2 - GOAL_WIDTH / 2;
         const gy = isTop ? 10 : w.height - 10;
-        const d = isTop ? -25 : 25;
+        const depth = isTop ? -25 : 25;
+        
+        // Сетка
         ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1;
         ctx.beginPath();
-        for(let i=0; i<=GOAL_WIDTH; i+=12) { ctx.moveTo(gx+i, gy); ctx.lineTo(gx+i, gy+d); }
-        for(let i=0; i<=25; i+=8) { ctx.moveTo(gx, gy+(isTop?-i:i)); ctx.lineTo(gx+GOAL_WIDTH, gy+(isTop?-i:i)); }
+        for(let i=0; i<=GOAL_WIDTH; i+=12) { ctx.moveTo(gx+i, gy); ctx.lineTo(gx+i, gy+depth); }
+        for(let i=0; i<=Math.abs(depth); i+=8) { 
+          const curY = isTop ? gy - i : gy + i;
+          ctx.moveTo(gx, curY); ctx.lineTo(gx+GOAL_WIDTH, curY); 
+        }
         ctx.stroke();
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(gx, gy, POST_RADIUS, 0, Math.PI*2); ctx.fill();
+
+        // Каркас ворот
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+        ctx.strokeRect(gx, isTop ? gy + depth : gy, GOAL_WIDTH, Math.abs(depth));
+        
+        // Штанги (белые точки)
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(gx, gy, POST_RADIUS, 0, Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.arc(gx + GOAL_WIDTH, gy, POST_RADIUS, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeRect(gx, isTop?gy+d:gy, GOAL_WIDTH, 25);
       };
       drawGoalUI(true); drawGoalUI(false);
-
-      // Мяч
-      ctx.save(); ctx.translate(ball.x, ball.y); ctx.rotate(ball.angle);
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 0.5; ctx.stroke(); ctx.restore();
 
       // Игроки
       const drawP = (x: number, y: number, c1: string, c2: string) => {
@@ -208,16 +205,25 @@ export const NewGame: React.FC = () => {
         const g = ctx.createRadialGradient(-4, -4, 0, 0, 0, PLAYER_RADIUS);
         g.addColorStop(0, c1); g.addColorStop(1, c2);
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
         ctx.restore();
       };
       drawP(p2.x, p2.y, '#ff6b6b', '#c92a2a');
       drawP(p1.x, p1.y, '#4dabf7', '#1971c2');
 
+      // Мяч
+      ctx.save(); ctx.translate(ball.x, ball.y); ctx.rotate(ball.angle);
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 0.5; ctx.stroke();
+      ctx.restore();
+
       // Джойстик
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(j.x, j.y, 45, 0, Math.PI*2); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
-      ctx.beginPath(); ctx.arc(j.active?j.currX:j.x, j.active?j.currY:j.y, 22, 0, Math.PI*2); ctx.fill();
+      if (j.active) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(j.x, j.y, 45, 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.beginPath(); ctx.arc(j.currX, j.currY, 22, 0, Math.PI*2); ctx.fill();
+      }
 
       raf = requestAnimationFrame(loop);
     };
@@ -233,7 +239,13 @@ export const NewGame: React.FC = () => {
     const rect = containerRef.current!.getBoundingClientRect();
     const touchX = t.clientX - rect.left;
     const touchY = t.clientY - rect.top;
-    if (e.type === 'touchstart') w.joystick.active = true;
+
+    if (e.type === 'touchstart') {
+      w.joystick.active = true;
+      w.joystick.x = touchX;
+      w.joystick.y = touchY;
+    }
+    
     const dx = touchX - w.joystick.x; const dy = touchY - w.joystick.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
     const max = 40;
@@ -246,7 +258,10 @@ export const NewGame: React.FC = () => {
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#1a1a1a] overflow-hidden select-none touch-none overscroll-none">
+    <div 
+      className="relative w-full h-full flex flex-col bg-[#1a1a1a] overflow-hidden select-none touch-none overscroll-none" 
+      style={{ touchAction: 'none' }}
+    >
       <div className="flex justify-between items-center px-8 py-4 bg-black/90 border-b border-white/10 z-20 shadow-2xl">
         <div className="flex flex-col items-center">
           <span className="text-[10px] text-red-500 font-black">AWAY</span>
@@ -260,11 +275,12 @@ export const NewGame: React.FC = () => {
       </div>
 
       <div 
-        ref={containerRef} className="flex-1 w-full relative touch-none"
+        ref={containerRef} 
+        className="flex-1 w-full relative touch-none"
         onTouchStart={handleTouch} onTouchMove={handleTouch}
-        onTouchEnd={() => { world.current.joystick.active = false; world.current.joystick.currX = world.current.joystick.x; world.current.joystick.currY = world.current.joystick.y; }}
+        onTouchEnd={() => { world.current.joystick.active = false; }}
       >
-        <canvas ref={canvasRef} className="block w-full h-full" />
+        <canvas ref={canvasRef} className="block w-full h-full touch-none" />
         <AnimatePresence>
           {goalEvent.team && (
             <motion.div initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.5 }} className="absolute inset-0 flex items-center justify-center z-30 bg-black/20 backdrop-blur-[2px]">
