@@ -291,7 +291,6 @@ export const RaceGame: React.FC = () => {
           ctx.fillStyle = '#2d5a27'; ctx.beginPath(); ctx.arc(d.x, d.y, d.size/2, 0, Math.PI*2); ctx.fill();
         } else if (d.type === 'tent') {
           ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
-          ctx.fillStyle = d.detail > 0.5 ? '#e67e22' : '#9b59b6';
           ctx.beginPath(); ctx.moveTo(-20, 20); ctx.lineTo(0, -20); ctx.lineTo(20, 20); ctx.fill();
           ctx.restore();
         } else if (d.type === 'bench') {
