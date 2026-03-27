@@ -19,7 +19,7 @@ export const Lobbies = () => {
     archer: 'Neon Duel',
     race: 'Street Race',
     airhockey: 'Air Hockey',
-    cards: 'Card Wars',
+    volley: 'Neon Volley',
     snake: 'Snake Duel',
     pingpong: 'Pong',
     chess: 'Chess',
@@ -34,9 +34,11 @@ export const Lobbies = () => {
     } else if (gameId === 'airhockey') {
       navigate('/game/airhockey/play');
     } else if (gameId === 'archer') {
-      navigate('/game/archer/play'); // Редирект в новую игру
+      navigate('/game/archer/play');
+    } else if (gameId === 'volley') {
+      navigate('/game/volley/play');
     } else {
-      alert(`Игра ${gameNames[gameId || '']} в разработке!`);
+      alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
     }
   };
 

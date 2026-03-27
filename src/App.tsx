@@ -8,7 +8,8 @@ import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
-import { ArcherGame } from './pages/ArcherGame'; // Импорт новой игры
+import { ArcherGame } from './pages/ArcherGame';
+import { VolleyGame } from './pages/VolleyGame';
 import { useEffect } from 'react';
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />
+            <Route path="/game/volley/play" element={<VolleyGame />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
             <Route path="/games" element={<Home />} />
