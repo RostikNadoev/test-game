@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 
 const SETTINGS = {
   physics: {
-    maxSpeed: 10,
+    maxSpeed: 12,
     accel: 0.28,
     friction: 0.982,
-    driftFactor: 0.73, 
+    driftFactor: 0.43, 
     turnSpeed: 0.07,
     wallFriction: 0.45,
     turnResistance: 0.9,
