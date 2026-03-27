@@ -9,6 +9,7 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
+import { NewGame } from './pages/NewGame'; // Создадим этот файл следующим
 import { useEffect } from 'react';
 
 function App() {
@@ -39,6 +40,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
+            <Route path="/game/newgame/play" element={<NewGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />

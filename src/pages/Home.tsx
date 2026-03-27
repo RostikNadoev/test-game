@@ -2,10 +2,10 @@ import { useNavigate } from 'react-router-dom';
 import { GameCard } from '../components/GameCard';
 
 const games = [
+  { id: 'newgame', name: 'New Game', icon: '✨', description: 'Скоро открытие', color: 'from-fuchsia-500 to-purple-600' },
   { id: 'archer', name: 'Neon Duel', icon: '🏹', description: 'Битва на копьях', color: 'from-orange-500 to-red-600' },
   { id: 'race', name: 'Street Race', icon: '🏎️', description: 'Гонки на скорость', color: 'from-blue-500 to-cyan-500' },
   { id: 'airhockey', name: 'Air Hockey', icon: '🏒', description: 'Аэрохоккей', color: 'from-indigo-500 to-purple-500' },
-  { id: 'volley', name: 'Neon Volley', icon: '🏐', description: 'Слайм-волейбол 1x1', color: 'from-fuchsia-500 to-purple-600' },
   { id: 'snake', name: 'Snake Duel', icon: '🐍', description: 'Классика на двоих', color: 'from-lime-500 to-green-500' },
   { id: 'pingpong', name: 'Pong', icon: '🏓', description: 'Настольный теннис', color: 'from-yellow-500 to-amber-500' },
   { id: 'chess', name: 'Chess', icon: '♟️', description: 'Шахматы блиц', color: 'from-stone-500 to-neutral-700' },

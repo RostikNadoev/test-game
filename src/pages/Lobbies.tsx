@@ -16,10 +16,10 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
   
   const gameNames: Record<string, string> = {
+    newgame: 'New Game',
     archer: 'Neon Duel',
     race: 'Street Race',
     airhockey: 'Air Hockey',
-    volley: 'Neon Volley',
     snake: 'Snake Duel',
     pingpong: 'Pong',
     chess: 'Chess',
@@ -29,13 +29,16 @@ export const Lobbies = () => {
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
     
-    if (gameId === 'race') {
-      navigate('/game/race/play');
-    } else if (gameId === 'airhockey') {
-      navigate('/game/airhockey/play');
-    } else if (gameId === 'archer') {
-      navigate('/game/archer/play');
-    }  else {
+    const gameRoutes: Record<string, string> = {
+      newgame: '/game/newgame/play',
+      race: '/game/race/play',
+      airhockey: '/game/airhockey/play',
+      archer: '/game/archer/play',
+    };
+
+    if (gameRoutes[gameId || '']) {
+      navigate(gameRoutes[gameId!]);
+    } else {
       alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
     }
   };
