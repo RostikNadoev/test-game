@@ -4,12 +4,12 @@ import { useNavigate } from 'react-router-dom';
 const SETTINGS = {
   physics: {
     maxSpeed: 9,
-    accel: 0.2,          // Чуть увеличил приемистость для выхода из заноса
-    friction: 0.985,      // Машина дольше катится
-    driftFactor: 0.96,    // КЛЮЧЕВОЙ ПАРАМЕТР: чем ближе к 1, тем сильнее "заносит" заднюю ось
-    turnSpeed: 0.08,      // Острота руля
+    accel: 0.2,
+    friction: 0.985,
+    driftFactor: 0.96,
+    turnSpeed: 0.08,
     wallFriction: 0.45,
-    turnResistance: 0.95, // Почти не тормозим при повороте
+    turnResistance: 0.95,
   },
   visual: {
     trackWidth: 155,
@@ -64,42 +64,71 @@ export const RaceGame: React.FC = () => {
 
   const generateWorld = useCallback((track: {x: number, y: number}[]) => {
     const items: Decor[] = [];
-    const safeZone = (SETTINGS.visual.trackWidth / 2) + 35;
+    // Зона безопасности: половина ширины трассы + запас, чтобы не стоять на обочине
+    const roadSafeRadius = (SETTINGS.visual.trackWidth / 2) + 25;
 
-    const addDecor = (x: number, y: number, type: Decor['type'], size: number, angle = 0) => {
-      items.push({ x, y, type, size, angle, detail: Math.random() });
+    const isTooCloseToTrack = (x: number, y: number) => {
+      for (let i = 0; i < track.length; i++) {
+        const p1 = track[i], p2 = track[(i + 1) % track.length];
+        const res = getDist(x, y, p1.x, p1.y, p2.x, p2.y);
+        if (res.d < roadSafeRadius) return true;
+      }
+      return false;
+    };
+
+    const isColliding = (x: number, y: number, minSpace: number) => {
+      return items.some(item => Math.hypot(item.x - x, item.y - y) < minSpace);
+    };
+
+    const addDecor = (x: number, y: number, type: Decor['type'], size: number, angle = 0, minSpace = 40) => {
+      if (!isTooCloseToTrack(x, y) && !isColliding(x, y, minSpace)) {
+        items.push({ x, y, type, size, angle, detail: Math.random() });
+      }
     };
 
     track.forEach((p, i) => {
-      if (i % 4 !== 0) return;
-      const p2 = track[(i + 2) % track.length];
+      // Генерируем чаще
+      if (i % 2 !== 0) return;
+      
+      const p2 = track[(i + 1) % track.length];
       const angle = Math.atan2(p2.y - p.y, p2.x - p.x);
       const nx = -Math.sin(angle);
       const ny = Math.cos(angle);
-      const side = Math.random() > 0.5 ? 1 : -1;
+      const side = i % 4 === 0 ? 1 : -1;
 
-      if (i % 14 === 0) {
-        addDecor(p.x + nx * (safeZone + 15) * side, p.y + ny * (safeZone + 15) * side, 'ads', 60, angle + Math.PI/2);
+      // Рекламные щиты и трибуны (ближе к трассе)
+      if (i % 12 === 0) {
+        addDecor(p.x + nx * 110 * side, p.y + ny * 110 * side, 'ads', 60, angle + Math.PI/2, 100);
+      }
+      if (i % 20 === 0) {
+        addDecor(p.x + nx * 140 * side, p.y + ny * 140 * side, 'stand', 90, angle + (side > 0 ? 0 : Math.PI), 150);
       }
 
-      if (Math.random() > 0.85) {
-        addDecor(p.x + nx * (safeZone + 65) * side, p.y + ny * (safeZone + 65) * side, 'stand', 90, angle + (side > 0 ? 0 : Math.PI));
-      }
-
+      // Освещение
       if (i % 8 === 0) {
-        addDecor(p.x + nx * (safeZone + 5) * side, p.y + ny * (safeZone + 5) * side, 'light', 10);
+        addDecor(p.x + nx * 95 * side, p.y + ny * 95 * side, 'light', 10, 0, 80);
       }
 
-      for (let j = 0; j < 2; j++) {
-        const dist = safeZone + 50 + Math.random() * 400;
-        const ox = p.x + nx * dist * (Math.random() > 0.5 ? 1 : -1);
-        const oy = p.y + ny * dist * (Math.random() > 0.5 ? 1 : -1);
-        addDecor(ox, oy, Math.random() > 0.3 ? 'tree' : 'bush', 20 + Math.random() * 30);
+      // Новые объекты: палатки и скамейки
+      if (i % 15 === 0) {
+        addDecor(p.x + nx * 160 * side, p.y + ny * 160 * side, 'tent', 40, angle, 120);
+      }
+      if (i % 10 === 0) {
+        addDecor(p.x + nx * 105 * side, p.y + ny * 105 * side, 'bench', 25, angle + Math.PI/2, 60);
+      }
+
+      // Растительность (дальше от трассы, больше объектов)
+      for (let j = 0; j < 3; j++) {
+        const dist = 180 + Math.random() * 300;
+        const ox = p.x + nx * dist * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * 50;
+        const oy = p.y + ny * dist * (Math.random() > 0.5 ? 1 : -1) + (Math.random() - 0.5) * 50;
+        addDecor(ox, oy, Math.random() > 0.4 ? 'tree' : 'bush', 25 + Math.random() * 35, 0, 50);
       }
     });
 
-    for(let k=0; k<12; k++) {
-      addDecor(2700 + Math.random() * 500, 1600 + k * 280, 'yacht', 60, Math.random() * 0.5);
+    // Яхты в заливе (специфическая зона)
+    for(let k=0; k<15; k++) {
+      addDecor(2800 + Math.random() * 400, 1600 + k * 200, 'yacht', 70, Math.random() * 0.5, 120);
     }
 
     decorations.current = items;
@@ -141,34 +170,24 @@ export const RaceGame: React.FC = () => {
       const elapsed = (now - timing.current.start) / 1000;
       setCurrentLapTime(elapsed);
 
-      // --- ОБНОВЛЕННАЯ ФИЗИКА ДРИФТА ---
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
-        
-        // Почти не теряем скорость при вращении
         c.speed *= (1 - Math.abs(diff) * (1 - SETTINGS.physics.turnResistance));
-        
         if (Math.abs(diff) < Math.PI / 1.5) {
-          // Газ: ускоряемся, но в глубоком заносе (большой diff) тяга чуть меньше
           c.speed += SETTINGS.physics.accel * (1 - Math.abs(diff) * 0.2);
           if (Math.random() > 0.4) particles.current.push({ x: c.x, y: c.y, life: 1.0, size: 2 + Math.random() * 4 });
         } else {
-          c.speed *= 0.95; // Резкий разворот тормозит сильнее
+          c.speed *= 0.95;
         }
-        
-        // Поворачиваем нос машины
         c.angle += diff * SETTINGS.physics.turnSpeed * Math.min(Math.abs(c.speed) / 2, 1);
       }
 
       c.speed *= SETTINGS.physics.friction;
       if (c.speed > SETTINGS.physics.maxSpeed) c.speed = SETTINGS.physics.maxSpeed;
 
-      // Ключевой момент дрифта: текущий вектор движения (vX, vY) плавно догоняет направление носа (angle)
-      // Чем МЕНЬШЕ 1 - driftFactor, тем медленнее машина "цепляется" за асфальт
       const targetVX = Math.cos(c.angle) * c.speed;
       const targetVY = Math.sin(c.angle) * c.speed;
-
       c.vX = c.vX * SETTINGS.physics.driftFactor + targetVX * (1 - SETTINGS.physics.driftFactor);
       c.vY = c.vY * SETTINGS.physics.driftFactor + targetVY * (1 - SETTINGS.physics.driftFactor);
 
@@ -181,9 +200,8 @@ export const RaceGame: React.FC = () => {
         if (r.d < wall.d) wall = r;
       }
       
-      if (onRoad) { 
-        c.x = nX; c.y = nY; 
-      } else {
+      if (onRoad) { c.x = nX; c.y = nY; } 
+      else {
         const mag = Math.sqrt(wall.nx**2 + wall.ny**2) || 1;
         c.x -= (wall.nx/mag) * 5; c.y -= (wall.ny/mag) * 5;
         c.vX *= SETTINGS.physics.wallFriction; c.vY *= SETTINGS.physics.wallFriction;
@@ -195,15 +213,10 @@ export const RaceGame: React.FC = () => {
         c.passedFinish = true;
         if (timing.current.best) {
           const diff = elapsed - timing.current.best;
-          setDelta({
-            val: (diff > 0 ? "+" : "") + diff.toFixed(2),
-            color: diff <= 0 ? "#4ade80" : "#f87171"
-          });
+          setDelta({ val: (diff > 0 ? "+" : "") + diff.toFixed(2), color: diff <= 0 ? "#4ade80" : "#f87171" });
           setTimeout(() => setDelta(null), 3000);
         }
-        if (!timing.current.best || elapsed < timing.current.best) {
-          timing.current.best = elapsed; setBestLap(elapsed);
-        }
+        if (!timing.current.best || elapsed < timing.current.best) { timing.current.best = elapsed; setBestLap(elapsed); }
         setLap(l => l + 1); 
         timing.current.start = Date.now();
         setTimeout(() => c.passedFinish = false, 2000);
@@ -240,8 +253,7 @@ export const RaceGame: React.FC = () => {
       ctx.beginPath(); st.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
       ctx.closePath(); ctx.stroke();
 
-      ctx.save();
-      ctx.translate(400, 800);
+      ctx.save(); ctx.translate(400, 800);
       const ckS = 15;
       for (let r = 0; r < 2; r++) {
         for (let col = -5; col < 6; col++) {
@@ -277,6 +289,15 @@ export const RaceGame: React.FC = () => {
           ctx.restore();
         } else if (d.type === 'bush') {
           ctx.fillStyle = '#2d5a27'; ctx.beginPath(); ctx.arc(d.x, d.y, d.size/2, 0, Math.PI*2); ctx.fill();
+        } else if (d.type === 'tent') {
+          ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
+          ctx.fillStyle = d.detail > 0.5 ? '#e67e22' : '#9b59b6';
+          ctx.beginPath(); ctx.moveTo(-20, 20); ctx.lineTo(0, -20); ctx.lineTo(20, 20); ctx.fill();
+          ctx.restore();
+        } else if (d.type === 'bench') {
+          ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
+          ctx.fillStyle = '#7f8c8d'; ctx.fillRect(-15, -5, 30, 10);
+          ctx.restore();
         } else if (d.type === 'yacht') {
           ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.angle);
           ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-d.size, 0); ctx.lineTo(d.size, -d.size/3); ctx.lineTo(d.size, d.size/3); ctx.fill();
@@ -324,29 +345,17 @@ export const RaceGame: React.FC = () => {
   };
 
   return (
-    <div 
-      ref={containerRef} 
-      className="relative w-full h-[calc(100vh-164px)] bg-[#0A0A0F] touch-none select-none overflow-hidden font-mono text-white overscroll-none"
-      style={{ touchAction: 'none' }}
-    >
+    <div ref={containerRef} className="relative w-full h-[calc(100vh-164px)] bg-[#0A0A0F] touch-none select-none overflow-hidden font-mono text-white overscroll-none" style={{ touchAction: 'none' }}>
       <canvas ref={canvasRef} className="w-full h-full block" />
-      
       <div className="absolute top-4 left-52 pointer-events-none">
-         <div className="bg-yellow-500 text-black px-4 py-2 font-black italic text-xl skew-x-[-12deg] shadow-[4px_4px_0px_#fff] border-2 border-black">
-            LAP {lap + 1}
-         </div>
+         <div className="bg-yellow-500 text-black px-4 py-2 font-black italic text-xl skew-x-[-12deg] shadow-[4px_4px_0px_#fff] border-2 border-black">LAP {lap + 1}</div>
       </div>
-
       <div className="absolute top-4 left-4 pointer-events-none flex flex-col gap-1.5">
         <div className="bg-black/80 backdrop-blur-xl p-3 border-l-[3px] border-yellow-500 shadow-2xl">
           <div className="text-[8px] opacity-70 uppercase tracking-widest text-yellow-500 font-bold">Live Session</div>
           <div className="flex items-baseline gap-3">
             <div className="text-2xl font-black tabular-nums tracking-tighter">{currentLapTime.toFixed(2)}s</div>
-            {delta && (
-              <div className="text-lg font-black animate-pulse tabular-nums" style={{ color: delta.color }}>
-                {delta.val}s
-              </div>
-            )}
+            {delta && <div className="text-lg font-black animate-pulse tabular-nums" style={{ color: delta.color }}>{delta.val}s</div>}
           </div>
         </div>
         <div className="bg-white/5 backdrop-blur-md p-2 rounded-sm border border-white/10 w-fit">
@@ -354,27 +363,12 @@ export const RaceGame: React.FC = () => {
           <div className="text-sm font-bold text-yellow-200">{bestLap ? bestLap.toFixed(2) + 's' : '--.--'}</div>
         </div>
       </div>
-
-      <button 
-        onClick={() => navigate('/')} 
-        className="absolute top-4 right-4 text-white/50 border border-white/10 bg-white/5 px-3 py-1.5 rounded-sm text-[10px] backdrop-blur-md hover:bg-white/10 transition-colors"
-      >
-        EXIT
-      </button>
-
-      <div 
-        className="absolute bottom-12 right-12 w-36 h-36 rounded-full bg-black/40 border-4 border-white/10 backdrop-blur-xl flex items-center justify-center z-50 shadow-[0_0_50px_rgba(0,0,0,0.5)] touch-none"
-        onMouseDown={(e) => handleJoystick(e, 'start')} 
-        onMouseMove={(e) => handleJoystick(e, 'move')} 
-        onMouseUp={() => handleJoystick(null, 'end')}
-        onTouchStart={(e) => handleJoystick(e, 'start')} 
-        onTouchMove={(e) => handleJoystick(e, 'move')} 
-        onTouchEnd={() => handleJoystick(null, 'end')}
-      >
-        <div 
-          className="w-16 h-16 bg-gradient-to-br from-white to-gray-400 rounded-full shadow-2xl pointer-events-none border-2 border-black/20" 
-          style={{ transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, transition: joystick.current.active ? 'none' : 'transform 0.15s' }} 
-        />
+      <button onClick={() => navigate('/')} className="absolute top-4 right-4 text-white/50 border border-white/10 bg-white/5 px-3 py-1.5 rounded-sm text-[10px] backdrop-blur-md hover:bg-white/10 transition-colors">EXIT</button>
+      <div className="absolute bottom-20 right-12 w-36 h-36 rounded-full bg-black/40 border-4 border-white/10 backdrop-blur-xl flex items-center justify-center z-50 shadow-[0_0_50px_rgba(0,0,0,0.5)] touch-none"
+        onMouseDown={(e) => handleJoystick(e, 'start')} onMouseMove={(e) => handleJoystick(e, 'move')} onMouseUp={() => handleJoystick(null, 'end')}
+        onTouchStart={(e) => handleJoystick(e, 'start')} onTouchMove={(e) => handleJoystick(e, 'move')} onTouchEnd={() => handleJoystick(null, 'end')}>
+        <div className="w-16 h-16 bg-gradient-to-br from-white to-gray-400 rounded-full shadow-2xl pointer-events-none border-2 border-black/20" 
+          style={{ transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`, transition: joystick.current.active ? 'none' : 'transform 0.15s' }} />
       </div>
     </div>
   );
