@@ -7,6 +7,7 @@ import { useMemo } from 'react';
 export const Lobbies = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
+  
   const allLobbies = useStore((state) => state.lobbies);
   const joinLobby = useStore((state) => state.joinLobby);
   
@@ -15,27 +16,27 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
   
   const gameNames: Record<string, string> = {
-    neondrift: 'Neon Drift',
     archer: 'Neon Duel',
     race: 'Street Race',
     airhockey: 'Air Hockey',
+    volley: 'Neon Volley',
+    snake: 'Snake Duel',
+    pingpong: 'Pong',
+    chess: 'Chess',
+    darts: 'Darts',
   };
 
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
     
-    // Карта маршрутов
-    const routes: Record<string, string> = {
-      neondrift: '/game/neondrift/play',
-      race: '/game/race/play',
-      airhockey: '/game/airhockey/play',
-      archer: '/game/archer/play'
-    };
-
-    if (routes[gameId || '']) {
-      navigate(routes[gameId!]);
-    } else {
-      alert(`Игра ${gameNames[gameId || '']} в разработке!`);
+    if (gameId === 'race') {
+      navigate('/game/race/play');
+    } else if (gameId === 'airhockey') {
+      navigate('/game/airhockey/play');
+    } else if (gameId === 'archer') {
+      navigate('/game/archer/play');
+    }  else {
+      alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
     }
   };
 
@@ -43,48 +44,48 @@ export const Lobbies = () => {
     <div className="p-4 pb-20 min-h-screen">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <button onClick={() => navigate(-1)} className="text-gray-500 text-sm mb-1 uppercase font-bold tracking-widest">← Back</button>
-          <h1 className="text-2xl font-black text-white uppercase italic">{gameNames[gameId || ''] || 'Arena'}</h1>
+          <button onClick={() => navigate(-1)} className="text-gray-400 mb-2 block">← Назад</button>
+          <h1 className="text-2xl font-bold text-white">{gameNames[gameId || ''] || 'Игра'}</h1>
+          <p className="text-gray-400">Доступные лобби</p>
         </div>
         <motion.button
-          whileTap={{ scale: 0.9 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => navigate(`/game/${gameId}/create`)}
-          className="bg-cyan-500 p-3 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+          className="bg-accent p-3 rounded-full shadow-lg"
         >
-          <Plus size={24} color="black" />
+          <Plus size={24} />
         </motion.button>
       </div>
 
       <div className="space-y-3">
         {lobbies.length === 0 ? (
-          <div className="text-center py-20">
-            <Users size={40} className="mx-auto text-gray-800 mb-4" />
-            <p className="text-gray-600 font-bold uppercase text-[10px] tracking-widest">No active lobbies</p>
+          <div className="text-center py-12 text-gray-500">
+            <Users size={48} className="mx-auto opacity-30 mb-2" />
+            <p>Нет активных лобби</p>
+            <p className="text-sm">Создай первый!</p>
           </div>
         ) : (
           lobbies.map((lobby) => (
             <motion.div
               key={lobby.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="bg-[#11111a] rounded-2xl p-5 border border-white/5"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-card rounded-2xl p-4 border border-white/10"
             >
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-white font-bold">{lobby.name}</h3>
-                  <div className="flex items-center gap-3 mt-2">
-                    <div className="flex items-center gap-1">
-                      <Coins size={12} className="text-cyan-500" />
-                      <span className="text-cyan-500 text-xs font-bold">{lobby.betAmount}</span>
-                    </div>
-                    <span className="text-gray-600 text-[10px] uppercase font-bold">{lobby.players.length}/2 Players</span>
+                  <h3 className="text-white font-bold text-lg">{lobby.name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Coins size={14} className="text-accent" />
+                    <span className="text-accent text-sm">{lobby.betAmount}</span>
+                    <span className="text-gray-500 text-xs">• {lobby.players.length}/2 игроков</span>
                   </div>
                 </div>
                 <button
                   onClick={() => handleJoinAndPlay(lobby.id)}
-                  className="bg-white text-black px-6 py-2 rounded-xl text-xs font-black uppercase tracking-tighter"
+                  className="bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition"
                 >
-                  Join
+                  Играть
                 </button>
               </div>
             </motion.div>

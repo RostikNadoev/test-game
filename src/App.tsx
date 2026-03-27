@@ -9,7 +9,6 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
-import { NeonDriftGame } from './pages/NeonDriftGame'; // Импорт новой игры
 import { useEffect } from 'react';
 
 function App() {
@@ -22,26 +21,30 @@ function App() {
       tg.setHeaderColor('#0A0A0F');
       tg.setBackgroundColor('#0A0A0F');
     }
+
+    const preventDefault = (event: TouchEvent) => {
+      if (event.touches.length > 1) event.preventDefault();
+    };
+
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => document.removeEventListener('touchmove', preventDefault);
   }, []);
 
   return (
     <BrowserRouter>
       <div className="relative h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto pb-20">
+        <main className="flex-1 overflow-y-auto pb-20 -webkit-overflow-scrolling-touch">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
-            
-            {/* Игровые роуты */}
-            <Route path="/game/neondrift/play" element={<NeonDriftGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />
-            
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
+            <Route path="/games" element={<Home />} />
           </Routes>
         </main>
         <BottomNav />
