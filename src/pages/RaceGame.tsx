@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 
 const SETTINGS = {
   physics: {
-    maxSpeed: 12,
-    accel: 0.32,          // Чуть увеличил приемистость для выхода из заноса
+    maxSpeed: 9,
+    accel: 0.2,          // Чуть увеличил приемистость для выхода из заноса
     friction: 0.985,      // Машина дольше катится
     driftFactor: 0.96,    // КЛЮЧЕВОЙ ПАРАМЕТР: чем ближе к 1, тем сильнее "заносит" заднюю ось
     turnSpeed: 0.08,      // Острота руля
     wallFriction: 0.45,
-    turnResistance: 0.98, // Почти не тормозим при повороте
+    turnResistance: 0.95, // Почти не тормозим при повороте
   },
   visual: {
     trackWidth: 155,
