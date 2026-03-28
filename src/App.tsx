@@ -9,33 +9,25 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
-import { NewGame } from './pages/NewGame'; // Создадим этот файл следующим
+import { NewGame } from './pages/NewGame';
+import { PaperGame } from './pages/PaperGame';
 import { useEffect } from 'react';
 
 function App() {
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
-      tg.ready();
-      tg.expand();
+      tg.ready(); tg.expand();
       if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-      tg.setHeaderColor('#0A0A0F');
-      tg.setBackgroundColor('#0A0A0F');
+      tg.setHeaderColor('#0A0A0F'); tg.setBackgroundColor('#0A0A0F');
     }
-
-    const preventDefault = (event: TouchEvent) => {
-      if (event.touches.length > 1) event.preventDefault();
-    };
-
-    document.addEventListener('touchmove', preventDefault, { passive: false });
-    return () => document.removeEventListener('touchmove', preventDefault);
   }, []);
 
   return (
     <BrowserRouter>
       <div className="relative h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto pb-20 -webkit-overflow-scrolling-touch">
+        <main className="flex-1 overflow-y-auto pb-20">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
@@ -44,9 +36,9 @@ function App() {
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />
+            <Route path="/game/paper/play" element={<PaperGame />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
-            <Route path="/games" element={<Home />} />
           </Routes>
         </main>
         <BottomNav />
@@ -54,5 +46,4 @@ function App() {
     </BrowserRouter>
   );
 }
-
 export default App;
