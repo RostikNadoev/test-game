@@ -182,7 +182,6 @@ export const PaperGame: React.FC = () => {
           else if (v === 4) ctx.fillStyle = '#ef4444'; // Красный хвост
           
           // Рисуем со скруглением
-          const r = 4;
           const px = x * GRID_SIZE + 1;
           const py = y * GRID_SIZE + 1;
           const pw = GRID_SIZE - 2;
