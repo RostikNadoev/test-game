@@ -174,8 +174,8 @@ export function MiniGolfBeautiful() {
   const [refresh, setRefresh] = useState(0);
   const [holeIndex, setHoleIndex] = useState(0);
   const [activePlayer, setActivePlayer] = useState(0);
-  const [bodyLocked, setBodyLocked] = useState(false);
-
+  const [turnPhase, setTurnPhase] = useState<'aim' | 'ballMoving' | 'holeTransition'>('aim');
+  
   const sparksRef = useRef<Spark[]>([]);
   const ballsRef = useRef<BallState[]>([
     createBall('Jack', '#ffd84d', holeConfigs[0].spawn),
@@ -183,8 +183,9 @@ export function MiniGolfBeautiful() {
   ]);
 
   const scale = useMemo(() => {
-    if (typeof window === 'undefined') return 0.8;
-    return Math.min(0.8, window.innerWidth / 820, (window.innerHeight - 120) / 1180);
+    if (typeof window === 'undefined') return 0.68;
+    const availableHeight = window.innerHeight - 150;
+    return Math.min(0.82, window.innerWidth / 840, availableHeight / 1180);
   }, [refresh]);
 
   useEffect(() => {
@@ -205,8 +206,6 @@ export function MiniGolfBeautiful() {
     body.style.overflow = 'hidden';
     body.style.touchAction = 'none';
     (body.style as any).overscrollBehavior = 'none';
-    setBodyLocked(true);
-
     return () => {
       html.style.overflow = prevHtmlOverflow;
       body.style.overflow = prevBodyOverflow;
@@ -613,32 +612,59 @@ export function MiniGolfBeautiful() {
         ballsRef.current.forEach(updateBall);
 
         const active = ballsRef.current[activePlayer];
-        const moving = Math.abs(active.vx) > 0 || Math.abs(active.vy) > 0;
-        if (!moving && !pointerRef.current.active && !active.done) {
-          const other = activePlayer === 0 ? 1 : 0;
-          const otherBall = ballsRef.current[other];
-          if (!otherBall.done && (ballsRef.current[0].shots + ballsRef.current[1].shots > 0)) {
+        const activeMoving = Math.abs(active.vx) > 0 || Math.abs(active.vy) > 0;
+        const other = activePlayer === 0 ? 1 : 0;
+        const otherBall = ballsRef.current[other];
+
+        if (turnPhase === 'ballMoving' && !activeMoving) {
+          if (!active.done && !otherBall.done) {
             setActivePlayer(other);
+            setTurnPhase('aim');
+          } else if (!active.done && otherBall.done) {
+            setTurnPhase('aim');
+          } else if (active.done && !otherBall.done) {
+            setActivePlayer(other);
+            setTurnPhase('aim');
           }
         }
 
-        if (ballsRef.current.every(b => b.done)) {
+        if (ballsRef.current.every(b => b.done) && turnPhase !== 'holeTransition') {
+          setTurnPhase('holeTransition');
           if (holeIndex < TOTAL_HOLES - 1) {
-            setTimeout(() => {
+            window.setTimeout(() => {
               const nextHole = holeIndex + 1;
               const nextConfig = holeConfigs[nextHole];
               ballsRef.current = [
-                { ...ballsRef.current[0], x: nextConfig.spawn.x, y: nextConfig.spawn.y, vx: 0, vy: 0, trail: [], shots: 0, done: false },
-                { ...ballsRef.current[1], x: nextConfig.spawn.x, y: nextConfig.spawn.y, vx: 0, vy: 0, trail: [], shots: 0, done: false },
+                {
+                  ...ballsRef.current[0],
+                  x: nextConfig.spawn.x,
+                  y: nextConfig.spawn.y,
+                  vx: 0,
+                  vy: 0,
+                  trail: [],
+                  shots: 0,
+                  done: false,
+                },
+                {
+                  ...ballsRef.current[1],
+                  x: nextConfig.spawn.x,
+                  y: nextConfig.spawn.y,
+                  vx: 0,
+                  vy: 0,
+                  trail: [],
+                  shots: 0,
+                  done: false,
+                },
               ];
               pointerRef.current.active = false;
               setActivePlayer(0);
               setHoleIndex(nextHole);
+              setTurnPhase('aim');
             }, 700);
           } else {
             const [a, b] = ballsRef.current;
-            if (a.totalShots + a.shots < b.totalShots + b.shots) setWinner(a.name);
-            else if (b.totalShots + b.shots < a.totalShots + a.shots) setWinner(b.name);
+            if (a.totalShots < b.totalShots) setWinner(a.name);
+            else if (b.totalShots < a.totalShots) setWinner(b.name);
             else setWinner('Draw');
           }
         }
@@ -661,7 +687,7 @@ export function MiniGolfBeautiful() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [refresh, winner, holeIndex, activePlayer]);
+  }, [refresh, winner, holeIndex, activePlayer, turnPhase]);
 
   const toWorldPoint = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -675,7 +701,7 @@ export function MiniGolfBeautiful() {
 
   const strike = () => {
     const ball = ballsRef.current[activePlayer];
-    if (winner || ball.done) return;
+    if (winner || turnPhase !== 'aim' || ball.done) return;
     if (Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0) return;
 
     const dx = pointerRef.current.x - ball.x;
@@ -685,12 +711,13 @@ export function MiniGolfBeautiful() {
     const nx = dx / Math.max(dist, 1);
     const ny = dy / Math.max(dist, 1);
     const strength = dist / AIM_MAX;
-    const power = Math.pow(strength, 1.8) * MAX_POWER;
+    const power = Math.pow(strength, 1.9) * MAX_POWER;
 
     ball.vx = -nx * power;
     ball.vy = -ny * power;
     ball.shots += 1;
     ball.totalShots += 1;
+    setTurnPhase('ballMoving');
 
     for (let i = 0; i < 12; i++) {
       sparksRef.current.push({
@@ -706,6 +733,9 @@ export function MiniGolfBeautiful() {
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (turnPhase !== 'aim') return;
+    const ball = ballsRef.current[activePlayer];
+    if (winner || ball.done) return;
     e.preventDefault();
     const p = toWorldPoint(e.clientX, e.clientY);
     pointerRef.current = { active: true, x: p.x, y: p.y };
@@ -730,6 +760,7 @@ export function MiniGolfBeautiful() {
     setWinner(null);
     setHoleIndex(0);
     setActivePlayer(0);
+    setTurnPhase('aim');
     ballsRef.current = [
       createBall('Jack', '#ffd84d', spawn),
       createBall('Kirsten', '#ffffff', spawn),
@@ -745,8 +776,8 @@ export function MiniGolfBeautiful() {
   const totalP2 = p2.totalShots;
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-black flex items-center justify-center px-2 py-2 select-none">
-      <div className="relative">
+    <div className="h-[calc(100vh-110px)] w-screen overflow-hidden bg-black flex items-start justify-center px-2 pt-[10px] pb-2 select-none">
+      <div className="relative mt-0">
         <div className="absolute -top-14 left-0 right-0 flex items-center justify-between gap-2 text-white z-10">
           <div className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${activePlayer === 0 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'}`}>
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black text-sm font-black">5</div>
