@@ -3,6 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 const BOARD_SIZE = 500;
+const START_SCORE = 301;
+const DARTS_PER_TURN = 3;
+
+// Реальное расстояние от центра дротика до кончика иглы
+const DART_TIP_LENGTH = 46 * 0.6;
 
 const COLORS = {
   black: '#1a1a2e',
@@ -10,6 +15,8 @@ const COLORS = {
   red: '#e74c3c',
   green: '#27ae60',
   gold: '#f1c40f',
+  bgTop: '#07111f',
+  bgBottom: '#12243f',
 };
 
 export interface HitDetails {
@@ -19,17 +26,54 @@ export interface HitDetails {
   multiplier: 'single' | 'double' | 'triple' | 'bull';
 }
 
+type DartOnBoard = {
+  x: number;
+  y: number;
+  hit?: HitDetails;
+  angle?: number;
+};
+
+type FlyingDart = {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  progress: number;
+  power: number;
+  travelAngle: number;
+  curveX: number;
+  launchTilt: number;
+};
+
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  size: number;
+  color: string;
+};
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
 const DartGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const [players, setPlayers] = useState([301, 301]);
+  const [players, setPlayers] = useState([START_SCORE, START_SCORE]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [dartsThrownThisTurn, setDartsThrownThisTurn] = useState(0);
   const [lastHit, setLastHit] = useState<HitDetails | null>(null);
+  const [lastHitText, setLastHitText] = useState('');
   const [hitEffect, setHitEffect] = useState<{ x: number; y: number; type: string } | null>(null);
+  const [dartsOnBoard, setDartsOnBoard] = useState<DartOnBoard[]>([]);
+  const [turnLocked, setTurnLocked] = useState(false);
+  const [winner, setWinner] = useState<number | null>(null);
 
-  const [dartsOnBoard, setDartsOnBoard] = useState<Array<{ x: number; y: number; hit?: HitDetails }>>([]);
+  const particlesRef = useRef<Particle[]>([]);
+  const turnTimeoutRef = useRef<number | null>(null);
 
   const game = useRef({
     ctx: null as CanvasRenderingContext2D | null,
@@ -40,16 +84,16 @@ const DartGame: React.FC = () => {
     centerY: 0,
     boardOffsetY: 0,
     shake: 0,
-    flyingDart: null as any,
+    flyingDart: null as FlyingDart | null,
     animationId: null as number | null,
   });
 
-  // ==================== ПОПАДАНИЕ ====================
-  const getHitDetails = (x: number, y: number): HitDetails => {
+  const getHitDetails = useCallback((x: number, y: number): HitDetails => {
     const g = game.current;
     const dx = x - g.centerX;
     const dy = y - g.centerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
+
     let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
     if (angle < 0) angle += 360;
     const normAngle = angle % 360;
@@ -63,20 +107,51 @@ const DartGame: React.FC = () => {
     const sectorIdx = Math.floor(normAngle / 18);
     const base = SECTORS[sectorIdx];
 
-    if (r > 170 && r < 192) return { label: `D${base}`, points: base * 2, sector: base, multiplier: 'double' };
-    if (r > 98 && r < 115) return { label: `T${base}`, points: base * 3, sector: base, multiplier: 'triple' };
+    if (r > 170 && r < 192) {
+      return { label: `D${base}`, points: base * 2, sector: base, multiplier: 'double' };
+    }
+    if (r > 98 && r < 115) {
+      return { label: `T${base}`, points: base * 3, sector: base, multiplier: 'triple' };
+    }
 
     return { label: base.toString(), points: base, sector: base, multiplier: 'single' };
+  }, []);
+
+  const spawnImpactParticles = (x: number, y: number, hit: HitDetails) => {
+    const palette =
+      hit.multiplier === 'bull'
+        ? ['#f1c40f', '#fde68a', '#ffffff']
+        : hit.points > 0
+        ? ['#f59e0b', '#fde68a', '#ffffff']
+        : ['#ef4444', '#fca5a5', '#ffffff'];
+
+    for (let i = 0; i < 18; i++) {
+      const a = (Math.PI * 2 * i) / 18 + Math.random() * 0.4;
+      const s = 1 + Math.random() * 3.8;
+      particlesRef.current.push({
+        x,
+        y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 0.5 + Math.random() * 0.35,
+        size: 2 + Math.random() * 3,
+        color: palette[i % palette.length],
+      });
+    }
   };
 
-  // ==================== ОТРИСОВКА ====================
-  const drawDart = (ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, scaleFactor: number = 1, stuck = true) => {
+  const drawDart = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    angle: number,
+    scaleFactor: number = 1
+  ) => {
     ctx.save();
     ctx.translate(x, y);
-    if (!stuck) ctx.rotate(angle);
+    ctx.rotate(angle);
     ctx.scale(scaleFactor * 0.6, scaleFactor * 0.6);
 
-    // оперение
     const grad = ctx.createLinearGradient(-15, -35, 15, -35);
     grad.addColorStop(0, '#e74c3c');
     grad.addColorStop(1, '#c0392b');
@@ -89,12 +164,10 @@ const DartGame: React.FC = () => {
     ctx.closePath();
     ctx.fill();
 
-    // тело
-    ctx.fillStyle = '#bdc3c7';
+    ctx.fillStyle = '#cbd5e1';
     ctx.fillRect(-3, -12, 6, 38);
 
-    // наконечник
-    ctx.strokeStyle = '#2c3e50';
+    ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(0, 26);
@@ -104,134 +177,213 @@ const DartGame: React.FC = () => {
     ctx.restore();
   };
 
-  const drawBoard = useCallback((ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number, shake: number) => {
-    const s = (Math.random() - 0.5) * shake;
-    const boardY = cy + game.current.boardOffsetY;
+  // Кончик именно с той стороны, которая ВТЫКАЕТСЯ
+  const getDartTipPosition = (
+    x: number,
+    y: number,
+    angle: number,
+    scaleFactor: number
+  ) => {
+    const tipLen = DART_TIP_LENGTH * scaleFactor;
 
-    // внешний бордюр
-    ctx.fillStyle = '#2c1810';
-    ctx.beginPath();
-    ctx.arc(cx + s, boardY + s, 215 * scale, 0, Math.PI * 2);
-    ctx.fill();
+    return {
+      x: x - Math.sin(angle) * tipLen,
+      y: y + Math.cos(angle) * tipLen,
+    };
+  };
 
-    ctx.fillStyle = '#8B4513';
-    ctx.beginPath();
-    ctx.arc(cx + s, boardY + s, 205 * scale, 0, Math.PI * 2);
-    ctx.fill();
+  const drawBoard = useCallback(
+    (ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number, shake: number) => {
+      const s = (Math.random() - 0.5) * shake;
+      const boardY = cy + game.current.boardOffsetY;
 
-    SECTORS.forEach((val, i) => {
-      const ang = ((i * 18 - 90) * Math.PI) / 180;
-      const nextAng = (((i + 1) * 18 - 90) * Math.PI) / 180;
-
-      ctx.fillStyle = i % 2 === 0 ? COLORS.black : COLORS.white;
+      ctx.fillStyle = '#2c1810';
       ctx.beginPath();
-      ctx.moveTo(cx, boardY);
-      ctx.arc(cx, boardY, 170 * scale, ang, nextAng);
+      ctx.arc(cx + s, boardY + s, 215 * scale, 0, Math.PI * 2);
       ctx.fill();
 
-      // double
-      ctx.fillStyle = i % 2 === 0 ? '#e74c3c' : '#27ae60';
+      ctx.fillStyle = '#8B4513';
       ctx.beginPath();
-      ctx.arc(cx, boardY, 175 * scale, ang, nextAng);
-      ctx.arc(cx, boardY, 165 * scale, nextAng, ang, true);
+      ctx.arc(cx + s, boardY + s, 205 * scale, 0, Math.PI * 2);
       ctx.fill();
 
-      // triple
-      ctx.fillStyle = i % 2 === 0 ? '#e74c3c' : '#27ae60';
+      const ringGlow = ctx.createRadialGradient(cx, boardY, 60 * scale, cx, boardY, 210 * scale);
+      ringGlow.addColorStop(0, 'rgba(255,255,255,0.02)');
+      ringGlow.addColorStop(1, 'rgba(0,0,0,0.12)');
+      ctx.fillStyle = ringGlow;
       ctx.beginPath();
-      ctx.arc(cx, boardY, 115 * scale, ang, nextAng);
-      ctx.arc(cx, boardY, 105 * scale, nextAng, ang, true);
+      ctx.arc(cx, boardY, 205 * scale, 0, Math.PI * 2);
       ctx.fill();
 
-      // цифры
-      ctx.save();
-      ctx.translate(cx, boardY);
-      ctx.rotate(ang + 9 * Math.PI / 180);
-      ctx.translate(195 * scale, 0);
-      ctx.rotate(Math.PI / 2);
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${18 * scale}px Inter, system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowBlur = 4;
-      ctx.shadowColor = '#000';
-      ctx.fillText(val.toString(), 0, 0);
-      ctx.restore();
-    });
+      SECTORS.forEach((val, i) => {
+        const ang = ((i * 18 - 90) * Math.PI) / 180;
+        const nextAng = (((i + 1) * 18 - 90) * Math.PI) / 180;
 
-    // центр
-    ctx.fillStyle = '#27ae60';
-    ctx.beginPath();
-    ctx.arc(cx, boardY, 19 * scale, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#e74c3c';
-    ctx.beginPath();
-    ctx.arc(cx, boardY, 9 * scale, 0, Math.PI * 2);
-    ctx.fill();
-  }, []);
+        ctx.fillStyle = i % 2 === 0 ? COLORS.black : COLORS.white;
+        ctx.beginPath();
+        ctx.moveTo(cx, boardY);
+        ctx.arc(cx, boardY, 170 * scale, ang, nextAng);
+        ctx.fill();
 
-  // ==================== СВАЙП ====================
-  const swipeData = useRef({ startX: 0, startY: 0, isSwiping: false, lastY: 0, velocity: 0 });
+        ctx.fillStyle = i % 2 === 0 ? COLORS.red : COLORS.green;
+        ctx.beginPath();
+        ctx.arc(cx, boardY, 175 * scale, ang, nextAng);
+        ctx.arc(cx, boardY, 165 * scale, nextAng, ang, true);
+        ctx.fill();
+
+        ctx.fillStyle = i % 2 === 0 ? COLORS.red : COLORS.green;
+        ctx.beginPath();
+        ctx.arc(cx, boardY, 115 * scale, ang, nextAng);
+        ctx.arc(cx, boardY, 105 * scale, nextAng, ang, true);
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(cx, boardY);
+        ctx.rotate(ang + (9 * Math.PI) / 180);
+        ctx.translate(194 * scale, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${18 * scale}px Inter, system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = '#000';
+        ctx.fillText(val.toString(), 0, 0);
+        ctx.restore();
+      });
+
+      ctx.fillStyle = COLORS.green;
+      ctx.beginPath();
+      ctx.arc(cx, boardY, 19 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLORS.red;
+      ctx.beginPath();
+      ctx.arc(cx, boardY, 9 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    },
+    []
+  );
+
+  const swipeData = useRef({
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    isSwiping: false,
+    velocity: 0,
+    sideDrift: 0,
+    totalDx: 0,
+    totalDy: 0,
+  });
 
   const handleStart = (e: React.TouchEvent | React.MouseEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
+    if (turnLocked || winner !== null || game.current.flyingDart) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const x = (clientX - rect.left) * (canvas.width / rect.width);
+    const y = (clientY - rect.top) * (canvas.height / rect.height);
 
-    const y = (clientY - rect.top) * (canvasRef.current!.height / rect.height);
-
-    // Свайп только из нижней трети экрана
-    if (y > game.current.height * 0.65) {
+    if (y > game.current.height * 0.58) {
       swipeData.current = {
-        startX: (clientX - rect.left) * (canvasRef.current!.width / rect.width),
+        startX: x,
         startY: y,
-        isSwiping: true,
+        lastX: x,
         lastY: y,
+        isSwiping: true,
         velocity: 0,
+        sideDrift: 0,
+        totalDx: 0,
+        totalDy: 0,
       };
     }
   };
 
   const handleMove = (e: React.TouchEvent | React.MouseEvent) => {
     if (!swipeData.current.isSwiping) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const rect = canvasRef.current!.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const x = (clientX - rect.left) * (canvas.width / rect.width);
+    const y = (clientY - rect.top) * (canvas.height / rect.height);
 
-    const y = (clientY - rect.top) * (canvasRef.current!.height / rect.height);
-
-    const dy = swipeData.current.lastY - y; // вверх = положительное
+    const dy = swipeData.current.lastY - y;
     swipeData.current.velocity = Math.max(swipeData.current.velocity, dy);
+    swipeData.current.sideDrift = x - swipeData.current.startX;
+    swipeData.current.totalDx = x - swipeData.current.startX;
+    swipeData.current.totalDy = swipeData.current.startY - y;
+    swipeData.current.lastX = x;
     swipeData.current.lastY = y;
   };
 
-  const handleEnd = () => {
-    if (!swipeData.current.isSwiping) return;
-    const { startX, velocity } = swipeData.current;
-
-    if (velocity > 8) { // минимальная сила
-      const power = Math.min(velocity * 1.8, 100); // 0..100
-
-      const dx = (startX - game.current.width / 2) * 0.6; // небольшое отклонение
-      const targetX = game.current.centerX + dx * (power / 60);
-      const targetY = game.current.centerY - 40; // чуть выше центра
-
-      game.current.flyingDart = {
-        startX: game.current.width / 2,
-        startY: game.current.height - 80,
-        targetX,
-        targetY,
-        progress: 0,
-        power,
-      };
-
-      game.current.boardOffsetY = -55; // доска "приближается"
+  const finishThrow = useCallback(() => {
+    const { velocity, sideDrift, totalDx, totalDy } = swipeData.current;
+    if (velocity <= 5 || turnLocked || winner !== null) {
+      swipeData.current.isSwiping = false;
+      return;
     }
 
+    const g = game.current;
+
+    // Намного чувствительнее к длине свайпа
+    const power = clamp(totalDy * 0.78 + velocity * 1.1, 0, 100);
+
+    // Намного чувствительнее к углу/горизонтали
+    const horizontalIntent = clamp(totalDx / 85, -1.8, 1.8);
+
+    // Слабый свайп = летит ниже, сильный = выше
+    const verticalPower = clamp(totalDy / 260, 0, 1.35);
+
+    // Слабый свайп ещё и менее точный
+    const precision = clamp(power / 100, 0.08, 1);
+    const spread = (1 - precision) * 110;
+
+    const randomX = (Math.random() - 0.5) * spread;
+    const randomY = (Math.random() - 0.5) * spread;
+
+    const baseTargetX =
+      g.centerX +
+      horizontalIntent * 165 +
+      sideDrift * 0.12;
+
+    // Вот тут слабый свайп реально целит ниже, сильный — выше
+    const baseTargetY =
+      g.centerY + 135 - verticalPower * 250;
+
+    const targetX = baseTargetX + randomX;
+    const targetY = baseTargetY + randomY;
+
+    const rawTravelAngle =
+      -Math.atan2(targetY - (g.height - 72), targetX - g.width / 2) + Math.PI / 2;
+
+    g.flyingDart = {
+      startX: g.width / 2,
+      startY: g.height - 72,
+      targetX,
+      targetY,
+      progress: 0,
+      power,
+      travelAngle: rawTravelAngle,
+      curveX: clamp(horizontalIntent * 60, -80, 80),
+      launchTilt: rawTravelAngle + clamp(horizontalIntent * 0.22, -0.3, 0.3),
+    };
+
+    g.boardOffsetY = -24;
+    setTurnLocked(true);
     swipeData.current.isSwiping = false;
+  }, [turnLocked, winner]);
+
+  const handleEnd = () => {
+    finishThrow();
   };
 
-  // ==================== АНИМАЦИЯ ====================
   const draw = useCallback(() => {
     const g = game.current;
     const ctx = g.ctx;
@@ -239,93 +391,182 @@ const DartGame: React.FC = () => {
 
     ctx.clearRect(0, 0, g.width, g.height);
 
-    // Фон
     const bg = ctx.createLinearGradient(0, 0, 0, g.height);
-    bg.addColorStop(0, '#0a0a1a');
-    bg.addColorStop(1, '#16213e');
+    bg.addColorStop(0, COLORS.bgTop);
+    bg.addColorStop(1, COLORS.bgBottom);
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, g.width, g.height);
 
-    const boardCenterY = g.height * 0.45 + g.boardOffsetY;
+    const vignette = ctx.createRadialGradient(
+      g.width / 2,
+      g.height * 0.38,
+      60,
+      g.width / 2,
+      g.height * 0.38,
+      g.width * 0.9
+    );
+    vignette.addColorStop(0, 'rgba(255,255,255,0.05)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, g.width, g.height);
 
+    const boardCenterY = g.height * 0.43 + g.boardOffsetY;
     drawBoard(ctx, g.width / 2, boardCenterY, g.scale, g.shake);
 
-    // Дротики на доске
     dartsOnBoard.forEach(d => {
-      drawDart(ctx, d.x, d.y + g.boardOffsetY, 0, g.scale * 0.9, true);
+      drawDart(ctx, d.x, d.y + g.boardOffsetY, d.angle ?? 0, g.scale * 0.9);
       if (d.hit) {
-        ctx.fillStyle = '#f1c40f';
-        ctx.font = `${14 * g.scale}px monospace`;
+        ctx.fillStyle = '#f8d66d';
+        ctx.font = `${13 * g.scale}px Inter, system-ui`;
         ctx.shadowBlur = 6;
-        ctx.fillText(d.hit.label, d.x - 25, d.y - 35 + g.boardOffsetY);
+        ctx.shadowColor = '#000';
+        ctx.fillText(d.hit.label, d.x - 18, d.y - 28 + g.boardOffsetY);
       }
     });
 
-    // Летящий дротик
     if (g.flyingDart) {
       const d = g.flyingDart;
-      d.progress += 0.022 * (d.power / 50 + 0.6);
 
-      if (d.progress >= 1) {
-        const hit = getHitDetails(d.targetX, d.targetY + g.boardOffsetY);
-        setHitEffect({ x: d.targetX, y: d.targetY + g.boardOffsetY, type: hit.points > 0 ? 'hit' : 'miss' });
+      d.progress += 0.012 + (d.power / 100) * 0.01;
+      const t = Math.min(d.progress, 1);
+
+      const ease = t * t * (3 - 2 * t);
+
+      const curX =
+        d.startX +
+        (d.targetX - d.startX) * ease +
+        Math.sin(t * Math.PI) * d.curveX * (1 - 0.1 * t);
+
+      const parabola = Math.sin(t * Math.PI) * (128 * (0.55 + d.power / 100));
+      const curY = d.startY + (d.targetY - d.startY) * ease - parabola;
+
+      const currentAngle = d.launchTilt + (d.travelAngle - d.launchTilt) * ease;
+      const currentScale = g.scale * (0.64 + ease * 0.84);
+
+      if (t >= 1) {
+        const stuckScale = g.scale * 0.9;
+        const tip = getDartTipPosition(
+          d.targetX,
+          d.targetY + g.boardOffsetY,
+          d.travelAngle,
+          stuckScale
+        );
+
+        const hit = getHitDetails(tip.x, tip.y);
+
+        setHitEffect({
+          x: tip.x,
+          y: tip.y,
+          type: hit.points > 0 ? 'hit' : 'miss',
+        });
         setLastHit(hit);
+        setLastHitText(`${hit.label} = ${hit.points} pts`);
+        spawnImpactParticles(tip.x, tip.y, hit);
 
-        const newScore = Math.max(0, players[currentPlayerIndex] - hit.points);
         setPlayers(prev => {
-          const newP = [...prev];
-          newP[currentPlayerIndex] = newScore;
-          return newP;
+          const next = [...prev];
+          const current = next[currentPlayerIndex];
+          next[currentPlayerIndex] = Math.max(0, current - hit.points);
+          return next;
         });
 
-        setDartsOnBoard(prev => [...prev, { x: d.targetX, y: d.targetY + g.boardOffsetY, hit }]);
+        setDartsOnBoard(prev => [
+          ...prev,
+          {
+            x: d.targetX,
+            y: d.targetY + g.boardOffsetY,
+            hit,
+            angle: d.travelAngle,
+          },
+        ]);
 
         g.flyingDart = null;
-        g.shake = hit.points > 0 ? 18 : 8;
-
-        setTimeout(() => setHitEffect(null), 700);
+        g.shake = hit.points > 0 ? 10 : 5;
+        window.setTimeout(() => setHitEffect(null), 550);
 
         const nextDarts = dartsThrownThisTurn + 1;
         setDartsThrownThisTurn(nextDarts);
 
-        if (nextDarts >= 3) {
-          setTimeout(() => {
-            setCurrentPlayerIndex(1 - currentPlayerIndex);
+        const nextScore = Math.max(0, players[currentPlayerIndex] - hit.points);
+        if (nextScore === 0) {
+          window.setTimeout(() => {
+            setWinner(currentPlayerIndex);
+            setTurnLocked(false);
+          }, 500);
+        } else if (nextDarts >= DARTS_PER_TURN) {
+          if (turnTimeoutRef.current) window.clearTimeout(turnTimeoutRef.current);
+          turnTimeoutRef.current = window.setTimeout(() => {
+            setCurrentPlayerIndex(prev => 1 - prev);
             setDartsThrownThisTurn(0);
             setDartsOnBoard([]);
+            setTurnLocked(false);
           }, 900);
+        } else {
+          window.setTimeout(() => setTurnLocked(false), 420);
         }
       } else {
-        const t = d.progress;
-        const ease = 1 - Math.pow(1 - t, 3);
-        const curX = d.startX + (d.targetX - d.startX) * ease;
-        const parabola = Math.sin(t * Math.PI) * (120 * (d.power / 80));
-        const curY = d.startY + (d.targetY - d.startY) * ease - parabola;
-
-        const angle = -Math.atan2(d.targetY - d.startY, d.targetX - d.startX) + Math.PI / 2;
-
-        drawDart(ctx, curX, curY, angle, g.scale * (0.7 + t * 0.9), false);
+        drawDart(ctx, curX, curY, currentAngle, currentScale);
       }
     }
 
-    // Эффект попадания
-    if (hitEffect) {
-      ctx.save();
-      ctx.translate(0, g.boardOffsetY);
+    particlesRef.current.forEach(p => {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(hitEffect.x, hitEffect.y, 32 * g.scale, 0, Math.PI * 2);
-      ctx.fillStyle = hitEffect.type === 'hit' ? 'rgba(241,196,15,0.4)' : 'rgba(231,76,60,0.4)';
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
+    });
+    ctx.globalAlpha = 1;
+
+    if (hitEffect) {
+      ctx.beginPath();
+      ctx.arc(hitEffect.x, hitEffect.y, 18 * g.scale, 0, Math.PI * 2);
+      ctx.fillStyle = hitEffect.type === 'hit' ? 'rgba(241,196,15,0.28)' : 'rgba(231,76,60,0.22)';
+      ctx.fill();
     }
 
-    if (g.shake > 0) g.shake *= 0.85;
+    if (g.shake > 0) g.shake *= 0.9;
     if (Math.abs(g.boardOffsetY) > 0.5) g.boardOffsetY *= 0.9;
+    else g.boardOffsetY = 0;
+
+    particlesRef.current.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.97;
+      p.vy *= 0.97;
+      p.life -= 0.025;
+    });
+    particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
     g.animationId = requestAnimationFrame(draw);
-  }, [dartsOnBoard, players, currentPlayerIndex, dartsThrownThisTurn, drawBoard]);
+  }, [
+    dartsOnBoard,
+    drawBoard,
+    dartsThrownThisTurn,
+    getHitDetails,
+    hitEffect,
+    players,
+    currentPlayerIndex,
+  ]);
 
-  // ==================== RESIZE ====================
+  useEffect(() => {
+    const preventDefault = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && rootRef.current?.contains(target)) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => document.removeEventListener('touchmove', preventDefault);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (turnTimeoutRef.current) window.clearTimeout(turnTimeoutRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const resize = () => {
       const canvas = canvasRef.current;
@@ -341,8 +582,8 @@ const DartGame: React.FC = () => {
       g.height = height;
       g.ctx = canvas.getContext('2d', { alpha: true })!;
       g.centerX = width / 2;
-      g.centerY = height * 0.45;
-      g.scale = Math.min(width / BOARD_SIZE * 0.9, (height * 0.75) / BOARD_SIZE);
+      g.centerY = height * 0.43;
+      g.scale = Math.min((width / BOARD_SIZE) * 0.8, (height * 0.62) / BOARD_SIZE);
     };
 
     window.addEventListener('resize', resize);
@@ -355,35 +596,69 @@ const DartGame: React.FC = () => {
     };
   }, [draw]);
 
+  const restart = () => {
+    setPlayers([START_SCORE, START_SCORE]);
+    setCurrentPlayerIndex(0);
+    setDartsThrownThisTurn(0);
+    setLastHit(null);
+    setLastHitText('');
+    setHitEffect(null);
+    setDartsOnBoard([]);
+    setTurnLocked(false);
+    setWinner(null);
+    particlesRef.current = [];
+    game.current.flyingDart = null;
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a1a] text-white overflow-hidden font-sans select-none">
-      {/* Header */}
-      <header className="h-20 flex items-center justify-between px-6 bg-black/50 backdrop-blur-md border-b border-white/10 z-20">
-        <div className="text-center">
-          <div className="text-xs text-white/50">PLAYER 1</div>
-          <div className={`text-5xl font-black tracking-tighter ${currentPlayerIndex === 0 ? 'text-emerald-400' : 'text-white/60'}`}>
-            {players[0]}
-          </div>
-        </div>
+    <div
+      ref={rootRef}
+      className="flex flex-col h-[calc(100vh-180px)] bg-[#09101d] text-white overflow-hidden font-sans select-none rounded-[28px]"
+    >
+      <header className="shrink-0 px-3 pt-3 pb-2 z-20">
+        <div className="rounded-[26px] bg-black/35 backdrop-blur-md border border-white/10 px-3 py-3 shadow-2xl">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="min-w-0 text-center">
+              <div className="text-[10px] tracking-[0.22em] text-white/55 uppercase">Player 1</div>
+              <div
+                className={`leading-none font-black ${
+                  currentPlayerIndex === 0 ? 'text-emerald-400' : 'text-white/60'
+                }`}
+                style={{ fontSize: '34px' }}
+              >
+                {players[0]}
+              </div>
+            </div>
 
-        <div className="text-center">
-          <div className="text-amber-400 text-xl font-bold">PLAYER {currentPlayerIndex + 1}</div>
-          <div className="text-xs text-white/40">{3 - dartsThrownThisTurn} darts left</div>
-        </div>
+            <div className="rounded-2xl bg-white/8 px-3 py-2 text-center min-w-[112px]">
+              <div className="text-[11px] font-bold tracking-[0.18em] text-amber-300 uppercase">
+                P{currentPlayerIndex + 1} turn
+              </div>
+              <div className="text-xs text-white/55 mt-1">
+                {DARTS_PER_TURN - dartsThrownThisTurn} darts left
+              </div>
+            </div>
 
-        <div className="text-center">
-          <div className="text-xs text-white/50">PLAYER 2</div>
-          <div className={`text-5xl font-black tracking-tighter ${currentPlayerIndex === 1 ? 'text-emerald-400' : 'text-white/60'}`}>
-            {players[1]}
+            <div className="min-w-0 text-center">
+              <div className="text-[10px] tracking-[0.22em] text-white/55 uppercase">Player 2</div>
+              <div
+                className={`leading-none font-black ${
+                  currentPlayerIndex === 1 ? 'text-emerald-400' : 'text-white/60'
+                }`}
+                style={{ fontSize: '34px' }}
+              >
+                {players[1]}
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* Игра */}
-      <main ref={containerRef} className="flex-1 relative touch-none">
+      <main ref={containerRef} className="flex-1 relative min-h-0 touch-none">
         <canvas
           ref={canvasRef}
-          className="w-full h-full"
+          className="w-full h-full touch-none"
+          style={{ touchAction: 'none' }}
           onTouchStart={handleStart}
           onTouchMove={handleMove}
           onTouchEnd={handleEnd}
@@ -392,23 +667,52 @@ const DartGame: React.FC = () => {
           onMouseUp={handleEnd}
         />
 
-        {/* Подсказка */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/40 text-sm tracking-widest pointer-events-none">
-          SWIPE UP TO THROW
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-full bg-white/8 border border-white/10 px-4 py-2 text-white/55 text-[11px] tracking-[0.18em] uppercase pointer-events-none backdrop-blur-md">
+          Swipe up to throw
         </div>
       </main>
 
       <AnimatePresence>
-        {lastHit && (
+        {lastHit && winner === null && (
           <motion.div
-            initial={{ opacity: 0, y: 40 }}
+            key={`${lastHit.label}-${lastHit.points}-${dartsThrownThisTurn}`}
+            initial={{ opacity: 0, y: 22 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 40 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-black/80 px-8 py-3 rounded-3xl border border-amber-400/30 shadow-2xl"
+            exit={{ opacity: 0, y: 22 }}
+            className="pointer-events-none absolute left-1/2 bottom-20 -translate-x-1/2 bg-black/75 px-6 py-3 rounded-3xl border border-amber-300/25 shadow-2xl"
           >
-            <span className="text-3xl font-black text-amber-400">
-              {lastHit.label} <span className="text-xl">+{lastHit.points}</span>
-            </span>
+            <span className="text-2xl font-black text-amber-300">{lastHitText}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {winner !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/72 backdrop-blur-md flex items-center justify-center z-30"
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="rounded-[28px] bg-white px-8 py-9 text-center shadow-2xl max-w-[320px]"
+            >
+              <div className="text-xs font-bold uppercase tracking-[0.28em] text-slate-400">
+                Game Over
+              </div>
+              <div className="mt-3 text-4xl font-black text-slate-900">
+                Player {winner + 1} wins
+              </div>
+              <div className="mt-3 text-slate-600">Final score: {players[winner]}</div>
+              <button
+                onClick={restart}
+                className="mt-8 rounded-full bg-sky-600 px-6 py-3 text-white font-bold hover:bg-sky-500 transition"
+              >
+                Restart Match
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
