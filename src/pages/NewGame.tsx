@@ -207,7 +207,7 @@ const DartGame: React.FC = () => {
 
   const handleEnd = () => {
     if (!swipeData.current.isSwiping) return;
-    const { startX, startY, velocity } = swipeData.current;
+    const { startX, velocity } = swipeData.current;
 
     if (velocity > 8) { // минимальная сила
       const power = Math.min(velocity * 1.8, 100); // 0..100
