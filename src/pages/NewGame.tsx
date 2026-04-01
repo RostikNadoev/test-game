@@ -196,10 +196,8 @@ const DartGame: React.FC = () => {
     if (!swipeData.current.isSwiping) return;
 
     const rect = canvasRef.current!.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-    const x = (clientX - rect.left) * (canvasRef.current!.width / rect.width);
     const y = (clientY - rect.top) * (canvasRef.current!.height / rect.height);
 
     const dy = swipeData.current.lastY - y; // вверх = положительное
