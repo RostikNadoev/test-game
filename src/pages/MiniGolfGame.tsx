@@ -7,8 +7,9 @@ const BALL_R = 12;
 const HOLE_R = 17;
 const FRICTION = 0.985;
 const MIN_SPEED = 0.05;
-const MAX_POWER = 24;
-const AIM_MAX = 140;
+const MAX_POWER = 17;
+const AIM_MAX = 170;
+const TOTAL_HOLES = 3;
 
 type Vec = { x: number; y: number };
 type Rect = { x: number; y: number; w: number; h: number };
@@ -32,8 +33,17 @@ type BallState = {
   color: string;
   trail: Vec[];
   shots: number;
+  totalShots: number;
   done: boolean;
   name: string;
+};
+
+type HoleConfig = {
+  hole: Vec;
+  spawn: Vec;
+  walls: Rect[];
+  waters: Water[];
+  bumpers: Bumper[];
 };
 
 function clamp(v: number, min: number, max: number) {
@@ -59,60 +69,150 @@ function pointInRect(px: number, py: number, rect: Rect) {
   return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
 }
 
-const walls: Rect[] = [
-  { x: 110, y: 130, w: 500, h: 18 },
-  { x: 98, y: 130, w: 18, h: 370 },
-  { x: 604, y: 130, w: 18, h: 370 },
-  { x: 270, y: 210, w: 18, h: 230 },
-  { x: 438, y: 400, w: 18, h: 220 },
-  { x: 110, y: 700, w: 18, h: 280 },
-  { x: 604, y: 700, w: 18, h: 280 },
-  { x: 270, y: 820, w: 18, h: 170 },
-  { x: 438, y: 820, w: 18, h: 170 },
-  { x: 280, y: 990, w: 160, h: 14 },
+const holeConfigs: HoleConfig[] = [
+  {
+    hole: { x: 168, y: 235 },
+    spawn: { x: 548, y: 305 },
+    walls: [
+      { x: 110, y: 130, w: 500, h: 18 },
+      { x: 98, y: 130, w: 18, h: 370 },
+      { x: 604, y: 130, w: 18, h: 370 },
+      { x: 270, y: 210, w: 18, h: 230 },
+      { x: 438, y: 400, w: 18, h: 220 },
+      { x: 110, y: 700, w: 18, h: 280 },
+      { x: 604, y: 700, w: 18, h: 280 },
+      { x: 270, y: 820, w: 18, h: 170 },
+      { x: 438, y: 820, w: 18, h: 170 },
+      { x: 280, y: 990, w: 160, h: 14 },
+    ],
+    waters: [
+      { x: 286, y: 196, w: 132, h: 82 },
+      { x: 270, y: 756, w: 180, h: 104 },
+      { x: 100, y: 514, w: 170, h: 75 },
+      { x: 448, y: 545, w: 158, h: 75 },
+    ],
+    bumpers: [
+      { x: 364, y: 635, r: 22, color: '#fbbf24' },
+      { x: 173, y: 845, r: 20, color: '#fbbf24' },
+      { x: 548, y: 348, r: 20, color: '#f59e0b' },
+    ],
+  },
+  {
+    hole: { x: 530, y: 240 },
+    spawn: { x: 190, y: 920 },
+    walls: [
+      { x: 110, y: 130, w: 500, h: 18 },
+      { x: 98, y: 130, w: 18, h: 850 },
+      { x: 604, y: 130, w: 18, h: 850 },
+      { x: 188, y: 320, w: 250, h: 18 },
+      { x: 438, y: 320, w: 18, h: 170 },
+      { x: 280, y: 520, w: 260, h: 18 },
+      { x: 188, y: 690, w: 18, h: 180 },
+      { x: 188, y: 870, w: 260, h: 18 },
+      { x: 520, y: 690, w: 18, h: 180 },
+    ],
+    waters: [
+      { x: 110, y: 206, w: 110, h: 86 },
+      { x: 470, y: 560, w: 134, h: 95 },
+      { x: 222, y: 734, w: 190, h: 94 },
+    ],
+    bumpers: [
+      { x: 250, y: 420, r: 21, color: '#fbbf24' },
+      { x: 515, y: 440, r: 21, color: '#f59e0b' },
+      { x: 360, y: 618, r: 22, color: '#fbbf24' },
+    ],
+  },
+  {
+    hole: { x: 356, y: 212 },
+    spawn: { x: 356, y: 930 },
+    walls: [
+      { x: 110, y: 130, w: 500, h: 18 },
+      { x: 98, y: 130, w: 18, h: 850 },
+      { x: 604, y: 130, w: 18, h: 850 },
+      { x: 180, y: 292, w: 18, h: 200 },
+      { x: 522, y: 292, w: 18, h: 200 },
+      { x: 180, y: 492, w: 130, h: 18 },
+      { x: 410, y: 492, w: 130, h: 18 },
+      { x: 280, y: 650, w: 18, h: 210 },
+      { x: 424, y: 650, w: 18, h: 210 },
+      { x: 220, y: 860, w: 280, h: 18 },
+    ],
+    waters: [
+      { x: 258, y: 285, w: 205, h: 92 },
+      { x: 110, y: 582, w: 120, h: 104 },
+      { x: 490, y: 582, w: 120, h: 104 },
+    ],
+    bumpers: [
+      { x: 355, y: 560, r: 24, color: '#fbbf24' },
+      { x: 220, y: 760, r: 20, color: '#f59e0b' },
+      { x: 490, y: 760, r: 20, color: '#f59e0b' },
+    ],
+  },
 ];
 
-const waters: Water[] = [
-  { x: 286, y: 196, w: 132, h: 82 },
-  { x: 270, y: 756, w: 180, h: 104 },
-  { x: 100, y: 514, w: 170, h: 75 },
-  { x: 448, y: 545, w: 158, h: 75 },
-];
+function createBall(name: string, color: string, spawn: Vec): BallState {
+  return {
+    x: spawn.x,
+    y: spawn.y,
+    vx: 0,
+    vy: 0,
+    color,
+    trail: [],
+    shots: 0,
+    totalShots: 0,
+    done: false,
+    name,
+  };
+}
 
-const bumpers: Bumper[] = [
-  { x: 364, y: 635, r: 22, color: '#fbbf24' },
-  { x: 173, y: 845, r: 20, color: '#fbbf24' },
-  { x: 548, y: 348, r: 20, color: '#f59e0b' },
-];
-
-const hole = { x: 168, y: 235 };
-const spawn1 = { x: 548, y: 305 };
-const spawn2 = { x: 190, y: 803 };
-
-export default function MiniGolfBeautiful() {
+export function MiniGolfBeautiful() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const pointerRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
+
   const [winner, setWinner] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [holeIndex, setHoleIndex] = useState(0);
+  const [activePlayer, setActivePlayer] = useState(0);
+  const [bodyLocked, setBodyLocked] = useState(false);
 
   const sparksRef = useRef<Spark[]>([]);
   const ballsRef = useRef<BallState[]>([
-    { x: spawn1.x, y: spawn1.y, vx: 0, vy: 0, color: '#ffd84d', trail: [], shots: 0, done: false, name: 'Jack' },
-    { x: spawn2.x, y: spawn2.y, vx: 0, vy: 0, color: '#ffffff', trail: [], shots: 0, done: false, name: 'Kirsten' },
+    createBall('Jack', '#ffd84d', holeConfigs[0].spawn),
+    createBall('Kirsten', '#ffffff', holeConfigs[0].spawn),
   ]);
 
   const scale = useMemo(() => {
-    const base = 0.62;
-    if (typeof window === 'undefined') return base;
-    return Math.min(base, window.innerWidth / 1100, window.innerHeight / 1320);
+    if (typeof window === 'undefined') return 0.8;
+    return Math.min(0.8, window.innerWidth / 820, (window.innerHeight - 120) / 1180);
   }, [refresh]);
 
   useEffect(() => {
     const onResize = () => setRefresh(v => v + 1);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevTouch = body.style.touchAction;
+    const prevOverscroll = (body.style as any).overscrollBehavior;
+
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.touchAction = 'none';
+    (body.style as any).overscrollBehavior = 'none';
+    setBodyLocked(true);
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.touchAction = prevTouch;
+      (body.style as any).overscrollBehavior = prevOverscroll;
+    };
   }, []);
 
   useEffect(() => {
@@ -125,21 +225,24 @@ export default function MiniGolfBeautiful() {
 
     const addSparks = (x: number, y: number, color: string, amount = 10) => {
       for (let i = 0; i < amount; i++) {
-        const a = (Math.PI * 2 * i) / amount + Math.random() * 0.6;
-        const s = 1 + Math.random() * 3.5;
+        const a = (Math.PI * 2 * i) / amount + Math.random() * 0.8;
+        const s = 0.7 + Math.random() * 3.1;
         sparksRef.current.push({
           x,
           y,
           vx: Math.cos(a) * s,
           vy: Math.sin(a) * s,
-          life: 0.8 + Math.random() * 0.4,
-          size: 2 + Math.random() * 4,
+          life: 0.7 + Math.random() * 0.35,
+          size: 2 + Math.random() * 3.5,
           color,
         });
       }
     };
 
-    const resetBall = (ball: BallState, spawn: Vec) => {
+    const currentHole = () => holeConfigs[holeIndex];
+
+    const resetBallToSpawn = (ball: BallState) => {
+      const spawn = currentHole().spawn;
       ball.x = spawn.x;
       ball.y = spawn.y;
       ball.vx = 0;
@@ -164,18 +267,18 @@ export default function MiniGolfBeautiful() {
 
       if (minOverlap === overlapX1) {
         ball.x = rect.x - BALL_R;
-        ball.vx = -Math.abs(ball.vx) * 0.9;
+        ball.vx = -Math.abs(ball.vx) * 0.88;
       } else if (minOverlap === overlapX2) {
         ball.x = rect.x + rect.w + BALL_R;
-        ball.vx = Math.abs(ball.vx) * 0.9;
+        ball.vx = Math.abs(ball.vx) * 0.88;
       } else if (minOverlap === overlapY1) {
         ball.y = rect.y - BALL_R;
-        ball.vy = -Math.abs(ball.vy) * 0.9;
+        ball.vy = -Math.abs(ball.vy) * 0.88;
       } else {
         ball.y = rect.y + rect.h + BALL_R;
-        ball.vy = Math.abs(ball.vy) * 0.9;
+        ball.vy = Math.abs(ball.vy) * 0.88;
       }
-      addSparks(ball.x, ball.y, '#ffffff', 5);
+      addSparks(ball.x, ball.y, '#ffffff', 4);
     };
 
     const resolveBumperCollision = (ball: BallState, bumper: Bumper) => {
@@ -189,39 +292,15 @@ export default function MiniGolfBeautiful() {
       ball.x = bumper.x + nx * minD;
       ball.y = bumper.y + ny * minD;
       const dot = ball.vx * nx + ball.vy * ny;
-      ball.vx = (ball.vx - 2 * dot * nx) * 0.94;
-      ball.vy = (ball.vy - 2 * dot * ny) * 0.94;
-      addSparks(ball.x, ball.y, bumper.color, 8);
+      ball.vx = (ball.vx - 2 * dot * nx) * 0.92;
+      ball.vy = (ball.vy - 2 * dot * ny) * 0.92;
+      addSparks(ball.x, ball.y, bumper.color, 7);
     };
 
-    const resolveBallBall = (a: BallState, b: BallState) => {
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const d = len(dx, dy);
-      const minD = BALL_R * 2;
-      if (d <= 0 || d >= minD) return;
-      const nx = dx / d;
-      const ny = dy / d;
-      const overlap = minD - d;
-      a.x -= nx * overlap * 0.5;
-      a.y -= ny * overlap * 0.5;
-      b.x += nx * overlap * 0.5;
-      b.y += ny * overlap * 0.5;
-
-      const dvx = b.vx - a.vx;
-      const dvy = b.vy - a.vy;
-      const impact = dvx * nx + dvy * ny;
-      if (impact > 0) return;
-      const impulse = -impact * 0.95;
-      a.vx -= impulse * nx;
-      a.vy -= impulse * ny;
-      b.vx += impulse * nx;
-      b.vy += impulse * ny;
-      addSparks((a.x + b.x) / 2, (a.y + b.y) / 2, '#fde68a', 10);
-    };
-
-    const updateBall = (ball: BallState, spawn: Vec) => {
+    const updateBall = (ball: BallState) => {
+      const config = currentHole();
       if (ball.done) return;
+
       ball.x += ball.vx;
       ball.y += ball.vy;
       ball.vx *= FRICTION;
@@ -231,46 +310,46 @@ export default function MiniGolfBeautiful() {
 
       if (ball.x < 106 + BALL_R) {
         ball.x = 106 + BALL_R;
-        ball.vx = Math.abs(ball.vx) * 0.9;
+        ball.vx = Math.abs(ball.vx) * 0.88;
       }
       if (ball.x > 614 - BALL_R) {
         ball.x = 614 - BALL_R;
-        ball.vx = -Math.abs(ball.vx) * 0.9;
+        ball.vx = -Math.abs(ball.vx) * 0.88;
       }
       if (ball.y < 138 + BALL_R) {
         ball.y = 138 + BALL_R;
-        ball.vy = Math.abs(ball.vy) * 0.9;
+        ball.vy = Math.abs(ball.vy) * 0.88;
       }
       if (ball.y > 1072 - BALL_R) {
         ball.y = 1072 - BALL_R;
-        ball.vy = -Math.abs(ball.vy) * 0.9;
+        ball.vy = -Math.abs(ball.vy) * 0.88;
       }
 
-      walls.forEach(rect => resolveWallCollision(ball, rect));
-      bumpers.forEach(b => resolveBumperCollision(ball, b));
+      config.walls.forEach(rect => resolveWallCollision(ball, rect));
+      config.bumpers.forEach(b => resolveBumperCollision(ball, b));
 
-      for (const water of waters) {
+      for (const water of config.waters) {
         if (pointInRect(ball.x, ball.y, water)) {
-          resetBall(ball, spawn);
+          resetBallToSpawn(ball);
           return;
         }
       }
 
-      const hx = ball.x - hole.x;
-      const hy = ball.y - hole.y;
+      const hx = ball.x - config.hole.x;
+      const hy = ball.y - config.hole.y;
       const hd = len(hx, hy);
       const speed = len(ball.vx, ball.vy);
-      if (hd < HOLE_R && speed < 2.5) {
+      if (hd < HOLE_R && speed < 2.2) {
         ball.done = true;
         ball.vx = 0;
         ball.vy = 0;
-        ball.x = hole.x;
-        ball.y = hole.y;
-        addSparks(hole.x, hole.y, '#22c55e', 20);
+        ball.x = config.hole.x;
+        ball.y = config.hole.y;
+        addSparks(config.hole.x, config.hole.y, '#22c55e', 18);
       }
 
       ball.trail.push({ x: ball.x, y: ball.y });
-      if (ball.trail.length > 18) ball.trail.shift();
+      if (ball.trail.length > 15) ball.trail.shift();
     };
 
     const drawBackground = () => {
@@ -289,8 +368,7 @@ export default function MiniGolfBeautiful() {
 
       ctx.save();
       ctx.translate(60, 120);
-      const side = '#1471bf';
-      ctx.fillStyle = side;
+      ctx.fillStyle = '#1471bf';
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(24, 0);
@@ -309,7 +387,29 @@ export default function MiniGolfBeautiful() {
       ctx.restore();
     };
 
+    const drawWater = (w: Water) => {
+      const x = w.x - 95;
+      const y = w.y - 120;
+      const g = ctx.createLinearGradient(x, y, x, y + w.h);
+      g.addColorStop(0, '#85ebff');
+      g.addColorStop(0.4, '#2bc9ff');
+      g.addColorStop(1, '#0d97de');
+      ctx.fillStyle = g;
+      roundRect(ctx, x, y, w.w, w.h, 8);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(x + 6, y + 8, w.w - 12, 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.ellipse(x + 35 + i * ((w.w - 70) / 2), y + w.h / 2 + (i % 2 ? 8 : -2), 18, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+
     const drawCourse = () => {
+      const config = currentHole();
       ctx.save();
       ctx.translate(95, 120);
 
@@ -356,24 +456,9 @@ export default function MiniGolfBeautiful() {
         ctx.fill();
       }
 
-      waters.forEach(w => {
-        const waterGrad = ctx.createLinearGradient(w.x - 95, w.y - 120, w.x - 95, w.y - 120 + w.h);
-        waterGrad.addColorStop(0, '#49d1ff');
-        waterGrad.addColorStop(1, '#0f9fe8');
-        ctx.fillStyle = waterGrad;
-        ctx.fillRect(w.x - 95, w.y - 120, w.w, w.h);
-        ctx.fillStyle = 'rgba(255,255,255,0.22)';
-        ctx.fillRect(w.x - 95, w.y - 120 + 6, w.w, 5);
-        ctx.fillStyle = 'rgba(255,255,255,0.10)';
-        ctx.beginPath();
-        ctx.arc(w.x - 95 + 40, w.y - 120 + w.h / 2, 9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(w.x - 95 + w.w - 35, w.y - 120 + w.h / 2 + 8, 7, 0, Math.PI * 2);
-        ctx.fill();
-      });
+      config.waters.forEach(drawWater);
 
-      walls.forEach(rect => {
+      config.walls.forEach(rect => {
         const x = rect.x - 95;
         const y = rect.y - 120;
         const wallGrad = ctx.createLinearGradient(x, y, x, y + rect.h);
@@ -389,7 +474,7 @@ export default function MiniGolfBeautiful() {
         ctx.stroke();
       });
 
-      bumpers.forEach(b => {
+      config.bumpers.forEach(b => {
         const x = b.x - 95;
         const y = b.y - 120;
         const g = ctx.createRadialGradient(x - 4, y - 5, 2, x, y, b.r);
@@ -413,24 +498,24 @@ export default function MiniGolfBeautiful() {
 
       ctx.fillStyle = 'rgba(0,0,0,0.24)';
       ctx.beginPath();
-      ctx.arc(hole.x - 95 + 2, hole.y - 120 + 4, HOLE_R + 1, 0, Math.PI * 2);
+      ctx.arc(config.hole.x - 95 + 2, config.hole.y - 120 + 4, HOLE_R + 1, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(hole.x - 95, hole.y - 120, HOLE_R, 0, Math.PI * 2);
+      ctx.arc(config.hole.x - 95, config.hole.y - 120, HOLE_R, 0, Math.PI * 2);
       ctx.fillStyle = '#1b1f25';
       ctx.fill();
 
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(hole.x - 95, hole.y - 120 - 2);
-      ctx.lineTo(hole.x - 95, hole.y - 120 - 65);
+      ctx.moveTo(config.hole.x - 95, config.hole.y - 120 - 2);
+      ctx.lineTo(config.hole.x - 95, config.hole.y - 120 - 65);
       ctx.stroke();
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
-      ctx.moveTo(hole.x - 95, hole.y - 120 - 64);
-      ctx.lineTo(hole.x - 95 + 32, hole.y - 120 - 55);
-      ctx.lineTo(hole.x - 95, hole.y - 120 - 46);
+      ctx.moveTo(config.hole.x - 95, config.hole.y - 120 - 64);
+      ctx.lineTo(config.hole.x - 95 + 32, config.hole.y - 120 - 55);
+      ctx.lineTo(config.hole.x - 95, config.hole.y - 120 - 46);
       ctx.closePath();
       ctx.fill();
 
@@ -442,9 +527,9 @@ export default function MiniGolfBeautiful() {
       for (let i = 0; i < ball.trail.length; i++) {
         const p = ball.trail[i];
         const a = i / ball.trail.length;
-        ctx.globalAlpha = a * 0.35;
+        ctx.globalAlpha = a * 0.28;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4 + a * 4, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 3 + a * 4, 0, Math.PI * 2);
         ctx.fillStyle = ball.color;
         ctx.fill();
       }
@@ -477,7 +562,7 @@ export default function MiniGolfBeautiful() {
     };
 
     const drawAim = () => {
-      const ball = ballsRef.current[0];
+      const ball = ballsRef.current[activePlayer];
       if (winner || ball.done) return;
       const moving = Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0;
       if (!pointerRef.current.active || moving) return;
@@ -485,7 +570,7 @@ export default function MiniGolfBeautiful() {
       const dx = pointerRef.current.x - ball.x;
       const dy = pointerRef.current.y - ball.y;
       const d = Math.min(len(dx, dy), AIM_MAX);
-      if (d < 8) return;
+      if (d < 4) return;
       const nx = dx / Math.max(d, 1);
       const ny = dy / Math.max(d, 1);
 
@@ -499,7 +584,7 @@ export default function MiniGolfBeautiful() {
       ctx.setLineDash([]);
 
       ctx.beginPath();
-      ctx.arc(ball.x - nx * d, ball.y - ny * d, 14, 0, Math.PI * 2);
+      ctx.arc(ball.x - nx * d, ball.y - ny * d, 12 + (d / AIM_MAX) * 8, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,255,255,0.14)';
       ctx.fill();
     };
@@ -525,15 +610,37 @@ export default function MiniGolfBeautiful() {
 
     const step = () => {
       if (!winner) {
-        updateBall(ballsRef.current[0], spawn1);
-        updateBall(ballsRef.current[1], spawn2);
-        resolveBallBall(ballsRef.current[0], ballsRef.current[1]);
-        const allDone = ballsRef.current.every(b => b.done);
-        if (allDone) {
-          const [a, b] = ballsRef.current;
-          if (a.shots < b.shots) setWinner(a.name);
-          else if (b.shots < a.shots) setWinner(b.name);
-          else setWinner('Draw');
+        ballsRef.current.forEach(updateBall);
+
+        const active = ballsRef.current[activePlayer];
+        const moving = Math.abs(active.vx) > 0 || Math.abs(active.vy) > 0;
+        if (!moving && !pointerRef.current.active && !active.done) {
+          const other = activePlayer === 0 ? 1 : 0;
+          const otherBall = ballsRef.current[other];
+          if (!otherBall.done && (ballsRef.current[0].shots + ballsRef.current[1].shots > 0)) {
+            setActivePlayer(other);
+          }
+        }
+
+        if (ballsRef.current.every(b => b.done)) {
+          if (holeIndex < TOTAL_HOLES - 1) {
+            setTimeout(() => {
+              const nextHole = holeIndex + 1;
+              const nextConfig = holeConfigs[nextHole];
+              ballsRef.current = [
+                { ...ballsRef.current[0], x: nextConfig.spawn.x, y: nextConfig.spawn.y, vx: 0, vy: 0, trail: [], shots: 0, done: false },
+                { ...ballsRef.current[1], x: nextConfig.spawn.x, y: nextConfig.spawn.y, vx: 0, vy: 0, trail: [], shots: 0, done: false },
+              ];
+              pointerRef.current.active = false;
+              setActivePlayer(0);
+              setHoleIndex(nextHole);
+            }, 700);
+          } else {
+            const [a, b] = ballsRef.current;
+            if (a.totalShots + a.shots < b.totalShots + b.shots) setWinner(a.name);
+            else if (b.totalShots + b.shots < a.totalShots + a.shots) setWinner(b.name);
+            else setWinner('Draw');
+          }
         }
       }
 
@@ -551,11 +658,10 @@ export default function MiniGolfBeautiful() {
     };
 
     rafRef.current = requestAnimationFrame(step);
-
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [refresh, winner]);
+  }, [refresh, winner, holeIndex, activePlayer]);
 
   const toWorldPoint = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -568,88 +674,99 @@ export default function MiniGolfBeautiful() {
   };
 
   const strike = () => {
-    const ball = ballsRef.current[0];
+    const ball = ballsRef.current[activePlayer];
     if (winner || ball.done) return;
     if (Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0) return;
+
     const dx = pointerRef.current.x - ball.x;
     const dy = pointerRef.current.y - ball.y;
     const dist = Math.min(len(dx, dy), AIM_MAX);
-    if (dist < 10) return;
-    const nx = dx / dist;
-    const ny = dy / dist;
-    const power = (dist / AIM_MAX) * MAX_POWER;
+    if (dist < 4) return;
+    const nx = dx / Math.max(dist, 1);
+    const ny = dy / Math.max(dist, 1);
+    const strength = dist / AIM_MAX;
+    const power = Math.pow(strength, 1.8) * MAX_POWER;
+
     ball.vx = -nx * power;
     ball.vy = -ny * power;
     ball.shots += 1;
+    ball.totalShots += 1;
 
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 12; i++) {
       sparksRef.current.push({
         x: ball.x,
         y: ball.y,
-        vx: -nx * (1 + Math.random() * 4) + (Math.random() - 0.5) * 1.2,
-        vy: -ny * (1 + Math.random() * 4) + (Math.random() - 0.5) * 1.2,
-        life: 0.4 + Math.random() * 0.35,
-        size: 2 + Math.random() * 3,
+        vx: -nx * (0.4 + Math.random() * 2.6) + (Math.random() - 0.5),
+        vy: -ny * (0.4 + Math.random() * 2.6) + (Math.random() - 0.5),
+        life: 0.35 + Math.random() * 0.28,
+        size: 2 + Math.random() * 2.4,
         color: '#fff8bf',
       });
     }
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     const p = toWorldPoint(e.clientX, e.clientY);
     pointerRef.current = { active: true, x: p.x, y: p.y };
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!pointerRef.current.active) return;
+    e.preventDefault();
     const p = toWorldPoint(e.clientX, e.clientY);
     pointerRef.current.x = p.x;
     pointerRef.current.y = p.y;
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     strike();
     pointerRef.current.active = false;
   };
 
   const restart = () => {
+    const spawn = holeConfigs[0].spawn;
     setWinner(null);
+    setHoleIndex(0);
+    setActivePlayer(0);
     ballsRef.current = [
-      { x: spawn1.x, y: spawn1.y, vx: 0, vy: 0, color: '#ffd84d', trail: [], shots: 0, done: false, name: 'Jack' },
-      { x: spawn2.x, y: spawn2.y, vx: 0, vy: 0, color: '#ffffff', trail: [], shots: 0, done: false, name: 'Kirsten' },
+      createBall('Jack', '#ffd84d', spawn),
+      createBall('Kirsten', '#ffffff', spawn),
     ];
     sparksRef.current = [];
+    pointerRef.current.active = false;
     setRefresh(v => v + 1);
   };
 
-  const [p1, p2] = ballsRef.current;
+  const p1 = ballsRef.current[0];
+  const p2 = ballsRef.current[1];
+  const totalP1 = p1.totalShots;
+  const totalP2 = p2.totalShots;
 
   return (
-    <div className="min-h-screen w-full bg-black flex items-center justify-center px-4 py-8 overflow-hidden">
-      <div className="relative" ref={wrapRef}>
-        <div className="absolute -top-16 left-0 right-0 flex items-center justify-between text-white z-10">
-          <div className="flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 backdrop-blur-md shadow-lg">
-            <div className="grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black font-black">
-              5
-            </div>
-            <div>
-              <div className="text-3xl font-black leading-none">Jack</div>
-              <div className="text-sm text-white/80">{p1.shots} shots</div>
+    <div className="h-screen w-screen overflow-hidden bg-black flex items-center justify-center px-2 py-2 select-none">
+      <div className="relative">
+        <div className="absolute -top-14 left-0 right-0 flex items-center justify-between gap-2 text-white z-10">
+          <div className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${activePlayer === 0 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'}`}>
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black text-sm font-black">5</div>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-black leading-none">Jack</div>
+              <div className="text-[11px] text-white/80">{p1.shots} this hole • {totalP1} total</div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white/10 px-5 py-3 text-center backdrop-blur-md shadow-lg">
-            <div className="text-sm font-bold uppercase tracking-[0.25em] text-white/70">Hole</div>
-            <div className="text-4xl font-black leading-none">1 <span className="text-white/60 text-2xl">of 3</span></div>
+          <div className="rounded-2xl bg-white/10 px-4 py-2 text-center backdrop-blur-md shadow-lg shrink-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">Hole</div>
+            <div className="text-2xl font-black leading-none">{holeIndex + 1} <span className="text-white/60 text-base">of {TOTAL_HOLES}</span></div>
           </div>
 
-          <div className="flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 backdrop-blur-md shadow-lg">
-            <div className="text-right">
-              <div className="text-3xl font-black leading-none">Kirsten</div>
-              <div className="text-sm text-white/80">{p2.shots} shots</div>
+          <div className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${activePlayer === 1 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'}`}>
+            <div className="min-w-0 text-right">
+              <div className="truncate text-lg font-black leading-none">Kirsten</div>
+              <div className="text-[11px] text-white/80">{p2.shots} this hole • {totalP2} total</div>
             </div>
-            <div className="grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-yellow-500 text-black font-black">
-              6
-            </div>
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-yellow-500 text-black text-sm font-black">6</div>
           </div>
         </div>
 
@@ -661,18 +778,11 @@ export default function MiniGolfBeautiful() {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={() => (pointerRef.current.active = false)}
           onPointerLeave={() => (pointerRef.current.active = false)}
-          className="block rounded-[34px] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.5)] touch-none select-none"
-          style={{ width: WORLD_W * scale, height: WORLD_H * scale }}
+          className="block rounded-[34px] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.5)] touch-none"
+          style={{ width: WORLD_W * scale, height: WORLD_H * scale, touchAction: 'none' }}
         />
-
-        <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 rounded-2xl bg-orange-600 px-10 py-4 text-center text-white shadow-[0_18px_40px_rgba(194,65,12,0.45)] border border-orange-400/30">
-          <div className="text-2xl md:text-4xl font-black tracking-tight">Real Time Multiplayer</div>
-        </div>
-
-        <div className="absolute left-1/2 top-full mt-16 -translate-x-1/2 text-center text-white/65 text-sm tracking-[0.24em] uppercase">
-          Drag opposite from the ball to aim • Release to shoot
-        </div>
 
         <AnimatePresence>
           {winner && (
@@ -685,16 +795,16 @@ export default function MiniGolfBeautiful() {
               <motion.div
                 initial={{ scale: 0.92, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="rounded-[28px] bg-white px-8 py-10 text-center shadow-2xl max-w-[320px]"
+                className="rounded-[28px] bg-white px-8 py-10 text-center shadow-2xl max-w-[340px]"
               >
                 <div className="text-sm font-bold uppercase tracking-[0.28em] text-slate-400">Result</div>
                 <div className="mt-3 text-4xl font-black text-slate-900">{winner === 'Draw' ? 'Draw' : `${winner} wins`}</div>
-                <div className="mt-4 text-slate-600">Jack: {p1.shots} shots • Kirsten: {p2.shots} shots</div>
+                <div className="mt-4 text-slate-600">Jack: {p1.totalShots} shots • Kirsten: {p2.totalShots} shots</div>
                 <button
                   onClick={restart}
                   className="mt-8 rounded-full bg-sky-600 px-6 py-3 text-white font-bold hover:bg-sky-500 transition"
                 >
-                  Restart Hole
+                  Restart 3 Holes
                 </button>
               </motion.div>
             </motion.div>
@@ -704,3 +814,5 @@ export default function MiniGolfBeautiful() {
     </div>
   );
 }
+
+export default MiniGolfBeautiful;
