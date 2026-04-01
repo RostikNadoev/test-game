@@ -9,21 +9,27 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
-import { NewGame } from './pages/NewGame';
 import { PaperGame } from './pages/PaperGame';
+import MiniGolfBeautiful from './pages/MiniGolfGame';
+
+// ✅ Правильный импорт default-экспорта
+import NewGame from './pages/NewGame';
+
 import { useEffect } from 'react';
 
 function App() {
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
-      tg.ready(); tg.expand();
+      tg.ready();
+      tg.expand();
       if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-      tg.setHeaderColor('#0A0A0F'); tg.setBackgroundColor('#0A0A0F');
+      tg.setHeaderColor('#0A0A0F');
+      tg.setBackgroundColor('#0A0A0F');
     }
   }, []);
 
-  return (
+ return (
     <BrowserRouter>
       <div className="relative h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
         <Header />
@@ -32,11 +38,14 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
+
             <Route path="/game/newgame/play" element={<NewGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />
             <Route path="/game/paper/play" element={<PaperGame />} />
+            <Route path="/game/pingpong/play" element={<MiniGolfBeautiful />} />   {/* ← Новый маршрут */}
+            
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
           </Routes>
@@ -46,4 +55,5 @@ function App() {
     </BrowserRouter>
   );
 }
+
 export default App;

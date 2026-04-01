@@ -33,6 +33,7 @@ export const Lobbies = () => {
       airhockey: '/game/airhockey/play',
       archer: '/game/archer/play',
       paper: '/game/paper/play',
+      pingpong: '/game/pingpong/play',
     };
     if (gameRoutes[gameId || '']) {
       navigate(gameRoutes[gameId!]);
