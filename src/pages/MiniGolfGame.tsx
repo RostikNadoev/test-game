@@ -44,6 +44,8 @@ type HoleConfig = {
   walls: Rect[];
   waters: Water[];
   bumpers: Bumper[];
+  theme: 'classic' | 'desert' | 'snow';
+  bridges?: Rect[];
 };
 
 function clamp(v: number, min: number, max: number) {
@@ -69,8 +71,13 @@ function pointInRect(px: number, py: number, rect: Rect) {
   return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
 }
 
+function pointInBridge(px: number, py: number, bridge: Rect) {
+  return px >= bridge.x && px <= bridge.x + bridge.w && py >= bridge.y && py <= bridge.y + bridge.h;
+}
+
 const holeConfigs: HoleConfig[] = [
   {
+    theme: 'classic',
     hole: { x: 168, y: 235 },
     spawn: { x: 548, y: 305 },
     walls: [
@@ -96,56 +103,65 @@ const holeConfigs: HoleConfig[] = [
       { x: 173, y: 845, r: 20, color: '#fbbf24' },
       { x: 548, y: 348, r: 20, color: '#f59e0b' },
     ],
+    bridges: [],
   },
   {
-    hole: { x: 530, y: 240 },
-    spawn: { x: 190, y: 920 },
+    theme: 'desert',
+    hole: { x: 492, y: 232 },
+    spawn: { x: 188, y: 918 },
     walls: [
       { x: 110, y: 130, w: 500, h: 18 },
       { x: 98, y: 130, w: 18, h: 850 },
       { x: 604, y: 130, w: 18, h: 850 },
-      { x: 188, y: 320, w: 250, h: 18 },
-      { x: 438, y: 320, w: 18, h: 170 },
-      { x: 280, y: 520, w: 260, h: 18 },
-      { x: 188, y: 690, w: 18, h: 180 },
-      { x: 188, y: 870, w: 260, h: 18 },
-      { x: 520, y: 690, w: 18, h: 180 },
+      { x: 210, y: 318, w: 232, h: 18 },
+      { x: 440, y: 318, w: 18, h: 156 },
+      { x: 278, y: 506, w: 190, h: 18 },
+      { x: 202, y: 690, w: 18, h: 152 },
+      { x: 202, y: 842, w: 218, h: 18 },
+      { x: 520, y: 650, w: 18, h: 176 },
     ],
     waters: [
-      { x: 110, y: 206, w: 110, h: 86 },
-      { x: 470, y: 560, w: 134, h: 95 },
-      { x: 222, y: 734, w: 190, h: 94 },
+      { x: 114, y: 214, w: 102, h: 82 },
+      { x: 472, y: 580, w: 132, h: 122 },
+      { x: 250, y: 736, w: 164, h: 86 },
     ],
     bumpers: [
-      { x: 250, y: 420, r: 21, color: '#fbbf24' },
-      { x: 515, y: 440, r: 21, color: '#f59e0b' },
-      { x: 360, y: 618, r: 22, color: '#fbbf24' },
+      { x: 258, y: 452, r: 18, color: '#ef4444' },
+      { x: 512, y: 448, r: 18, color: '#fb7185' },
+      { x: 360, y: 616, r: 20, color: '#f59e0b' },
+    ],
+    bridges: [
+      { x: 302, y: 744, w: 64, h: 70 },
     ],
   },
   {
-    hole: { x: 356, y: 212 },
-    spawn: { x: 356, y: 930 },
+    theme: 'snow',
+    hole: { x: 356, y: 218 },
+    spawn: { x: 356, y: 928 },
     walls: [
       { x: 110, y: 130, w: 500, h: 18 },
       { x: 98, y: 130, w: 18, h: 850 },
       { x: 604, y: 130, w: 18, h: 850 },
-      { x: 180, y: 292, w: 18, h: 200 },
-      { x: 522, y: 292, w: 18, h: 200 },
-      { x: 180, y: 492, w: 130, h: 18 },
-      { x: 410, y: 492, w: 130, h: 18 },
-      { x: 280, y: 650, w: 18, h: 210 },
-      { x: 424, y: 650, w: 18, h: 210 },
-      { x: 220, y: 860, w: 280, h: 18 },
+      { x: 186, y: 308, w: 18, h: 166 },
+      { x: 516, y: 308, w: 18, h: 166 },
+      { x: 224, y: 498, w: 120, h: 18 },
+      { x: 376, y: 498, w: 120, h: 18 },
+      { x: 268, y: 646, w: 18, h: 130 },
+      { x: 426, y: 646, w: 18, h: 130 },
+      { x: 214, y: 842, w: 292, h: 18 },
     ],
     waters: [
-      { x: 258, y: 285, w: 205, h: 92 },
-      { x: 110, y: 582, w: 120, h: 104 },
-      { x: 490, y: 582, w: 120, h: 104 },
+      { x: 258, y: 286, w: 196, h: 82 },
+      { x: 112, y: 592, w: 118, h: 90 },
+      { x: 490, y: 592, w: 118, h: 90 },
     ],
     bumpers: [
-      { x: 355, y: 560, r: 24, color: '#fbbf24' },
-      { x: 220, y: 760, r: 20, color: '#f59e0b' },
-      { x: 490, y: 760, r: 20, color: '#f59e0b' },
+      { x: 356, y: 572, r: 20, color: '#93c5fd' },
+      { x: 238, y: 744, r: 16, color: '#dbeafe' },
+      { x: 474, y: 744, r: 16, color: '#dbeafe' },
+    ],
+    bridges: [
+      { x: 324, y: 294, w: 64, h: 66 },
     ],
   },
 ];
@@ -167,6 +183,7 @@ function createBall(name: string, color: string, spawn: Vec): BallState {
 
 export function MiniGolfBeautiful() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const gameRootRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const pointerRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
 
@@ -175,17 +192,18 @@ export function MiniGolfBeautiful() {
   const [holeIndex, setHoleIndex] = useState(0);
   const [activePlayer, setActivePlayer] = useState(0);
   const [turnPhase, setTurnPhase] = useState<'aim' | 'ballMoving' | 'holeTransition'>('aim');
-  
+
   const sparksRef = useRef<Spark[]>([]);
+  const waterSplashesRef = useRef<Spark[]>([]);
   const ballsRef = useRef<BallState[]>([
     createBall('Jack', '#ffd84d', holeConfigs[0].spawn),
     createBall('Kirsten', '#ffffff', holeConfigs[0].spawn),
   ]);
 
   const scale = useMemo(() => {
-    if (typeof window === 'undefined') return 0.68;
-    const availableHeight = window.innerHeight - 150;
-    return Math.min(0.82, window.innerWidth / 840, availableHeight / 1180);
+    if (typeof window === 'undefined') return 0.665;
+    const availableHeight = window.innerHeight - 210;
+    return Math.min(0.785, window.innerWidth / 840, availableHeight / 1180);
   }, [refresh]);
 
   useEffect(() => {
@@ -195,23 +213,14 @@ export function MiniGolfBeautiful() {
   }, []);
 
   useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-    const prevTouch = body.style.touchAction;
-    const prevOverscroll = (body.style as any).overscrollBehavior;
-
-    html.style.overflow = 'hidden';
-    body.style.overflow = 'hidden';
-    body.style.touchAction = 'none';
-    (body.style as any).overscrollBehavior = 'none';
-    return () => {
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-      body.style.touchAction = prevTouch;
-      (body.style as any).overscrollBehavior = prevOverscroll;
+    const preventDefault = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && gameRootRef.current?.contains(target)) {
+        e.preventDefault();
+      }
     };
+    document.addEventListener('touchmove', preventDefault, { passive: false });
+    return () => document.removeEventListener('touchmove', preventDefault);
   }, []);
 
   useEffect(() => {
@@ -241,6 +250,20 @@ export function MiniGolfBeautiful() {
     const currentHole = () => holeConfigs[holeIndex];
 
     const resetBallToSpawn = (ball: BallState) => {
+      for (let i = 0; i < 18; i++) {
+        const a = (Math.PI * 2 * i) / 18 + Math.random() * 0.35;
+        const s = 0.8 + Math.random() * 2.6;
+        waterSplashesRef.current.push({
+          x: ball.x,
+          y: ball.y,
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s - 0.6,
+          life: 0.7 + Math.random() * 0.25,
+          size: 2 + Math.random() * 3.5,
+          color: '#dff8ff',
+        });
+      }
+
       const spawn = currentHole().spawn;
       ball.x = spawn.x;
       ball.y = spawn.y;
@@ -328,7 +351,8 @@ export function MiniGolfBeautiful() {
       config.bumpers.forEach(b => resolveBumperCollision(ball, b));
 
       for (const water of config.waters) {
-        if (pointInRect(ball.x, ball.y, water)) {
+        const onBridge = (config.bridges ?? []).some(bridge => pointInBridge(ball.x, ball.y, bridge));
+        if (!onBridge && pointInRect(ball.x, ball.y, water)) {
           resetBallToSpawn(ball);
           return;
         }
@@ -389,10 +413,17 @@ export function MiniGolfBeautiful() {
     const drawWater = (w: Water) => {
       const x = w.x - 95;
       const y = w.y - 120;
+      const theme = currentHole().theme;
       const g = ctx.createLinearGradient(x, y, x, y + w.h);
-      g.addColorStop(0, '#85ebff');
-      g.addColorStop(0.4, '#2bc9ff');
-      g.addColorStop(1, '#0d97de');
+      if (theme === 'snow') {
+        g.addColorStop(0, '#dff4ff');
+        g.addColorStop(0.45, '#93c5fd');
+        g.addColorStop(1, '#60a5fa');
+      } else {
+        g.addColorStop(0, '#85ebff');
+        g.addColorStop(0.4, '#2bc9ff');
+        g.addColorStop(1, '#0d97de');
+      }
       ctx.fillStyle = g;
       roundRect(ctx, x, y, w.w, w.h, 8);
       ctx.fill();
@@ -429,9 +460,19 @@ export function MiniGolfBeautiful() {
       ctx.clip();
 
       const grass = ctx.createLinearGradient(0, 0, 0, 932);
-      grass.addColorStop(0, '#8cdf3f');
-      grass.addColorStop(0.25, '#6fcd38');
-      grass.addColorStop(1, '#86dd42');
+      if (holeIndex === 0) {
+        grass.addColorStop(0, '#8cdf3f');
+        grass.addColorStop(0.25, '#6fcd38');
+        grass.addColorStop(1, '#86dd42');
+      } else if (holeIndex === 1) {
+        grass.addColorStop(0, '#ffd76a');
+        grass.addColorStop(0.3, '#fbbf24');
+        grass.addColorStop(1, '#f59e0b');
+      } else {
+        grass.addColorStop(0, '#eef7ff');
+        grass.addColorStop(0.32, '#dbeafe');
+        grass.addColorStop(1, '#bfdbfe');
+      }
       ctx.fillStyle = grass;
       ctx.fillRect(14, 14, 502, 932);
 
@@ -456,6 +497,24 @@ export function MiniGolfBeautiful() {
       }
 
       config.waters.forEach(drawWater);
+
+      (config.bridges ?? []).forEach(bridge => {
+        const x = bridge.x - 95;
+        const y = bridge.y - 120;
+        const wood = ctx.createLinearGradient(x, y, x, y + bridge.h);
+        wood.addColorStop(0, '#c08457');
+        wood.addColorStop(1, '#8b5a3c');
+        roundRect(ctx, x, y, bridge.w, bridge.h, 8);
+        ctx.fillStyle = wood;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(90,50,20,0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        for (let yy = y + 6; yy < y + bridge.h - 4; yy += 12) {
+          ctx.fillRect(x + 4, yy, bridge.w - 8, 2);
+        }
+      });
 
       config.walls.forEach(rect => {
         const x = rect.x - 95;
@@ -486,14 +545,61 @@ export function MiniGolfBeautiful() {
         ctx.strokeStyle = 'rgba(0,0,0,0.15)';
         ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.fillStyle = 'rgba(0,0,0,0.15)';
-        for (let i = 0; i < 8; i++) {
-          const a = (Math.PI * 2 * i) / 8;
+      });
+
+      if (holeIndex === 1) {
+        for (const palm of [{ x: 170, y: 642 }, { x: 540, y: 780 }]) {
+          const px = palm.x - 95;
+          const py = palm.y - 120;
+          ctx.fillStyle = '#8b5a2b';
+          ctx.fillRect(px - 5, py, 10, 36);
+          ctx.fillStyle = '#16a34a';
+          for (let i = 0; i < 5; i++) {
+            const a = -1.2 + i * 0.6;
+            ctx.beginPath();
+            ctx.ellipse(px + Math.cos(a) * 10, py - 6 + Math.sin(a) * 8, 20, 7, a, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        for (const rock of [{ x: 270, y: 880 }, { x: 530, y: 520 }]) {
+          const rx = rock.x - 95;
+          const ry = rock.y - 120;
+          ctx.fillStyle = '#d6a35d';
           ctx.beginPath();
-          ctx.arc(x + Math.cos(a) * 10, y + Math.sin(a) * 10, 2.5, 0, Math.PI * 2);
+          ctx.ellipse(rx, ry, 18, 12, 0, 0, Math.PI * 2);
           ctx.fill();
         }
-      });
+      }
+
+      if (holeIndex === 2) {
+        for (const snowPile of [{ x: 172, y: 642 }, { x: 548, y: 642 }, { x: 356, y: 884 }]) {
+          const sx = snowPile.x - 95;
+          const sy = snowPile.y - 120;
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.beginPath();
+          ctx.arc(sx, sy, 18, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(191,219,254,0.8)';
+          ctx.beginPath();
+          ctx.arc(sx + 6, sy + 4, 8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        for (const crystal of [{ x: 210, y: 784 }, { x: 500, y: 784 }]) {
+          const cx = crystal.x - 95;
+          const cy = crystal.y - 120;
+          ctx.fillStyle = '#e0f2fe';
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - 20);
+          ctx.lineTo(cx + 14, cy);
+          ctx.lineTo(cx, cy + 20);
+          ctx.lineTo(cx - 14, cy);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#93c5fd';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
 
       ctx.fillStyle = 'rgba(0,0,0,0.24)';
       ctx.beginPath();
@@ -510,7 +616,7 @@ export function MiniGolfBeautiful() {
       ctx.moveTo(config.hole.x - 95, config.hole.y - 120 - 2);
       ctx.lineTo(config.hole.x - 95, config.hole.y - 120 - 65);
       ctx.stroke();
-      ctx.fillStyle = '#ef4444';
+      ctx.fillStyle = holeIndex === 0 ? '#ef4444' : holeIndex === 1 ? '#f97316' : '#60a5fa';
       ctx.beginPath();
       ctx.moveTo(config.hole.x - 95, config.hole.y - 120 - 64);
       ctx.lineTo(config.hole.x - 95 + 32, config.hole.y - 120 - 55);
@@ -562,7 +668,7 @@ export function MiniGolfBeautiful() {
 
     const drawAim = () => {
       const ball = ballsRef.current[activePlayer];
-      if (winner || ball.done) return;
+      if (winner || ball.done || turnPhase !== 'aim') return;
       const moving = Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0;
       if (!pointerRef.current.active || moving) return;
 
@@ -596,6 +702,15 @@ export function MiniGolfBeautiful() {
         ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
         ctx.fill();
       });
+
+      waterSplashesRef.current.forEach(s => {
+        ctx.globalAlpha = Math.max(0, s.life);
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, s.size, s.size * 0.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
       ctx.globalAlpha = 1;
     };
 
@@ -678,6 +793,15 @@ export function MiniGolfBeautiful() {
         s.life -= 0.02;
       });
       sparksRef.current = sparksRef.current.filter(s => s.life > 0);
+
+      waterSplashesRef.current.forEach(s => {
+        s.x += s.vx;
+        s.y += s.vy;
+        s.vx *= 0.96;
+        s.vy *= 0.96;
+        s.life -= 0.03;
+      });
+      waterSplashesRef.current = waterSplashesRef.current.filter(s => s.life > 0);
 
       draw();
       rafRef.current = requestAnimationFrame(step);
@@ -766,38 +890,54 @@ export function MiniGolfBeautiful() {
       createBall('Kirsten', '#ffffff', spawn),
     ];
     sparksRef.current = [];
+    waterSplashesRef.current = [];
     pointerRef.current.active = false;
     setRefresh(v => v + 1);
   };
 
   const p1 = ballsRef.current[0];
   const p2 = ballsRef.current[1];
-  const totalP1 = p1.totalShots;
-  const totalP2 = p2.totalShots;
 
   return (
-    <div className="h-[calc(100vh-110px)] w-screen overflow-hidden bg-black flex items-start justify-center px-2 pt-[10px] pb-2 select-none">
+    <div
+      ref={gameRootRef}
+      className="h-[calc(100vh-180px)] w-full overflow-hidden bg-black flex items-start justify-center px-2 pt-[10px] pb-2 select-none"
+    >
       <div className="relative mt-0">
-        <div className="absolute -top-14 left-0 right-0 flex items-center justify-between gap-2 text-white z-10">
-          <div className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${activePlayer === 0 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'}`}>
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black text-sm font-black">5</div>
+        <div className="absolute top-[4px] left-0 right-0 flex items-center justify-between gap-2 text-white z-10">
+          <div
+            className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${
+              activePlayer === 0 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'
+            }`}
+          >
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black text-sm font-black">
+              5
+            </div>
             <div className="min-w-0">
               <div className="truncate text-lg font-black leading-none">Jack</div>
-              <div className="text-[11px] text-white/80">{p1.shots} this hole • {totalP1} total</div>
+              <div className="text-[11px] text-white/80">{p1.shots} this hole • {p1.totalShots} total</div>
             </div>
           </div>
 
           <div className="rounded-2xl bg-white/10 px-4 py-2 text-center backdrop-blur-md shadow-lg shrink-0">
             <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">Hole</div>
-            <div className="text-2xl font-black leading-none">{holeIndex + 1} <span className="text-white/60 text-base">of {TOTAL_HOLES}</span></div>
+            <div className="text-2xl font-black leading-none">
+              {holeIndex + 1} <span className="text-white/60 text-base">of {TOTAL_HOLES}</span>
+            </div>
           </div>
 
-          <div className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${activePlayer === 1 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'}`}>
+          <div
+            className={`flex min-w-0 items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md shadow-lg ${
+              activePlayer === 1 ? 'bg-white/16 ring-2 ring-white/30' : 'bg-white/10'
+            }`}
+          >
             <div className="min-w-0 text-right">
               <div className="truncate text-lg font-black leading-none">Kirsten</div>
-              <div className="text-[11px] text-white/80">{p2.shots} this hole • {totalP2} total</div>
+              <div className="text-[11px] text-white/80">{p2.shots} this hole • {p2.totalShots} total</div>
             </div>
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-yellow-500 text-black text-sm font-black">6</div>
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-yellow-500 text-black text-sm font-black">
+              6
+            </div>
           </div>
         </div>
 

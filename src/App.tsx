@@ -21,18 +21,8 @@ function App() {
       tg.ready();
       tg.expand();
 
-      // Отключаем свайп вниз/вверх, которым Telegram может сворачивать Mini App
       if (typeof tg.disableVerticalSwipes === 'function') {
         tg.disableVerticalSwipes();
-      }
-
-      // Просим fullscreen, если клиент это умеет
-      if (typeof tg.requestFullscreen === 'function') {
-        try {
-          tg.requestFullscreen();
-        } catch (e) {
-          // молча игнорим, если платформа не поддерживает
-        }
       }
 
       tg.setHeaderColor('#0A0A0F');
@@ -42,9 +32,9 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className="relative h-screen flex flex-col bg-[#0A0A0F] overflow-hidden">
+      <div className="relative h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto pt-[10px] pb-20">
+        <main className="flex-1 overflow-y-auto pb-20">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
