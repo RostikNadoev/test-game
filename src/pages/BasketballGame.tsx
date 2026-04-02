@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
-
 type RingState = {
   x: number;
   y: number;
@@ -33,34 +32,38 @@ type ShotState = 'aim' | 'flying' | 'switching' | 'finished';
 
 const WORLD_W = 1280;
 const WORLD_H = 720;
-const FLOOR_Y = 652;
-const BALL_R = 18;
-const GRAVITY = 0.34;
-const AIR = 0.998;
+const FLOOR_Y = 650;
+
+// Мяч чуть меньше визуально относительно кольца, ближе к реальному ощущению
+const BALL_R = 14;
+
+// Физика быстрее и бодрее
+const GRAVITY = 0.42;
+const AIR = 0.999;
 const WIN_SCORE = 10;
 const SHOTS_PER_TURN = 2;
 
-// Верхнее меню занимает верх, поэтому кольцо не должно подниматься туда
+// Верхний HUD занимает место — кольцо туда не пускаем
 const HUD_SAFE_TOP = 150;
 
-// Все позиции кольца уже безопасные
+// Безопасные положения кольца
 const ringPresets: RingState[] = [
-  { x: 1040, y: 255, scale: 1.0, tilt: -0.03 },
-  { x: 1090, y: 230, scale: 0.95, tilt: 0.04 },
-  { x: 1010, y: 330, scale: 1.06, tilt: -0.02 },
-  { x: 1120, y: 300, scale: 0.9, tilt: 0.06 },
-  { x: 980, y: 225, scale: 1.08, tilt: -0.05 },
-  { x: 1080, y: 360, scale: 0.98, tilt: 0.02 },
-  { x: 1005, y: 285, scale: 1.02, tilt: -0.01 },
-  { x: 1115, y: 245, scale: 0.92, tilt: 0.05 },
+  { x: 1040, y: 250, scale: 1.0, tilt: -0.03 },
+  { x: 1090, y: 225, scale: 0.95, tilt: 0.04 },
+  { x: 1000, y: 315, scale: 1.04, tilt: -0.02 },
+  { x: 1120, y: 285, scale: 0.92, tilt: 0.06 },
+  { x: 980, y: 220, scale: 1.08, tilt: -0.05 },
+  { x: 1085, y: 350, scale: 0.98, tilt: 0.02 },
+  { x: 1010, y: 275, scale: 1.02, tilt: -0.01 },
+  { x: 1110, y: 245, scale: 0.94, tilt: 0.05 },
 ];
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 const len = (x: number, y: number) => Math.sqrt(x * x + y * y);
 
 const createBall = (): BallState => ({
-  x: 208,
-  y: 544,
+  x: 224,
+  y: 538,
   vx: 0,
   vy: 0,
   r: BALL_R,
@@ -72,15 +75,15 @@ const getNextRing = (prev?: RingState): RingState => {
   const pool = ringPresets.filter(
     (r) =>
       !prev ||
-      Math.abs(r.x - prev.x) > 30 ||
-      Math.abs(r.y - prev.y) > 20 ||
+      Math.abs(r.x - prev.x) > 28 ||
+      Math.abs(r.y - prev.y) > 18 ||
       Math.abs(r.tilt - prev.tilt) > 0.01
   );
 
   const pick = pool[Math.floor(Math.random() * pool.length)] ?? ringPresets[0];
   return {
     ...pick,
-    y: clamp(pick.y, HUD_SAFE_TOP + 40, 380),
+    y: clamp(pick.y, HUD_SAFE_TOP + 30, 370),
   };
 };
 
@@ -109,7 +112,6 @@ const BasketballGame: React.FC = () => {
   const [flashText, setFlashText] = useState('');
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
 
-  // refs для избежания залипаний из-за stale state
   const scoresRef = useRef<[number, number]>([0, 0]);
   const currentPlayerRef = useRef<0 | 1>(0);
   const shotsLeftRef = useRef(SHOTS_PER_TURN);
@@ -172,36 +174,29 @@ const BasketballGame: React.FC = () => {
 
   const isPortrait = viewport.height > viewport.width;
 
-  const worldScale = useMemo(() => {
-    if (!viewport.width || !viewport.height) return 1;
-    return Math.min(viewport.width / WORLD_W, viewport.height / WORLD_H);
-  }, [viewport]);
+ 
 
   const contentStyle = useMemo(() => {
     if (!viewport.width || !viewport.height) return {};
 
     if (!isPortrait) {
       return {
-        width: WORLD_W * worldScale,
-        height: WORLD_H * worldScale,
+        width: viewport.width,
+        height: viewport.height,
       };
     }
 
-    const rotatedWidth = WORLD_H * worldScale;
-    const rotatedHeight = WORLD_W * worldScale;
-
     return {
-      width: rotatedHeight,
-      height: rotatedWidth,
+      width: viewport.height,
+      height: viewport.width,
       transform: 'rotate(90deg)',
       transformOrigin: 'center center',
     };
-  }, [viewport, isPortrait, worldScale]);
+  }, [viewport, isPortrait]);
 
   const toWorldPoint = (clientX: number, clientY: number) => {
-    const canvas = canvasRef.current;
-    const wrapper = canvas?.parentElement;
-    if (!canvas || !wrapper) return { x: 0, y: 0 };
+    const wrapper = canvasRef.current?.parentElement;
+    if (!wrapper) return { x: 0, y: 0 };
 
     const rect = wrapper.getBoundingClientRect();
 
@@ -214,7 +209,6 @@ const BasketballGame: React.FC = () => {
 
     const localX = clientX - rect.left;
     const localY = clientY - rect.top;
-
     const nx = localX / rect.width;
     const ny = localY / rect.height;
 
@@ -226,8 +220,8 @@ const BasketballGame: React.FC = () => {
 
   const spawnParticles = (x: number, y: number, colors: string[], count = 18) => {
     for (let i = 0; i < count; i++) {
-      const a = (Math.PI * 2 * i) / count + Math.random() * 0.45;
-      const s = 1 + Math.random() * 4.2;
+      const a = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+      const s = 1 + Math.random() * 4.5;
       particlesRef.current.push({
         x,
         y,
@@ -295,44 +289,44 @@ const BasketballGame: React.FC = () => {
 
   const drawBackground = (ctx: CanvasRenderingContext2D) => {
     const bg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
-    bg.addColorStop(0, '#0E1030');
-    bg.addColorStop(0.3, '#392365');
-    bg.addColorStop(0.68, '#A24564');
-    bg.addColorStop(1, '#FFB255');
+    bg.addColorStop(0, '#0C0F2B');
+    bg.addColorStop(0.26, '#2D1F63');
+    bg.addColorStop(0.62, '#9A3B6A');
+    bg.addColorStop(1, '#FFB85A');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
 
-    const glow = ctx.createRadialGradient(260, 480, 30, 260, 480, 540);
-    glow.addColorStop(0, 'rgba(255,190,90,0.20)');
-    glow.addColorStop(1, 'rgba(255,190,90,0)');
-    ctx.fillStyle = glow;
+    const sunGlow = ctx.createRadialGradient(250, 470, 20, 250, 470, 560);
+    sunGlow.addColorStop(0, 'rgba(255,193,94,0.28)');
+    sunGlow.addColorStop(1, 'rgba(255,193,94,0)');
+    ctx.fillStyle = sunGlow;
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
 
-    for (let i = 0; i < 90; i++) {
-      ctx.fillStyle = i % 6 === 0 ? 'rgba(255,235,170,0.95)' : 'rgba(255,255,255,0.7)';
+    for (let i = 0; i < 110; i++) {
+      ctx.fillStyle = i % 7 === 0 ? 'rgba(255,236,176,0.95)' : 'rgba(255,255,255,0.72)';
       ctx.beginPath();
-      ctx.arc(40 + ((i * 137) % WORLD_W), 16 + ((i * 83) % 250), 1 + (i % 3), 0, Math.PI * 2);
+      ctx.arc(30 + ((i * 131) % WORLD_W), 14 + ((i * 79) % 250), 1 + (i % 3), 0, Math.PI * 2);
       ctx.fill();
     }
 
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    for (let i = 0; i < 13; i++) {
-      const x = i * 105;
-      const h = 110 + ((i * 41) % 180);
-      ctx.fillRect(x, WORLD_H - 260 - h, 70, h);
+    for (let i = 0; i < 14; i++) {
+      const x = i * 98;
+      const h = 110 + ((i * 47) % 185);
+      ctx.fillRect(x, WORLD_H - 260 - h, 72, h);
     }
 
-    ctx.fillStyle = 'rgba(8, 12, 32, 0.42)';
+    ctx.fillStyle = 'rgba(11, 17, 38, 0.45)';
     ctx.fillRect(0, FLOOR_Y, WORLD_W, WORLD_H - FLOOR_Y);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(50, FLOOR_Y + 26);
-    ctx.quadraticCurveTo(WORLD_W * 0.42, FLOOR_Y - 24, WORLD_W * 0.8, FLOOR_Y + 10);
+    ctx.moveTo(48, FLOOR_Y + 28);
+    ctx.quadraticCurveTo(WORLD_W * 0.44, FLOOR_Y - 22, WORLD_W * 0.8, FLOOR_Y + 8);
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255,180,80,0.14)';
+    ctx.fillStyle = 'rgba(255,185,86,0.14)';
     ctx.fillRect(0, FLOOR_Y - 10, WORLD_W, 12);
   };
 
@@ -341,15 +335,16 @@ const BasketballGame: React.FC = () => {
     x: number,
     y: number,
     active: boolean,
-    colorMain: string,
+    primary: string,
+    secondary: string,
     holdBall: boolean,
     time: number
   ) => {
     ctx.save();
     ctx.translate(x, y);
 
-    const bob = active && shotStateRef.current === 'aim' ? Math.sin(time * 0.008) * 3 : 0;
-    const lean = active && shotStateRef.current === 'flying' ? -0.08 : 0;
+    const bob = active && shotStateRef.current === 'aim' ? Math.sin(time * 0.009) * 4 : 0;
+    const lean = active && shotStateRef.current === 'flying' ? -0.12 : 0;
     ctx.translate(0, bob);
     ctx.rotate(lean);
 
@@ -357,106 +352,111 @@ const BasketballGame: React.FC = () => {
     const targetY = pointerRef.current.y || y - 140;
     const armAngle =
       active && pointerRef.current.active
-        ? clamp(Math.atan2(targetY - (y - 30), targetX - (x + 8)), -1.4, 0.15)
+        ? clamp(Math.atan2(targetY - (y - 26), targetX - (x + 16)), -1.45, 0.15)
         : -0.55;
 
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.beginPath();
-    ctx.ellipse(0, 92, 36, 10, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 96, 40, 10, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // ноги
     ctx.strokeStyle = '#1f2937';
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 15;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(-10, 80);
-    ctx.lineTo(-18, 126);
-    ctx.moveTo(14, 80);
-    ctx.lineTo(18, 126);
+    ctx.moveTo(-10, 84);
+    ctx.lineTo(-20, 132);
+    ctx.moveTo(16, 84);
+    ctx.lineTo(20, 132);
     ctx.stroke();
 
-    // кроссовки
+    // обувь
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.roundRect(-28, 122, 22, 10, 4);
-    ctx.roundRect(8, 122, 22, 10, 4);
+    ctx.roundRect(-32, 126, 24, 10, 5);
+    ctx.roundRect(9, 126, 24, 10, 5);
     ctx.fill();
 
     // тело
-    const jersey = ctx.createLinearGradient(-30, 10, 30, 90);
-    jersey.addColorStop(0, colorMain);
-    jersey.addColorStop(1, active ? '#ff8a50' : '#5077ff');
+    const jersey = ctx.createLinearGradient(-34, 10, 34, 92);
+    jersey.addColorStop(0, primary);
+    jersey.addColorStop(1, secondary);
     ctx.fillStyle = jersey;
     ctx.beginPath();
-    ctx.roundRect(-28, 8, 58, 76, 18);
+    ctx.roundRect(-30, 10, 62, 78, 20);
     ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(-20, 18, 10, 60);
+    ctx.globalAlpha = 1;
 
     // шея
     ctx.fillStyle = '#f2c9a0';
-    ctx.fillRect(-7, -2, 14, 16);
+    ctx.fillRect(-7, -1, 14, 16);
 
     // голова
     ctx.beginPath();
-    ctx.arc(0, -18, 28, 0, Math.PI * 2);
+    ctx.arc(0, -18, 29, 0, Math.PI * 2);
     ctx.fill();
 
-    // волосы/кепка
-    if (colorMain === '#ff5f2e') {
+    // волосы/шапка
+    if (primary === '#ff5b2e') {
       ctx.fillStyle = '#d62828';
       ctx.beginPath();
-      ctx.arc(-4, -28, 30, Math.PI, Math.PI * 2);
+      ctx.arc(-5, -29, 31, Math.PI, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.roundRect(-20, -42, 38, 14, 8);
+      ctx.roundRect(-22, -43, 42, 15, 8);
       ctx.fill();
-      ctx.fillRect(8, -36, 22, 6);
+      ctx.fillRect(10, -36, 24, 6);
     } else {
-      ctx.fillStyle = '#1d3557';
+      ctx.fillStyle = '#162447';
       ctx.beginPath();
-      ctx.arc(0, -28, 30, Math.PI, Math.PI * 2);
+      ctx.arc(0, -30, 31, Math.PI, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(22, -28, 12, 0, Math.PI * 2);
+      ctx.arc(23, -28, 12, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // глаза
+    // лицо
     ctx.fillStyle = '#111827';
     ctx.beginPath();
-    ctx.arc(-8, -18, 2.4, 0, Math.PI * 2);
-    ctx.arc(6, -18, 2.4, 0, Math.PI * 2);
+    ctx.arc(-8, -18, 2.5, 0, Math.PI * 2);
+    ctx.arc(7, -18, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // руки
+    // левая рука
     ctx.strokeStyle = '#f2c9a0';
     ctx.lineWidth = 10;
     ctx.beginPath();
-    ctx.moveTo(-10, 24);
-    ctx.lineTo(-30, 48);
+    ctx.moveTo(-10, 26);
+    ctx.lineTo(-32, 50);
     ctx.stroke();
 
+    // правая рука
     ctx.save();
-    ctx.translate(10, 22);
+    ctx.translate(12, 24);
     ctx.rotate(armAngle);
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(36, -16);
+    ctx.lineTo(42, -18);
     ctx.stroke();
-
     if (holdBall) {
       ctx.fillStyle = '#f2c9a0';
       ctx.beginPath();
-      ctx.arc(40, -18, 6, 0, Math.PI * 2);
+      ctx.arc(45, -20, 6, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
     if (active) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.26)';
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(0, 36, 62, 0, Math.PI * 2);
+      ctx.arc(0, 38, 66, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -467,11 +467,11 @@ const BasketballGame: React.FC = () => {
     ctx.save();
 
     ctx.shadowColor = '#ff9f1c';
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 16;
 
-    const grad = ctx.createRadialGradient(ball.x - 5, ball.y - 5, 3, ball.x, ball.y, ball.r);
+    const grad = ctx.createRadialGradient(ball.x - 4, ball.y - 4, 2, ball.x, ball.y, ball.r);
     grad.addColorStop(0, '#ffd08a');
-    grad.addColorStop(0.42, '#ff9a1f');
+    grad.addColorStop(0.42, '#ff9922');
     grad.addColorStop(1, '#d66d00');
 
     ctx.fillStyle = grad;
@@ -480,25 +480,25 @@ const BasketballGame: React.FC = () => {
     ctx.fill();
 
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(98,48,6,0.85)';
-    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = 'rgba(98,48,6,0.88)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.r - 1.5, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, ball.r - 1, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(ball.x - ball.r + 2, ball.y);
-    ctx.quadraticCurveTo(ball.x, ball.y - 6, ball.x + ball.r - 2, ball.y);
+    ctx.quadraticCurveTo(ball.x, ball.y - 5, ball.x + ball.r - 2, ball.y);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(ball.x, ball.y - ball.r + 2);
-    ctx.quadraticCurveTo(ball.x - 7, ball.y, ball.x, ball.y + ball.r - 2);
+    ctx.quadraticCurveTo(ball.x - 6, ball.y, ball.x, ball.y + ball.r - 2);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(ball.x, ball.y - ball.r + 2);
-    ctx.quadraticCurveTo(ball.x + 8, ball.y, ball.x, ball.y + ball.r - 2);
+    ctx.quadraticCurveTo(ball.x + 7, ball.y, ball.x, ball.y + ball.r - 2);
     ctx.stroke();
 
     ctx.restore();
@@ -510,74 +510,94 @@ const BasketballGame: React.FC = () => {
     ctx.rotate(ring.tilt);
 
     const boardW = 160 * ring.scale;
-    const boardH = 108 * ring.scale;
+    const boardH = 106 * ring.scale;
 
-    ctx.fillStyle = 'rgba(14,20,45,0.30)';
-    ctx.fillRect(56 * ring.scale, 36 * ring.scale, 18 * ring.scale, 220 * ring.scale);
+    // стойка
+    ctx.fillStyle = 'rgba(20, 24, 44, 0.45)';
+    ctx.fillRect(62 * ring.scale, 34 * ring.scale, 18 * ring.scale, 228 * ring.scale);
 
-    ctx.shadowColor = '#ff6a3d';
-    ctx.shadowBlur = 22;
-
-    const boardGrad = ctx.createLinearGradient(-boardW / 2, -boardH / 2, boardW / 2, boardH / 2);
-    boardGrad.addColorStop(0, '#ff8dc4');
-    boardGrad.addColorStop(1, '#7b61ff');
-
-    ctx.fillStyle = boardGrad;
+    // прозрачный щит
+    const glass = ctx.createLinearGradient(-boardW / 2, -boardH / 2, boardW / 2, boardH / 2);
+    glass.addColorStop(0, 'rgba(255,255,255,0.24)');
+    glass.addColorStop(1, 'rgba(170,220,255,0.10)');
+    ctx.fillStyle = glass;
     ctx.beginPath();
     ctx.roundRect(-boardW / 2, -boardH / 2, boardW, boardH, 16 * ring.scale);
     ctx.fill();
 
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#ffd7f0';
-    ctx.lineWidth = 6 * ring.scale;
-    ctx.beginPath();
-    ctx.roundRect(
-      -boardW / 2 + 12 * ring.scale,
-      -boardH / 2 + 10 * ring.scale,
-      boardW - 24 * ring.scale,
-      boardH - 20 * ring.scale,
-      12 * ring.scale
-    );
-    ctx.stroke();
-
-    ctx.strokeStyle = '#fff6ff';
+    ctx.strokeStyle = 'rgba(255,220,245,0.9)';
     ctx.lineWidth = 5 * ring.scale;
     ctx.beginPath();
     ctx.roundRect(
-      -24 * ring.scale,
-      -18 * ring.scale,
-      52 * ring.scale,
-      38 * ring.scale,
+      -boardW / 2 + 6 * ring.scale,
+      -boardH / 2 + 6 * ring.scale,
+      boardW - 12 * ring.scale,
+      boardH - 12 * ring.scale,
+      14 * ring.scale
+    );
+    ctx.stroke();
+
+    // квадрат на щите
+    ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+    ctx.lineWidth = 4 * ring.scale;
+    ctx.beginPath();
+    ctx.roundRect(
+      -22 * ring.scale,
+      -16 * ring.scale,
+      48 * ring.scale,
+      34 * ring.scale,
       4 * ring.scale
     );
     ctx.stroke();
 
+    // настоящий обод
     const rimY = boardH / 2 - 12 * ring.scale;
-    const rimW = 76 * ring.scale;
+    const rimW = 92 * ring.scale;
 
+    ctx.shadowColor = '#ff6a2d';
+    ctx.shadowBlur = 14;
     ctx.strokeStyle = '#ff5b2e';
     ctx.lineWidth = 8 * ring.scale;
     ctx.beginPath();
     ctx.moveTo(-rimW / 2, rimY);
     ctx.lineTo(rimW / 2, rimY);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-    ctx.lineWidth = 2 * ring.scale;
-    for (let i = 0; i < 6; i++) {
-      const x1 = -rimW / 2 + (i * rimW) / 5;
+    // аккуратная сетка
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = 1.8 * ring.scale;
+    const netTop = rimY + 2 * ring.scale;
+    const netBottom = rimY + 42 * ring.scale;
+    const cols = 7;
+
+    for (let i = 0; i < cols; i++) {
+      const t = i / (cols - 1);
+      const xTop = -rimW / 2 + t * rimW;
+      const xBottom = -24 * ring.scale + t * 48 * ring.scale;
+
       ctx.beginPath();
-      ctx.moveTo(x1, rimY + 1);
-      ctx.lineTo(-24 * ring.scale + i * 10 * ring.scale, rimY + 42 * ring.scale);
+      ctx.moveTo(xTop, netTop);
+      ctx.lineTo(xBottom, netBottom);
       ctx.stroke();
     }
-    for (let i = 0; i < 6; i++) {
-      const x1 = -24 * ring.scale + i * 10 * ring.scale;
+
+    for (let i = 0; i < cols - 1; i++) {
+      const t = i / (cols - 2);
+      const xTop = -rimW / 2 + t * rimW;
+      const xBottom = 24 * ring.scale - t * 48 * ring.scale;
+
       ctx.beginPath();
-      ctx.moveTo(x1, rimY + 42 * ring.scale);
-      ctx.lineTo(-rimW / 2 + (i * rimW) / 5, rimY + 1);
+      ctx.moveTo(xTop, netTop);
+      ctx.lineTo(xBottom, netBottom);
       ctx.stroke();
     }
+
+    // нижняя линия сетки
+    ctx.beginPath();
+    ctx.moveTo(-24 * ring.scale, netBottom);
+    ctx.lineTo(24 * ring.scale, netBottom);
+    ctx.stroke();
 
     ctx.restore();
   };
@@ -588,13 +608,13 @@ const BasketballGame: React.FC = () => {
     const ball = ballRef.current;
     const dx = ball.x - pointerRef.current.x;
     const dy = ball.y - pointerRef.current.y;
-    const dist = Math.min(len(dx, dy), 180);
+    const dist = Math.min(len(dx, dy), 190);
 
     if (dist < 10) return;
 
-    const power = clamp(dist / 9.5, 4, 21);
-    const vx = clamp((dx / dist) * power * 1.15, -2, 18);
-    const vy = clamp((dy / dist) * power * 0.95, -18, 1);
+    const power = clamp(dist / 7.5, 7, 29);
+    const vx = clamp((dx / dist) * power * 1.45, -2, 28);
+    const vy = clamp((dy / dist) * power * 1.2, -24, 1);
 
     let px = ball.x;
     let py = ball.y;
@@ -602,38 +622,34 @@ const BasketballGame: React.FC = () => {
     let pvy = vy;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(127,219,255,0.95)';
-    ctx.lineWidth = 4;
-
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       px += pvx;
       py += pvy;
       pvy += GRAVITY;
       pvx *= AIR;
 
-      ctx.globalAlpha = 1 - i / 10;
+      ctx.globalAlpha = 1 - i / 12;
       ctx.beginPath();
-      ctx.arc(px, py, 5 - i * 0.25, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(140, 228, 255, 0.9)';
+      ctx.arc(px, py, 5 - i * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(140,228,255,0.92)';
       ctx.fill();
 
       if (py > FLOOR_Y) break;
     }
-
     ctx.globalAlpha = 1;
     ctx.restore();
   };
 
   const checkScore = (prevY: number, ball: BallState, ring: RingState) => {
-    const rimY = ring.y + 42 * ring.scale;
-    const rimX1 = ring.x - (76 * ring.scale) / 2;
-    const rimX2 = ring.x + (76 * ring.scale) / 2;
+    const rimY = ring.y + 41 * ring.scale;
+    const rimX1 = ring.x - (92 * ring.scale) / 2;
+    const rimX2 = ring.x + (92 * ring.scale) / 2;
 
     return (
       prevY < rimY &&
       ball.y >= rimY &&
-      ball.x > rimX1 + 10 * ring.scale &&
-      ball.x < rimX2 - 10 * ring.scale &&
+      ball.x > rimX1 + 12 * ring.scale &&
+      ball.x < rimX2 - 12 * ring.scale &&
       ball.vy > 0
     );
   };
@@ -653,13 +669,11 @@ const BasketballGame: React.FC = () => {
     ball.vx *= AIR;
     ball.vy *= AIR;
 
-    const rimY = ring.y + 42 * ring.scale;
-    const rimX1 = ring.x - (76 * ring.scale) / 2;
-    const rimX2 = ring.x + (76 * ring.scale) / 2;
-    const boardLeft = ring.x - (160 * ring.scale) / 2;
-    const boardTop = ring.y - (108 * ring.scale) / 2;
-    const boardBottom = ring.y + (108 * ring.scale) / 2;
+    const rimY = ring.y + 41 * ring.scale;
+    const rimX1 = ring.x - (92 * ring.scale) / 2;
+    const rimX2 = ring.x + (92 * ring.scale) / 2;
 
+    // столкновение только с ободом
     const d1 = len(ball.x - rimX1, ball.y - rimY);
     const d2 = len(ball.x - rimX2, ball.y - rimY);
 
@@ -667,8 +681,8 @@ const BasketballGame: React.FC = () => {
       const nx = (ball.x - rimX1) / Math.max(d1, 1);
       const ny = (ball.y - rimY) / Math.max(d1, 1);
       const dot = ball.vx * nx + ball.vy * ny;
-      ball.vx = (ball.vx - 2 * dot * nx) * 0.86;
-      ball.vy = (ball.vy - 2 * dot * ny) * 0.86;
+      ball.vx = (ball.vx - 2 * dot * nx) * 0.9;
+      ball.vy = (ball.vy - 2 * dot * ny) * 0.9;
       spawnParticles(ball.x, ball.y, ['#ffffff', '#ffd28b', '#ff7b54'], 8);
     }
 
@@ -676,44 +690,32 @@ const BasketballGame: React.FC = () => {
       const nx = (ball.x - rimX2) / Math.max(d2, 1);
       const ny = (ball.y - rimY) / Math.max(d2, 1);
       const dot = ball.vx * nx + ball.vy * ny;
-      ball.vx = (ball.vx - 2 * dot * nx) * 0.86;
-      ball.vy = (ball.vy - 2 * dot * ny) * 0.86;
+      ball.vx = (ball.vx - 2 * dot * nx) * 0.9;
+      ball.vy = (ball.vy - 2 * dot * ny) * 0.9;
       spawnParticles(ball.x, ball.y, ['#ffffff', '#ffd28b', '#ff7b54'], 8);
-    }
-
-    if (
-      ball.x + ball.r > boardLeft &&
-      ball.x - ball.r < boardLeft + 10 * ring.scale &&
-      ball.y > boardTop &&
-      ball.y < boardBottom
-    ) {
-      ball.x = boardLeft - ball.r;
-      ball.vx = -Math.abs(ball.vx) * 0.82;
-      spawnParticles(ball.x, ball.y, ['#ffffff', '#ffc3ea', '#8b7dff'], 10);
     }
 
     if (!ball.scored && checkScore(prevY, ball, ring)) {
       ball.scored = true;
-      spawnParticles(ball.x, ball.y, ['#fff7ae', '#ffb13d', '#ffffff'], 24);
+      spawnParticles(ball.x, ball.y, ['#fff7ae', '#ffb13d', '#ffffff'], 26);
     }
 
     if (ball.y + ball.r >= FLOOR_Y) {
       ball.y = FLOOR_Y - ball.r;
       ball.vy = -Math.abs(ball.vy) * 0.56;
-      ball.vx *= 0.82;
+      ball.vx *= 0.84;
 
       if (Math.abs(ball.vy) < 1.1) {
         ball.vy = 0;
       }
     }
 
-    // железные условия конца броска
     const shouldEnd =
-      ball.x > WORLD_W + 120 ||
-      ball.x < -120 ||
-      ball.y > WORLD_H + 120 ||
-      (ball.y >= FLOOR_Y - ball.r && Math.abs(ball.vx) < 0.35 && Math.abs(ball.vy) < 0.35) ||
-      shotTimerRef.current > 420;
+      ball.x > WORLD_W + 140 ||
+      ball.x < -140 ||
+      ball.y > WORLD_H + 140 ||
+      (ball.y >= FLOOR_Y - ball.r && Math.abs(ball.vx) < 0.4 && Math.abs(ball.vy) < 0.4) ||
+      shotTimerRef.current > 340;
 
     if (shouldEnd) {
       finishTurnStep(ball.scored);
@@ -731,8 +733,27 @@ const BasketballGame: React.FC = () => {
     ctx.clearRect(0, 0, WORLD_W, WORLD_H);
     drawBackground(ctx);
 
-    drawPlayer(ctx, 160, 458, currentPlayerRef.current === 0, '#ff5f2e', shotStateRef.current === 'aim' && currentPlayerRef.current === 0, time);
-    drawPlayer(ctx, 270, 478, currentPlayerRef.current === 1, '#3b82f6', false, time);
+    drawPlayer(
+      ctx,
+      170,
+      454,
+      currentPlayerRef.current === 0,
+      '#ff5b2e',
+      '#ff914d',
+      shotStateRef.current === 'aim' && currentPlayerRef.current === 0,
+      time
+    );
+
+    drawPlayer(
+      ctx,
+      290,
+      474,
+      currentPlayerRef.current === 1,
+      '#3b82f6',
+      '#6aa6ff',
+      false,
+      time
+    );
 
     drawRing(ctx, ringRef.current);
     drawAimPreview(ctx);
@@ -745,6 +766,7 @@ const BasketballGame: React.FC = () => {
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     });
+
     ctx.globalAlpha = 1;
   }, []);
 
@@ -790,16 +812,17 @@ const BasketballGame: React.FC = () => {
     const ball = ballRef.current;
     const dx = ball.x - pointerRef.current.x;
     const dy = ball.y - pointerRef.current.y;
-    const dist = Math.min(len(dx, dy), 180);
+    const dist = Math.min(len(dx, dy), 190);
 
     if (dist < 10) {
       pointerRef.current.active = false;
       return;
     }
 
-    const power = clamp(dist / 9.5, 4, 21);
-    ball.vx = clamp((dx / dist) * power * 1.15, -2, 18);
-    ball.vy = clamp((dy / dist) * power * 0.95, -18, 1);
+    // сильнее и быстрее
+    const power = clamp(dist / 7.5, 7, 29);
+    ball.vx = clamp((dx / dist) * power * 1.45, -2, 28);
+    ball.vy = clamp((dy / dist) * power * 1.2, -24, 1);
     ball.flying = true;
     ball.scored = false;
     pointerRef.current.active = false;
@@ -871,7 +894,6 @@ const BasketballGame: React.FC = () => {
             transformOrigin: 'center center',
           }}
         >
-          {/* фон без рамки */}
           <canvas
             ref={canvasRef}
             width={WORLD_W}
@@ -883,14 +905,13 @@ const BasketballGame: React.FC = () => {
             onPointerLeave={() => (pointerRef.current.active = false)}
             className="touch-none"
             style={{
-              width: WORLD_W * worldScale,
-              height: WORLD_H * worldScale,
+              width: '100%',
+              height: '100%',
               touchAction: 'none',
               display: 'block',
             }}
           />
 
-          {/* верхнее меню */}
           <div className="absolute left-0 right-0 top-0 z-20 px-4 pt-3">
             <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
               <div
@@ -936,9 +957,9 @@ const BasketballGame: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.8, y: 14 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.8, y: -10 }}
-                className="absolute right-[24%] top-[38%] z-30 pointer-events-none"
+                className="absolute right-[23%] top-[36%] z-30 pointer-events-none"
               >
-                <div className="text-[54px] font-black text-yellow-300 drop-shadow-[0_6px_18px_rgba(255,180,40,0.65)]">
+                <div className="text-[54px] font-black text-yellow-300 drop-shadow-[0_6px_18px_rgba(255,180,40,0.68)]">
                   {flashText}
                 </div>
               </motion.div>
