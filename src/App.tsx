@@ -11,7 +11,6 @@ import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
 import { PaperGame } from './pages/PaperGame';
 import MiniGolfBeautiful from './pages/MiniGolfGame';
-import BasketballGame from './pages/BasketballGame';
 import NewGame from './pages/NewGame';
 import { useEffect } from 'react';
 
@@ -47,7 +46,6 @@ function App() {
             <Route path="/game/archer/play" element={<ArcherGame />} />
             <Route path="/game/paper/play" element={<PaperGame />} />
             <Route path="/game/pingpong/play" element={<MiniGolfBeautiful />} />
-            <Route path="/game/basketball/play" element={<BasketballGame />} />
 
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
