@@ -7,62 +7,123 @@ const SETTINGS = {
   friction: 0.992,
   wallBounciness: 0.8,
   maxPuckSpeed: 18,
+  goalCooldownMs: 450,
+  aiTrackSpeed: 0.08,
+  aiReturnSpeed: 0.03,
+  maxDpr: 1.5,
 };
 
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; color: string };
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  color: string;
+};
+
+type TrailPoint = {
+  x: number;
+  y: number;
+  life: number;
+};
 
 export const AirHockeyGame: React.FC = () => {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef(0);
+  const lastGoalAtRef = useRef(0);
+  const scoreRef = useRef({ p1: 0, p2: 0 });
+  const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
+
   const [score, setScore] = useState({ p1: 0, p2: 0 });
 
   const puck = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
-  const p1 = useRef({ x: 0, y: 0, lastX: 0, lastY: 0, isDragging: false }); 
-  const p2 = useRef({ x: 0, y: 0 }); 
+  const p1 = useRef({ x: 0, y: 0, lastX: 0, lastY: 0, isDragging: false });
+  const p2 = useRef({ x: 0, y: 0 });
   const particles = useRef<Particle[]>([]);
+  const trail = useRef<TrailPoint[]>([]);
+
+  const resizeCanvas = () => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, SETTINGS.maxDpr);
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+
+    sizeRef.current = { w, h, dpr };
+
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (p1.current.x === 0 && p1.current.y === 0) {
+      spawnPuck(w, h, 'p1');
+      p1.current = {
+        x: w / 2,
+        y: h - 100,
+        lastX: w / 2,
+        lastY: h - 100,
+        isDragging: false,
+      };
+      p2.current = { x: w / 2, y: 100 };
+    } else {
+      p1.current.x = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, p1.current.x));
+      p1.current.y = Math.max(h / 2 + SETTINGS.paddleSize, Math.min(h - SETTINGS.paddleSize, p1.current.y));
+      p2.current.x = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, p2.current.x));
+    }
+  };
 
   const spawnPuck = (w: number, h: number, targetPlayer: 'p1' | 'p2') => {
     puck.current = {
       x: w / 2,
       y: targetPlayer === 'p1' ? h * 0.75 : h * 0.25,
       vx: 0,
-      vy: 0
+      vy: 0,
     };
-    
-    // Если шайба у ИИ, он дает пас игроку через 500мс
+    trail.current = [];
+
     if (targetPlayer === 'p2') {
-      setTimeout(() => {
+      window.setTimeout(() => {
         puck.current.vx = (Math.random() - 0.5) * 5;
-        puck.current.vy = 8; 
-      }, 500);
+        puck.current.vy = 8;
+      }, 320);
     }
   };
 
-  const updateAI = (w: number, h: number) => {
+  const updateAI = (w: number, h: number, dt60: number) => {
     const targetX = puck.current.x;
-    const paddleSpeed = 0.08;
-    
+
     if (puck.current.y < h / 2) {
       const dx = targetX - p2.current.x;
-      p2.current.x += dx * paddleSpeed;
+      p2.current.x += dx * SETTINGS.aiTrackSpeed * dt60;
     } else {
-      const dx = (w / 2) - p2.current.x;
-      p2.current.x += dx * 0.03;
+      const dx = w / 2 - p2.current.x;
+      p2.current.x += dx * SETTINGS.aiReturnSpeed * dt60;
     }
-    
+
     if (p2.current.x < SETTINGS.paddleSize) p2.current.x = SETTINGS.paddleSize;
     if (p2.current.x > w - SETTINGS.paddleSize) p2.current.x = w - SETTINGS.paddleSize;
   };
 
   const createGoalEffect = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 20; i += 1) {
       particles.current.push({
-        x, y,
+        x,
+        y,
         vx: (Math.random() - 0.5) * 12,
         vy: (Math.random() - 0.5) * 12,
-        life: 1.0,
-        color
+        life: 1,
+        color,
       });
     }
   };
@@ -72,33 +133,37 @@ export const AirHockeyGame: React.FC = () => {
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    // Блокировка системных жестов
-    const prevent = (e: TouchEvent) => e.preventDefault();
+    const prevent = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+
     container.addEventListener('touchstart', prevent, { passive: false });
     container.addEventListener('touchmove', prevent, { passive: false });
 
-    const ctx = canvas.getContext('2d')!;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
-    canvas.width = w;
-    canvas.height = h;
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
 
-    spawnPuck(w, h, 'p1');
-    p1.current = { x: w / 2, y: h - 100, lastX: w / 2, lastY: h - 100, isDragging: false };
-    p2.current = { x: w / 2, y: 100 };
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    let raf: number;
-
-    const update = () => {
+    const loop = (now: number) => {
+      const { w, h } = sizeRef.current;
       const p = puck.current;
-      updateAI(w, h);
 
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vx *= SETTINGS.friction;
-      p.vy *= SETTINGS.friction;
+      const prev = lastFrameRef.current || now;
+      const dtMs = Math.min(now - prev, 32);
+      const dt60 = dtMs / 16.6667;
+      lastFrameRef.current = now;
 
-      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+      updateAI(w, h, dt60);
+
+      p.x += p.vx * dt60;
+      p.y += p.vy * dt60;
+
+      p.vx *= Math.pow(SETTINGS.friction, dt60);
+      p.vy *= Math.pow(SETTINGS.friction, dt60);
+
+      const speed = Math.hypot(p.vx, p.vy);
       if (speed > SETTINGS.maxPuckSpeed) {
         p.vx = (p.vx / speed) * SETTINGS.maxPuckSpeed;
         p.vy = (p.vy / speed) * SETTINGS.maxPuckSpeed;
@@ -112,107 +177,198 @@ export const AirHockeyGame: React.FC = () => {
         p.vx *= -SETTINGS.wallBounciness;
       }
 
+      const canScore = now - lastGoalAtRef.current > SETTINGS.goalCooldownMs;
+
       if (p.y < SETTINGS.puckSize || p.y > h - SETTINGS.puckSize) {
-        if (p.x > w * 0.3 && p.x < w * 0.7) {
+        const insideGoal = p.x > w * 0.3 && p.x < w * 0.7;
+
+        if (insideGoal && canScore) {
           const isTopGoal = p.y < h / 2;
+          lastGoalAtRef.current = now;
+
           createGoalEffect(p.x, p.y, isTopGoal ? '#3b82f6' : '#ef4444');
+
           if (isTopGoal) {
-            setScore(s => ({ ...s, p1: s.p1 + 1 }));
-            spawnPuck(w, h, 'p2'); 
+            scoreRef.current = { ...scoreRef.current, p1: scoreRef.current.p1 + 1 };
+            setScore(scoreRef.current);
+            spawnPuck(w, h, 'p2');
           } else {
-            setScore(s => ({ ...s, p2: s.p2 + 1 }));
-            spawnPuck(w, h, 'p1'); 
+            scoreRef.current = { ...scoreRef.current, p2: scoreRef.current.p2 + 1 };
+            setScore(scoreRef.current);
+            spawnPuck(w, h, 'p1');
           }
-        } else {
+        } else if (!insideGoal) {
           p.y = p.y < SETTINGS.puckSize ? SETTINGS.puckSize : h - SETTINGS.puckSize;
           p.vy *= -SETTINGS.wallBounciness;
         }
       }
 
-      [p1.current, { x: p2.current.x, y: p2.current.y, isAI: true }].forEach((paddle, index) => {
-        const dx = p.x - paddle.x;
-        const dy = p.y - paddle.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      const handlePaddleCollision = (
+        paddleX: number,
+        paddleY: number,
+        isPlayer: boolean,
+      ) => {
+        const dx = p.x - paddleX;
+        const dy = p.y - paddleY;
+        const dist = Math.hypot(dx, dy) || 0.0001;
         const minDist = SETTINGS.puckSize + SETTINGS.paddleSize;
 
         if (dist < minDist) {
           const angle = Math.atan2(dy, dx);
-          p.x = paddle.x + Math.cos(angle) * minDist;
-          p.y = paddle.y + Math.sin(angle) * minDist;
-          
-          if (index === 0) { 
+
+          p.x = paddleX + Math.cos(angle) * minDist;
+          p.y = paddleY + Math.sin(angle) * minDist;
+
+          const currentSpeed = Math.hypot(p.vx, p.vy);
+
+          if (isPlayer) {
             const vx = (p1.current.x - p1.current.lastX) * 0.8;
             const vy = (p1.current.y - p1.current.lastY) * 0.8;
-            p.vx = vx + Math.cos(angle) * (speed + 2);
-            p.vy = vy + Math.sin(angle) * (speed + 2);
-          } else { 
-            p.vx = Math.cos(angle) * (speed + 1.5);
-            p.vy = Math.sin(angle) * (speed + 1.5);
+            p.vx = vx + Math.cos(angle) * (currentSpeed + 2);
+            p.vy = vy + Math.sin(angle) * (currentSpeed + 2);
+          } else {
+            p.vx = Math.cos(angle) * (currentSpeed + 1.5);
+            p.vy = Math.sin(angle) * (currentSpeed + 1.5);
           }
         }
-      });
+      };
+
+      handlePaddleCollision(p1.current.x, p1.current.y, true);
+      handlePaddleCollision(p2.current.x, p2.current.y, false);
 
       p1.current.lastX = p1.current.x;
       p1.current.lastY = p1.current.y;
 
+      trail.current.push({ x: p.x, y: p.y, life: 1 });
+      if (trail.current.length > 10) trail.current.shift();
+
       ctx.fillStyle = '#0A0A0F';
       ctx.fillRect(0, 0, w, h);
 
-      ctx.lineWidth = 4;
+      const bgGlow = ctx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, h * 0.7);
+      bgGlow.addColorStop(0, 'rgba(255,255,255,0.025)');
+      bgGlow.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = bgGlow;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, 40, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.lineWidth = 5;
       ctx.strokeStyle = '#3b82f6';
       ctx.strokeRect(w * 0.3, 0, w * 0.4, 5);
       ctx.strokeStyle = '#ef4444';
       ctx.strokeRect(w * 0.3, h - 5, w * 0.4, 5);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(w/2, h/2, 40, 0, Math.PI*2); ctx.stroke();
+      for (let i = 0; i < trail.current.length; i += 1) {
+        const t = trail.current[i];
+        const alpha = (i + 1) / trail.current.length * 0.2;
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 4 + i * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        t.life -= 0.08 * dt60;
+      }
+      trail.current = trail.current.filter(t => t.life > 0);
 
-      particles.current.forEach((part, i) => {
+      const nextParticles: Particle[] = [];
+      for (let i = 0; i < particles.current.length; i += 1) {
+        const part = particles.current[i];
         ctx.fillStyle = part.color;
         ctx.globalAlpha = part.life;
-        ctx.beginPath(); ctx.arc(part.x, part.y, 2, 0, Math.PI*2); ctx.fill();
-        part.x += part.vx; part.y += part.vy;
-        part.life -= 0.02;
-        if (part.life <= 0) particles.current.splice(i, 1);
-      });
+        ctx.beginPath();
+        ctx.arc(part.x, part.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        part.x += part.vx * dt60;
+        part.y += part.vy * dt60;
+        part.life -= 0.03 * dt60;
+
+        if (part.life > 0) nextParticles.push(part);
+      }
+      particles.current = nextParticles;
       ctx.globalAlpha = 1;
 
+      const puckGlow = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, SETTINGS.puckSize + 10);
+      puckGlow.addColorStop(0, 'rgba(255,255,255,1)');
+      puckGlow.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = puckGlow;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, SETTINGS.puckSize + 10, 0, Math.PI * 2);
+      ctx.fill();
+
       ctx.fillStyle = '#fff';
-      ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
-      ctx.beginPath(); ctx.arc(p.x, p.y, SETTINGS.puckSize, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, SETTINGS.puckSize, 0, Math.PI * 2);
+      ctx.fill();
 
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#fff';
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath(); ctx.arc(p1.current.x, p1.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#3b82f6';
-      ctx.beginPath(); ctx.arc(p2.current.x, p2.current.y, SETTINGS.paddleSize, 0, Math.PI * 2); ctx.fill();
-      ctx.stroke();
+      const drawPaddle = (x: number, y: number, fill: string) => {
+        const glow = ctx.createRadialGradient(x, y, 5, x, y, SETTINGS.paddleSize + 14);
+        glow.addColorStop(0, fill);
+        glow.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(x, y, SETTINGS.paddleSize + 12, 0, Math.PI * 2);
+        ctx.fill();
 
-      raf = requestAnimationFrame(update);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#fff';
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        ctx.arc(x, y, SETTINGS.paddleSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.beginPath();
+        ctx.arc(x - 8, y - 8, 8, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      drawPaddle(p1.current.x, p1.current.y, '#ef4444');
+      drawPaddle(p2.current.x, p2.current.y, '#3b82f6');
+
+      rafRef.current = requestAnimationFrame(loop);
     };
 
-    raf = requestAnimationFrame(update);
+    rafRef.current = requestAnimationFrame(loop);
+
     return () => {
-      cancelAnimationFrame(raf);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
       container.removeEventListener('touchstart', prevent);
       container.removeEventListener('touchmove', prevent);
+      window.removeEventListener('resize', resizeCanvas);
     };
   }, []);
 
-  const handleStart = (e: any) => {
+  const getPoint = (e: any) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) return null;
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
 
-    const dist = Math.sqrt((x - p1.current.x)**2 + (y - p1.current.y)**2);
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+      w: rect.width,
+      h: rect.height,
+    };
+  };
+
+  const handleStart = (e: any) => {
+    const point = getPoint(e);
+    if (!point) return;
+
+    const dist = Math.hypot(point.x - p1.current.x, point.y - p1.current.y);
     if (dist < SETTINGS.paddleSize * 2.5) {
       p1.current.isDragging = true;
     }
@@ -220,16 +376,15 @@ export const AirHockeyGame: React.FC = () => {
 
   const handleMove = (e: any) => {
     if (!p1.current.isDragging) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    let nextX = clientX - rect.left;
-    let nextY = clientY - rect.top;
-    const w = rect.width;
-    const h = rect.height;
-    nextX = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, nextX));
-    nextY = Math.max(h / 2 + SETTINGS.paddleSize, Math.min(h - SETTINGS.paddleSize, nextY));
+    const point = getPoint(e);
+    if (!point) return;
+
+    let nextX = point.x;
+    let nextY = point.y;
+
+    nextX = Math.max(SETTINGS.paddleSize, Math.min(point.w - SETTINGS.paddleSize, nextX));
+    nextY = Math.max(point.h / 2 + SETTINGS.paddleSize, Math.min(point.h - SETTINGS.paddleSize, nextY));
+
     p1.current.x = nextX;
     p1.current.y = nextY;
   };
@@ -239,24 +394,30 @@ export const AirHockeyGame: React.FC = () => {
   };
 
   return (
-    <div 
-      ref={containerRef} 
+    <div
+      ref={containerRef}
       className="relative w-full h-full bg-[#0A0A0F] overflow-hidden touch-none select-none"
       style={{ touchAction: 'none', overscrollBehavior: 'none' }}
     >
-      <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-20">
+      <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-25">
         <div className="text-6xl font-black text-blue-500">{score.p2}</div>
         <div className="w-12 h-1 bg-white/20" />
         <div className="text-6xl font-black text-red-500">{score.p1}</div>
       </div>
-      <button onClick={() => navigate('/')} className="absolute top-6 right-6 z-20 text-white/20 text-[10px] border border-white/10 px-3 py-1 rounded tracking-widest uppercase">
+
+      <button
+        onClick={() => navigate('/')}
+        className="absolute top-6 right-6 z-20 text-white/25 text-[10px] border border-white/10 px-3 py-1 rounded tracking-widest uppercase bg-white/5"
+      >
         Exit
       </button>
-      <canvas 
+
+      <canvas
         ref={canvasRef}
         onMouseDown={handleStart}
         onMouseMove={handleMove}
         onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
         onTouchStart={handleStart}
         onTouchMove={handleMove}
         onTouchEnd={handleEnd}
