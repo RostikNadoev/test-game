@@ -22,24 +22,18 @@ type Particle = {
 const SETTINGS = {
   physics: {
     maxSpeed: 9,
-    accel: 0.22,
-    friction: 0.987,
-    driftFactor: 0.972,
-    turnSpeed: 0.085,
+    accel: 0.2,
+    friction: 0.985,
+    driftFactor: 0.96,
+    turnSpeed: 0.08,
     wallFriction: 0.45,
-    turnResistance: 0.93,
-    steerSmoothing: 0.18,
+    turnResistance: 0.95,
   },
   visual: {
     trackWidth: 155,
     curbWidth: 16,
     curbLen: 28,
     decorCullDistance: 1100,
-  },
-  joystick: {
-    radius: 50,
-    visualFollow: 0.22,
-    visualReturn: 0.16,
   },
   ui: {
     hudIntervalMs: 100,
@@ -93,7 +87,6 @@ export const RaceGame: React.FC = () => {
     vX: 0,
     vY: 0,
     passedFinish: false,
-    steerVel: 0,
   });
 
   const joystick = useRef({
@@ -102,8 +95,6 @@ export const RaceGame: React.FC = () => {
     inputY: 0,
     visualX: 0,
     visualY: 0,
-    targetVisualX: 0,
-    targetVisualY: 0,
     startX: 0,
     startY: 0,
   });
@@ -407,26 +398,16 @@ export const RaceGame: React.FC = () => {
         t.lastHudUpdate = now;
       }
 
-      const stickLerp = j.active
-        ? SETTINGS.joystick.visualFollow
-        : SETTINGS.joystick.visualReturn;
-
-      j.visualX += (j.targetVisualX - j.visualX) * stickLerp * dt;
-      j.visualY += (j.targetVisualY - j.visualY) * stickLerp * dt;
-
       if (j.active) {
         const sAngle = Math.atan2(j.inputY, j.inputX);
         const diff = Math.atan2(Math.sin(sAngle - c.angle), Math.cos(sAngle - c.angle));
 
-        c.steerVel += diff * SETTINGS.physics.steerSmoothing * dt;
-        c.steerVel *= Math.pow(0.82, dt);
+        c.speed *= 1 - Math.abs(diff) * (1 - SETTINGS.physics.turnResistance) * 0.7;
 
-        c.speed *= 1 - Math.abs(diff) * (1 - SETTINGS.physics.turnResistance) * 0.45;
+        if (Math.abs(diff) < Math.PI / 1.5) {
+          c.speed += SETTINGS.physics.accel * dt * (1 - Math.abs(diff) * 0.2);
 
-        if (Math.abs(diff) < Math.PI / 1.45) {
-          c.speed += SETTINGS.physics.accel * dt * (1 - Math.abs(diff) * 0.12);
-
-          if (Math.random() > 0.45 && particles.current.length < 80) {
+          if (Math.random() > 0.55 && particles.current.length < 60) {
             particles.current.push({
               x: c.x,
               y: c.y,
@@ -435,23 +416,20 @@ export const RaceGame: React.FC = () => {
             });
           }
         } else {
-          c.speed *= 0.985;
+          c.speed *= 0.97;
         }
 
-        c.angle += (diff * SETTINGS.physics.turnSpeed + c.steerVel * 0.55) * dt * Math.min(Math.abs(c.speed) / 2.2 + 0.25, 1.15);
-      } else {
-        c.steerVel *= Math.pow(0.88, dt);
-        c.angle += c.steerVel * 0.18 * dt;
+        c.angle += diff * SETTINGS.physics.turnSpeed * dt * Math.min(Math.abs(c.speed) / 2, 1);
       }
 
       c.speed *= Math.pow(SETTINGS.physics.friction, dt);
       if (c.speed > SETTINGS.physics.maxSpeed) c.speed = SETTINGS.physics.maxSpeed;
 
-      const forwardVX = Math.cos(c.angle) * c.speed;
-      const forwardVY = Math.sin(c.angle) * c.speed;
+      const targetVX = Math.cos(c.angle) * c.speed;
+      const targetVY = Math.sin(c.angle) * c.speed;
 
-      c.vX = c.vX * SETTINGS.physics.driftFactor + forwardVX * (1 - SETTINGS.physics.driftFactor);
-      c.vY = c.vY * SETTINGS.physics.driftFactor + forwardVY * (1 - SETTINGS.physics.driftFactor);
+      c.vX = c.vX * SETTINGS.physics.driftFactor + targetVX * (1 - SETTINGS.physics.driftFactor);
+      c.vY = c.vY * SETTINGS.physics.driftFactor + targetVY * (1 - SETTINGS.physics.driftFactor);
 
       const nextX = c.x + c.vX * dt;
       const nextY = c.y + c.vY * dt;
@@ -482,7 +460,6 @@ export const RaceGame: React.FC = () => {
         c.vX *= SETTINGS.physics.wallFriction;
         c.vY *= SETTINGS.physics.wallFriction;
         c.speed *= SETTINGS.physics.wallFriction;
-        c.steerVel *= 0.8;
       }
 
       const elapsed = (now - t.start) / 1000;
@@ -611,13 +588,15 @@ export const RaceGame: React.FC = () => {
     if (!rect) return;
 
     if (type === 'end') {
-      joystick.current.active = false;
-      joystick.current.startX = 0;
-      joystick.current.startY = 0;
-      joystick.current.inputX = 0;
-      joystick.current.inputY = 0;
-      joystick.current.targetVisualX = 0;
-      joystick.current.targetVisualY = 0;
+      joystick.current = {
+        active: false,
+        startX: 0,
+        startY: 0,
+        visualX: 0,
+        visualY: 0,
+        inputX: 0,
+        inputY: 0,
+      };
       return;
     }
 
@@ -641,16 +620,12 @@ export const RaceGame: React.FC = () => {
     const dx = x - joystick.current.startX;
     const dy = y - joystick.current.startY;
     const d = Math.max(1, Math.hypot(dx, dy));
-    const lim = SETTINGS.joystick.radius;
+    const lim = 50;
 
-    const clamped = Math.min(d, lim);
-    const visualX = (dx / d) * clamped;
-    const visualY = (dy / d) * clamped;
-
-    joystick.current.targetVisualX = visualX;
-    joystick.current.targetVisualY = visualY;
-    joystick.current.inputX = visualX / lim;
-    joystick.current.inputY = visualY / lim;
+    joystick.current.visualX = (dx / d) * Math.min(d, lim);
+    joystick.current.visualY = (dy / d) * Math.min(d, lim);
+    joystick.current.inputX = joystick.current.visualX / lim;
+    joystick.current.inputY = joystick.current.visualY / lim;
   };
 
   return (
@@ -718,7 +693,7 @@ export const RaceGame: React.FC = () => {
           className="w-16 h-16 bg-gradient-to-br from-white to-gray-400 rounded-full shadow-2xl pointer-events-none border-2 border-black/20"
           style={{
             transform: `translate(${joystick.current.visualX}px, ${joystick.current.visualY}px)`,
-            transition: 'none',
+            transition: joystick.current.active ? 'none' : 'transform 0.15s',
           }}
         />
       </div>
