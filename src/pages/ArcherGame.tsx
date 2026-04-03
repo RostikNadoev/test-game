@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+type Turn = 1 | 2;
+
 interface Player {
   x: number;
   y: number;
@@ -42,36 +44,78 @@ interface MountainRange {
   snowOpacity: number;
 }
 
-const MOUNTAIN_SETTINGS = [
-  { baseHeight: 0.7, variance: 0.16, color: '#13182d', ridgeColor: 'rgba(255,255,255,0.05)', speed: 0.22, detail: 58, snowOpacity: 0.16 },
-  { baseHeight: 0.56, variance: 0.13, color: '#1c2340', ridgeColor: 'rgba(255,255,255,0.06)', speed: 0.42, detail: 44, snowOpacity: 0.12 },
-  { baseHeight: 0.38, variance: 0.10, color: '#263153', ridgeColor: 'rgba(255,255,255,0.07)', speed: 0.68, detail: 34, snowOpacity: 0.08 },
-  { baseHeight: 0.22, variance: 0.06, color: '#31406a', ridgeColor: 'rgba(255,255,255,0.08)', speed: 1.0, detail: 22, snowOpacity: 0.0 },
-] as const;
-
 const SETTINGS = {
-  gravity: 0.22,
-  groundY: 100,
+  gravity: 0.215,
+  groundY: 96,
   playerSize: 50,
-  maxPower: 44,
-  worldWidth: 4000,
+  maxPower: 42,
+  launchScale: 0.102,
+  worldWidth: 3900,
   maxHP: 3,
   maxDpr: 1.5,
-  grassStep: 9,
+  grassStep: 10,
   maxParticles: 140,
-  p1StartX: 950,
-  p2StartX: 3050,
-  launchScale: 0.108,
+  p1StartX: 980,
+  p2StartX: 2920,
 };
 
-function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
+const MOUNTAIN_SETTINGS = [
+  {
+    baseHeight: 0.72,
+    variance: 0.16,
+    color: '#12172b',
+    ridgeColor: 'rgba(255,255,255,0.045)',
+    speed: 0.22,
+    detail: 60,
+    snowOpacity: 0.16,
+  },
+  {
+    baseHeight: 0.56,
+    variance: 0.13,
+    color: '#1b2340',
+    ridgeColor: 'rgba(255,255,255,0.055)',
+    speed: 0.42,
+    detail: 44,
+    snowOpacity: 0.12,
+  },
+  {
+    baseHeight: 0.38,
+    variance: 0.1,
+    color: '#263152',
+    ridgeColor: 'rgba(255,255,255,0.07)',
+    speed: 0.68,
+    detail: 34,
+    snowOpacity: 0.08,
+  },
+  {
+    baseHeight: 0.23,
+    variance: 0.06,
+    color: '#32416a',
+    ridgeColor: 'rgba(255,255,255,0.08)',
+    speed: 1.0,
+    detail: 24,
+    snowOpacity: 0,
+  },
+] as const;
+
+function roundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) {
+  const safeW = Math.max(0, w);
+  const safeH = Math.max(0, h);
+  const safeR = Math.max(0, Math.min(r, safeW / 2, safeH / 2));
+
   ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.moveTo(x + safeR, y);
+  ctx.arcTo(x + safeW, y, x + safeW, y + safeH, safeR);
+  ctx.arcTo(x + safeW, y + safeH, x, y + safeH, safeR);
+  ctx.arcTo(x, y + safeH, x, y, safeR);
+  ctx.arcTo(x, y, x + safeW, y, safeR);
   ctx.closePath();
 }
 
@@ -80,43 +124,44 @@ export const ArcherGame: React.FC = () => {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
   const rafRef = useRef<number | null>(null);
   const nextTurnTimeoutRef = useRef<number | null>(null);
   const lastFrameRef = useRef<number>(0);
 
-  const [turn, setTurn] = useState<1 | 2>(1);
+  const [turn, setTurn] = useState<Turn>(1);
   const [p1, setP1] = useState<Player>({
     x: SETTINGS.p1StartX,
     y: 0,
-    hp: 3,
+    hp: SETTINGS.maxHP,
     color: '#FF3B3B',
   });
   const [p2, setP2] = useState<Player>({
     x: SETTINGS.p2StartX,
     y: 0,
-    hp: 3,
+    hp: SETTINGS.maxHP,
     color: '#3B82FF',
   });
   const [wind, setWind] = useState(0);
   const [winner, setWinner] = useState<number | null>(null);
 
-  const turnRef = useRef<1 | 2>(1);
+  const turnRef = useRef<Turn>(1);
   const windRef = useRef(0);
   const winnerRef = useRef<number | null>(null);
   const p1Ref = useRef<Player>({
     x: SETTINGS.p1StartX,
     y: 0,
-    hp: 3,
+    hp: SETTINGS.maxHP,
     color: '#FF3B3B',
   });
   const p2Ref = useRef<Player>({
     x: SETTINGS.p2StartX,
     y: 0,
-    hp: 3,
+    hp: SETTINGS.maxHP,
     color: '#3B82FF',
   });
 
-  const projectile = useRef({
+  const projectileRef = useRef({
     x: 0,
     y: 0,
     vx: 0,
@@ -126,26 +171,27 @@ export const ArcherGame: React.FC = () => {
     landed: false,
   });
 
-  const camera = useRef({
+  const cameraRef = useRef({
     x: 0,
     targetX: 0,
     shake: 0,
   });
 
-  const drag = useRef({
+  const dragRef = useRef({
     active: false,
+    pointerId: -1,
     startX: 0,
     startY: 0,
     currX: 0,
     currY: 0,
   });
 
-  const particles = useRef<Particle[]>([]);
-  const windStreaks = useRef<WindStreak[]>([]);
-  const stars = useRef<Star[]>([]);
-  const mountainRanges = useRef<MountainRange[]>([]);
-  const grassBlades = useRef<{ x: number; h: number; offset: number; color: string }[]>([]);
-  const trees = useRef<{ x: number; s: number; tint: string }[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
+  const windStreaksRef = useRef<WindStreak[]>([]);
+  const starsRef = useRef<Star[]>([]);
+  const mountainRangesRef = useRef<MountainRange[]>([]);
+  const grassBladesRef = useRef<{ x: number; h: number; offset: number; color: string }[]>([]);
+  const treesRef = useRef<{ x: number; s: number; tint: string }[]>([]);
 
   const getGroundY = (x: number, viewHeight: number) =>
     viewHeight - SETTINGS.groundY + Math.sin(x / 300) * 20;
@@ -176,23 +222,6 @@ export const ArcherGame: React.FC = () => {
   }, [p2]);
 
   useEffect(() => {
-    const preventDefault = (e: TouchEvent) => {
-      if (e.cancelable) e.preventDefault();
-    };
-
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener('touchmove', preventDefault, { passive: false });
-    }
-
-    return () => {
-      if (container) {
-        container.removeEventListener('touchmove', preventDefault);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     const blades: { x: number; h: number; offset: number; color: string }[] = [];
     for (let i = 0; i < SETTINGS.worldWidth; i += SETTINGS.grassStep) {
       blades.push({
@@ -202,23 +231,23 @@ export const ArcherGame: React.FC = () => {
         color: Math.random() > 0.45 ? '#10b981' : '#059669',
       });
     }
-    grassBlades.current = blades;
+    grassBladesRef.current = blades;
 
-    trees.current = Array.from({ length: 34 }, () => ({
+    treesRef.current = Array.from({ length: 34 }, () => ({
       x: Math.random() * SETTINGS.worldWidth,
       s: 0.65 + Math.random() * 1.05,
       tint: Math.random() > 0.5 ? '#111827' : '#1f2937',
     }));
 
-    windStreaks.current = Array.from({ length: 30 }, () => ({
-      x: Math.random() * window.innerWidth,
+    windStreaksRef.current = Array.from({ length: 30 }, () => ({
+      x: Math.random() * Math.max(window.innerWidth, 400),
       y: Math.random() * Math.max(220, window.innerHeight - 280),
       len: 18 + Math.random() * 34,
       speed: 0.4 + Math.random() * 1.5,
     }));
 
-    stars.current = Array.from({ length: 58 }, () => ({
-      x: Math.random() * window.innerWidth,
+    starsRef.current = Array.from({ length: 58 }, () => ({
+      x: Math.random() * Math.max(window.innerWidth, 400),
       y: 30 + Math.random() * 230,
       size: 0.8 + Math.random() * 1.8,
       twinkle: Math.random() * Math.PI * 2,
@@ -226,7 +255,7 @@ export const ArcherGame: React.FC = () => {
 
     const viewHeight = window.innerHeight;
 
-    mountainRanges.current = MOUNTAIN_SETTINGS.map(layer => {
+    mountainRangesRef.current = MOUNTAIN_SETTINGS.map(layer => {
       const points: { x: number; y: number }[] = [];
       const step = SETTINGS.worldWidth / layer.detail;
 
@@ -288,9 +317,6 @@ export const ArcherGame: React.FC = () => {
       });
     };
 
-    resize();
-    window.addEventListener('resize', resize);
-
     const drawSky = (ctx2: CanvasRenderingContext2D, width: number, height: number, now: number) => {
       const skyGrad = ctx2.createLinearGradient(0, 0, 0, height);
       skyGrad.addColorStop(0, '#030816');
@@ -299,8 +325,8 @@ export const ArcherGame: React.FC = () => {
       ctx2.fillStyle = skyGrad;
       ctx2.fillRect(0, 0, width, height);
 
-      for (let i = 0; i < stars.current.length; i += 1) {
-        const s = stars.current[i];
+      for (let i = 0; i < starsRef.current.length; i += 1) {
+        const s = starsRef.current[i];
         const alpha = 0.35 + ((Math.sin(now * 0.0016 + s.twinkle) + 1) * 0.5) * 0.45;
         ctx2.fillStyle = `rgba(255,255,255,${alpha})`;
         ctx2.beginPath();
@@ -351,8 +377,8 @@ export const ArcherGame: React.FC = () => {
 
       const currentWind = windRef.current;
 
-      for (let i = 0; i < windStreaks.current.length; i += 1) {
-        const s = windStreaks.current[i];
+      for (let i = 0; i < windStreaksRef.current.length; i += 1) {
+        const s = windStreaksRef.current[i];
         s.x += (currentWind * 110 + (currentWind > 0 ? s.speed : -s.speed)) * dt60;
 
         if (s.x > width + s.len) s.x = -s.len;
@@ -367,12 +393,12 @@ export const ArcherGame: React.FC = () => {
       ctx2.restore();
     };
 
-    const drawMountains = (ctx2: CanvasRenderingContext2D, h: number) => {
-      for (let i = 0; i < mountainRanges.current.length; i += 1) {
-        const range = mountainRanges.current[i];
+    const drawMountains = (ctx2: CanvasRenderingContext2D, width: number, h: number) => {
+      for (let i = 0; i < mountainRangesRef.current.length; i += 1) {
+        const range = mountainRangesRef.current[i];
 
         ctx2.save();
-        ctx2.translate(-camera.current.x * range.parallaxSpeed, 0);
+        ctx2.translate(-cameraRef.current.x * range.parallaxSpeed, 0);
 
         ctx2.fillStyle = range.color;
         ctx2.beginPath();
@@ -418,16 +444,16 @@ export const ArcherGame: React.FC = () => {
         ctx2.restore();
       }
 
-      const fog = ctx2.createLinearGradient(0, h * 0.35, 0, h * 0.8);
+      const fog = ctx2.createLinearGradient(0, h * 0.35, 0, h * 0.82);
       fog.addColorStop(0, 'rgba(255,255,255,0)');
       fog.addColorStop(1, 'rgba(255,255,255,0.04)');
       ctx2.fillStyle = fog;
-      ctx2.fillRect(0, 0, canvas.clientWidth, h);
+      ctx2.fillRect(0, 0, width, h);
     };
 
-    const drawHillsGround = (ctx2: CanvasRenderingContext2D, h: number) => {
-      for (let i = 0; i < trees.current.length; i += 1) {
-        const t = trees.current[i];
+    const drawGround = (ctx2: CanvasRenderingContext2D, h: number) => {
+      for (let i = 0; i < treesRef.current.length; i += 1) {
+        const t = treesRef.current[i];
         const ground = getGroundY(t.x, h);
 
         ctx2.fillStyle = t.tint;
@@ -464,8 +490,8 @@ export const ArcherGame: React.FC = () => {
     };
 
     const drawAimSystem = (ctx2: CanvasRenderingContext2D, player: Player, h: number) => {
-      const dx = drag.current.startX - drag.current.currX;
-      const dy = drag.current.startY - drag.current.currY;
+      const dx = dragRef.current.startX - dragRef.current.currX;
+      const dy = dragRef.current.startY - dragRef.current.currY;
       const powerPct = Math.min(1, Math.sqrt(dx * dx + dy * dy) / 250);
       const angleDeg = Math.round(
         Math.atan2(dy, turnRef.current === 1 ? dx : -dx) * (180 / Math.PI) * -1,
@@ -508,8 +534,11 @@ export const ArcherGame: React.FC = () => {
       ctx2.fill();
 
       ctx2.fillStyle = powerPct > 0.8 ? '#ef4444' : '#fbbf24';
-      roundedRect(ctx2, bx + 3, by + bh - bh * powerPct + 3, bw - 6, bh * powerPct - 6, 2);
-      ctx2.fill();
+      const fillH = Math.max(0, bh * powerPct - 6);
+      if (fillH > 0) {
+        roundedRect(ctx2, bx + 3, by + bh - fillH - 3, bw - 6, fillH, 2);
+        ctx2.fill();
+      }
 
       ctx2.fillStyle = 'white';
       ctx2.font = '900 24px Montserrat, sans-serif';
@@ -517,7 +546,7 @@ export const ArcherGame: React.FC = () => {
       ctx2.fillText(`${angleDeg}°`, player.x + 25, player.y - 35);
     };
 
-    const drawStylizedPlayer = (ctx2: CanvasRenderingContext2D, player: Player) => {
+    const drawPlayer = (ctx2: CanvasRenderingContext2D, player: Player) => {
       ctx2.save();
 
       ctx2.fillStyle = 'rgba(0,0,0,0.2)';
@@ -561,14 +590,14 @@ export const ArcherGame: React.FC = () => {
       ctx2.restore();
     };
 
-    const drawLushGrass = (ctx2: CanvasRenderingContext2D, h: number, width: number) => {
+    const drawGrass = (ctx2: CanvasRenderingContext2D, h: number, width: number) => {
       const time = performance.now() * 0.002;
-      const camX = camera.current.x;
+      const camX = cameraRef.current.x;
 
       ctx2.lineWidth = 1.1;
 
-      for (let i = 0; i < grassBlades.current.length; i += 1) {
-        const b = grassBlades.current[i];
+      for (let i = 0; i < grassBladesRef.current.length; i += 1) {
+        const b = grassBladesRef.current[i];
         if (b.x < camX - 120 || b.x > camX + width + 120) continue;
 
         const ground = getGroundY(b.x, h);
@@ -622,13 +651,12 @@ export const ArcherGame: React.FC = () => {
       count: number,
       isBlood: boolean,
     ) => {
-      const next: Particle[] = [];
-      const existing = particles.current.length;
+      const existing = particlesRef.current.length;
       const allowed = Math.max(0, SETTINGS.maxParticles - existing);
       const limit = Math.min(count, allowed);
 
       for (let i = 0; i < limit; i += 1) {
-        next.push({
+        particlesRef.current.push({
           x,
           y,
           color,
@@ -640,22 +668,21 @@ export const ArcherGame: React.FC = () => {
           gravity: isBlood ? 0.28 : 0.22,
         });
       }
-
-      particles.current.push(...next);
     };
 
     const checkCollision = (x: number, y: number, t: Player) =>
       x > t.x && x < t.x + 50 && y > t.y && y < t.y + 50;
 
     const handleImpact = (isHit: boolean) => {
-      projectile.current.active = false;
-      projectile.current.landed = true;
+      const pr = projectileRef.current;
+      pr.active = false;
+      pr.landed = true;
 
-      const x = projectile.current.x;
-      const y = projectile.current.y;
+      const x = pr.x;
+      const y = pr.y;
 
       if (isHit) {
-        camera.current.shake = 22;
+        cameraRef.current.shake = 22;
         createExplosion(x, y, '#ff0000', 34, true);
 
         if (turnRef.current === 1) {
@@ -682,9 +709,9 @@ export const ArcherGame: React.FC = () => {
       nextTurnTimeoutRef.current = window.setTimeout(() => {
         if (p1Ref.current.hp <= 0 || p2Ref.current.hp <= 0) return;
 
-        projectile.current.landed = false;
+        projectileRef.current.landed = false;
         setTurn(prev => {
-          const next = prev === 1 ? 2 : 1;
+          const next: Turn = prev === 1 ? 2 : 1;
           turnRef.current = next;
           return next;
         });
@@ -695,8 +722,8 @@ export const ArcherGame: React.FC = () => {
     const updateParticles = (ctx2: CanvasRenderingContext2D, dt60: number) => {
       const nextParticles: Particle[] = [];
 
-      for (let i = 0; i < particles.current.length; i += 1) {
-        const p = particles.current[i];
+      for (let i = 0; i < particlesRef.current.length; i += 1) {
+        const p = particlesRef.current[i];
         p.x += p.vx * dt60;
         p.vy += p.gravity * dt60;
         p.y += p.vy * dt60;
@@ -712,7 +739,7 @@ export const ArcherGame: React.FC = () => {
         }
       }
 
-      particles.current = nextParticles;
+      particlesRef.current = nextParticles;
       ctx2.globalAlpha = 1;
     };
 
@@ -725,44 +752,40 @@ export const ArcherGame: React.FC = () => {
       const dt60 = dtMs / 16.6667;
       lastFrameRef.current = now;
 
-      if (projectile.current.active) {
-        camera.current.targetX = projectile.current.x - width / 2;
-      } else if (!projectile.current.landed) {
-        camera.current.targetX =
-          (turnRef.current === 1 ? p1Ref.current.x : p2Ref.current.x) - width / 2;
+      const pr = projectileRef.current;
+      const cam = cameraRef.current;
+
+      if (pr.active) {
+        cam.targetX = pr.x - width / 2;
+      } else if (!pr.landed) {
+        cam.targetX = (turnRef.current === 1 ? p1Ref.current.x : p2Ref.current.x) - width / 2;
       }
 
-      camera.current.targetX = Math.max(
-        0,
-        Math.min(camera.current.targetX, SETTINGS.worldWidth - width),
-      );
-
-      const camLerp = projectile.current.active ? 0.17 : 0.065;
-      camera.current.x += (camera.current.targetX - camera.current.x) * camLerp * dt60;
+      cam.targetX = Math.max(0, Math.min(cam.targetX, SETTINGS.worldWidth - width));
+      const camLerp = pr.active ? 0.17 : 0.065;
+      cam.x += (cam.targetX - cam.x) * camLerp * dt60;
 
       drawSky(ctx, width, height, now);
       drawMoon(ctx, width);
       drawWindVisuals(ctx, width, dt60);
-      drawMountains(ctx, height);
+      drawMountains(ctx, width, height);
 
       ctx.save();
-      ctx.translate(-camera.current.x + (Math.random() - 0.5) * camera.current.shake, 0);
+      ctx.translate(-cam.x + (Math.random() - 0.5) * cam.shake, 0);
 
-      if (camera.current.shake > 0) {
-        camera.current.shake *= Math.pow(0.86, dt60);
+      if (cam.shake > 0) {
+        cam.shake *= Math.pow(0.86, dt60);
       }
 
-      drawHillsGround(ctx, height);
-      drawStylizedPlayer(ctx, p1Ref.current);
-      drawStylizedPlayer(ctx, p2Ref.current);
+      drawGround(ctx, height);
+      drawPlayer(ctx, p1Ref.current);
+      drawPlayer(ctx, p2Ref.current);
 
-      if (drag.current.active && !projectile.current.active) {
+      if (dragRef.current.active && !pr.active) {
         drawAimSystem(ctx, turnRef.current === 1 ? p1Ref.current : p2Ref.current, height);
       }
 
-      if (projectile.current.active) {
-        const pr = projectile.current;
-
+      if (pr.active) {
         for (let i = 0; i < 2; i += 1) {
           pr.vx += windRef.current * 0.12 * dt60;
           pr.x += pr.vx * dt60;
@@ -776,11 +799,7 @@ export const ArcherGame: React.FC = () => {
             break;
           }
 
-          if (
-            pr.y > getGroundY(pr.x, height) + 28 ||
-            pr.x < 0 ||
-            pr.x > SETTINGS.worldWidth
-          ) {
+          if (pr.y > getGroundY(pr.x, height) + 28 || pr.x < 0 || pr.x > SETTINGS.worldWidth) {
             handleImpact(false);
             break;
           }
@@ -793,13 +812,15 @@ export const ArcherGame: React.FC = () => {
       }
 
       updateParticles(ctx, dt60);
-      drawLushGrass(ctx, height, width);
+      drawGrass(ctx, height, width);
 
       ctx.restore();
 
       rafRef.current = requestAnimationFrame(render);
     };
 
+    resize();
+    window.addEventListener('resize', resize);
     rafRef.current = requestAnimationFrame(render);
 
     return () => {
@@ -820,37 +841,40 @@ export const ArcherGame: React.FC = () => {
     }
   }, [p1.hp, p2.hp]);
 
-  const handleStart = (e: any) => {
-    if (projectile.current.active || winnerRef.current) return;
-    if (e.cancelable) e.preventDefault();
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (projectileRef.current.active || winnerRef.current) return;
 
-    const t = e.touches ? e.touches[0] : e;
-    drag.current = {
+    dragRef.current = {
       active: true,
-      startX: t.clientX,
-      startY: t.clientY,
-      currX: t.clientX,
-      currY: t.clientY,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      currX: e.clientX,
+      currY: e.clientY,
     };
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
   };
 
-  const handleMove = (e: any) => {
-    if (!drag.current.active) return;
-    if (e.cancelable) e.preventDefault();
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current.active || dragRef.current.pointerId !== e.pointerId) return;
 
-    const t = e.touches ? e.touches[0] : e;
-    drag.current.currX = t.clientX;
-    drag.current.currY = t.clientY;
+    dragRef.current.currX = e.clientX;
+    dragRef.current.currY = e.clientY;
   };
 
-  const handleEnd = () => {
-    if (!drag.current.active) return;
+  const finishShot = () => {
+    if (!dragRef.current.active) return;
 
-    const dx = (drag.current.startX - drag.current.currX) * SETTINGS.launchScale;
-    const dy = (drag.current.startY - drag.current.currY) * SETTINGS.launchScale;
+    const dx = (dragRef.current.startX - dragRef.current.currX) * SETTINGS.launchScale;
+    const dy = (dragRef.current.startY - dragRef.current.currY) * SETTINGS.launchScale;
     const shooter = turnRef.current === 1 ? p1Ref.current : p2Ref.current;
 
-    projectile.current = {
+    projectileRef.current = {
       x: shooter.x + 25,
       y: shooter.y + 25,
       vx: Math.max(-SETTINGS.maxPower, Math.min(SETTINGS.maxPower, dx)),
@@ -860,7 +884,19 @@ export const ArcherGame: React.FC = () => {
       landed: false,
     };
 
-    drag.current.active = false;
+    dragRef.current.active = false;
+    dragRef.current.pointerId = -1;
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current.pointerId !== e.pointerId) return;
+    finishShot();
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current.pointerId !== e.pointerId) return;
+    dragRef.current.active = false;
+    dragRef.current.pointerId = -1;
   };
 
   const HeartIcon = ({ filled, color }: { filled: boolean; color: string }) => (
@@ -882,7 +918,7 @@ export const ArcherGame: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className="w-full h-[calc(100vh-164px)] bg-[#020617] relative touch-none overscroll-none overflow-hidden select-none font-sans"
+      className="w-full h-[calc(100vh-164px)] bg-[#020617] relative overflow-hidden select-none"
       style={{ touchAction: 'none', overscrollBehavior: 'none' }}
     >
       <div className="absolute top-5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
@@ -928,14 +964,12 @@ export const ArcherGame: React.FC = () => {
 
       <canvas
         ref={canvasRef}
-        onMouseDown={handleStart}
-        onMouseMove={handleMove}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchStart={handleStart}
-        onTouchMove={handleMove}
-        onTouchEnd={handleEnd}
-        className="w-full h-full cursor-crosshair"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        className="w-full h-full block"
+        style={{ touchAction: 'none' }}
       />
 
       {winner && (
