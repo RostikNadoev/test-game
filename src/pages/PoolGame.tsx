@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { RefreshCcw, Smartphone, Trophy } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCcw, Volume2, VolumeX } from 'lucide-react';
 
 type PlayerId = 1 | 2;
-type BallKind = 'cue' | 'solid' | 'stripe' | 'eight';
 type GroupKind = 'solid' | 'stripe';
+type BallKind = 'cue' | 'solid' | 'stripe' | 'eight';
 
 type Point = {
   x: number;
@@ -25,6 +24,21 @@ type Ball = {
   active: boolean;
 };
 
+type Layout = {
+  logicalWidth: number;
+  logicalHeight: number;
+  rotated: boolean;
+  hudHeight: number;
+  tableX: number;
+  tableY: number;
+  tableWidth: number;
+  tableHeight: number;
+  tableScale: number;
+  playerPanelWidth: number;
+  playerPanelHeight: number;
+  centerPillWidth: number;
+};
+
 type ShotMeta = {
   inProgress: boolean;
   firstContact: number | null;
@@ -41,44 +55,48 @@ type InteractionState = {
   current: Point | null;
 };
 
-type RenderMetrics = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  scale: number;
+type GameState = {
+  currentPlayer: PlayerId;
+  winner: PlayerId | null;
+  groups: Record<PlayerId, GroupKind | null>;
+  ballInHandFor: PlayerId | null;
+  moving: boolean;
+  status: 'break' | 'turn' | 'ball-in-hand' | 'foul' | 'win';
 };
 
 const TABLE_WIDTH = 1000;
 const TABLE_HEIGHT = 560;
 const BALL_RADIUS = 15;
-const POCKET_RADIUS = 29;
-const MAX_DRAG = 185;
-const FRICTION = 0.989;
-const MIN_SPEED = 0.03;
+const POCKET_RADIUS = 31;
+const MAX_DRAG = 190;
 
-const PLAYER_NAMES: Record<PlayerId, string> = {
-  1: 'Игрок 1',
-  2: 'Игрок 2',
+const FRICTION_PER_STEP = 0.9925;
+const BALL_RESTITUTION = 0.985;
+const RAIL_RESTITUTION = 0.92;
+const STOP_EPS = 0.028;
+
+const PLAYER_LABEL: Record<PlayerId, string> = {
+  1: 'P1',
+  2: 'P2',
 };
 
-const GROUP_LABELS: Record<GroupKind, string> = {
-  solid: 'Сплошные',
-  stripe: 'Полосатые',
+const GROUP_LABEL: Record<GroupKind, string> = {
+  solid: 'SOLID',
+  stripe: 'STRIPE',
 };
 
 const BALL_COLORS: Record<number, string> = {
   0: '#F8FAFC',
-  1: '#F7C843',
-  2: '#3B82F6',
+  1: '#F6C546',
+  2: '#2563EB',
   3: '#EF4444',
   4: '#7C3AED',
   5: '#F97316',
   6: '#16A34A',
   7: '#7F1D1D',
   8: '#111827',
-  9: '#F7C843',
-  10: '#3B82F6',
+  9: '#F6C546',
+  10: '#2563EB',
   11: '#EF4444',
   12: '#7C3AED',
   13: '#F97316',
@@ -88,12 +106,21 @@ const BALL_COLORS: Record<number, string> = {
 
 const POCKETS: Point[] = [
   { x: 0, y: 0 },
-  { x: TABLE_WIDTH / 2, y: -2 },
+  { x: TABLE_WIDTH / 2, y: 0 },
   { x: TABLE_WIDTH, y: 0 },
   { x: 0, y: TABLE_HEIGHT },
-  { x: TABLE_WIDTH / 2, y: TABLE_HEIGHT + 2 },
+  { x: TABLE_WIDTH / 2, y: TABLE_HEIGHT },
   { x: TABLE_WIDTH, y: TABLE_HEIGHT },
 ];
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+
+const kindFromNumber = (n: number): BallKind => {
+  if (n === 0) return 'cue';
+  if (n === 8) return 'eight';
+  return n < 8 ? 'solid' : 'stripe';
+};
 
 const emptyShot = (): ShotMeta => ({
   inProgress: false,
@@ -109,35 +136,32 @@ const emptyInteraction = (): InteractionState => ({
   current: null,
 });
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
-
-const numberToKind = (number: number): BallKind => {
-  if (number === 0) return 'cue';
-  if (number === 8) return 'eight';
-  return number < 8 ? 'solid' : 'stripe';
-};
-
-const roundedRectPath = (
+const drawRoundedRect = (
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  width: number,
-  height: number,
-  radius: number,
+  w: number,
+  h: number,
+  r: number,
 ) => {
-  const r = Math.min(radius, width / 2, height / 2);
+  const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
 };
 
-const createInitialBalls = (): Ball[] => {
+const projectPoint = (p: Point, layout: Layout) => ({
+  x: layout.tableX + p.x * layout.tableScale,
+  y: layout.tableY + p.y * layout.tableScale,
+});
+
+const projectRadius = (r: number, layout: Layout) => r * layout.tableScale;
+
+const buildRack = (): Ball[] => {
   const balls: Ball[] = [
     {
       id: 'cue',
@@ -155,23 +179,22 @@ const createInitialBalls = (): Ball[] => {
   ];
 
   const rackOrder = [1, 10, 2, 9, 8, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15];
-  const rackX = TABLE_WIDTH * 0.72;
-  const rackY = TABLE_HEIGHT / 2;
-  const xStep = BALL_RADIUS * 1.95;
-  const yStep = BALL_RADIUS * 2.05;
+  const startX = TABLE_WIDTH * 0.72;
+  const startY = TABLE_HEIGHT / 2;
+  const dx = BALL_RADIUS * 1.97;
+  const dy = BALL_RADIUS * 2.06;
 
   let index = 0;
 
   for (let row = 0; row < 5; row += 1) {
     for (let col = 0; col <= row; col += 1) {
       const number = rackOrder[index++];
-
       balls.push({
         id: `ball-${number}`,
         number,
-        kind: numberToKind(number),
-        x: rackX + row * xStep,
-        y: rackY - (row * yStep) / 2 + col * yStep,
+        kind: kindFromNumber(number),
+        x: startX + row * dx,
+        y: startY - (row * dy) / 2 + col * dy,
         vx: 0,
         vy: 0,
         radius: BALL_RADIUS,
@@ -185,182 +208,252 @@ const createInitialBalls = (): Ball[] => {
   return balls;
 };
 
-const calculateRenderMetrics = (width: number, height: number): RenderMetrics => {
-  const padding = Math.max(18, Math.min(width, height) * 0.055);
+const computeLayout = (width: number, height: number): Layout => {
+  const rotated = height > width;
+  const logicalWidth = rotated ? height : width;
+  const logicalHeight = rotated ? width : height;
+
+  const hudHeight = clamp(logicalHeight * 0.135, 70, 96);
+  const padX = clamp(logicalWidth * 0.022, 14, 22);
+  const padBottom = clamp(logicalHeight * 0.02, 10, 18);
+
+  const tableMaxWidth = logicalWidth - padX * 2;
+  const tableMaxHeight = logicalHeight - hudHeight - padBottom - 8;
   const ratio = TABLE_WIDTH / TABLE_HEIGHT;
 
-  const availableWidth = width - padding * 2;
-  const availableHeight = height - padding * 2;
-
-  let tableWidth = availableWidth;
+  let tableWidth = tableMaxWidth;
   let tableHeight = tableWidth / ratio;
 
-  if (tableHeight > availableHeight) {
-    tableHeight = availableHeight;
+  if (tableHeight > tableMaxHeight) {
+    tableHeight = tableMaxHeight;
     tableWidth = tableHeight * ratio;
   }
 
+  const tableX = (logicalWidth - tableWidth) / 2;
+  const tableY = hudHeight + (logicalHeight - hudHeight - tableHeight) / 2 + 6;
+
   return {
-    x: (width - tableWidth) / 2,
-    y: (height - tableHeight) / 2,
-    width: tableWidth,
-    height: tableHeight,
-    scale: tableWidth / TABLE_WIDTH,
+    logicalWidth,
+    logicalHeight,
+    rotated,
+    hudHeight,
+    tableX,
+    tableY,
+    tableWidth,
+    tableHeight,
+    tableScale: tableWidth / TABLE_WIDTH,
+    playerPanelWidth: clamp(logicalWidth * 0.16, 128, 184),
+    playerPanelHeight: clamp(hudHeight - 22, 42, 56),
+    centerPillWidth: clamp(logicalWidth * 0.2, 120, 180),
   };
 };
 
-const projectPoint = (point: Point, metrics: RenderMetrics) => ({
-  x: metrics.x + point.x * metrics.scale,
-  y: metrics.y + point.y * metrics.scale,
-});
-
-const projectRadius = (radius: number, metrics: RenderMetrics) => radius * metrics.scale;
+const getLogicalPointFromCanvasPoint = (
+  canvasX: number,
+  canvasY: number,
+  canvasWidth: number,
+  rotated: boolean,
+): Point => {
+  if (!rotated) return { x: canvasX, y: canvasY };
+  return {
+    x: canvasY,
+    y: canvasWidth - canvasX,
+  };
+};
 
 const PoolGame = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
-  const lastFrameRef = useRef<number>(0);
-  const renderMetricsRef = useRef<RenderMetrics>({
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-    scale: 1,
-  });
-
-  const ballsRef = useRef<Ball[]>(createInitialBalls());
-  const shotRef = useRef<ShotMeta>(emptyShot());
-  const interactionRef = useRef<InteractionState>(emptyInteraction());
-  const movingRef = useRef(false);
-
-  const currentPlayerRef = useRef<PlayerId>(1);
-  const winnerRef = useRef<PlayerId | null>(null);
-  const groupsRef = useRef<Record<PlayerId, GroupKind | null>>({ 1: null, 2: null });
-  const ballInHandRef = useRef<PlayerId | null>(null);
+  const lastFrameRef = useRef(0);
 
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const [currentPlayer, setCurrentPlayer] = useState<PlayerId>(1);
-  const [winner, setWinner] = useState<PlayerId | null>(null);
-  const [playerGroups, setPlayerGroups] = useState<Record<PlayerId, GroupKind | null>>({
-    1: null,
-    2: null,
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const ballsRef = useRef<Ball[]>(buildRack());
+  const shotRef = useRef<ShotMeta>(emptyShot());
+  const interactionRef = useRef<InteractionState>(emptyInteraction());
+
+  const stateRef = useRef<GameState>({
+    currentPlayer: 1,
+    winner: null,
+    groups: { 1: null, 2: null },
+    ballInHandFor: null,
+    moving: false,
+    status: 'break',
   });
-  const [ballInHandFor, setBallInHandFor] = useState<PlayerId | null>(null);
-  const [ballsMoving, setBallsMoving] = useState(false);
-  const [statusText, setStatusText] = useState('Разбей пирамиду и забери стол');
-  const [showRotateIntro, setShowRotateIntro] = useState(true);
-  const [isLandscape, setIsLandscape] = useState(
-    typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false,
+
+  const layoutRef = useRef<Layout | null>(null);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastSoundTimeRef = useRef(0);
+
+  const layout = useMemo(
+    () => computeLayout(canvasSize.width || 1, canvasSize.height || 1),
+    [canvasSize.height, canvasSize.width],
   );
 
   useEffect(() => {
-    currentPlayerRef.current = currentPlayer;
-  }, [currentPlayer]);
+    layoutRef.current = layout;
+  }, [layout]);
 
   useEffect(() => {
-    winnerRef.current = winner;
-  }, [winner]);
-
-  useEffect(() => {
-    groupsRef.current = playerGroups;
-  }, [playerGroups]);
-
-  useEffect(() => {
-    ballInHandRef.current = ballInHandFor;
-  }, [ballInHandFor]);
-
-  useEffect(() => {
-    const htmlOverflow = document.documentElement.style.overflow;
-    const htmlOverscroll = document.documentElement.style.overscrollBehavior;
-    const bodyOverflow = document.body.style.overflow;
-    const bodyTouchAction = document.body.style.touchAction;
-
-    document.documentElement.style.overflow = 'hidden';
-    document.documentElement.style.overscrollBehavior = 'none';
-    document.body.style.overflow = 'hidden';
-    document.body.style.touchAction = 'none';
-
-    return () => {
-      document.documentElement.style.overflow = htmlOverflow;
-      document.documentElement.style.overscrollBehavior = htmlOverscroll;
-      document.body.style.overflow = bodyOverflow;
-      document.body.style.touchAction = bodyTouchAction;
-    };
-  }, []);
-
-  useEffect(() => {
-    const orientation = (screen as any)?.orientation;
-    if (typeof orientation?.lock === 'function') {
-      orientation.lock('landscape').catch(() => undefined);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setShowRotateIntro(false);
-    }, 2200);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const updateViewport = () => {
-      setIsLandscape(window.innerWidth > window.innerHeight);
-    };
-
-    updateViewport();
-    window.addEventListener('resize', updateViewport);
-
-    return () => {
-      window.removeEventListener('resize', updateViewport);
-    };
-  }, []);
-
-  useEffect(() => {
-    const element = stageRef.current;
-    if (!element) return;
+    const stage = stageRef.current;
+    if (!stage) return;
 
     const updateSize = () => {
       setCanvasSize({
-        width: element.clientWidth,
-        height: element.clientHeight,
+        width: stage.clientWidth,
+        height: stage.clientHeight,
       });
     };
 
     updateSize();
-
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(element);
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(stage);
     window.addEventListener('resize', updateSize);
 
     return () => {
-      observer.disconnect();
+      ro.disconnect();
       window.removeEventListener('resize', updateSize);
     };
   }, []);
 
-  const countRemaining = useCallback((kind: GroupKind) => {
-    return ballsRef.current.filter((ball) => ball.kind === kind && !ball.pocketed).length;
+  useEffect(() => {
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyTouch = document.body.style.touchAction;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+    document.body.style.overscrollBehavior = 'none';
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'none';
+
+    const stage = stageRef.current;
+    const prevent = (e: Event) => e.preventDefault();
+
+    if (stage) {
+      stage.addEventListener('touchmove', prevent, { passive: false });
+      stage.addEventListener('wheel', prevent, { passive: false });
+    }
+
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.touchAction = prevBodyTouch;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
+
+      if (stage) {
+        stage.removeEventListener('touchmove', prevent);
+        stage.removeEventListener('wheel', prevent);
+      }
+    };
   }, []);
 
-  const findCueBall = useCallback(() => {
-    return ballsRef.current.find((ball) => ball.number === 0) ?? null;
+  const ensureAudio = useCallback(() => {
+    if (!soundEnabled) return null;
+
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return null;
+
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new Ctx();
+    }
+
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => undefined);
+    }
+
+    return audioCtxRef.current;
+  }, [soundEnabled]);
+
+  const playImpactSound = useCallback(
+    (power: number, type: 'ball' | 'rail' | 'pocket') => {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+
+      const nowMs = performance.now();
+      if (type !== 'pocket' && nowMs - lastSoundTimeRef.current < 18) return;
+      lastSoundTimeRef.current = nowMs;
+
+      const now = ctx.currentTime;
+      const volume = clamp(power, 0.04, 1);
+
+      if (type === 'pocket') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.exponentialRampToValueAtTime(82, now + 0.18);
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 380;
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18 * volume, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.24);
+        return;
+      }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      osc.type = type === 'rail' ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(type === 'rail' ? 520 : 740, now);
+      osc.frequency.exponentialRampToValueAtTime(type === 'rail' ? 240 : 320, now + 0.06);
+
+      filter.type = 'bandpass';
+      filter.frequency.value = type === 'rail' ? 950 : 1200;
+      filter.Q.value = 2.5;
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.13 * volume, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.09);
+    },
+    [ensureAudio],
+  );
+
+  const countRemaining = useCallback((group: GroupKind) => {
+    return ballsRef.current.filter((b) => !b.pocketed && b.kind === group).length;
+  }, []);
+
+  const getCueBall = useCallback(() => {
+    return ballsRef.current.find((b) => b.number === 0) ?? null;
+  }, []);
+
+  const syncState = useCallback((patch: Partial<GameState>) => {
+    stateRef.current = { ...stateRef.current, ...patch };
   }, []);
 
   const isCuePlacementValid = useCallback((x: number, y: number) => {
-    if (
-      x < BALL_RADIUS ||
-      x > TABLE_WIDTH - BALL_RADIUS ||
-      y < BALL_RADIUS ||
-      y > TABLE_HEIGHT - BALL_RADIUS
-    ) {
+    if (x < BALL_RADIUS || x > TABLE_WIDTH - BALL_RADIUS || y < BALL_RADIUS || y > TABLE_HEIGHT - BALL_RADIUS) {
       return false;
     }
 
     for (const ball of ballsRef.current) {
-      if (ball.number === 0 || ball.pocketed) continue;
-      if (distance({ x, y }, { x: ball.x, y: ball.y }) < BALL_RADIUS * 2 + 1.5) {
+      if (ball.pocketed || ball.number === 0) continue;
+      if (dist({ x, y }, { x: ball.x, y: ball.y }) < BALL_RADIUS * 2 + 1.2) {
         return false;
       }
     }
@@ -369,35 +462,33 @@ const PoolGame = () => {
   }, []);
 
   const respotCueBall = useCallback(() => {
-    const cue = findCueBall();
+    const cue = getCueBall();
     if (!cue) return;
 
     const baseX = TABLE_WIDTH * 0.24;
     const baseY = TABLE_HEIGHT / 2;
+    let found = false;
 
-    let placed = false;
+    for (let dx = 0; dx <= 260 && !found; dx += 14) {
+      const yOffsets = [0, 16, -16, 32, -32, 48, -48, 64, -64, 80, -80];
+      for (const oy of yOffsets) {
+        const x = clamp(baseX + dx, BALL_RADIUS, TABLE_WIDTH - BALL_RADIUS);
+        const y = clamp(baseY + oy, BALL_RADIUS, TABLE_HEIGHT - BALL_RADIUS);
 
-    for (let dx = 0; dx <= 260 && !placed; dx += 18) {
-      const offsets = [0, 18, -18, 36, -36, 54, -54, 72, -72, 90, -90, 108, -108];
-
-      for (const dy of offsets) {
-        const testX = clamp(baseX + dx, BALL_RADIUS, TABLE_WIDTH - BALL_RADIUS);
-        const testY = clamp(baseY + dy, BALL_RADIUS, TABLE_HEIGHT - BALL_RADIUS);
-
-        if (isCuePlacementValid(testX, testY)) {
-          cue.x = testX;
-          cue.y = testY;
+        if (isCuePlacementValid(x, y)) {
+          cue.x = x;
+          cue.y = y;
           cue.vx = 0;
           cue.vy = 0;
           cue.pocketed = false;
           cue.active = true;
-          placed = true;
+          found = true;
           break;
         }
       }
     }
 
-    if (!placed) {
+    if (!found) {
       cue.x = baseX;
       cue.y = baseY;
       cue.vx = 0;
@@ -405,681 +496,1043 @@ const PoolGame = () => {
       cue.pocketed = false;
       cue.active = true;
     }
-  }, [findCueBall, isCuePlacementValid]);
+  }, [getCueBall, isCuePlacementValid]);
 
   const resetGame = useCallback(() => {
-    ballsRef.current = createInitialBalls();
+    ballsRef.current = buildRack();
     shotRef.current = emptyShot();
     interactionRef.current = emptyInteraction();
-    movingRef.current = false;
-
-    currentPlayerRef.current = 1;
-    winnerRef.current = null;
-    groupsRef.current = { 1: null, 2: null };
-    ballInHandRef.current = null;
-
-    setCurrentPlayer(1);
-    setWinner(null);
-    setPlayerGroups({ 1: null, 2: null });
-    setBallInHandFor(null);
-    setBallsMoving(false);
-    setStatusText('Разбей пирамиду и забери стол');
+    stateRef.current = {
+      currentPlayer: 1,
+      winner: null,
+      groups: { 1: null, 2: null },
+      ballInHandFor: null,
+      moving: false,
+      status: 'break',
+    };
   }, []);
 
-  const resolveShot = useCallback((meta: ShotMeta) => {
+  const pocketBall = useCallback(
+    (ball: Ball, speedForSound: number) => {
+      if (ball.pocketed) return;
+
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.pocketed = true;
+      ball.active = false;
+
+      if (shotRef.current.inProgress) {
+        if (ball.number === 0) {
+          shotRef.current.cuePocketed = true;
+        } else {
+          shotRef.current.pocketed.push(ball.number);
+        }
+      }
+
+      playImpactSound(speedForSound, 'pocket');
+    },
+    [playImpactSound],
+  );
+
+  const maybePocketBall = useCallback(
+    (ball: Ball) => {
+      const speed = Math.hypot(ball.vx, ball.vy);
+
+      for (const pocket of POCKETS) {
+        const d = dist(ball, pocket);
+        const capture = pocket.x === TABLE_WIDTH / 2 || pocket.y === TABLE_HEIGHT / 2 ? 28 : 30;
+
+        if (d < capture) {
+          pocketBall(ball, speed / 16);
+          return true;
+        }
+      }
+
+      const mouthXSide = 60;
+      const mouthXMid = 52;
+
+      const nearLeft = ball.x < mouthXSide;
+      const nearRight = ball.x > TABLE_WIDTH - mouthXSide;
+      const nearMid = Math.abs(ball.x - TABLE_WIDTH / 2) < mouthXMid;
+      const nearTop = ball.y < BALL_RADIUS * 0.62;
+      const nearBottom = ball.y > TABLE_HEIGHT - BALL_RADIUS * 0.62;
+
+      if ((nearLeft || nearMid || nearRight) && (nearTop || nearBottom)) {
+        pocketBall(ball, speed / 16);
+        return true;
+      }
+
+      return false;
+    },
+    [pocketBall],
+  );
+
+  const resolveShot = useCallback(() => {
+    const meta = shotRef.current;
     shotRef.current = emptyShot();
 
-    const current = currentPlayerRef.current;
+    const current = stateRef.current.currentPlayer;
     const opponent: PlayerId = current === 1 ? 2 : 1;
 
-    const nextGroups: Record<PlayerId, GroupKind | null> = {
-      1: groupsRef.current[1],
-      2: groupsRef.current[2],
-    };
-
-    const ownGroup = nextGroups[current];
-    const firstKind = meta.firstContact !== null ? numberToKind(meta.firstContact) : null;
-    const pocketKinds = meta.pocketed.map(numberToKind);
-    const pottedGroups = pocketKinds.filter(
-      (kind): kind is GroupKind => kind === 'solid' || kind === 'stripe',
-    );
+    const groups = { ...stateRef.current.groups };
+    const ownGroup = groups[current];
+    const firstKind = meta.firstContact !== null ? kindFromNumber(meta.firstContact) : null;
+    const pocketKinds = meta.pocketed.map(kindFromNumber);
+    const pocketedGroups = pocketKinds.filter((k): k is GroupKind => k === 'solid' || k === 'stripe');
 
     let foul = false;
-    let foulReason = '';
 
     if (meta.cuePocketed) {
       foul = true;
-      foulReason = 'биток упал в лузу';
     } else if (meta.firstContact === null) {
       foul = true;
-      foulReason = 'нет касания';
     } else if (!ownGroup) {
       if (firstKind === 'eight') {
         foul = true;
-        foulReason = 'по восьмёрке нельзя бить первой';
       }
     } else {
       const target: GroupKind | 'eight' = countRemaining(ownGroup) > 0 ? ownGroup : 'eight';
-
       if (firstKind !== target) {
         foul = true;
-        foulReason =
-          target === 'eight'
-            ? 'нужно было играть по восьмёрке'
-            : `нужно было попасть по группе "${GROUP_LABELS[target]}"`;
       }
     }
 
-    if (!nextGroups[current] && !foul && pottedGroups.length > 0) {
-      const assigned = pottedGroups[0];
-      nextGroups[current] = assigned;
-      nextGroups[opponent] = assigned === 'solid' ? 'stripe' : 'solid';
-
-      groupsRef.current = nextGroups;
-      setPlayerGroups(nextGroups);
+    if (!groups[current] && !foul && pocketedGroups.length > 0) {
+      const assigned = pocketedGroups[0];
+      groups[current] = assigned;
+      groups[opponent] = assigned === 'solid' ? 'stripe' : 'solid';
     }
 
-    const effectiveOwnGroup = nextGroups[current];
+    const effectiveOwnGroup = groups[current];
     const pottedEight = meta.pocketed.includes(8);
 
     if (pottedEight) {
-      const canWin =
+      const legalWin =
         effectiveOwnGroup !== null &&
         !foul &&
         firstKind === 'eight' &&
         countRemaining(effectiveOwnGroup) === 0;
 
-      const winningPlayer: PlayerId = canWin ? current : opponent;
-
-      winnerRef.current = winningPlayer;
-      setWinner(winningPlayer);
-
-      ballInHandRef.current = null;
-      setBallInHandFor(null);
-
-      setStatusText(
-        canWin
-          ? `${PLAYER_NAMES[current]} забивает восьмёрку и побеждает`
-          : `${PLAYER_NAMES[current]} ошибается на восьмёрке. Победа у ${PLAYER_NAMES[opponent]}`,
-      );
+      syncState({
+        winner: legalWin ? current : opponent,
+        groups,
+        ballInHandFor: null,
+        moving: false,
+        status: 'win',
+      });
 
       return;
     }
 
     if (foul) {
-      currentPlayerRef.current = opponent;
-      ballInHandRef.current = opponent;
-
-      setCurrentPlayer(opponent);
-      setBallInHandFor(opponent);
-
+      syncState({
+        currentPlayer: opponent,
+        groups,
+        ballInHandFor: opponent,
+        moving: false,
+        status: 'ball-in-hand',
+      });
       respotCueBall();
-
-      setStatusText(`Фол: ${foulReason}. ${PLAYER_NAMES[opponent]}, шар в руке.`);
       return;
     }
-
-    ballInHandRef.current = null;
-    setBallInHandFor(null);
 
     const pocketedOwn = effectiveOwnGroup
-      ? pottedGroups.includes(effectiveOwnGroup)
-      : pottedGroups.length > 0;
+      ? pocketedGroups.includes(effectiveOwnGroup)
+      : pocketedGroups.length > 0;
 
     if (pocketedOwn) {
-      setStatusText(
-        effectiveOwnGroup
-          ? `${PLAYER_NAMES[current]} продолжает серию`
-          : `${PLAYER_NAMES[current]} выбирает группу: ${GROUP_LABELS[nextGroups[current]!]}`,
-      );
+      syncState({
+        groups,
+        ballInHandFor: null,
+        moving: false,
+        status: 'turn',
+      });
       return;
     }
 
-    currentPlayerRef.current = opponent;
-    setCurrentPlayer(opponent);
-    setStatusText(`${PLAYER_NAMES[opponent]}, твой ход`);
-  }, [countRemaining, respotCueBall]);
-
-  const drawScene = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !canvasSize.width || !canvasSize.height) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const physicalWidth = Math.floor(canvasSize.width * dpr);
-    const physicalHeight = Math.floor(canvasSize.height * dpr);
-
-    if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
-      canvas.width = physicalWidth;
-      canvas.height = physicalHeight;
-    }
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const metrics = calculateRenderMetrics(canvasSize.width, canvasSize.height);
-    renderMetricsRef.current = metrics;
-
-    ctx.fillStyle = '#020408';
-    ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
-
-    const frameX = metrics.x - 34;
-    const frameY = metrics.y - 30;
-    const frameW = metrics.width + 68;
-    const frameH = metrics.height + 60;
-
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    ctx.shadowBlur = 32;
-    ctx.shadowOffsetY = 20;
-    roundedRectPath(ctx, frameX, frameY, frameW, frameH, 34);
-    ctx.fillStyle = '#26170E';
-    ctx.fill();
-    ctx.restore();
-
-    const railGradient = ctx.createLinearGradient(frameX, frameY, frameX + frameW, frameY + frameH);
-    railGradient.addColorStop(0, '#4C2D1A');
-    railGradient.addColorStop(0.5, '#2B160B');
-    railGradient.addColorStop(1, '#5C341D');
-
-    roundedRectPath(ctx, frameX, frameY, frameW, frameH, 34);
-    ctx.fillStyle = railGradient;
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1.4;
-    roundedRectPath(ctx, frameX, frameY, frameW, frameH, 34);
-    ctx.stroke();
-
-    const feltGradient = ctx.createLinearGradient(metrics.x, metrics.y, metrics.x, metrics.y + metrics.height);
-    feltGradient.addColorStop(0, '#0D845D');
-    feltGradient.addColorStop(0.5, '#0B6E50');
-    feltGradient.addColorStop(1, '#085741');
-
-    roundedRectPath(ctx, metrics.x, metrics.y, metrics.width, metrics.height, 24);
-    ctx.fillStyle = feltGradient;
-    ctx.fill();
-
-    ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.strokeStyle = '#86EFAC';
-    ctx.lineWidth = 1;
-    roundedRectPath(ctx, metrics.x + 8, metrics.y + 8, metrics.width - 16, metrics.height - 16, 20);
-    ctx.stroke();
-    ctx.restore();
-
-    const diamondPositions = [
-      { x: TABLE_WIDTH * 0.166, y: -24 },
-      { x: TABLE_WIDTH * 0.333, y: -24 },
-      { x: TABLE_WIDTH * 0.666, y: -24 },
-      { x: TABLE_WIDTH * 0.833, y: -24 },
-      { x: TABLE_WIDTH * 0.166, y: TABLE_HEIGHT + 24 },
-      { x: TABLE_WIDTH * 0.333, y: TABLE_HEIGHT + 24 },
-      { x: TABLE_WIDTH * 0.666, y: TABLE_HEIGHT + 24 },
-      { x: TABLE_WIDTH * 0.833, y: TABLE_HEIGHT + 24 },
-      { x: -24, y: TABLE_HEIGHT * 0.25 },
-      { x: -24, y: TABLE_HEIGHT * 0.5 },
-      { x: -24, y: TABLE_HEIGHT * 0.75 },
-      { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.25 },
-      { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.5 },
-      { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.75 },
-    ];
-
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    diamondPositions.forEach((pos) => {
-      const p = projectPoint(pos, metrics);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+    syncState({
+      currentPlayer: opponent,
+      groups,
+      ballInHandFor: null,
+      moving: false,
+      status: 'turn',
     });
+  }, [countRemaining, respotCueBall, syncState]);
 
-    POCKETS.forEach((pocket) => {
-      const pos = projectPoint(pocket, metrics);
-      const r = projectRadius(POCKET_RADIUS, metrics);
+  const stepPhysics = useCallback(
+    (dt: number) => {
+      const balls = ballsRef.current;
+      const substeps = 4;
 
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.75)';
-      ctx.shadowBlur = 18;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = '#050505';
-      ctx.fill();
-      ctx.restore();
+      for (let step = 0; step < substeps; step += 1) {
+        for (const ball of balls) {
+          if (ball.pocketed || !ball.active) continue;
 
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r * 0.64, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      ctx.fill();
-    });
+          ball.x += (ball.vx * dt) / substeps;
+          ball.y += (ball.vy * dt) / substeps;
 
-    for (const ball of ballsRef.current) {
-      if (ball.pocketed || !ball.active) continue;
+          if (maybePocketBall(ball)) continue;
 
-      const pos = projectPoint({ x: ball.x, y: ball.y }, metrics);
-      const r = projectRadius(ball.radius, metrics);
+          const topPocketLane = ball.x < 72 || Math.abs(ball.x - TABLE_WIDTH / 2) < 58 || ball.x > TABLE_WIDTH - 72;
+          const leftPocketLane = ball.y < 72 || Math.abs(ball.y - TABLE_HEIGHT / 2) < 52 || ball.y > TABLE_HEIGHT - 72;
 
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.28)';
-      ctx.shadowBlur = r * 0.9;
-      ctx.shadowOffsetY = r * 0.25;
-
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-
-      if (ball.kind === 'cue') {
-        const cueGradient = ctx.createRadialGradient(
-          pos.x - r * 0.35,
-          pos.y - r * 0.35,
-          r * 0.2,
-          pos.x,
-          pos.y,
-          r,
-        );
-        cueGradient.addColorStop(0, '#FFFFFF');
-        cueGradient.addColorStop(1, '#DDE5ED');
-        ctx.fillStyle = cueGradient;
-        ctx.fill();
-      } else if (ball.kind === 'stripe') {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fill();
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.fillStyle = ball.color;
-        ctx.fillRect(pos.x - r, pos.y - r * 0.52, r * 2, r * 1.04);
-        ctx.restore();
-      } else {
-        const gradient = ctx.createRadialGradient(
-          pos.x - r * 0.35,
-          pos.y - r * 0.35,
-          r * 0.25,
-          pos.x,
-          pos.y,
-          r,
-        );
-        gradient.addColorStop(0, '#FFFFFF');
-        gradient.addColorStop(0.18, ball.color);
-        gradient.addColorStop(1, ball.color);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-      }
-
-      ctx.lineWidth = Math.max(1.4, r * 0.08);
-      ctx.strokeStyle = ball.kind === 'cue' ? '#D1D5DB' : 'rgba(255,255,255,0.18)';
-      ctx.stroke();
-
-      if (ball.number !== 0) {
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, r * 0.42, 0, Math.PI * 2);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fill();
-
-        ctx.fillStyle = '#0F172A';
-        ctx.font = `${Math.max(10, r * 0.72)}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(ball.number), pos.x, pos.y + 0.4);
-      }
-
-      ctx.restore();
-    }
-
-    const cue = findCueBall();
-    const interaction = interactionRef.current;
-
-    if (
-      cue &&
-      !cue.pocketed &&
-      !movingRef.current &&
-      !winnerRef.current &&
-      interaction.mode === 'aim' &&
-      interaction.current
-    ) {
-      const dx = cue.x - interaction.current.x;
-      const dy = cue.y - interaction.current.y;
-      const drag = Math.min(Math.hypot(dx, dy), MAX_DRAG);
-
-      if (drag > 4) {
-        const ux = dx / drag;
-        const uy = dy / drag;
-
-        const aimStart = projectPoint({ x: cue.x + ux * BALL_RADIUS, y: cue.y + uy * BALL_RADIUS }, metrics);
-        const aimEnd = projectPoint(
-          {
-            x: cue.x + ux * 320,
-            y: cue.y + uy * 320,
-          },
-          metrics,
-        );
-
-        ctx.save();
-        ctx.setLineDash([10, 8]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(aimStart.x, aimStart.y);
-        ctx.lineTo(aimEnd.x, aimEnd.y);
-        ctx.stroke();
-        ctx.restore();
-
-        const cueTip = projectPoint(
-          {
-            x: cue.x - ux * (BALL_RADIUS + 16 + drag * 0.22),
-            y: cue.y - uy * (BALL_RADIUS + 16 + drag * 0.22),
-          },
-          metrics,
-        );
-
-        const cueButt = projectPoint(
-          {
-            x: cue.x - ux * (290 + drag * 0.22),
-            y: cue.y - uy * (290 + drag * 0.22),
-          },
-          metrics,
-        );
-
-        ctx.save();
-        ctx.lineWidth = Math.max(6, 14 * metrics.scale);
-        ctx.lineCap = 'round';
-
-        const cueGradient = ctx.createLinearGradient(cueButt.x, cueButt.y, cueTip.x, cueTip.y);
-        cueGradient.addColorStop(0, '#E8C08C');
-        cueGradient.addColorStop(0.45, '#C98F57');
-        cueGradient.addColorStop(0.78, '#6B3F1E');
-        cueGradient.addColorStop(1, '#FDE68A');
-
-        ctx.strokeStyle = cueGradient;
-        ctx.beginPath();
-        ctx.moveTo(cueButt.x, cueButt.y);
-        ctx.lineTo(cueTip.x, cueTip.y);
-        ctx.stroke();
-
-        ctx.restore();
-
-        const meterWidth = 160;
-        const meterHeight = 10;
-        const meterX = canvasSize.width - meterWidth - 18;
-        const meterY = canvasSize.height - 22;
-
-        roundedRectPath(ctx, meterX, meterY, meterWidth, meterHeight, 999);
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.fill();
-
-        roundedRectPath(ctx, meterX, meterY, (drag / MAX_DRAG) * meterWidth, meterHeight, 999);
-        const powerGradient = ctx.createLinearGradient(meterX, meterY, meterX + meterWidth, meterY);
-        powerGradient.addColorStop(0, '#22C55E');
-        powerGradient.addColorStop(0.5, '#EAB308');
-        powerGradient.addColorStop(1, '#EF4444');
-        ctx.fillStyle = powerGradient;
-        ctx.fill();
-      }
-    }
-
-    if (
-      cue &&
-      !cue.pocketed &&
-      !movingRef.current &&
-      !winnerRef.current &&
-      ballInHandRef.current === currentPlayerRef.current
-    ) {
-      const cuePos = projectPoint({ x: cue.x, y: cue.y }, metrics);
-      const cueRadius = projectRadius(cue.radius, metrics);
-
-      ctx.save();
-      ctx.strokeStyle = 'rgba(34,211,238,0.9)';
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([8, 6]);
-      ctx.beginPath();
-      ctx.arc(cuePos.x, cuePos.y, cueRadius + 7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }, [canvasSize.height, canvasSize.width, findCueBall]);
-
-  const stepPhysics = useCallback((dt: number) => {
-    const balls = ballsRef.current;
-
-    for (const ball of balls) {
-      if (!ball.active || ball.pocketed) continue;
-
-      ball.x += ball.vx * dt;
-      ball.y += ball.vy * dt;
-
-      ball.vx *= Math.pow(FRICTION, dt);
-      ball.vy *= Math.pow(FRICTION, dt);
-
-      if (Math.hypot(ball.vx, ball.vy) < MIN_SPEED) {
-        ball.vx = 0;
-        ball.vy = 0;
-      }
-
-      for (const pocket of POCKETS) {
-        if (distance(ball, pocket) < POCKET_RADIUS - 1.5) {
-          ball.vx = 0;
-          ball.vy = 0;
-          ball.pocketed = true;
-          ball.active = false;
-
-          if (shotRef.current.inProgress) {
-            if (ball.number === 0) {
-              shotRef.current.cuePocketed = true;
-            } else {
-              shotRef.current.pocketed.push(ball.number);
-            }
+          if (ball.x < BALL_RADIUS && !leftPocketLane) {
+            ball.x = BALL_RADIUS;
+            ball.vx = Math.abs(ball.vx) * RAIL_RESTITUTION;
+            playImpactSound(Math.abs(ball.vx) / 16, 'rail');
+          } else if (ball.x > TABLE_WIDTH - BALL_RADIUS && !leftPocketLane) {
+            ball.x = TABLE_WIDTH - BALL_RADIUS;
+            ball.vx = -Math.abs(ball.vx) * RAIL_RESTITUTION;
+            playImpactSound(Math.abs(ball.vx) / 16, 'rail');
           }
 
-          break;
-        }
-      }
-
-      if (ball.pocketed) continue;
-
-      if (ball.x <= BALL_RADIUS) {
-        ball.x = BALL_RADIUS;
-        ball.vx = Math.abs(ball.vx) * 0.98;
-      } else if (ball.x >= TABLE_WIDTH - BALL_RADIUS) {
-        ball.x = TABLE_WIDTH - BALL_RADIUS;
-        ball.vx = -Math.abs(ball.vx) * 0.98;
-      }
-
-      if (ball.y <= BALL_RADIUS) {
-        ball.y = BALL_RADIUS;
-        ball.vy = Math.abs(ball.vy) * 0.98;
-      } else if (ball.y >= TABLE_HEIGHT - BALL_RADIUS) {
-        ball.y = TABLE_HEIGHT - BALL_RADIUS;
-        ball.vy = -Math.abs(ball.vy) * 0.98;
-      }
-    }
-
-    for (let i = 0; i < balls.length; i += 1) {
-      const a = balls[i];
-      if (!a.active || a.pocketed) continue;
-
-      for (let j = i + 1; j < balls.length; j += 1) {
-        const b = balls[j];
-        if (!b.active || b.pocketed) continue;
-
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        let dist = Math.hypot(dx, dy);
-        const minDist = a.radius + b.radius;
-
-        if (dist === 0) {
-          dist = 0.0001;
-          dx = 0.0001;
-          dy = 0;
-        }
-
-        if (dist < minDist) {
-          if (shotRef.current.inProgress && shotRef.current.firstContact === null) {
-            if (a.number === 0 && b.number !== 0) {
-              shotRef.current.firstContact = b.number;
-            } else if (b.number === 0 && a.number !== 0) {
-              shotRef.current.firstContact = a.number;
-            }
+          if (ball.y < BALL_RADIUS && !topPocketLane) {
+            ball.y = BALL_RADIUS;
+            ball.vy = Math.abs(ball.vy) * RAIL_RESTITUTION;
+            playImpactSound(Math.abs(ball.vy) / 16, 'rail');
+          } else if (ball.y > TABLE_HEIGHT - BALL_RADIUS && !topPocketLane) {
+            ball.y = TABLE_HEIGHT - BALL_RADIUS;
+            ball.vy = -Math.abs(ball.vy) * RAIL_RESTITUTION;
+            playImpactSound(Math.abs(ball.vy) / 16, 'rail');
           }
 
-          const nx = dx / dist;
-          const ny = dy / dist;
-          const overlap = minDist - dist;
+          ball.vx *= FRICTION_PER_STEP;
+          ball.vy *= FRICTION_PER_STEP;
 
-          a.x -= nx * overlap * 0.5;
-          a.y -= ny * overlap * 0.5;
-          b.x += nx * overlap * 0.5;
-          b.y += ny * overlap * 0.5;
+          if (Math.hypot(ball.vx, ball.vy) < STOP_EPS) {
+            ball.vx = 0;
+            ball.vy = 0;
+          }
+        }
 
-          const dvx = a.vx - b.vx;
-          const dvy = a.vy - b.vy;
-          const impact = dvx * nx + dvy * ny;
+        for (let i = 0; i < balls.length; i += 1) {
+          const a = balls[i];
+          if (a.pocketed || !a.active) continue;
 
-          if (impact < 0) {
-            const impulse = impact;
+          for (let j = i + 1; j < balls.length; j += 1) {
+            const b = balls[j];
+            if (b.pocketed || !b.active) continue;
+
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let d = Math.hypot(dx, dy);
+            const minD = a.radius + b.radius;
+
+            if (d === 0) {
+              dx = 0.001;
+              dy = 0;
+              d = 0.001;
+            }
+
+            if (d >= minD) continue;
+
+            if (shotRef.current.inProgress && shotRef.current.firstContact === null) {
+              if (a.number === 0 && b.number !== 0) {
+                shotRef.current.firstContact = b.number;
+              } else if (b.number === 0 && a.number !== 0) {
+                shotRef.current.firstContact = a.number;
+              }
+            }
+
+            const nx = dx / d;
+            const ny = dy / d;
+            const overlap = minD - d;
+
+            a.x -= nx * overlap * 0.5;
+            a.y -= ny * overlap * 0.5;
+            b.x += nx * overlap * 0.5;
+            b.y += ny * overlap * 0.5;
+
+            const rvx = b.vx - a.vx;
+            const rvy = b.vy - a.vy;
+            const velAlongNormal = rvx * nx + rvy * ny;
+
+            if (velAlongNormal > 0) continue;
+
+            const impulse = (-(1 + BALL_RESTITUTION) * velAlongNormal) / 2;
 
             a.vx -= impulse * nx;
             a.vy -= impulse * ny;
             b.vx += impulse * nx;
             b.vy += impulse * ny;
+
+            const tangentX = -ny;
+            const tangentY = nx;
+            const relTan = rvx * tangentX + rvy * tangentY;
+            const frictionImpulse = relTan * 0.013;
+
+            a.vx += frictionImpulse * tangentX;
+            a.vy += frictionImpulse * tangentY;
+            b.vx -= frictionImpulse * tangentX;
+            b.vy -= frictionImpulse * tangentY;
+
+            playImpactSound(Math.min(1, Math.abs(velAlongNormal) / 12), 'ball');
           }
         }
       }
+
+      const moving = balls.some((b) => !b.pocketed && (Math.abs(b.vx) > STOP_EPS || Math.abs(b.vy) > STOP_EPS));
+
+      if (moving !== stateRef.current.moving) {
+        syncState({
+          moving,
+          status: moving ? stateRef.current.status : stateRef.current.status,
+        });
+      }
+
+      if (!moving && shotRef.current.inProgress) {
+        resolveShot();
+      }
+    },
+    [maybePocketBall, playImpactSound, resolveShot, syncState],
+  );
+
+  const getAimPreview = useCallback(() => {
+    const cue = getCueBall();
+    const interaction = interactionRef.current;
+
+    if (!cue || cue.pocketed || stateRef.current.moving || stateRef.current.winner) return null;
+    if (interaction.mode !== 'aim' || !interaction.current) return null;
+
+    const dx = cue.x - interaction.current.x;
+    const dy = cue.y - interaction.current.y;
+    const drag = Math.min(Math.hypot(dx, dy), MAX_DRAG);
+    if (drag < 6) return null;
+
+    const dirX = dx / drag;
+    const dirY = dy / drag;
+
+    let bestT = Infinity;
+    let hitBall: Ball | null = null;
+
+    for (const ball of ballsRef.current) {
+      if (ball.pocketed || ball.number === 0) continue;
+
+      const ox = cue.x - ball.x;
+      const oy = cue.y - ball.y;
+      const radius = BALL_RADIUS * 2;
+
+      const a = dirX * dirX + dirY * dirY;
+      const b = 2 * (ox * dirX + oy * dirY);
+      const c = ox * ox + oy * oy - radius * radius;
+      const disc = b * b - 4 * a * c;
+
+      if (disc < 0) continue;
+
+      const sqrt = Math.sqrt(disc);
+      const t1 = (-b - sqrt) / (2 * a);
+
+      if (t1 > 0.001 && t1 < bestT) {
+        bestT = t1;
+        hitBall = ball;
+      }
     }
 
-    const currentlyMoving = balls.some(
-      (ball) => ball.active && !ball.pocketed && Math.hypot(ball.vx, ball.vy) > MIN_SPEED,
-    );
+    const railTs = [
+      dirX > 0 ? (TABLE_WIDTH - BALL_RADIUS - cue.x) / dirX : Infinity,
+      dirX < 0 ? (BALL_RADIUS - cue.x) / dirX : Infinity,
+      dirY > 0 ? (TABLE_HEIGHT - BALL_RADIUS - cue.y) / dirY : Infinity,
+      dirY < 0 ? (BALL_RADIUS - cue.y) / dirY : Infinity,
+    ].filter((v) => v > 0);
 
-    if (currentlyMoving !== movingRef.current) {
-      movingRef.current = currentlyMoving;
-      setBallsMoving(currentlyMoving);
+    const railT = railTs.length ? Math.min(...railTs) : Infinity;
+    const rayT = Math.min(bestT, railT, 330);
+
+    const contactPoint = {
+      x: cue.x + dirX * rayT,
+      y: cue.y + dirY * rayT,
+    };
+
+    if (!hitBall || bestT > railT) {
+      return {
+        cue,
+        dir: { x: dirX, y: dirY },
+        drag,
+        lineEnd: contactPoint,
+        targetBall: null,
+        ghostBallDir: null as Point | null,
+        cueDeflectDir: null as Point | null,
+      };
     }
 
-    if (!currentlyMoving && shotRef.current.inProgress) {
-      resolveShot(shotRef.current);
+    const nx = (hitBall.x - contactPoint.x) / (BALL_RADIUS * 2);
+    const ny = (hitBall.y - contactPoint.y) / (BALL_RADIUS * 2);
+
+    const dot = dirX * nx + dirY * ny;
+    const cueDeflectX = dirX - dot * nx;
+    const cueDeflectY = dirY - dot * ny;
+
+    const cueDeflectLen = Math.hypot(cueDeflectX, cueDeflectY);
+    const normCueDeflect =
+      cueDeflectLen > 0.001
+        ? { x: cueDeflectX / cueDeflectLen, y: cueDeflectY / cueDeflectLen }
+        : null;
+
+    return {
+      cue,
+      dir: { x: dirX, y: dirY },
+      drag,
+      lineEnd: contactPoint,
+      targetBall: hitBall,
+      ghostBallDir: { x: nx, y: ny },
+      cueDeflectDir: normCueDeflect,
+    };
+  }, [getCueBall]);
+
+  const drawMiniBall = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    r: number,
+    number: number,
+    stripe: boolean,
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+
+    if (stripe) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = BALL_COLORS[number];
+      ctx.fillRect(x - r, y - r * 0.48, r * 2, r * 0.96);
+      ctx.restore();
+    } else {
+      const grad = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.18, x, y, r);
+      grad.addColorStop(0, '#FFFFFF');
+      grad.addColorStop(0.18, BALL_COLORS[number]);
+      grad.addColorStop(1, BALL_COLORS[number]);
+      ctx.fillStyle = grad;
+      ctx.fill();
     }
-  }, [resolveShot]);
+
+    ctx.lineWidth = Math.max(1, r * 0.08);
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.42, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+
+    ctx.fillStyle = '#0F172A';
+    ctx.font = `${Math.max(8, r * 0.78)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(number), x, y + 0.4);
+
+    ctx.restore();
+  };
+
+  const drawHud = useCallback(
+    (ctx: CanvasRenderingContext2D, l: Layout) => {
+      const gs = stateRef.current;
+
+      const leftX = 16;
+      const topY = 14;
+      const cardW = l.playerPanelWidth;
+      const cardH = l.playerPanelHeight;
+      const rightX = l.logicalWidth - cardW - 16;
+      const centerX = (l.logicalWidth - l.centerPillWidth) / 2;
+
+      const drawPlayerCard = (player: PlayerId, x: number) => {
+        const active = gs.currentPlayer === player && !gs.winner;
+        const winner = gs.winner === player;
+        const group = gs.groups[player];
+        const remaining = group ? countRemaining(group) : 7;
+
+        ctx.save();
+        ctx.shadowColor = active ? 'rgba(34,211,238,0.22)' : 'rgba(0,0,0,0.2)';
+        ctx.shadowBlur = active ? 20 : 12;
+        ctx.shadowOffsetY = 6;
+
+        drawRoundedRect(ctx, x, topY, cardW, cardH, 18);
+        const grad = ctx.createLinearGradient(x, topY, x, topY + cardH);
+        grad.addColorStop(0, active ? 'rgba(19,34,48,0.96)' : 'rgba(12,15,22,0.92)');
+        grad.addColorStop(1, active ? 'rgba(12,22,34,0.96)' : 'rgba(8,11,16,0.92)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = winner
+          ? 'rgba(250,204,21,0.65)'
+          : active
+            ? 'rgba(34,211,238,0.45)'
+            : 'rgba(255,255,255,0.08)';
+        ctx.stroke();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '700 16px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(PLAYER_LABEL[player], x + 14, topY + 17);
+
+        ctx.fillStyle = winner ? '#FACC15' : active ? '#67E8F9' : '#A1A1AA';
+        ctx.font = '700 11px Inter, system-ui, sans-serif';
+        ctx.fillText(winner ? 'WIN' : active ? 'TURN' : 'READY', x + 14, topY + 35);
+
+        if (group) {
+          drawMiniBall(ctx, x + cardW - 54, topY + cardH / 2, 10.5, group === 'solid' ? 1 : 9, group === 'stripe');
+          ctx.fillStyle = '#E5E7EB';
+          ctx.font = '700 11px Inter, system-ui, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${remaining}`, x + cardW - 37, topY + cardH / 2 + 0.5);
+          ctx.fillStyle = '#94A3B8';
+          ctx.font = '600 10px Inter, system-ui, sans-serif';
+          ctx.fillText(GROUP_LABEL[group], x + cardW - 24, topY + cardH / 2 + 0.5);
+        } else {
+          ctx.fillStyle = '#64748B';
+          ctx.font = '600 10px Inter, system-ui, sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText('OPEN', x + cardW - 12, topY + cardH / 2 + 0.5);
+        }
+
+        ctx.restore();
+      };
+
+      drawPlayerCard(1, leftX);
+      drawPlayerCard(2, rightX);
+
+      ctx.save();
+      drawRoundedRect(ctx, centerX, topY + 4, l.centerPillWidth, cardH - 8, 999);
+      const centerGrad = ctx.createLinearGradient(centerX, topY + 4, centerX + l.centerPillWidth, topY + cardH - 4);
+      centerGrad.addColorStop(0, 'rgba(10,12,18,0.94)');
+      centerGrad.addColorStop(1, 'rgba(20,25,35,0.96)');
+      ctx.fillStyle = centerGrad;
+      ctx.fill();
+
+      ctx.lineWidth = 1.15;
+      ctx.strokeStyle = gs.ballInHandFor
+        ? 'rgba(250,204,21,0.45)'
+        : 'rgba(255,255,255,0.1)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '800 14px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      let centerText = `${PLAYER_LABEL[gs.currentPlayer]} TO PLAY`;
+      if (gs.ballInHandFor) centerText = `${PLAYER_LABEL[gs.ballInHandFor]} BALL IN HAND`;
+      if (gs.winner) centerText = `${PLAYER_LABEL[gs.winner]} WINS`;
+
+      ctx.fillText(centerText, centerX + l.centerPillWidth / 2, topY + cardH / 2);
+
+      ctx.restore();
+    },
+    [countRemaining],
+  );
+
+  const drawTable = useCallback(
+    (ctx: CanvasRenderingContext2D, l: Layout) => {
+      const outerX = l.tableX - 30;
+      const outerY = l.tableY - 24;
+      const outerW = l.tableWidth + 60;
+      const outerH = l.tableHeight + 48;
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 34;
+      ctx.shadowOffsetY = 18;
+      drawRoundedRect(ctx, outerX, outerY, outerW, outerH, 34);
+      ctx.fillStyle = '#1A0E08';
+      ctx.fill();
+      ctx.restore();
+
+      const wood = ctx.createLinearGradient(outerX, outerY, outerX + outerW, outerY + outerH);
+      wood.addColorStop(0, '#6B3C20');
+      wood.addColorStop(0.25, '#3B2213');
+      wood.addColorStop(0.5, '#7A4926');
+      wood.addColorStop(0.75, '#2F180D');
+      wood.addColorStop(1, '#7C4A28');
+
+      drawRoundedRect(ctx, outerX, outerY, outerW, outerH, 34);
+      ctx.fillStyle = wood;
+      ctx.fill();
+
+      ctx.lineWidth = 1.25;
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+      ctx.stroke();
+
+      const felt = ctx.createLinearGradient(l.tableX, l.tableY, l.tableX, l.tableY + l.tableHeight);
+      felt.addColorStop(0, '#0B8A61');
+      felt.addColorStop(0.4, '#087555');
+      felt.addColorStop(1, '#065746');
+
+      drawRoundedRect(ctx, l.tableX, l.tableY, l.tableWidth, l.tableHeight, 22);
+      ctx.fillStyle = felt;
+      ctx.fill();
+
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.strokeStyle = '#86EFAC';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, l.tableX + 8, l.tableY + 8, l.tableWidth - 16, l.tableHeight - 16, 18);
+      ctx.stroke();
+      ctx.restore();
+
+      const railDots = [
+        { x: TABLE_WIDTH * 0.16, y: -24 },
+        { x: TABLE_WIDTH * 0.33, y: -24 },
+        { x: TABLE_WIDTH * 0.66, y: -24 },
+        { x: TABLE_WIDTH * 0.84, y: -24 },
+        { x: TABLE_WIDTH * 0.16, y: TABLE_HEIGHT + 24 },
+        { x: TABLE_WIDTH * 0.33, y: TABLE_HEIGHT + 24 },
+        { x: TABLE_WIDTH * 0.66, y: TABLE_HEIGHT + 24 },
+        { x: TABLE_WIDTH * 0.84, y: TABLE_HEIGHT + 24 },
+        { x: -24, y: TABLE_HEIGHT * 0.25 },
+        { x: -24, y: TABLE_HEIGHT * 0.5 },
+        { x: -24, y: TABLE_HEIGHT * 0.75 },
+        { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.25 },
+        { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.5 },
+        { x: TABLE_WIDTH + 24, y: TABLE_HEIGHT * 0.75 },
+      ];
+
+      ctx.fillStyle = 'rgba(255,255,255,0.58)';
+      railDots.forEach((p) => {
+        const pos = projectPoint(p, l);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      for (const pocket of POCKETS) {
+        const pos = projectPoint(pocket, l);
+        const r = projectRadius(POCKET_RADIUS, l);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = '#050505';
+        ctx.fill();
+        ctx.restore();
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r * 0.65, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.fill();
+      }
+
+      const cueLineX = projectPoint({ x: TABLE_WIDTH * 0.25, y: 0 }, l).x;
+      ctx.save();
+      ctx.setLineDash([10, 10]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cueLineX, l.tableY + 18);
+      ctx.lineTo(cueLineX, l.tableY + l.tableHeight - 18);
+      ctx.stroke();
+      ctx.restore();
+    },
+    [],
+  );
+
+  const drawBalls = useCallback(
+    (ctx: CanvasRenderingContext2D, l: Layout) => {
+      for (const ball of ballsRef.current) {
+        if (ball.pocketed || !ball.active) continue;
+
+        const pos = projectPoint({ x: ball.x, y: ball.y }, l);
+        const r = projectRadius(ball.radius, l);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.32)';
+        ctx.shadowBlur = r * 0.9;
+        ctx.shadowOffsetY = r * 0.22;
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+
+        if (ball.kind === 'cue') {
+          const cueGrad = ctx.createRadialGradient(
+            pos.x - r * 0.35,
+            pos.y - r * 0.35,
+            r * 0.22,
+            pos.x,
+            pos.y,
+            r,
+          );
+          cueGrad.addColorStop(0, '#FFFFFF');
+          cueGrad.addColorStop(1, '#DDE5ED');
+          ctx.fillStyle = cueGrad;
+          ctx.fill();
+        } else if (ball.kind === 'stripe') {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fill();
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.fillStyle = ball.color;
+          ctx.fillRect(pos.x - r, pos.y - r * 0.52, r * 2, r * 1.04);
+          ctx.restore();
+        } else {
+          const grad = ctx.createRadialGradient(
+            pos.x - r * 0.35,
+            pos.y - r * 0.35,
+            r * 0.22,
+            pos.x,
+            pos.y,
+            r,
+          );
+          grad.addColorStop(0, '#FFFFFF');
+          grad.addColorStop(0.18, ball.color);
+          grad.addColorStop(1, ball.color);
+          ctx.fillStyle = grad;
+          ctx.fill();
+        }
+
+        ctx.lineWidth = Math.max(1.2, r * 0.08);
+        ctx.strokeStyle = ball.kind === 'cue' ? '#D6D9DE' : 'rgba(255,255,255,0.16)';
+        ctx.stroke();
+
+        if (ball.number !== 0) {
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, r * 0.42, 0, Math.PI * 2);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fill();
+
+          ctx.fillStyle = '#0F172A';
+          ctx.font = `${Math.max(10, r * 0.78)}px Inter, system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(ball.number), pos.x, pos.y + 0.4);
+        }
+
+        ctx.restore();
+      }
+    },
+    [],
+  );
+
+  const drawAimPreview = useCallback(
+    (ctx: CanvasRenderingContext2D, l: Layout) => {
+      const preview = getAimPreview();
+      if (!preview) return;
+
+      const cuePos = projectPoint({ x: preview.cue.x, y: preview.cue.y }, l);
+      const lineEnd = projectPoint(preview.lineEnd, l);
+
+      ctx.save();
+      ctx.setLineDash([10, 8]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.52)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cuePos.x, cuePos.y);
+      ctx.lineTo(lineEnd.x, lineEnd.y);
+      ctx.stroke();
+      ctx.restore();
+
+      if (preview.targetBall && preview.ghostBallDir) {
+        const objStart = projectPoint({ x: preview.targetBall.x, y: preview.targetBall.y }, l);
+        const objEnd = projectPoint(
+          {
+            x: preview.targetBall.x + preview.ghostBallDir.x * 120,
+            y: preview.targetBall.y + preview.ghostBallDir.y * 120,
+          },
+          l,
+        );
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(34,211,238,0.78)';
+        ctx.lineWidth = 2.25;
+        ctx.beginPath();
+        ctx.moveTo(objStart.x, objStart.y);
+        ctx.lineTo(objEnd.x, objEnd.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (preview.cueDeflectDir) {
+        const deflectStart = lineEnd;
+        const deflectEnd = projectPoint(
+          {
+            x: preview.lineEnd.x + preview.cueDeflectDir.x * 76,
+            y: preview.lineEnd.y + preview.cueDeflectDir.y * 76,
+          },
+          l,
+        );
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(251,191,36,0.72)';
+        ctx.lineWidth = 2.1;
+        ctx.beginPath();
+        ctx.moveTo(deflectStart.x, deflectStart.y);
+        ctx.lineTo(deflectEnd.x, deflectEnd.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const cueBack = projectPoint(
+        {
+          x: preview.cue.x - preview.dir.x * (72 + (preview.drag / MAX_DRAG) * 92),
+          y: preview.cue.y - preview.dir.y * (72 + (preview.drag / MAX_DRAG) * 92),
+        },
+        l,
+      );
+
+      ctx.save();
+      ctx.lineWidth = Math.max(6, 12 * l.tableScale);
+      ctx.lineCap = 'round';
+
+      const cueGrad = ctx.createLinearGradient(cueBack.x, cueBack.y, cuePos.x, cuePos.y);
+      cueGrad.addColorStop(0, '#E8C08C');
+      cueGrad.addColorStop(0.45, '#C98F57');
+      cueGrad.addColorStop(0.78, '#6B3F1E');
+      cueGrad.addColorStop(1, '#FDE68A');
+
+      ctx.strokeStyle = cueGrad;
+      ctx.beginPath();
+      ctx.moveTo(cueBack.x, cueBack.y);
+      ctx.lineTo(cuePos.x - preview.dir.x * projectRadius(BALL_RADIUS + 7, l), cuePos.y - preview.dir.y * projectRadius(BALL_RADIUS + 7, l));
+      ctx.stroke();
+      ctx.restore();
+
+      const meterW = 132;
+      const meterH = 8;
+      const meterX = l.logicalWidth - meterW - 18;
+      const meterY = l.logicalHeight - 18;
+
+      drawRoundedRect(ctx, meterX, meterY, meterW, meterH, 999);
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fill();
+
+      const fillW = (preview.drag / MAX_DRAG) * meterW;
+      drawRoundedRect(ctx, meterX, meterY, fillW, meterH, 999);
+      const meterGrad = ctx.createLinearGradient(meterX, meterY, meterX + meterW, meterY);
+      meterGrad.addColorStop(0, '#22C55E');
+      meterGrad.addColorStop(0.5, '#EAB308');
+      meterGrad.addColorStop(1, '#EF4444');
+      ctx.fillStyle = meterGrad;
+      ctx.fill();
+    },
+    [getAimPreview],
+  );
+
+  const drawWinnerOverlay = useCallback(
+    (ctx: CanvasRenderingContext2D, l: Layout) => {
+      const gs = stateRef.current;
+      if (!gs.winner) return;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(2, 6, 12, 0.68)';
+      ctx.fillRect(0, 0, l.logicalWidth, l.logicalHeight);
+
+      const w = clamp(l.logicalWidth * 0.34, 240, 360);
+      const h = 120;
+      const x = (l.logicalWidth - w) / 2;
+      const y = (l.logicalHeight - h) / 2;
+
+      drawRoundedRect(ctx, x, y, w, h, 28);
+      const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+      grad.addColorStop(0, 'rgba(14,18,26,0.96)');
+      grad.addColorStop(1, 'rgba(18,24,36,0.96)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(250,204,21,0.32)';
+      ctx.stroke();
+
+      ctx.fillStyle = '#FACC15';
+      ctx.font = '800 14px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('WINNER', x + w / 2, y + 34);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 30px Inter, system-ui, sans-serif';
+      ctx.fillText(PLAYER_LABEL[gs.winner], x + w / 2, y + 70);
+
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '700 11px Inter, system-ui, sans-serif';
+      ctx.fillText('tap restart', x + w / 2, y + 98);
+
+      ctx.restore();
+    },
+    [],
+  );
+
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !canvasSize.width || !canvasSize.height) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = Math.floor(canvasSize.width * dpr);
+    const targetHeight = Math.floor(canvasSize.height * dpr);
+
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const l = layoutRef.current ?? computeLayout(canvasSize.width, canvasSize.height);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const bg = ctx.createLinearGradient(0, 0, 0, canvasSize.height);
+    bg.addColorStop(0, '#05070B');
+    bg.addColorStop(1, '#020307');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
+
+    ctx.save();
+    if (l.rotated) {
+      ctx.translate(canvasSize.width, 0);
+      ctx.rotate(Math.PI / 2);
+    }
+
+    drawHud(ctx, l);
+    drawTable(ctx, l);
+    drawAimPreview(ctx, l);
+    drawBalls(ctx, l);
+    drawWinnerOverlay(ctx, l);
+
+    ctx.restore();
+  }, [canvasSize.height, canvasSize.width, drawAimPreview, drawBalls, drawHud, drawTable, drawWinnerOverlay]);
 
   useEffect(() => {
     if (!canvasSize.width || !canvasSize.height) return;
 
-    let isMounted = true;
+    let mounted = true;
 
-    const frame = (time: number) => {
-      if (!isMounted) return;
+    const loop = (time: number) => {
+      if (!mounted) return;
 
-      const last = lastFrameRef.current || time;
-      const dt = Math.min(1.75, (time - last) / 16.6667 || 1);
-
+      const prev = lastFrameRef.current || time;
+      const dt = clamp((time - prev) / 16.6667, 0.45, 1.5);
       lastFrameRef.current = time;
 
-      stepPhysics(dt);
-      drawScene();
+      if (!stateRef.current.winner) {
+        stepPhysics(dt);
+      }
 
-      rafRef.current = requestAnimationFrame(frame);
+      render();
+      rafRef.current = requestAnimationFrame(loop);
     };
 
-    rafRef.current = requestAnimationFrame(frame);
+    rafRef.current = requestAnimationFrame(loop);
 
     return () => {
-      isMounted = false;
-
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
+      mounted = false;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [canvasSize.height, canvasSize.width, drawScene, stepPhysics]);
+  }, [canvasSize.height, canvasSize.width, render, stepPhysics]);
 
-  const eventToTablePoint = useCallback((clientX: number, clientY: number): Point => {
+  const getTablePointFromClient = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
-    const metrics = renderMetricsRef.current;
-
-    if (!canvas) return { x: 0, y: 0 };
+    const l = layoutRef.current;
+    if (!canvas || !l) return null;
 
     const rect = canvas.getBoundingClientRect();
     const localX = clientX - rect.left;
     const localY = clientY - rect.top;
+    const logical = getLogicalPointFromCanvasPoint(localX, localY, rect.width, l.rotated);
 
     return {
-      x: clamp((localX - metrics.x) / metrics.scale, 0, TABLE_WIDTH),
-      y: clamp((localY - metrics.y) / metrics.scale, 0, TABLE_HEIGHT),
+      logical,
+      table: {
+        x: (logical.x - l.tableX) / l.tableScale,
+        y: (logical.y - l.tableY) / l.tableScale,
+      },
     };
   }, []);
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (winnerRef.current || movingRef.current) return;
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    ensureAudio();
 
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (stateRef.current.winner || stateRef.current.moving) return;
 
-    const point = eventToTablePoint(event.clientX, event.clientY);
-    const cue = findCueBall();
+    const mapped = getTablePointFromClient(e.clientX, e.clientY);
+    const l = layoutRef.current;
+    const cue = getCueBall();
 
-    if (!cue) return;
+    if (!mapped || !l || !cue) return;
 
-    if (ballInHandRef.current === currentPlayerRef.current) {
-      if (isCuePlacementValid(point.x, point.y)) {
-        cue.x = point.x;
-        cue.y = point.y;
+    const { logical, table } = mapped;
+
+    if (
+      logical.x < l.tableX ||
+      logical.x > l.tableX + l.tableWidth ||
+      logical.y < l.tableY ||
+      logical.y > l.tableY + l.tableHeight
+    ) {
+      return;
+    }
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    if (stateRef.current.ballInHandFor === stateRef.current.currentPlayer) {
+      if (isCuePlacementValid(table.x, table.y)) {
+        cue.x = table.x;
+        cue.y = table.y;
       }
 
       interactionRef.current = {
         mode: 'place',
-        pointerId: event.pointerId,
-        start: point,
-        current: point,
+        pointerId: e.pointerId,
+        start: table,
+        current: table,
       };
-
       return;
     }
 
-    if (distance(point, cue) <= cue.radius * 1.8) {
+    if (dist(table, cue) <= cue.radius * 1.8) {
       interactionRef.current = {
         mode: 'aim',
-        pointerId: event.pointerId,
-        start: point,
-        current: point,
+        pointerId: e.pointerId,
+        start: table,
+        current: table,
       };
     }
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const interaction = interactionRef.current;
+    if (interaction.mode === 'idle' || interaction.pointerId !== e.pointerId) return;
 
-    if (interaction.mode === 'idle' || interaction.pointerId !== event.pointerId) return;
+    e.preventDefault();
 
-    event.preventDefault();
-
-    const point = eventToTablePoint(event.clientX, event.clientY);
+    const mapped = getTablePointFromClient(e.clientX, e.clientY);
+    const cue = getCueBall();
+    if (!mapped || !cue) return;
 
     if (interaction.mode === 'place') {
-      const cue = findCueBall();
-      if (!cue) return;
-
-      if (isCuePlacementValid(point.x, point.y)) {
-        cue.x = point.x;
-        cue.y = point.y;
+      if (isCuePlacementValid(mapped.table.x, mapped.table.y)) {
+        cue.x = mapped.table.x;
+        cue.y = mapped.table.y;
       }
-
-      interactionRef.current.current = point;
+      interactionRef.current.current = mapped.table;
       return;
     }
 
-    interactionRef.current.current = point;
+    interactionRef.current.current = mapped.table;
   };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const interaction = interactionRef.current;
+    if (interaction.mode === 'idle' || interaction.pointerId !== e.pointerId) return;
 
-    if (interaction.mode === 'idle' || interaction.pointerId !== event.pointerId) return;
+    e.preventDefault();
 
-    event.preventDefault();
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // noop
+    }
 
-    const cue = findCueBall();
+    const cue = getCueBall();
 
     if (!cue) {
       interactionRef.current = emptyInteraction();
@@ -1087,25 +1540,31 @@ const PoolGame = () => {
     }
 
     if (interaction.mode === 'place') {
-      ballInHandRef.current = null;
-      setBallInHandFor(null);
-      setStatusText(`${PLAYER_NAMES[currentPlayerRef.current]}, прицеливайся`);
+      syncState({
+        ballInHandFor: null,
+        status: 'turn',
+      });
       interactionRef.current = emptyInteraction();
       return;
     }
 
-    if (!interaction.current) {
+    const current = interaction.current;
+    if (!current) {
       interactionRef.current = emptyInteraction();
       return;
     }
 
-    const dx = cue.x - interaction.current.x;
-    const dy = cue.y - interaction.current.y;
+    const dx = cue.x - current.x;
+    const dy = cue.y - current.y;
     const drag = Math.min(Math.hypot(dx, dy), MAX_DRAG);
 
-    if (drag > 7) {
-      cue.vx = dx * 0.16;
-      cue.vy = dy * 0.16;
+    if (drag > 6) {
+      const dirX = dx / drag;
+      const dirY = dy / drag;
+      const power = 7.2 + (drag / MAX_DRAG) * 16.8;
+
+      cue.vx = dirX * power;
+      cue.vy = dirY * power;
 
       shotRef.current = {
         inProgress: true,
@@ -1114,9 +1573,12 @@ const PoolGame = () => {
         cuePocketed: false,
       };
 
-      movingRef.current = true;
-      setBallsMoving(true);
-      setStatusText('Шары в движении...');
+      syncState({
+        moving: true,
+        status: 'turn',
+      });
+
+      playImpactSound(clamp(power / 18, 0.15, 1), 'ball');
     }
 
     interactionRef.current = emptyInteraction();
@@ -1126,155 +1588,46 @@ const PoolGame = () => {
     interactionRef.current = emptyInteraction();
   };
 
-  const playerBadge = (player: PlayerId) => {
-    const isActive = currentPlayer === player && !winner;
-    const group = playerGroups[player];
-    const remaining = group ? countRemaining(group) : null;
-
-    return (
-      <motion.div
-        animate={{
-          scale: isActive ? 1.02 : 1,
-          opacity: winner && winner !== player ? 0.72 : 1,
-        }}
-        className={`rounded-2xl border px-3 py-2 ${
-          isActive
-            ? 'border-cyan-400/40 bg-cyan-400/10 shadow-[0_0_30px_rgba(34,211,238,0.15)]'
-            : 'border-white/10 bg-white/5'
-        }`}
-      >
-        <div className="text-white font-bold text-sm">{PLAYER_NAMES[player]}</div>
-
-        <div className="mt-1 text-[11px] text-gray-300">
-          {group ? GROUP_LABELS[group] : 'Группа не выбрана'}
-        </div>
-
-        <div className="mt-1 text-[11px] text-gray-400">
-          {group ? `Осталось: ${remaining}` : 'Ждёт первый удачный шар'}
-        </div>
-      </motion.div>
-    );
-  };
-
   return (
-    <div className="h-full overflow-hidden bg-[#05070B] px-3 pb-3">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-3">
-        {playerBadge(1)}
-
-        <div className="flex flex-col items-center gap-2">
-          <button
-            onClick={resetGame}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white active:scale-95 transition"
-          >
-            <RefreshCcw size={14} />
-            Рестарт
-          </button>
-
-          <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-gray-300 whitespace-nowrap">
-            {winner ? `Победил ${PLAYER_NAMES[winner]}` : statusText}
-          </div>
-        </div>
-
-        {playerBadge(2)}
-      </div>
-
-      {!isLandscape && (
-        <div className="mb-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-200">
-          Для лучшего контроля держи устройство горизонтально
-        </div>
-      )}
-
-      <div
-        ref={stageRef}
-        className="relative flex-1 overflow-hidden rounded-[28px] border border-white/10 bg-[#020406] shadow-[0_35px_100px_rgba(0,0,0,0.55)]"
-      >
+    <div className="h-full w-full overflow-hidden bg-[#05070B] select-none">
+      <div ref={stageRef} className="relative h-full w-full overflow-hidden touch-none">
         <canvas
           ref={canvasRef}
-          className="h-full w-full touch-none select-none"
+          className="block h-full w-full touch-none"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
+          onContextMenu={(e) => e.preventDefault()}
         />
 
-        <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-gray-200 backdrop-blur-md">
-          {ballInHandFor === currentPlayer
-            ? 'Шар в руке — поставь биток куда удобно'
-            : ballsMoving
-              ? 'Ожидаем остановки всех шаров'
-              : 'Тяни биток назад, чтобы задать силу удара'}
-        </div>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-black/18 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-black/18 to-transparent" />
 
-        <AnimatePresence>
-          {showRotateIntro && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-20 flex items-center justify-center bg-[#03050A]/92 backdrop-blur-md"
-            >
-              <motion.div
-                initial={{ scale: 0.92, y: 16 }}
-                animate={{ scale: 1, y: 0 }}
-                className="mx-4 flex max-w-[520px] flex-col items-center rounded-[32px] border border-white/10 bg-white/5 px-8 py-8 text-center"
-              >
-                <motion.div
-                  animate={{ rotate: [0, 90, 90, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="mb-5 rounded-[28px] border border-cyan-400/30 bg-cyan-400/10 p-5"
-                >
-                  <Smartphone className="h-14 w-14 text-cyan-300" />
-                </motion.div>
+        <div className="absolute right-3 top-3 z-20 flex items-center gap-2">
+          <button
+            onClick={resetGame}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-white backdrop-blur-md active:scale-95 transition"
+          >
+            <RefreshCcw size={16} />
+          </button>
 
-                <div className="text-2xl font-black text-white">Поверни экран</div>
-
-                <div className="mt-2 text-sm leading-6 text-gray-300">
-                  Pool раскрывается в горизонтали — так удобнее целиться, контролировать силу
-                  удара и держать стол под полным обзором.
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {winner && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              className="absolute inset-0 z-30 flex items-center justify-center bg-[#020406]/78 backdrop-blur-sm"
-            >
-              <div className="mx-4 w-full max-w-md rounded-[32px] border border-white/10 bg-[#0B1017]/95 p-6 text-center shadow-[0_35px_120px_rgba(0,0,0,0.6)]">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/15">
-                  <Trophy className="h-8 w-8 text-amber-300" />
-                </div>
-
-                <div className="text-3xl font-black text-white">{PLAYER_NAMES[winner]}</div>
-                <div className="mt-2 text-sm text-gray-300">{statusText}</div>
-
-                <button
-                  onClick={resetGame}
-                  className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3 text-sm font-bold text-white active:scale-95 transition"
-                >
-                  <RefreshCcw size={16} />
-                  Новая партия
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-gray-300">
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-          Ходят по очереди
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-          После фола — шар в руке
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-          8-ball после своей группы
+          <button
+            onClick={() => {
+              setSoundEnabled((v) => {
+                const next = !v;
+                if (next) {
+                  setTimeout(() => {
+                    ensureAudio();
+                  }, 0);
+                }
+                return next;
+              });
+            }}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/25 text-white backdrop-blur-md active:scale-95 transition"
+          >
+            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
         </div>
       </div>
     </div>
