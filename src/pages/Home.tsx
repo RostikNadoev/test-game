@@ -2,14 +2,69 @@ import { useNavigate } from 'react-router-dom';
 import { GameCard } from '../components/GameCard';
 
 const games = [
-  { id: 'newgame', name: 'New Game', icon: '✨', description: 'Скоро открытие', color: 'from-fuchsia-500 to-purple-600' },
-  { id: 'archer', name: 'Neon Duel', icon: '🏹', description: 'Битва на копьях', color: 'from-orange-500 to-red-600' },
-  { id: 'race', name: 'Street Race', icon: '🏎️', description: 'Гонки на скорость', color: 'from-blue-500 to-cyan-500' },
-  { id: 'airhockey', name: 'Air Hockey', icon: '🏒', description: 'Аэрохоккей', color: 'from-indigo-500 to-purple-500' },
-  { id: 'pool', name: 'Pool', icon: '🎱', description: 'Бильярд 1 на 1', color: 'from-emerald-500 to-teal-700' },
-  { id: 'paper', name: 'Paper Duel', icon: '🔲', description: 'Захват территорий', color: 'from-cyan-500 to-sky-700' },
-  { id: 'pingpong', name: 'Pong', icon: '🏓', description: 'Настольный теннис', color: 'from-yellow-500 to-amber-500' },
-  { id: 'darts', name: 'Darts', icon: '🎯', description: 'Дартс на точность', color: 'from-pink-500 to-rose-500' },
+  {
+    id: 'newgame',
+    name: 'New Game',
+    icon: '✨',
+    description: 'Скоро открытие',
+    color: 'from-fuchsia-500 to-purple-600',
+  },
+  {
+    id: 'chase',
+    name: 'Tag Chase',
+    icon: '🏃',
+    description: 'Догонялки 1 на 1',
+    color: 'from-emerald-500 to-cyan-600',
+  },
+  {
+    id: 'archer',
+    name: 'Neon Duel',
+    icon: '🏹',
+    description: 'Битва на копьях',
+    color: 'from-orange-500 to-red-600',
+  },
+  {
+    id: 'race',
+    name: 'Street Race',
+    icon: '🏎️',
+    description: 'Гонки на скорость',
+    color: 'from-blue-500 to-cyan-500',
+  },
+  {
+    id: 'airhockey',
+    name: 'Air Hockey',
+    icon: '🏒',
+    description: 'Аэрохоккей',
+    color: 'from-indigo-500 to-purple-500',
+  },
+  {
+    id: 'pool',
+    name: 'Pool',
+    icon: '🎱',
+    description: 'Бильярд 1 на 1',
+    color: 'from-emerald-500 to-teal-700',
+  },
+  {
+    id: 'paper',
+    name: 'Paper Duel',
+    icon: '🔲',
+    description: 'Захват территорий',
+    color: 'from-cyan-500 to-sky-700',
+  },
+  {
+    id: 'pingpong',
+    name: 'Pong',
+    icon: '🏓',
+    description: 'Настольный теннис',
+    color: 'from-yellow-500 to-amber-500',
+  },
+  {
+    id: 'darts',
+    name: 'Darts',
+    icon: '🎯',
+    description: 'Дартс на точность',
+    color: 'from-pink-500 to-rose-500',
+  },
 ];
 
 export const Home = () => {

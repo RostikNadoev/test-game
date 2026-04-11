@@ -16,6 +16,7 @@ export const Lobbies = () => {
 
   const gameNames: Record<string, string> = {
     newgame: 'New Game',
+    chase: 'Tag Chase',
     archer: 'Neon Duel',
     race: 'Street Race',
     airhockey: 'Air Hockey',
@@ -30,6 +31,7 @@ export const Lobbies = () => {
 
     const gameRoutes: Record<string, string> = {
       newgame: '/game/newgame/play',
+      chase: '/game/chase/play',
       race: '/game/race/play',
       airhockey: '/game/airhockey/play',
       archer: '/game/archer/play',

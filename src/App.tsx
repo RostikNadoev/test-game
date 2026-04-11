@@ -14,6 +14,7 @@ import { PaperGame } from './pages/PaperGame';
 import MiniGolfBeautiful from './pages/MiniGolfGame';
 import NewGame from './pages/NewGame';
 import PoolGame from './pages/PoolGame';
+import { ChaseGame } from './pages/ChaseGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -23,6 +24,8 @@ function AppShell() {
 
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isPoolRoute = location.pathname === '/game/pool/play';
+  const isChaseRoute = location.pathname === '/game/chase/play';
+  const isLockedGameRoute = isPoolRoute || isChaseRoute;
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -74,13 +77,14 @@ function AppShell() {
     <div className="relative min-h-screen h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
       <Header />
 
-      <main className={`flex-1 ${isPoolRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-20'}`}>
+      <main className={`flex-1 ${isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-20'}`}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
           <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
           <Route path="/game/newgame/play" element={<NewGame />} />
+          <Route path="/game/chase/play" element={<ChaseGame />} />
           <Route path="/game/race/play" element={<RaceGame />} />
           <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
           <Route path="/game/archer/play" element={<ArcherGame />} />
