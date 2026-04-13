@@ -15,6 +15,7 @@ import MiniGolfBeautiful from './pages/MiniGolfGame';
 import NewGame from './pages/NewGame';
 import PoolGame from './pages/PoolGame';
 import { ChaseGame } from './pages/ChaseGame';
+import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -25,7 +26,8 @@ function AppShell() {
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isPoolRoute = location.pathname === '/game/pool/play';
   const isChaseRoute = location.pathname === '/game/chase/play';
-  const isLockedGameRoute = isPoolRoute || isChaseRoute;
+  const isBlackjackRoute = location.pathname === '/game/blackjack/play';
+  const isLockedGameRoute = isPoolRoute || isChaseRoute || isBlackjackRoute;
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -83,6 +85,7 @@ function AppShell() {
           <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
           <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
+          <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
           <Route path="/game/newgame/play" element={<NewGame />} />
           <Route path="/game/chase/play" element={<ChaseGame />} />
           <Route path="/game/race/play" element={<RaceGame />} />

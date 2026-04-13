@@ -15,6 +15,7 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
 
   const gameNames: Record<string, string> = {
+    blackjack: 'Blackjack Duel',
     newgame: 'New Game',
     chase: 'Tag Chase',
     archer: 'Neon Duel',
@@ -30,6 +31,7 @@ export const Lobbies = () => {
     joinLobby(lobbyId);
 
     const gameRoutes: Record<string, string> = {
+      blackjack: '/game/blackjack/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
       race: '/game/race/play',

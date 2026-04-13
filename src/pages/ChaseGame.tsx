@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-type Team = 'player' | 'ai';
+type Team = 'player' | 'rival';
 type Role = 'chaser' | 'runner';
 
 type RectObstacle = {
@@ -22,8 +22,6 @@ type CircleObstacle = {
 
 type Obstacle = RectObstacle | CircleObstacle;
 
-type SafePoint = { x: number; y: number };
-
 type MapConfig = {
   name: string;
   subtitle: string;
@@ -34,9 +32,8 @@ type MapConfig = {
   floorB: string;
   line: string;
   border: string;
-  chaserSpawn: SafePoint;
-  evaderSpawn: SafePoint;
-  safePoints: SafePoint[];
+  chaserSpawn: { x: number; y: number };
+  runnerSpawn: { x: number; y: number };
   obstacles: Obstacle[];
 };
 
@@ -53,101 +50,98 @@ type Runner = {
 type RoundInfo = {
   mapIndex: number;
   chaser: Team;
+  evader: Team;
 };
 
 type RoundResult = {
   mapName: string;
+  evaderLabel: string;
   chaserLabel: string;
   time: number;
 };
 
-type DragLikeStick = {
+type StickUi = {
   active: boolean;
   visualX: number;
   visualY: number;
 };
 
+type KeysState = {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+};
+
+type InputVector = { x: number; y: number };
+
 const WORLD_W = 760;
 const WORLD_H = 1160;
-const WORLD_MARGIN = 34;
-
-const ROUND_SEQUENCE: RoundInfo[] = [
-  { mapIndex: 0, chaser: 'player' },
-  { mapIndex: 0, chaser: 'ai' },
-  { mapIndex: 1, chaser: 'player' },
-  { mapIndex: 1, chaser: 'ai' },
-];
+const WORLD_MARGIN = 42;
+const CATCH_DISTANCE_PAD = 2;
 
 const MAPS: MapConfig[] = [
   {
     name: 'Neon District',
-    subtitle: 'влажные крыши и световые блоки',
+    subtitle: 'крыши, тоннели света и узкие обходы',
     theme: 'neon',
-    bgTop: '#050813',
-    bgBottom: '#081323',
-    floorA: '#111827',
-    floorB: '#0f172a',
-    line: 'rgba(125,211,252,0.14)',
+    bgTop: '#030712',
+    bgBottom: '#071226',
+    floorA: '#101827',
+    floorB: '#0c1422',
+    line: 'rgba(103,232,249,0.12)',
     border: 'rgba(255,255,255,0.08)',
-    chaserSpawn: { x: 104, y: 1038 },
-    evaderSpawn: { x: 656, y: 118 },
-    safePoints: [
-      { x: 110, y: 110 },
-      { x: 650, y: 120 },
-      { x: 110, y: 1030 },
-      { x: 650, y: 1030 },
-      { x: 380, y: 180 },
-      { x: 380, y: 980 },
-      { x: 190, y: 610 },
-      { x: 580, y: 610 },
-    ],
+    chaserSpawn: { x: 112, y: 1038 },
+    runnerSpawn: { x: 648, y: 124 },
     obstacles: [
-      { kind: 'rect', x: 88, y: 176, w: 176, h: 86, r: 22 },
-      { kind: 'rect', x: 490, y: 148, w: 182, h: 96, r: 22 },
-      { kind: 'rect', x: 316, y: 298, w: 126, h: 198, r: 24 },
-      { kind: 'rect', x: 84, y: 492, w: 184, h: 88, r: 22 },
-      { kind: 'rect', x: 474, y: 566, w: 196, h: 84, r: 22 },
-      { kind: 'rect', x: 136, y: 814, w: 190, h: 94, r: 22 },
-      { kind: 'rect', x: 432, y: 874, w: 192, h: 92, r: 22 },
-      { kind: 'circle', x: 214, y: 694, r: 46 },
-      { kind: 'circle', x: 566, y: 370, r: 46 },
-      { kind: 'circle', x: 610, y: 730, r: 38 },
+      { kind: 'rect', x: 72, y: 118, w: 226, h: 86, r: 26 },
+      { kind: 'rect', x: 454, y: 142, w: 216, h: 98, r: 26 },
+      { kind: 'rect', x: 310, y: 256, w: 142, h: 128, r: 26 },
+      { kind: 'circle', x: 170, y: 330, r: 48 },
+      { kind: 'rect', x: 486, y: 332, w: 154, h: 76, r: 22 },
+      { kind: 'rect', x: 136, y: 456, w: 190, h: 74, r: 22 },
+      { kind: 'rect', x: 392, y: 470, w: 238, h: 92, r: 24 },
+      { kind: 'circle', x: 380, y: 672, r: 78 },
+      { kind: 'rect', x: 86, y: 620, w: 154, h: 92, r: 24 },
+      { kind: 'rect', x: 534, y: 624, w: 126, h: 180, r: 24 },
+      { kind: 'rect', x: 126, y: 814, w: 170, h: 172, r: 28 },
+      { kind: 'rect', x: 370, y: 868, w: 228, h: 78, r: 24 },
+      { kind: 'circle', x: 612, y: 1000, r: 46 },
     ],
   },
   {
     name: 'Sun Temple',
-    subtitle: 'руины, колонны и песочные коридоры',
+    subtitle: 'песок, колонны и кривые проходы',
     theme: 'temple',
-    bgTop: '#1f160b',
-    bgBottom: '#2c1f10',
-    floorA: '#6b4f2f',
-    floorB: '#7a5a34',
+    bgTop: '#24180d',
+    bgBottom: '#372513',
+    floorA: '#715332',
+    floorB: '#88643b',
     line: 'rgba(255,244,200,0.12)',
     border: 'rgba(255,255,255,0.08)',
-    chaserSpawn: { x: 126, y: 122 },
-    evaderSpawn: { x: 634, y: 1034 },
-    safePoints: [
-      { x: 106, y: 112 },
-      { x: 650, y: 120 },
-      { x: 108, y: 1040 },
-      { x: 650, y: 1038 },
-      { x: 376, y: 168 },
-      { x: 376, y: 1000 },
-      { x: 188, y: 590 },
-      { x: 574, y: 590 },
-    ],
+    chaserSpawn: { x: 120, y: 130 },
+    runnerSpawn: { x: 638, y: 1034 },
     obstacles: [
-      { kind: 'rect', x: 222, y: 204, w: 312, h: 68, r: 20 },
-      { kind: 'rect', x: 104, y: 352, w: 92, h: 238, r: 18 },
-      { kind: 'rect', x: 564, y: 352, w: 92, h: 238, r: 18 },
-      { kind: 'rect', x: 176, y: 792, w: 206, h: 72, r: 20 },
-      { kind: 'rect', x: 382, y: 874, w: 196, h: 72, r: 20 },
-      { kind: 'circle', x: 380, y: 554, r: 70 },
-      { kind: 'circle', x: 248, y: 692, r: 44 },
-      { kind: 'circle', x: 520, y: 692, r: 44 },
-      { kind: 'circle', x: 382, y: 352, r: 38 },
+      { kind: 'rect', x: 164, y: 154, w: 438, h: 70, r: 24 },
+      { kind: 'circle', x: 380, y: 314, r: 58 },
+      { kind: 'rect', x: 92, y: 332, w: 106, h: 230, r: 22 },
+      { kind: 'rect', x: 562, y: 332, w: 106, h: 230, r: 22 },
+      { kind: 'rect', x: 254, y: 444, w: 252, h: 66, r: 20 },
+      { kind: 'circle', x: 198, y: 682, r: 52 },
+      { kind: 'circle', x: 564, y: 682, r: 52 },
+      { kind: 'rect', x: 310, y: 592, w: 140, h: 202, r: 26 },
+      { kind: 'rect', x: 120, y: 826, w: 210, h: 72, r: 22 },
+      { kind: 'rect', x: 430, y: 826, w: 208, h: 72, r: 22 },
+      { kind: 'rect', x: 248, y: 962, w: 266, h: 82, r: 24 },
     ],
   },
+];
+
+const ROUND_SEQUENCE: RoundInfo[] = [
+  { mapIndex: 0, chaser: 'player', evader: 'rival' },
+  { mapIndex: 0, chaser: 'rival', evader: 'player' },
+  { mapIndex: 1, chaser: 'player', evader: 'rival' },
+  { mapIndex: 1, chaser: 'rival', evader: 'player' },
 ];
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -163,6 +157,546 @@ const normalize = (x: number, y: number) => {
 const lerpAngle = (from: number, to: number, t: number) => {
   const diff = Math.atan2(Math.sin(to - from), Math.cos(to - from));
   return from + diff * t;
+};
+
+const labelForTeam = (team: Team) => (team === 'player' ? 'YOU' : 'RIVAL');
+
+const roundRect = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) => {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+};
+
+const vectorFromKeys = (keys: KeysState) => {
+  const x = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const y = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+  if (!x && !y) return { x: 0, y: 0 };
+  return normalize(x, y);
+};
+
+const combineInputs = (a: InputVector, b: InputVector) => {
+  const x = a.x + b.x;
+  const y = a.y + b.y;
+  const mag = Math.hypot(x, y);
+  if (mag <= 1) return { x, y };
+  return { x: x / mag, y: y / mag };
+};
+
+const getMovementProfile = (role: Role) => {
+  if (role === 'chaser') {
+    return {
+      maxSpeed: 202,
+      accel: 12.8,
+      brake: 16.5,
+      drag: 1.55,
+      turnLerp: 0.22,
+    };
+  }
+
+  return {
+    maxSpeed: 176,
+    accel: 11.2,
+    brake: 15.4,
+    drag: 1.8,
+    turnLerp: 0.18,
+  };
+};
+
+const absorbVelocityAgainstNormal = (runner: Runner, nx: number, ny: number) => {
+  const alongNormal = runner.vx * nx + runner.vy * ny;
+  if (alongNormal < 0) {
+    runner.vx -= alongNormal * nx;
+    runner.vy -= alongNormal * ny;
+  }
+};
+
+const applyBounds = (runner: Runner) => {
+  const minX = WORLD_MARGIN + runner.radius;
+  const maxX = WORLD_W - WORLD_MARGIN - runner.radius;
+  const minY = WORLD_MARGIN + runner.radius;
+  const maxY = WORLD_H - WORLD_MARGIN - runner.radius;
+
+  if (runner.x < minX) {
+    runner.x = minX;
+    runner.vx = Math.max(0, runner.vx);
+  }
+  if (runner.x > maxX) {
+    runner.x = maxX;
+    runner.vx = Math.min(0, runner.vx);
+  }
+  if (runner.y < minY) {
+    runner.y = minY;
+    runner.vy = Math.max(0, runner.vy);
+  }
+  if (runner.y > maxY) {
+    runner.y = maxY;
+    runner.vy = Math.min(0, runner.vy);
+  }
+};
+
+const separateFromCircle = (runner: Runner, obstacle: CircleObstacle) => {
+  const dx = runner.x - obstacle.x;
+  const dy = runner.y - obstacle.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = runner.radius + obstacle.r;
+
+  if (dist >= minDist) return;
+
+  if (dist > 0.0001) {
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const push = minDist - dist;
+    runner.x += nx * push;
+    runner.y += ny * push;
+    absorbVelocityAgainstNormal(runner, nx, ny);
+    return;
+  }
+
+  runner.x += minDist;
+  runner.vx = Math.max(0, runner.vx);
+};
+
+const separateFromRect = (runner: Runner, obstacle: RectObstacle) => {
+  const nearestX = clamp(runner.x, obstacle.x, obstacle.x + obstacle.w);
+  const nearestY = clamp(runner.y, obstacle.y, obstacle.y + obstacle.h);
+  const dx = runner.x - nearestX;
+  const dy = runner.y - nearestY;
+  const distSq = dx * dx + dy * dy;
+
+  if (distSq < runner.radius * runner.radius && distSq > 0.0001) {
+    const dist = Math.sqrt(distSq);
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const push = runner.radius - dist;
+    runner.x += nx * push;
+    runner.y += ny * push;
+    absorbVelocityAgainstNormal(runner, nx, ny);
+    return;
+  }
+
+  const insideX = runner.x >= obstacle.x && runner.x <= obstacle.x + obstacle.w;
+  const insideY = runner.y >= obstacle.y && runner.y <= obstacle.y + obstacle.h;
+
+  if (!insideX || !insideY) return;
+
+  const left = Math.abs(runner.x - obstacle.x);
+  const right = Math.abs(obstacle.x + obstacle.w - runner.x);
+  const top = Math.abs(runner.y - obstacle.y);
+  const bottom = Math.abs(obstacle.y + obstacle.h - runner.y);
+  const min = Math.min(left, right, top, bottom);
+
+  if (min === left) {
+    runner.x = obstacle.x - runner.radius;
+    absorbVelocityAgainstNormal(runner, -1, 0);
+  } else if (min === right) {
+    runner.x = obstacle.x + obstacle.w + runner.radius;
+    absorbVelocityAgainstNormal(runner, 1, 0);
+  } else if (min === top) {
+    runner.y = obstacle.y - runner.radius;
+    absorbVelocityAgainstNormal(runner, 0, -1);
+  } else {
+    runner.y = obstacle.y + obstacle.h + runner.radius;
+    absorbVelocityAgainstNormal(runner, 0, 1);
+  }
+};
+
+const resolveRunnerCollisions = (runner: Runner, map: MapConfig) => {
+  applyBounds(runner);
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (let i = 0; i < map.obstacles.length; i += 1) {
+      const obstacle = map.obstacles[i];
+      if (obstacle.kind === 'circle') separateFromCircle(runner, obstacle);
+      else separateFromRect(runner, obstacle);
+    }
+    applyBounds(runner);
+  }
+};
+
+const moveRunner = (
+  runner: Runner,
+  input: InputVector,
+  role: Role,
+  map: MapConfig,
+  dt: number,
+) => {
+  const profile = getMovementProfile(role);
+  const mag = clamp(Math.hypot(input.x, input.y), 0, 1);
+  const nx = mag > 0.001 ? input.x / mag : 0;
+  const ny = mag > 0.001 ? input.y / mag : 0;
+
+  const desiredVx = nx * profile.maxSpeed * mag;
+  const desiredVy = ny * profile.maxSpeed * mag;
+  const response = mag > 0.001 ? profile.accel : profile.brake;
+  const blend = 1 - Math.exp(-response * dt);
+
+  runner.vx += (desiredVx - runner.vx) * blend;
+  runner.vy += (desiredVy - runner.vy) * blend;
+
+  const dragFactor = Math.exp(-profile.drag * dt);
+  runner.vx *= dragFactor;
+  runner.vy *= dragFactor;
+
+  const moveX = runner.vx * dt;
+  const moveY = runner.vy * dt;
+  const steps = Math.max(1, Math.ceil(Math.hypot(moveX, moveY) / 8));
+
+  for (let i = 0; i < steps; i += 1) {
+    runner.x += moveX / steps;
+    runner.y += moveY / steps;
+    resolveRunnerCollisions(runner, map);
+  }
+
+  const speed = Math.hypot(runner.vx, runner.vy);
+  if (speed > 1) {
+    runner.angle = lerpAngle(runner.angle, Math.atan2(runner.vy, runner.vx), profile.turnLerp);
+    runner.anim += speed * dt * 0.08;
+  }
+};
+
+const drawMap = (ctx: CanvasRenderingContext2D, map: MapConfig, now: number) => {
+  const bg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
+  bg.addColorStop(0, map.bgTop);
+  bg.addColorStop(1, map.bgBottom);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  const vignette = ctx.createRadialGradient(
+    WORLD_W / 2,
+    WORLD_H / 2,
+    180,
+    WORLD_W / 2,
+    WORLD_H / 2,
+    780,
+  );
+  vignette.addColorStop(0, 'rgba(255,255,255,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.26)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 40);
+  const field = ctx.createLinearGradient(0, 24, 0, WORLD_H - 24);
+  field.addColorStop(0, map.floorA);
+  field.addColorStop(1, map.floorB);
+  ctx.fillStyle = field;
+  ctx.fill();
+
+  ctx.save();
+  roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 40);
+  ctx.clip();
+
+  for (let i = 0; i < 13; i += 1) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.012)';
+    ctx.fillRect(24, 24 + ((WORLD_H - 48) / 13) * i, WORLD_W - 48, (WORLD_H - 48) / 13);
+  }
+
+  if (map.theme === 'neon') {
+    const glow1 = ctx.createRadialGradient(132, 194, 20, 132, 194, 220);
+    glow1.addColorStop(0, 'rgba(34,211,238,0.16)');
+    glow1.addColorStop(1, 'rgba(34,211,238,0)');
+    ctx.fillStyle = glow1;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    const glow2 = ctx.createRadialGradient(610, 940, 20, 610, 940, 250);
+    glow2.addColorStop(0, 'rgba(192,132,252,0.18)');
+    glow2.addColorStop(1, 'rgba(192,132,252,0)');
+    ctx.fillStyle = glow2;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    ctx.strokeStyle = 'rgba(103,232,249,0.10)';
+    ctx.lineWidth = 1;
+    for (let x = 70; x < WORLD_W - 60; x += 56) {
+      ctx.beginPath();
+      ctx.moveTo(x, 40);
+      ctx.lineTo(x, WORLD_H - 40);
+      ctx.stroke();
+    }
+
+    for (let y = 80; y < WORLD_H - 80; y += 120) {
+      const pulse = Math.sin(now * 0.0018 + y * 0.01) * 10;
+      ctx.strokeStyle = 'rgba(34,211,238,0.08)';
+      ctx.beginPath();
+      ctx.moveTo(52, y + pulse);
+      ctx.lineTo(WORLD_W - 52, y - pulse * 0.4);
+      ctx.stroke();
+    }
+  } else {
+    const sun = ctx.createRadialGradient(612, 132, 20, 612, 132, 210);
+    sun.addColorStop(0, 'rgba(255,244,200,0.26)');
+    sun.addColorStop(1, 'rgba(255,244,200,0)');
+    ctx.fillStyle = sun;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    for (let y = 78; y < WORLD_H - 60; y += 104) {
+      ctx.fillStyle = 'rgba(255,244,200,0.03)';
+      ctx.fillRect(44, y, WORLD_W - 88, 18);
+    }
+
+    for (let i = 0; i < 18; i += 1) {
+      const x = 60 + (i * 41) % 640;
+      const y = 90 + (i * 83) % 940;
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 16, 5, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.strokeStyle = map.line;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([14, 14]);
+  ctx.beginPath();
+  ctx.moveTo(WORLD_W / 2, 44);
+  ctx.lineTo(WORLD_W / 2, WORLD_H - 44);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  ctx.arc(WORLD_W / 2, WORLD_H / 2, 94, 0, Math.PI * 2);
+  ctx.stroke();
+
+  for (let i = 0; i < map.obstacles.length; i += 1) {
+    const obstacle = map.obstacles[i];
+
+    if (obstacle.kind === 'rect') {
+      const { x, y, w, h } = obstacle;
+      const r = obstacle.r ?? 20;
+
+      if (map.theme === 'neon') {
+        const fill = ctx.createLinearGradient(x, y, x, y + h);
+        fill.addColorStop(0, '#162133');
+        fill.addColorStop(1, '#0b1220');
+        ctx.fillStyle = fill;
+        roundRect(ctx, x, y, w, h, r);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(103,232,249,0.26)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        roundRect(ctx, x + 10, y + 10, w - 20, 12, 8);
+        ctx.fill();
+      } else {
+        const fill = ctx.createLinearGradient(x, y, x, y + h);
+        fill.addColorStop(0, '#c89b63');
+        fill.addColorStop(1, '#8b653c');
+        ctx.fillStyle = fill;
+        roundRect(ctx, x, y, w, h, r);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,244,200,0.18)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        for (let yy = y + 14; yy < y + h - 8; yy += 20) {
+          ctx.fillRect(x + 12, yy, w - 24, 2);
+        }
+      }
+    } else {
+      if (map.theme === 'neon') {
+        const orb = ctx.createRadialGradient(
+          obstacle.x - 8,
+          obstacle.y - 8,
+          4,
+          obstacle.x,
+          obstacle.y,
+          obstacle.r,
+        );
+        orb.addColorStop(0, '#f8fafc');
+        orb.addColorStop(0.3, '#334155');
+        orb.addColorStop(1, '#0f172a');
+        ctx.fillStyle = orb;
+        ctx.beginPath();
+        ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(34,211,238,0.24)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        const stone = ctx.createRadialGradient(
+          obstacle.x - 8,
+          obstacle.y - 10,
+          4,
+          obstacle.x,
+          obstacle.y,
+          obstacle.r,
+        );
+        stone.addColorStop(0, '#f4deb1');
+        stone.addColorStop(0.28, '#aa7c46');
+        stone.addColorStop(1, '#7b5b35');
+        ctx.fillStyle = stone;
+        ctx.beginPath();
+        ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,244,200,0.16)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.restore();
+
+  const spawnRunnerGlow = ctx.createRadialGradient(
+    map.runnerSpawn.x,
+    map.runnerSpawn.y,
+    10,
+    map.runnerSpawn.x,
+    map.runnerSpawn.y,
+    78,
+  );
+  spawnRunnerGlow.addColorStop(0, 'rgba(45,212,191,0.18)');
+  spawnRunnerGlow.addColorStop(1, 'rgba(45,212,191,0)');
+  ctx.fillStyle = spawnRunnerGlow;
+  ctx.beginPath();
+  ctx.arc(map.runnerSpawn.x, map.runnerSpawn.y, 78, 0, Math.PI * 2);
+  ctx.fill();
+
+  const spawnChaserGlow = ctx.createRadialGradient(
+    map.chaserSpawn.x,
+    map.chaserSpawn.y,
+    10,
+    map.chaserSpawn.x,
+    map.chaserSpawn.y,
+    78,
+  );
+  spawnChaserGlow.addColorStop(0, 'rgba(248,113,113,0.16)');
+  spawnChaserGlow.addColorStop(1, 'rgba(248,113,113,0)');
+  ctx.fillStyle = spawnChaserGlow;
+  ctx.beginPath();
+  ctx.arc(map.chaserSpawn.x, map.chaserSpawn.y, 78, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = map.border;
+  ctx.lineWidth = 2;
+  roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 40);
+  ctx.stroke();
+};
+
+const drawRunner = (
+  ctx: CanvasRenderingContext2D,
+  runner: Runner,
+  team: Team,
+  role: Role,
+) => {
+  const playerPalette = {
+    hood: '#f59e0b',
+    body: '#1f2937',
+    accent: '#fde68a',
+    trim: '#fb923c',
+  };
+
+  const rivalPalette = {
+    hood: '#60a5fa',
+    body: '#172554',
+    accent: '#dbeafe',
+    trim: '#38bdf8',
+  };
+
+  const palette = team === 'player' ? playerPalette : rivalPalette;
+  const roleGlow = role === 'chaser' ? 'rgba(248,113,113,0.34)' : 'rgba(45,212,191,0.3)';
+  const speed = Math.hypot(runner.vx, runner.vy);
+  const stride = Math.sin(runner.anim * 6.2) * Math.min(4, speed * 0.03);
+
+  ctx.save();
+  ctx.translate(runner.x, runner.y);
+  ctx.rotate(runner.angle + Math.PI / 2);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.24)';
+  ctx.beginPath();
+  ctx.ellipse(0, 19, 16, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const aura = ctx.createRadialGradient(0, 2, 6, 0, 2, 36);
+  aura.addColorStop(0, roleGlow);
+  aura.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = aura;
+  ctx.beginPath();
+  ctx.arc(0, 2, 34, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = palette.body;
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(-5, 14);
+  ctx.lineTo(-7 + stride, 28);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(5, 14);
+  ctx.lineTo(7 - stride, 28);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-8, 0);
+  ctx.lineTo(-16 + stride * 0.5, 12);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(8, 0);
+  ctx.lineTo(16 - stride * 0.5, 12);
+  ctx.stroke();
+
+  ctx.fillStyle = palette.body;
+  roundRect(ctx, -13, -3, 26, 28, 11);
+  ctx.fill();
+
+  ctx.fillStyle = palette.trim;
+  roundRect(ctx, -13, -3, 26, 9, 8);
+  ctx.fill();
+
+  ctx.fillStyle = palette.accent;
+  ctx.beginPath();
+  ctx.arc(0, -12, 11.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = palette.hood;
+  ctx.beginPath();
+  ctx.arc(0, -14, 13.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = palette.accent;
+  ctx.beginPath();
+  ctx.arc(0, -11, 9.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(-3.2, -12, 1.7, 0, Math.PI * 2);
+  ctx.arc(3.2, -12, 1.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-6, -3);
+  ctx.lineTo(6, -3);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.beginPath();
+  ctx.arc(-4.5, -17, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 };
 
 const ChaseHUDMini = ({
@@ -189,7 +723,7 @@ const ChaseHUDMini = ({
         <div className="text-sm font-black text-white mt-0.5 leading-none">{leftRole}</div>
       </div>
 
-      <div className="rounded-2xl bg-black/35 border border-white/10 backdrop-blur-xl px-3 py-2 text-center shadow-2xl min-w-[122px]">
+      <div className="rounded-2xl bg-black/35 border border-white/10 backdrop-blur-xl px-3 py-2 text-center shadow-2xl min-w-[138px]">
         <div className="text-[9px] uppercase tracking-[0.18em] text-white/35 font-bold">
           {centerTop}
         </div>
@@ -209,10 +743,8 @@ const ChaseHUDMini = ({
 export const ChaseGame: React.FC = () => {
   const navigate = useNavigate();
 
-  const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const joystickAreaRef = useRef<HTMLDivElement>(null);
 
   const rafRef = useRef<number | null>(null);
   const nextRoundTimeoutRef = useRef<number | null>(null);
@@ -239,7 +771,7 @@ export const ChaseGame: React.FC = () => {
     radius: 20,
   });
 
-  const aiRef = useRef<Runner>({
+  const rivalRef = useRef<Runner>({
     x: 0,
     y: 0,
     vx: 0,
@@ -257,9 +789,8 @@ export const ChaseGame: React.FC = () => {
   const roundStartAtRef = useRef(0);
   const currentMapRef = useRef<MapConfig>(MAPS[0]);
   const currentRoundRef = useRef<RoundInfo>(ROUND_SEQUENCE[0]);
-  const playerCatchTotalRef = useRef(0);
-  const aiCatchTotalRef = useRef(0);
   const winnerRef = useRef<string | null>(null);
+  const survivalTotalsRef = useRef({ player: 0, rival: 0 });
 
   const joystickInputRef = useRef({
     active: false,
@@ -269,21 +800,31 @@ export const ChaseGame: React.FC = () => {
     inputY: 0,
   });
 
-  const [joystickUi, setJoystickUi] = useState<DragLikeStick>({
+  const playerKeysRef = useRef<KeysState>({ up: false, down: false, left: false, right: false });
+  const rivalKeysRef = useRef<KeysState>({ up: false, down: false, left: false, right: false });
+
+  /**
+   * TODO online:
+   * when socket input arrives, just write to this ref and set connected=true.
+   * Then you can remove the IJKL debug fallback below.
+   */
+  const remoteRivalInputRef = useRef({ x: 0, y: 0, connected: false });
+
+  const [joystickUi, setJoystickUi] = useState<StickUi>({
     active: false,
     visualX: 0,
     visualY: 0,
   });
 
   const [roundTimer, setRoundTimer] = useState('0.0s');
-  const [roundTitle, setRoundTitle] = useState('Map 1 • Round 1/4');
+  const [roundTitle, setRoundTitle] = useState('Map 1/2 • Turn 1/2');
   const [mapTitle, setMapTitle] = useState(MAPS[0].name);
   const [playerRole, setPlayerRole] = useState('CHASER');
-  const [aiRole, setAiRole] = useState('RUNNER');
+  const [rivalRole, setRivalRole] = useState('RUNNER');
   const [banner, setBanner] = useState<string | null>(null);
   const [results, setResults] = useState<RoundResult[]>([]);
   const [winner, setWinner] = useState<string | null>(null);
-  const [totals, setTotals] = useState({ player: 0, ai: 0 });
+  const [totals, setTotals] = useState({ player: 0, rival: 0 });
 
   const clearTimeouts = () => {
     if (nextRoundTimeoutRef.current) {
@@ -304,7 +845,7 @@ export const ChaseGame: React.FC = () => {
   const createBurst = (x: number, y: number, palette: string[], amount = 18) => {
     for (let i = 0; i < amount; i += 1) {
       const a = (Math.PI * 2 * i) / amount + Math.random() * 0.35;
-      const s = 0.8 + Math.random() * 4.5;
+      const s = 36 + Math.random() * 90;
       particlesRef.current.push({
         x,
         y,
@@ -317,226 +858,23 @@ export const ChaseGame: React.FC = () => {
     }
   };
 
-  const isInsideRectObstacle = (runner: Runner, obstacle: RectObstacle) => {
-    const nearestX = clamp(runner.x, obstacle.x, obstacle.x + obstacle.w);
-    const nearestY = clamp(runner.y, obstacle.y, obstacle.y + obstacle.h);
-    const dx = runner.x - nearestX;
-    const dy = runner.y - nearestY;
-    return dx * dx + dy * dy < runner.radius * runner.radius;
-  };
-
-  const resolveRunnerCollisions = (runner: Runner, map: MapConfig) => {
-    runner.x = clamp(runner.x, WORLD_MARGIN + runner.radius, WORLD_W - WORLD_MARGIN - runner.radius);
-    runner.y = clamp(runner.y, WORLD_MARGIN + runner.radius, WORLD_H - WORLD_MARGIN - runner.radius);
-
-    for (let i = 0; i < map.obstacles.length; i += 1) {
-      const obstacle = map.obstacles[i];
-
-      if (obstacle.kind === 'circle') {
-        const dx = runner.x - obstacle.x;
-        const dy = runner.y - obstacle.y;
-        const d = Math.hypot(dx, dy) || 0.0001;
-        const minD = runner.radius + obstacle.r;
-
-        if (d < minD) {
-          const nx = dx / d;
-          const ny = dy / d;
-          runner.x = obstacle.x + nx * minD;
-          runner.y = obstacle.y + ny * minD;
-          runner.vx *= 0.72;
-          runner.vy *= 0.72;
-        }
-      } else {
-        if (!isInsideRectObstacle(runner, obstacle)) continue;
-
-        const nearestX = clamp(runner.x, obstacle.x, obstacle.x + obstacle.w);
-        const nearestY = clamp(runner.y, obstacle.y, obstacle.y + obstacle.h);
-        const dx = runner.x - nearestX;
-        const dy = runner.y - nearestY;
-        const lenSq = dx * dx + dy * dy;
-
-        if (lenSq > 0.0001) {
-          const len = Math.sqrt(lenSq);
-          const nx = dx / len;
-          const ny = dy / len;
-          const push = runner.radius - len;
-          runner.x += nx * push;
-          runner.y += ny * push;
-          runner.vx *= 0.7;
-          runner.vy *= 0.7;
-        } else {
-          const left = Math.abs(runner.x - obstacle.x);
-          const right = Math.abs(obstacle.x + obstacle.w - runner.x);
-          const top = Math.abs(runner.y - obstacle.y);
-          const bottom = Math.abs(obstacle.y + obstacle.h - runner.y);
-          const min = Math.min(left, right, top, bottom);
-
-          if (min === left) runner.x = obstacle.x - runner.radius;
-          else if (min === right) runner.x = obstacle.x + obstacle.w + runner.radius;
-          else if (min === top) runner.y = obstacle.y - runner.radius;
-          else runner.y = obstacle.y + obstacle.h + runner.radius;
-
-          runner.vx *= 0.66;
-          runner.vy *= 0.66;
-        }
-      }
-    }
-
-    runner.x = clamp(runner.x, WORLD_MARGIN + runner.radius, WORLD_W - WORLD_MARGIN - runner.radius);
-    runner.y = clamp(runner.y, WORLD_MARGIN + runner.radius, WORLD_H - WORLD_MARGIN - runner.radius);
-  };
-
-  const moveRunner = (
-    runner: Runner,
-    inputX: number,
-    inputY: number,
-    role: Role,
-    map: MapConfig,
-    dt60: number,
-  ) => {
-    const maxSpeed = role === 'chaser' ? 4.15 : 3.72;
-    const accel = role === 'chaser' ? 0.34 : 0.31;
-    const damping = role === 'chaser' ? 0.915 : 0.922;
-
-    const rawMag = Math.hypot(inputX, inputY);
-    const nx = rawMag > 0 ? inputX / rawMag : 0;
-    const ny = rawMag > 0 ? inputY / rawMag : 0;
-
-    if (rawMag > 0.02) {
-      runner.vx += nx * accel * dt60;
-      runner.vy += ny * accel * dt60;
-    } else {
-      runner.vx *= Math.pow(damping, dt60);
-      runner.vy *= Math.pow(damping, dt60);
-    }
-
-    const speed = Math.hypot(runner.vx, runner.vy);
-    if (speed > maxSpeed) {
-      runner.vx = (runner.vx / speed) * maxSpeed;
-      runner.vy = (runner.vy / speed) * maxSpeed;
-    }
-
-    runner.x += runner.vx * dt60 * 1.9;
-    resolveRunnerCollisions(runner, map);
-
-    runner.y += runner.vy * dt60 * 1.9;
-    resolveRunnerCollisions(runner, map);
-
-    const nextSpeed = Math.hypot(runner.vx, runner.vy);
-    if (nextSpeed > 0.06) {
-      runner.angle = lerpAngle(runner.angle, Math.atan2(runner.vy, runner.vx), 0.22 * dt60);
-      runner.anim += nextSpeed * 0.32 * dt60;
-    }
-  };
-
-  const obstacleAvoidance = (map: MapConfig, x: number, y: number) => {
-    let ax = 0;
-    let ay = 0;
-
-    for (let i = 0; i < map.obstacles.length; i += 1) {
-      const obstacle = map.obstacles[i];
-
-      if (obstacle.kind === 'circle') {
-        const dx = x - obstacle.x;
-        const dy = y - obstacle.y;
-        const d = Math.hypot(dx, dy) || 1;
-        const safe = obstacle.r + 104;
-        if (d < safe) {
-          const force = (safe - d) / safe;
-          ax += (dx / d) * force * 1.6;
-          ay += (dy / d) * force * 1.6;
-        }
-      } else {
-        const nearestX = clamp(x, obstacle.x, obstacle.x + obstacle.w);
-        const nearestY = clamp(y, obstacle.y, obstacle.y + obstacle.h);
-        const dx = x - nearestX;
-        const dy = y - nearestY;
-        const d = Math.hypot(dx, dy) || 1;
-        const safe = 104;
-        if (d < safe) {
-          const force = (safe - d) / safe;
-          ax += (dx / d) * force * 1.9;
-          ay += (dy / d) * force * 1.9;
-        }
-      }
-    }
-
-    const wallSafe = 116;
-    if (x < wallSafe) ax += ((wallSafe - x) / wallSafe) * 1.8;
-    if (x > WORLD_W - wallSafe) ax -= ((x - (WORLD_W - wallSafe)) / wallSafe) * 1.8;
-    if (y < wallSafe) ay += ((wallSafe - y) / wallSafe) * 1.8;
-    if (y > WORLD_H - wallSafe) ay -= ((y - (WORLD_H - wallSafe)) / wallSafe) * 1.8;
-
-    return { x: ax, y: ay };
-  };
-
-  const computeAIMove = (
-    map: MapConfig,
-    aiRunner: Runner,
-    playerRunner: Runner,
-    aiRole: Role,
-  ) => {
-    let mx = 0;
-    let my = 0;
-
-    if (aiRole === 'chaser') {
-      const targetX = playerRunner.x + playerRunner.vx * 16;
-      const targetY = playerRunner.y + playerRunner.vy * 16;
-      mx += targetX - aiRunner.x;
-      my += targetY - aiRunner.y;
-    } else {
-      const awayX = aiRunner.x - playerRunner.x;
-      const awayY = aiRunner.y - playerRunner.y;
-      const d = Math.max(1, Math.hypot(awayX, awayY));
-      const danger = clamp(440 / d, 0.55, 2.4);
-
-      mx += (awayX / d) * danger * 2.2;
-      my += (awayY / d) * danger * 2.2;
-
-      let bestPoint = map.safePoints[0];
-      let bestScore = -Infinity;
-
-      for (let i = 0; i < map.safePoints.length; i += 1) {
-        const p = map.safePoints[i];
-        const score =
-          distance(p.x, p.y, playerRunner.x, playerRunner.y) * 1.15 -
-          distance(p.x, p.y, aiRunner.x, aiRunner.y) * 0.34;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestPoint = p;
-        }
-      }
-
-      mx += (bestPoint.x - aiRunner.x) * 0.012;
-      my += (bestPoint.y - aiRunner.y) * 0.012;
-    }
-
-    const avoid = obstacleAvoidance(map, aiRunner.x + mx * 0.02, aiRunner.y + my * 0.02);
-    mx += avoid.x * 120;
-    my += avoid.y * 120;
-
-    const n = normalize(mx, my);
-    return n;
-  };
-
   const startBanner = (text: string) => {
     setBanner(text);
     if (bannerTimeoutRef.current) window.clearTimeout(bannerTimeoutRef.current);
     bannerTimeoutRef.current = window.setTimeout(() => {
       setBanner(null);
-    }, 1250);
+    }, 1200);
   };
 
   const finishMatch = () => {
-    const playerTotal = playerCatchTotalRef.current;
-    const aiTotal = aiCatchTotalRef.current;
+    const playerTotal = survivalTotalsRef.current.player;
+    const rivalTotal = survivalTotalsRef.current.rival;
 
-    setTotals({ player: playerTotal, ai: aiTotal });
+    setTotals({ player: playerTotal, rival: rivalTotal });
 
-    if (playerTotal < aiTotal) {
+    if (playerTotal > rivalTotal) {
       setWinnerBoth('YOU WIN');
-    } else if (aiTotal < playerTotal) {
+    } else if (rivalTotal > playerTotal) {
       setWinnerBoth('RIVAL WINS');
     } else {
       setWinnerBoth('DRAW');
@@ -548,55 +886,118 @@ export const ChaseGame: React.FC = () => {
 
     const round = ROUND_SEQUENCE[index];
     const map = MAPS[round.mapIndex];
+    const playerIsChaser = round.chaser === 'player';
+    const turnInMap = index % 2 === 0 ? 1 : 2;
 
     roundIndexRef.current = index;
     currentRoundRef.current = round;
     currentMapRef.current = map;
     roundStartAtRef.current = performance.now();
-
-    const playerIsChaser = round.chaser === 'player';
+    lastUiSyncRef.current = 0;
 
     playerRef.current = {
-      x: playerIsChaser ? map.chaserSpawn.x : map.evaderSpawn.x,
-      y: playerIsChaser ? map.chaserSpawn.y : map.evaderSpawn.y,
+      x: playerIsChaser ? map.chaserSpawn.x : map.runnerSpawn.x,
+      y: playerIsChaser ? map.chaserSpawn.y : map.runnerSpawn.y,
       vx: 0,
       vy: 0,
-      angle: playerIsChaser ? -0.9 : 2.3,
+      angle: playerIsChaser ? -0.85 : 2.3,
       anim: 0,
       radius: 20,
     };
 
-    aiRef.current = {
-      x: playerIsChaser ? map.evaderSpawn.x : map.chaserSpawn.x,
-      y: playerIsChaser ? map.evaderSpawn.y : map.chaserSpawn.y,
+    rivalRef.current = {
+      x: playerIsChaser ? map.runnerSpawn.x : map.chaserSpawn.x,
+      y: playerIsChaser ? map.runnerSpawn.y : map.chaserSpawn.y,
       vx: 0,
       vy: 0,
-      angle: playerIsChaser ? 2.2 : -0.8,
+      angle: playerIsChaser ? 2.25 : -0.85,
       anim: 0,
       radius: 20,
     };
 
     setMapTitle(map.name);
-    setRoundTitle(`Map ${round.mapIndex + 1} • Round ${index + 1}/4`);
+    setRoundTitle(`Map ${round.mapIndex + 1}/2 • Turn ${turnInMap}/2`);
     setPlayerRole(playerIsChaser ? 'CHASER' : 'RUNNER');
-    setAiRole(playerIsChaser ? 'RUNNER' : 'CHASER');
+    setRivalRole(playerIsChaser ? 'RUNNER' : 'CHASER');
     setRoundTimer('0.0s');
 
-    startBanner(
-      `${map.name} • ${playerIsChaser ? 'YOU CHASE' : 'RIVAL CHASES'}`,
-    );
+    startBanner(`${map.name} • ${playerIsChaser ? 'YOU CHASE' : 'YOU ESCAPE'}`);
   };
 
   const resetGame = () => {
     clearTimeouts();
-    playerCatchTotalRef.current = 0;
-    aiCatchTotalRef.current = 0;
     particlesRef.current = [];
-    winnerRef.current = null;
-    setWinner(null);
+    survivalTotalsRef.current = { player: 0, rival: 0 };
+    setTotals({ player: 0, rival: 0 });
     setResults([]);
-    setTotals({ player: 0, ai: 0 });
+    setWinnerBoth(null);
+    setBanner(null);
     startRound(0);
+  };
+
+  const finishRound = (elapsed: number) => {
+    const round = currentRoundRef.current;
+    const map = currentMapRef.current;
+    const evader = round.evader;
+    const chaser = round.chaser;
+
+    if (evader === 'player') survivalTotalsRef.current.player += elapsed;
+    else survivalTotalsRef.current.rival += elapsed;
+
+    setTotals({
+      player: survivalTotalsRef.current.player,
+      rival: survivalTotalsRef.current.rival,
+    });
+
+    setResults((prev) => [
+      ...prev,
+      {
+        mapName: map.name,
+        evaderLabel: labelForTeam(evader),
+        chaserLabel: labelForTeam(chaser),
+        time: elapsed,
+      },
+    ]);
+
+    const nextIndex = roundIndexRef.current + 1;
+    if (nextIndex >= ROUND_SEQUENCE.length) {
+      nextRoundTimeoutRef.current = window.setTimeout(() => {
+        finishMatch();
+      }, 800);
+      return;
+    }
+
+    const nextRound = ROUND_SEQUENCE[nextIndex];
+    const sameMap = nextRound.mapIndex === round.mapIndex;
+    startBanner(
+      sameMap
+        ? `Swap roles • ${map.name}`
+        : `Next map • ${MAPS[nextRound.mapIndex].name}`,
+    );
+
+    nextRoundTimeoutRef.current = window.setTimeout(() => {
+      startRound(nextIndex);
+    }, 950);
+  };
+
+  const getPlayerInput = () => {
+    const stick = {
+      x: joystickInputRef.current.inputX,
+      y: joystickInputRef.current.inputY,
+    };
+    const keys = vectorFromKeys(playerKeysRef.current);
+    return combineInputs(stick, keys);
+  };
+
+  const getRivalInput = () => {
+    if (remoteRivalInputRef.current.connected) {
+      const remote = remoteRivalInputRef.current;
+      const mag = Math.hypot(remote.x, remote.y);
+      if (mag <= 1) return { x: remote.x, y: remote.y };
+      return { x: remote.x / mag, y: remote.y / mag };
+    }
+
+    return vectorFromKeys(rivalKeysRef.current);
   };
 
   useEffect(() => {
@@ -622,6 +1023,64 @@ export const ChaseGame: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const onKey = (pressed: boolean) => (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+
+      if (
+        ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'i', 'j', 'k', 'l'].includes(
+          key,
+        )
+      ) {
+        e.preventDefault();
+      }
+
+      switch (key) {
+        case 'w':
+        case 'arrowup':
+          playerKeysRef.current.up = pressed;
+          break;
+        case 's':
+        case 'arrowdown':
+          playerKeysRef.current.down = pressed;
+          break;
+        case 'a':
+        case 'arrowleft':
+          playerKeysRef.current.left = pressed;
+          break;
+        case 'd':
+        case 'arrowright':
+          playerKeysRef.current.right = pressed;
+          break;
+        case 'i':
+          rivalKeysRef.current.up = pressed;
+          break;
+        case 'k':
+          rivalKeysRef.current.down = pressed;
+          break;
+        case 'j':
+          rivalKeysRef.current.left = pressed;
+          break;
+        case 'l':
+          rivalKeysRef.current.right = pressed;
+          break;
+        default:
+          break;
+      }
+    };
+
+    const handleDown = onKey(true);
+    const handleUp = onKey(false);
+
+    window.addEventListener('keydown', handleDown);
+    window.addEventListener('keyup', handleUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleDown);
+      window.removeEventListener('keyup', handleUp);
+    };
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -632,7 +1091,6 @@ export const ChaseGame: React.FC = () => {
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-
       const width = rect.width;
       const height = rect.height;
       const scale = Math.min(width / WORLD_W, height / WORLD_H);
@@ -652,7 +1110,6 @@ export const ChaseGame: React.FC = () => {
       canvas.height = Math.floor(height * dpr);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
-
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
@@ -660,378 +1117,18 @@ export const ChaseGame: React.FC = () => {
       if (e.cancelable) e.preventDefault();
     };
 
-    wrap.addEventListener('touchstart', preventTouch, { passive: false });
-    wrap.addEventListener('touchmove', preventTouch, { passive: false });
-
-    resize();
-    window.addEventListener('resize', resize);
-
-    const roundRect = (
-      ctx2: CanvasRenderingContext2D,
-      x: number,
-      y: number,
-      w: number,
-      h: number,
-      r: number,
-    ) => {
-      const rr = Math.min(r, w / 2, h / 2);
-      ctx2.beginPath();
-      ctx2.moveTo(x + rr, y);
-      ctx2.arcTo(x + w, y, x + w, y + h, rr);
-      ctx2.arcTo(x + w, y + h, x, y + h, rr);
-      ctx2.arcTo(x, y + h, x, y, rr);
-      ctx2.arcTo(x, y, x + w, y, rr);
-      ctx2.closePath();
-    };
-
-    const drawMap = (map: MapConfig, now: number) => {
-      const bg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
-      bg.addColorStop(0, map.bgTop);
-      bg.addColorStop(1, map.bgBottom);
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-
-      if (map.theme === 'neon') {
-        const glow1 = ctx.createRadialGradient(130, 200, 10, 130, 200, 200);
-        glow1.addColorStop(0, 'rgba(34,211,238,0.16)');
-        glow1.addColorStop(1, 'rgba(34,211,238,0)');
-        ctx.fillStyle = glow1;
-        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-
-        const glow2 = ctx.createRadialGradient(620, 940, 10, 620, 940, 220);
-        glow2.addColorStop(0, 'rgba(217,70,239,0.15)');
-        glow2.addColorStop(1, 'rgba(217,70,239,0)');
-        ctx.fillStyle = glow2;
-        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-      } else {
-        const sun = ctx.createRadialGradient(612, 132, 10, 612, 132, 180);
-        sun.addColorStop(0, 'rgba(255,244,200,0.28)');
-        sun.addColorStop(1, 'rgba(255,244,200,0)');
-        ctx.fillStyle = sun;
-        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-
-        const dune = ctx.createLinearGradient(0, 0, 0, WORLD_H);
-        dune.addColorStop(0, 'rgba(255,255,255,0.02)');
-        dune.addColorStop(1, 'rgba(0,0,0,0.06)');
-        ctx.fillStyle = dune;
-        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-      }
-
-      roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 38);
-      const field = ctx.createLinearGradient(0, 24, 0, WORLD_H - 24);
-      field.addColorStop(0, map.floorA);
-      field.addColorStop(1, map.floorB);
-      ctx.fillStyle = field;
-      ctx.fill();
-
-      ctx.save();
-      roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 38);
-      ctx.clip();
-
-      for (let i = 0; i < 12; i += 1) {
-        ctx.fillStyle =
-          i % 2 === 0 ? 'rgba(255,255,255,0.028)' : 'rgba(255,255,255,0.015)';
-        ctx.fillRect(24, 24 + ((WORLD_H - 48) / 12) * i, WORLD_W - 48, (WORLD_H - 48) / 12);
-      }
-
-      ctx.strokeStyle = map.line;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([12, 12]);
-      ctx.beginPath();
-      ctx.moveTo(WORLD_W / 2, 48);
-      ctx.lineTo(WORLD_W / 2, WORLD_H - 48);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      ctx.arc(WORLD_W / 2, WORLD_H / 2, 84, 0, Math.PI * 2);
-      ctx.stroke();
-
-      if (map.theme === 'neon') {
-        for (let y = 80; y < WORLD_H - 80; y += 120) {
-          ctx.fillStyle = 'rgba(34,211,238,0.06)';
-          ctx.fillRect(54, y, 14, 44);
-          ctx.fillStyle = 'rgba(217,70,239,0.05)';
-          ctx.fillRect(WORLD_W - 68, y + 18, 14, 44);
-        }
-      } else {
-        for (let i = 0; i < 10; i += 1) {
-          const x = 70 + (i * 63) % 620;
-          const y = 88 + (i * 97) % 920;
-          ctx.fillStyle = 'rgba(255,255,255,0.045)';
-          ctx.beginPath();
-          ctx.arc(x, y, 8, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      for (let i = 0; i < map.obstacles.length; i += 1) {
-        const obstacle = map.obstacles[i];
-
-        if (obstacle.kind === 'rect') {
-          const x = obstacle.x;
-          const y = obstacle.y;
-          const w = obstacle.w;
-          const h = obstacle.h;
-          const r = obstacle.r ?? 18;
-
-          if (map.theme === 'neon') {
-            const fill = ctx.createLinearGradient(x, y, x, y + h);
-            fill.addColorStop(0, '#162033');
-            fill.addColorStop(1, '#0b1220');
-            ctx.fillStyle = fill;
-            roundRect(ctx, x, y, w, h, r);
-            ctx.fill();
-
-            ctx.strokeStyle = 'rgba(103,232,249,0.38)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(255,255,255,0.05)';
-            roundRect(ctx, x + 8, y + 8, w - 16, 12, 6);
-            ctx.fill();
-          } else {
-            const fill = ctx.createLinearGradient(x, y, x, y + h);
-            fill.addColorStop(0, '#b68a52');
-            fill.addColorStop(1, '#8a6538');
-            ctx.fillStyle = fill;
-            roundRect(ctx, x, y, w, h, r);
-            ctx.fill();
-
-            ctx.strokeStyle = 'rgba(255,244,200,0.20)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(255,255,255,0.06)';
-            for (let yy = y + 12; yy < y + h - 8; yy += 18) {
-              ctx.fillRect(x + 10, yy, w - 20, 2);
-            }
-          }
-        } else {
-          if (map.theme === 'neon') {
-            const grad = ctx.createRadialGradient(
-              obstacle.x - 8,
-              obstacle.y - 10,
-              3,
-              obstacle.x,
-              obstacle.y,
-              obstacle.r,
-            );
-            grad.addColorStop(0, '#ffffff');
-            grad.addColorStop(0.35, '#334155');
-            grad.addColorStop(1, '#0f172a');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = 'rgba(34,211,238,0.28)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          } else {
-            const grad = ctx.createRadialGradient(
-              obstacle.x - 8,
-              obstacle.y - 10,
-              4,
-              obstacle.x,
-              obstacle.y,
-              obstacle.r,
-            );
-            grad.addColorStop(0, '#f6deb0');
-            grad.addColorStop(0.3, '#9f7542');
-            grad.addColorStop(1, '#7c5a32');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = 'rgba(255,244,200,0.18)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
-        }
-      }
-
-      ctx.restore();
-
-      ctx.strokeStyle = map.border;
-      ctx.lineWidth = 2;
-      roundRect(ctx, 24, 24, WORLD_W - 48, WORLD_H - 48, 38);
-      ctx.stroke();
-
-      const spawnGlowTop = ctx.createRadialGradient(
-        map.evaderSpawn.x,
-        map.evaderSpawn.y,
-        10,
-        map.evaderSpawn.x,
-        map.evaderSpawn.y,
-        70,
-      );
-      spawnGlowTop.addColorStop(0, 'rgba(45,212,191,0.14)');
-      spawnGlowTop.addColorStop(1, 'rgba(45,212,191,0)');
-      ctx.fillStyle = spawnGlowTop;
-      ctx.beginPath();
-      ctx.arc(map.evaderSpawn.x, map.evaderSpawn.y, 70, 0, Math.PI * 2);
-      ctx.fill();
-
-      const spawnGlowBottom = ctx.createRadialGradient(
-        map.chaserSpawn.x,
-        map.chaserSpawn.y,
-        10,
-        map.chaserSpawn.x,
-        map.chaserSpawn.y,
-        70,
-      );
-      spawnGlowBottom.addColorStop(0, 'rgba(248,113,113,0.12)');
-      spawnGlowBottom.addColorStop(1, 'rgba(248,113,113,0)');
-      ctx.fillStyle = spawnGlowBottom;
-      ctx.beginPath();
-      ctx.arc(map.chaserSpawn.x, map.chaserSpawn.y, 70, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (map.theme === 'neon') {
-        for (let i = 0; i < 4; i += 1) {
-          const pulseY = 190 + i * 230 + Math.sin(now * 0.002 + i) * 6;
-          ctx.strokeStyle = 'rgba(34,211,238,0.10)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(58, pulseY);
-          ctx.lineTo(WORLD_W - 58, pulseY);
-          ctx.stroke();
-        }
-      } else {
-        for (let i = 0; i < 8; i += 1) {
-          const x = 90 + i * 78;
-          const y = 140 + Math.sin(now * 0.0018 + i) * 3;
-          ctx.fillStyle = 'rgba(255,244,200,0.06)';
-          ctx.beginPath();
-          ctx.ellipse(x, y, 20, 7, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    };
-
-    const drawRunner = (runner: Runner, team: Team, role: Role) => {
-      const playerPalette = {
-        hood: '#f59e0b',
-        body: '#1f2937',
-        accent: '#fde68a',
-        trim: '#fb923c',
-      };
-
-      const aiPalette = {
-        hood: '#60a5fa',
-        body: '#172554',
-        accent: '#dbeafe',
-        trim: '#38bdf8',
-      };
-
-      const palette = team === 'player' ? playerPalette : aiPalette;
-      const roleGlow =
-        role === 'chaser' ? 'rgba(248,113,113,0.38)' : 'rgba(45,212,191,0.34)';
-
-      const speed = Math.hypot(runner.vx, runner.vy);
-      const stride = Math.sin(runner.anim * 1.9) * Math.min(4.5, speed * 1.8);
-
-      ctx.save();
-      ctx.translate(runner.x, runner.y);
-      ctx.rotate(runner.angle + Math.PI / 2);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.beginPath();
-      ctx.ellipse(0, 18, 16, 7, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      const aura = ctx.createRadialGradient(0, 2, 4, 0, 2, 34);
-      aura.addColorStop(0, roleGlow);
-      aura.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = aura;
-      ctx.beginPath();
-      ctx.arc(0, 2, 32, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = palette.body;
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-
-      ctx.beginPath();
-      ctx.moveTo(-5, 15);
-      ctx.lineTo(-7 + stride, 27);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(5, 15);
-      ctx.lineTo(7 - stride, 27);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(-8, 0);
-      ctx.lineTo(-15 + stride * 0.45, 12);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(8, 0);
-      ctx.lineTo(15 - stride * 0.45, 12);
-      ctx.stroke();
-
-      ctx.fillStyle = palette.body;
-      roundRect(ctx, -13, -3, 26, 28, 11);
-      ctx.fill();
-
-      ctx.fillStyle = palette.trim;
-      roundRect(ctx, -13, -3, 26, 9, 8);
-      ctx.fill();
-
-      ctx.fillStyle = palette.accent;
-      ctx.beginPath();
-      ctx.arc(0, -12, 11.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = palette.hood;
-      ctx.beginPath();
-      ctx.arc(0, -14, 13.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = palette.accent;
-      ctx.beginPath();
-      ctx.arc(0, -11, 9.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(-3.2, -12, 1.7, 0, Math.PI * 2);
-      ctx.arc(3.2, -12, 1.7, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(-6, -3);
-      ctx.lineTo(6, -3);
-      ctx.stroke();
-
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.beginPath();
-      ctx.arc(-4.5, -17, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    };
-
-    const updateParticles = (dt60: number) => {
-      const nextParticles: typeof particlesRef.current = [];
-
+    const updateParticles = (dt: number) => {
+      const next: typeof particlesRef.current = [];
       for (let i = 0; i < particlesRef.current.length; i += 1) {
         const p = particlesRef.current[i];
-        p.x += p.vx * dt60;
-        p.y += p.vy * dt60;
-        p.vx *= Math.pow(0.98, dt60);
-        p.vy *= Math.pow(0.98, dt60);
-        p.life -= 0.03 * dt60;
-        if (p.life > 0) nextParticles.push(p);
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= Math.exp(-2.2 * dt);
+        p.vy *= Math.exp(-2.2 * dt);
+        p.life -= dt * 1.45;
+        if (p.life > 0) next.push(p);
       }
-
-      particlesRef.current = nextParticles;
+      particlesRef.current = next;
     };
 
     const drawParticles = () => {
@@ -1048,45 +1145,34 @@ export const ChaseGame: React.FC = () => {
 
     const loop = (now: number) => {
       const prev = lastFrameRef.current || now;
-      const dtMs = Math.min(now - prev, 32);
-      const dt60 = dtMs / 16.6667;
+      const dt = Math.min((now - prev) / 1000, 0.033);
       lastFrameRef.current = now;
 
       const map = currentMapRef.current;
       const round = currentRoundRef.current;
       const playerRoleNow: Role = round.chaser === 'player' ? 'chaser' : 'runner';
-      const aiRoleNow: Role = round.chaser === 'ai' ? 'chaser' : 'runner';
+      const rivalRoleNow: Role = round.chaser === 'rival' ? 'chaser' : 'runner';
 
       if (!winnerRef.current) {
-        const joy = joystickInputRef.current;
-        moveRunner(
-          playerRef.current,
-          joy.inputX,
-          joy.inputY,
-          playerRoleNow,
-          map,
-          dt60,
-        );
-
-        const aiInput = computeAIMove(map, aiRef.current, playerRef.current, aiRoleNow);
-        moveRunner(aiRef.current, aiInput.x, aiInput.y, aiRoleNow, map, dt60);
+        moveRunner(playerRef.current, getPlayerInput(), playerRoleNow, map, dt);
+        moveRunner(rivalRef.current, getRivalInput(), rivalRoleNow, map, dt);
 
         const elapsed = (now - roundStartAtRef.current) / 1000;
 
-        if (now - lastUiSyncRef.current > 80) {
+        if (now - lastUiSyncRef.current > 60) {
           setRoundTimer(`${elapsed.toFixed(1)}s`);
           lastUiSyncRef.current = now;
         }
 
-        const chaserRunner = round.chaser === 'player' ? playerRef.current : aiRef.current;
-        const evaderRunner = round.chaser === 'player' ? aiRef.current : playerRef.current;
+        const chaserRunner = round.chaser === 'player' ? playerRef.current : rivalRef.current;
+        const evaderRunner = round.evader === 'player' ? playerRef.current : rivalRef.current;
 
         if (
           distance(chaserRunner.x, chaserRunner.y, evaderRunner.x, evaderRunner.y) <=
-          chaserRunner.radius + evaderRunner.radius
+          chaserRunner.radius + evaderRunner.radius - CATCH_DISTANCE_PAD
         ) {
           const roundTime = Number(elapsed.toFixed(2));
-          const chaserLabel = round.chaser === 'player' ? 'YOU' : 'RIVAL';
+          const evaderLabel = labelForTeam(round.evader);
 
           createBurst(
             (chaserRunner.x + evaderRunner.x) / 2,
@@ -1097,40 +1183,12 @@ export const ChaseGame: React.FC = () => {
             28,
           );
 
-          if (round.chaser === 'player') {
-            playerCatchTotalRef.current += roundTime;
-          } else {
-            aiCatchTotalRef.current += roundTime;
-          }
-
-          setResults((prevResults) => [
-            ...prevResults,
-            {
-              mapName: map.name,
-              chaserLabel,
-              time: roundTime,
-            },
-          ]);
-
-          setTotals({
-            player: playerCatchTotalRef.current,
-            ai: aiCatchTotalRef.current,
-          });
-
-          if (roundIndexRef.current >= ROUND_SEQUENCE.length - 1) {
-            nextRoundTimeoutRef.current = window.setTimeout(() => {
-              finishMatch();
-            }, 850);
-          } else {
-            startBanner(`${chaserLabel} caught in ${roundTime.toFixed(2)}s`);
-            nextRoundTimeoutRef.current = window.setTimeout(() => {
-              startRound(roundIndexRef.current + 1);
-            }, 1000);
-          }
+          startBanner(`${evaderLabel} survived ${roundTime.toFixed(2)}s`);
+          finishRound(roundTime);
         }
       }
 
-      updateParticles(dt60);
+      updateParticles(dt);
 
       const { width, height, scale, offsetX, offsetY } = layoutRef.current;
       ctx.clearRect(0, 0, width, height);
@@ -1138,16 +1196,20 @@ export const ChaseGame: React.FC = () => {
       ctx.save();
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
-
-      drawMap(map, now);
-      drawRunner(playerRef.current, 'player', playerRoleNow);
-      drawRunner(aiRef.current, 'ai', aiRoleNow);
+      drawMap(ctx, map, now);
+      drawRunner(ctx, playerRef.current, 'player', playerRoleNow);
+      drawRunner(ctx, rivalRef.current, 'rival', rivalRoleNow);
       drawParticles();
-
       ctx.restore();
 
       rafRef.current = requestAnimationFrame(loop);
     };
+
+    wrap.addEventListener('touchstart', preventTouch, { passive: false });
+    wrap.addEventListener('touchmove', preventTouch, { passive: false });
+
+    resize();
+    window.addEventListener('resize', resize);
 
     resetGame();
     rafRef.current = requestAnimationFrame(loop);
@@ -1166,13 +1228,12 @@ export const ChaseGame: React.FC = () => {
     const dx = clientX - joy.centerX;
     const dy = clientY - joy.centerY;
     const d = Math.max(1, Math.hypot(dx, dy));
-    const lim = 46;
+    const limit = 46;
+    const visualX = (dx / d) * Math.min(d, limit);
+    const visualY = (dy / d) * Math.min(d, limit);
 
-    const visualX = (dx / d) * Math.min(d, lim);
-    const visualY = (dy / d) * Math.min(d, lim);
-
-    joy.inputX = visualX / lim;
-    joy.inputY = visualY / lim;
+    joy.inputX = visualX / limit;
+    joy.inputY = visualY / limit;
 
     setJoystickUi({
       active: true,
@@ -1183,19 +1244,15 @@ export const ChaseGame: React.FC = () => {
 
   const handleJoystickStart = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
     joystickInputRef.current.active = true;
-    joystickInputRef.current.centerX = centerX;
-    joystickInputRef.current.centerY = centerY;
-
+    joystickInputRef.current.centerX = rect.left + rect.width / 2;
+    joystickInputRef.current.centerY = rect.top + rect.height / 2;
     updateJoystickFromPointer(e.clientX, e.clientY);
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
-      // ignore
+      // ignore pointer capture failures
     }
   };
 
@@ -1222,7 +1279,6 @@ export const ChaseGame: React.FC = () => {
 
   return (
     <div
-      ref={rootRef}
       className="relative w-full h-full bg-[#05070d] overflow-hidden touch-none select-none"
       style={{ touchAction: 'none', overscrollBehavior: 'none' }}
     >
@@ -1234,10 +1290,14 @@ export const ChaseGame: React.FC = () => {
             centerTop={roundTitle}
             centerBottom={`${mapTitle} • ${roundTimer}`}
             rightName="RIVAL"
-            rightRole={aiRole}
+            rightRole={rivalRole}
           />
 
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2 flex justify-between items-center gap-2">
+            <div className="rounded-full bg-black/35 border border-white/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] font-bold text-white/60 backdrop-blur-xl">
+              Longer total escape time wins
+            </div>
+
             <button
               onClick={() => navigate('/')}
               className="pointer-events-auto px-3 py-1.5 rounded-full bg-white/8 border border-white/10 text-[10px] uppercase tracking-[0.18em] font-bold text-white/75 active:scale-95 transition"
@@ -1254,15 +1314,15 @@ export const ChaseGame: React.FC = () => {
             style={{ touchAction: 'none' }}
           />
 
-          <div className="absolute left-3 bottom-3 z-20 pointer-events-none">
-            <div className="rounded-full bg-black/35 border border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.18em] font-bold text-white/60 backdrop-blur-xl">
-              Smaller total catch time wins
+          <div className="absolute left-3 bottom-5 z-20 pointer-events-none max-w-[250px]">
+            <div className="rounded-2xl bg-black/35 border border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.16em] font-bold text-white/55 backdrop-blur-xl leading-relaxed">
+              Rival AI removed. For now rival uses IJKL in debug, later feed online input into
+              remoteRivalInputRef.
             </div>
           </div>
 
           <div
-            ref={joystickAreaRef}
-            className="absolute right-4 bottom-4 z-20 w-32 h-32 rounded-full bg-black/40 border-4 border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.45)] flex items-center justify-center touch-none"
+            className="absolute right-4 bottom-8 z-20 w-32 h-32 rounded-full bg-black/40 border-4 border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.45)] flex items-center justify-center touch-none"
             onPointerDown={handleJoystickStart}
             onPointerMove={handleJoystickMove}
             onPointerUp={handleJoystickEnd}
@@ -1293,7 +1353,7 @@ export const ChaseGame: React.FC = () => {
 
           {winner && (
             <div className="absolute inset-0 z-40 bg-[#020617]/90 backdrop-blur-md flex items-center justify-center p-6">
-              <div className="w-full max-w-[360px] rounded-[28px] bg-white px-7 py-8 text-center shadow-2xl">
+              <div className="w-full max-w-[380px] rounded-[28px] bg-white px-7 py-8 text-center shadow-2xl">
                 <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400 font-bold">
                   Final Result
                 </div>
@@ -1303,7 +1363,7 @@ export const ChaseGame: React.FC = () => {
                 <div className="mt-5 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl bg-emerald-50 border border-emerald-100 px-4 py-3">
                     <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-700/60 font-bold">
-                      You
+                      You escaped
                     </div>
                     <div className="text-2xl font-black text-emerald-600 mt-1">
                       {totals.player.toFixed(2)}s
@@ -1312,27 +1372,27 @@ export const ChaseGame: React.FC = () => {
 
                   <div className="rounded-2xl bg-sky-50 border border-sky-100 px-4 py-3">
                     <div className="text-[10px] uppercase tracking-[0.18em] text-sky-700/60 font-bold">
-                      Rival
+                      Rival escaped
                     </div>
                     <div className="text-2xl font-black text-sky-600 mt-1">
-                      {totals.ai.toFixed(2)}s
+                      {totals.rival.toFixed(2)}s
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl bg-slate-100 px-4 py-3 text-left max-h-[180px] overflow-auto">
+                <div className="mt-5 rounded-2xl bg-slate-100 px-4 py-3 text-left max-h-[196px] overflow-auto">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-bold mb-2">
-                    Round Times
+                    Escape Times By Round
                   </div>
 
                   <div className="space-y-2">
                     {results.map((item, index) => (
                       <div
-                        key={`${item.mapName}-${item.chaserLabel}-${index}`}
-                        className="flex items-center justify-between text-sm text-slate-700 font-semibold"
+                        key={`${item.mapName}-${item.evaderLabel}-${index}`}
+                        className="flex items-center justify-between text-sm text-slate-700 font-semibold gap-3"
                       >
                         <span>
-                          {index + 1}. {item.mapName} • {item.chaserLabel}
+                          {index + 1}. {item.mapName} • {item.evaderLabel} escaped from {item.chaserLabel}
                         </span>
                         <span>{item.time.toFixed(2)}s</span>
                       </div>

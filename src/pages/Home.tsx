@@ -3,6 +3,13 @@ import { GameCard } from '../components/GameCard';
 
 const games = [
   {
+    id: 'blackjack',
+    name: 'Blackjack Duel',
+    icon: '🂡',
+    description: '21 на 1v1',
+    color: 'from-emerald-500 to-teal-700',
+  },
+  {
     id: 'newgame',
     name: 'New Game',
     icon: '✨',
