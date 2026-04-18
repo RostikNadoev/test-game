@@ -3,6 +3,13 @@ import { GameCard } from '../components/GameCard';
 
 const games = [
   {
+    id: 'gridlock',
+    name: 'Grid Lock',
+    icon: '🧱',
+    description: 'Дойди до края и блокируй',
+    color: 'from-violet-500 to-fuchsia-700',
+  },
+  {
     id: 'blackjack',
     name: 'Blackjack Duel',
     icon: '🂡',

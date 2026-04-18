@@ -15,6 +15,7 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
 
   const gameNames: Record<string, string> = {
+    gridlock: 'Grid Lock',
     blackjack: 'Blackjack Duel',
     newgame: 'New Game',
     chase: 'Tag Chase',
@@ -31,6 +32,7 @@ export const Lobbies = () => {
     joinLobby(lobbyId);
 
     const gameRoutes: Record<string, string> = {
+      gridlock: '/game/gridlock/play',
       blackjack: '/game/blackjack/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
