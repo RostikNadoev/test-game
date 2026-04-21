@@ -3,6 +3,20 @@ import { GameCard } from '../components/GameCard';
 
 const games = [
   {
+    id: 'rps',
+    name: 'RPS Duel',
+    icon: '✊',
+    description: 'Камень ножницы бумага',
+    color: 'from-rose-500 to-orange-500',
+  },
+  {
+    id: 'tictactoe',
+    name: 'Tic Tac Toe Duel',
+    icon: '❌',
+    description: 'Крестики-нолики bo7',
+    color: 'from-cyan-400 to-violet-600',
+  },
+  {
     id: 'gridlock',
     name: 'Grid Lock',
     icon: '🧱',
