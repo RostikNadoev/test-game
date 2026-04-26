@@ -19,6 +19,8 @@ import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
 import { GridLockGame } from './pages/GridLockGame';
 import { TicTacToeDuelGame } from './pages/TicTacToeDuelGame';
 import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
+import { HexFallGame } from './pages/HexFallGame';
+import { ApartmentHideoutGame } from './pages/ApartmentHideoutGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -33,6 +35,8 @@ function AppShell() {
   const isGridLockRoute = location.pathname === '/game/gridlock/play';
   const isTicTacToeRoute = location.pathname === '/game/tictactoe/play';
   const isRpsRoute = location.pathname === '/game/rps/play';
+  const isHexFallRoute = location.pathname === '/game/hexfall/play';
+  const isHideoutRoute = location.pathname === '/game/hideout/play';
 
   const isLockedGameRoute =
     isPoolRoute ||
@@ -40,7 +44,9 @@ function AppShell() {
     isBlackjackRoute ||
     isGridLockRoute ||
     isTicTacToeRoute ||
-    isRpsRoute;
+    isRpsRoute ||
+    isHexFallRoute ||
+    isHideoutRoute;
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -98,6 +104,8 @@ function AppShell() {
           <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
           <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
+          <Route path="/game/hideout/play" element={<ApartmentHideoutGame />} />
+          <Route path="/game/hexfall/play" element={<HexFallGame />} />
           <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
           <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
           <Route path="/game/gridlock/play" element={<GridLockGame />} />

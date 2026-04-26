@@ -15,6 +15,8 @@ export const Lobbies = () => {
   }, [allLobbies, gameId]);
 
   const gameNames: Record<string, string> = {
+    hideout: 'Hideout',
+    hexfall: 'Hex Fall',
     rps: 'RPS Duel',
     tictactoe: 'Tic Tac Toe Duel',
     gridlock: 'Grid Lock',
@@ -34,6 +36,8 @@ export const Lobbies = () => {
     joinLobby(lobbyId);
 
     const gameRoutes: Record<string, string> = {
+      hideout: '/game/hideout/play',
+      hexfall: '/game/hexfall/play',
       rps: '/game/rps/play',
       tictactoe: '/game/tictactoe/play',
       gridlock: '/game/gridlock/play',

@@ -3,6 +3,20 @@ import { GameCard } from '../components/GameCard';
 
 const games = [
   {
+    id: 'hideout',
+    name: 'Hideout',
+    icon: '🏠',
+    description: 'Прятки в квартире',
+    color: 'from-amber-500 to-orange-600',
+  },
+  {
+    id: 'hexfall',
+    name: 'Hex Fall',
+    icon: '⬢',
+    description: 'Выживи на ломких гексах',
+    color: 'from-cyan-500 to-indigo-700',
+  },
+  {
     id: 'rps',
     name: 'RPS Duel',
     icon: '✊',
