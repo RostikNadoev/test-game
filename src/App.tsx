@@ -21,6 +21,7 @@ import { TicTacToeDuelGame } from './pages/TicTacToeDuelGame';
 import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
 import { HexFallGame } from './pages/HexFallGame';
 import { ApartmentHideoutGame } from './pages/ApartmentHideoutGame';
+import { SlingClashGame } from './pages/SlingClashGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -37,6 +38,7 @@ function AppShell() {
   const isRpsRoute = location.pathname === '/game/rps/play';
   const isHexFallRoute = location.pathname === '/game/hexfall/play';
   const isHideoutRoute = location.pathname === '/game/hideout/play';
+  const isSlingClashRoute = location.pathname === '/game/slingclash/play';
 
   const isLockedGameRoute =
     isPoolRoute ||
@@ -46,7 +48,8 @@ function AppShell() {
     isTicTacToeRoute ||
     isRpsRoute ||
     isHexFallRoute ||
-    isHideoutRoute;
+    isHideoutRoute ||
+    isSlingClashRoute;
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -110,6 +113,7 @@ function AppShell() {
           <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
           <Route path="/game/gridlock/play" element={<GridLockGame />} />
           <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
+          <Route path="/game/slingclash/play" element={<SlingClashGame />} />
           <Route path="/game/newgame/play" element={<NewGame />} />
           <Route path="/game/chase/play" element={<ChaseGame />} />
           <Route path="/game/race/play" element={<RaceGame />} />

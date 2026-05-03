@@ -45,6 +45,13 @@ const games = [
     color: 'from-emerald-500 to-teal-700',
   },
   {
+    id: 'slingclash',
+    name: 'Sling Clash',
+    icon: '🪵',
+    description: 'Рогатка через стену',
+    color: 'from-amber-700 to-yellow-500',
+  },
+  {
     id: 'newgame',
     name: 'New Game',
     icon: '✨',
@@ -126,7 +133,14 @@ export const Home = () => {
           <GameCard
             key={game.id}
             game={game}
-            onClick={() => navigate(`/game/${game.id}/lobbies`)}
+            onClick={() => {
+              if (game.id === 'slingclash') {
+                navigate('/game/slingclash/play');
+                return;
+              }
+
+              navigate(`/game/${game.id}/lobbies`);
+            }}
           />
         ))}
       </div>

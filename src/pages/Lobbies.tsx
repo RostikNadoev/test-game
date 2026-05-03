@@ -21,6 +21,7 @@ export const Lobbies = () => {
     tictactoe: 'Tic Tac Toe Duel',
     gridlock: 'Grid Lock',
     blackjack: 'Blackjack Duel',
+    slingclash: 'Sling Clash',
     newgame: 'New Game',
     chase: 'Tag Chase',
     archer: 'Neon Duel',
@@ -42,6 +43,7 @@ export const Lobbies = () => {
       tictactoe: '/game/tictactoe/play',
       gridlock: '/game/gridlock/play',
       blackjack: '/game/blackjack/play',
+      slingclash: '/game/slingclash/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
       race: '/game/race/play',
@@ -50,6 +52,7 @@ export const Lobbies = () => {
       paper: '/game/paper/play',
       pingpong: '/game/pingpong/play',
       pool: '/game/pool/play',
+      darts: '/game/darts/play',
     };
 
     if (gameRoutes[gameId || '']) {
@@ -58,6 +61,8 @@ export const Lobbies = () => {
       alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
     }
   };
+
+  const isSlingClash = gameId === 'slingclash';
 
   return (
     <div className="p-4 pb-20 min-h-screen">
@@ -74,23 +79,49 @@ export const Lobbies = () => {
             {gameNames[gameId || ''] || 'Игра'}
           </h1>
 
-          <p className="text-gray-400">Доступные лобби</p>
+          <p className="text-gray-400">
+            {isSlingClash ? 'Тестовый режим против бота' : 'Доступные лобби'}
+          </p>
         </div>
 
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={() => navigate(`/game/${gameId}/create`)}
-          className="bg-accent p-3 rounded-full shadow-lg"
-        >
-          <Plus size={24} />
-        </motion.button>
+        {!isSlingClash && (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate(`/game/${gameId}/create`)}
+            className="bg-accent p-3 rounded-full shadow-lg"
+          >
+            <Plus size={24} />
+          </motion.button>
+        )}
       </div>
+
+      {isSlingClash && (
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 rounded-3xl border border-amber-300/20 bg-gradient-to-br from-amber-900/60 via-yellow-950/70 to-stone-950 p-4 shadow-2xl"
+        >
+          <div className="text-3xl mb-2">🪵</div>
+          <h2 className="text-white text-xl font-black">Sling Clash Bot Test</h2>
+          <p className="text-amber-100/70 text-sm mt-1 leading-relaxed">
+            Оффлайн-прототип: ты снизу, бот сверху. Каждые 5 секунд оба хода
+            запускаются одновременно.
+          </p>
+
+          <button
+            onClick={() => navigate('/game/slingclash/play')}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 py-3 font-black text-stone-950 active:scale-95 transition"
+          >
+            Играть с ботом
+          </button>
+        </motion.div>
+      )}
 
       <div className="space-y-3">
         {lobbies.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <Users size={48} className="mx-auto opacity-30 mb-2" />
-            <p>Нет активных лобби</p>
+            <p>{isSlingClash ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
           </div>
         ) : (
           lobbies.map((lobby) => (
