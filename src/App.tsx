@@ -40,6 +40,10 @@ type TelegramWebApp = {
   };
 };
 
+type LockableScreenOrientation = ScreenOrientation & {
+  lock?: (orientation: 'portrait' | 'landscape') => Promise<void>;
+};
+
 function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -103,7 +107,7 @@ function AppShell() {
   }, [isFooterRoute, navigate, location.pathname]);
 
   useEffect(() => {
-    const orientation = window.screen.orientation as ScreenOrientation | undefined;
+    const orientation = window.screen.orientation as LockableScreenOrientation | undefined;
 
     if (typeof orientation?.lock !== 'function') return;
 
