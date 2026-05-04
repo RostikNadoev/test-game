@@ -52,6 +52,13 @@ const games = [
     color: 'from-amber-700 to-yellow-500',
   },
   {
+    id: 'parkduel',
+    name: 'Park Duel',
+    icon: '🅿️',
+    description: 'Парковка на точность',
+    color: 'from-yellow-400 to-orange-600',
+  },
+  {
     id: 'newgame',
     name: 'New Game',
     icon: '✨',
@@ -136,6 +143,11 @@ export const Home = () => {
             onClick={() => {
               if (game.id === 'slingclash') {
                 navigate('/game/slingclash/play');
+                return;
+              }
+
+              if (game.id === 'parkduel') {
+                navigate('/game/parkduel/play');
                 return;
               }
 

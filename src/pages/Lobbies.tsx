@@ -22,6 +22,7 @@ export const Lobbies = () => {
     gridlock: 'Grid Lock',
     blackjack: 'Blackjack Duel',
     slingclash: 'Sling Clash',
+    parkduel: 'Park Duel',
     newgame: 'New Game',
     chase: 'Tag Chase',
     archer: 'Neon Duel',
@@ -44,6 +45,7 @@ export const Lobbies = () => {
       gridlock: '/game/gridlock/play',
       blackjack: '/game/blackjack/play',
       slingclash: '/game/slingclash/play',
+      parkduel: '/game/parkduel/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
       race: '/game/race/play',
@@ -63,6 +65,8 @@ export const Lobbies = () => {
   };
 
   const isSlingClash = gameId === 'slingclash';
+  const isParkDuel = gameId === 'parkduel';
+  const isBotTest = isSlingClash || isParkDuel;
 
   return (
     <div className="p-4 pb-20 min-h-screen">
@@ -80,11 +84,11 @@ export const Lobbies = () => {
           </h1>
 
           <p className="text-gray-400">
-            {isSlingClash ? 'Тестовый режим против бота' : 'Доступные лобби'}
+            {isBotTest ? 'Тестовый режим против бота' : 'Доступные лобби'}
           </p>
         </div>
 
-        {!isSlingClash && (
+        {!isBotTest && (
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate(`/game/${gameId}/create`)}
@@ -104,8 +108,7 @@ export const Lobbies = () => {
           <div className="text-3xl mb-2">🪵</div>
           <h2 className="text-white text-xl font-black">Sling Clash Bot Test</h2>
           <p className="text-amber-100/70 text-sm mt-1 leading-relaxed">
-            Оффлайн-прототип: ты снизу, бот сверху. Каждые 5 секунд оба хода
-            запускаются одновременно.
+            Оффлайн-прототип: ты снизу, бот сверху. Каждые 5 секунд оба хода запускаются одновременно.
           </p>
 
           <button
@@ -117,11 +120,32 @@ export const Lobbies = () => {
         </motion.div>
       )}
 
+      {isParkDuel && (
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 rounded-3xl border border-yellow-300/20 bg-gradient-to-br from-stone-950 via-slate-950 to-yellow-950/70 p-4 shadow-2xl"
+        >
+          <div className="text-3xl mb-2">🅿️</div>
+          <h2 className="text-white text-xl font-black">Park Duel Bot Test</h2>
+          <p className="text-yellow-100/70 text-sm mt-1 leading-relaxed">
+            3 уровня парковки. Газ, тормоз, руль, штрафы за касания и победа по суммарному времени.
+          </p>
+
+          <button
+            onClick={() => navigate('/game/parkduel/play')}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-500 py-3 font-black text-stone-950 active:scale-95 transition"
+          >
+            Играть с ботом
+          </button>
+        </motion.div>
+      )}
+
       <div className="space-y-3">
         {lobbies.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <Users size={48} className="mx-auto opacity-30 mb-2" />
-            <p>{isSlingClash ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
+            <p>{isBotTest ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
           </div>
         ) : (
           lobbies.map((lobby) => (

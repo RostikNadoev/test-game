@@ -22,8 +22,23 @@ import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
 import { HexFallGame } from './pages/HexFallGame';
 import { ApartmentHideoutGame } from './pages/ApartmentHideoutGame';
 import { SlingClashGame } from './pages/SlingClashGame';
+import { ParkDuelGame } from './pages/ParkDuelGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
+
+type TelegramWebApp = {
+  ready?: () => void;
+  expand?: () => void;
+  disableVerticalSwipes?: () => void;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  BackButton?: {
+    show: () => void;
+    hide: () => void;
+    onClick: (callback: () => void) => void;
+    offClick?: (callback: () => void) => void;
+  };
+};
 
 function AppShell() {
   const location = useLocation();
@@ -39,6 +54,7 @@ function AppShell() {
   const isHexFallRoute = location.pathname === '/game/hexfall/play';
   const isHideoutRoute = location.pathname === '/game/hideout/play';
   const isSlingClashRoute = location.pathname === '/game/slingclash/play';
+  const isParkDuelRoute = location.pathname === '/game/parkduel/play';
 
   const isLockedGameRoute =
     isPoolRoute ||
@@ -49,26 +65,23 @@ function AppShell() {
     isRpsRoute ||
     isHexFallRoute ||
     isHideoutRoute ||
-    isSlingClashRoute;
+    isSlingClashRoute ||
+    isParkDuelRoute;
 
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
+    const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
 
     if (!tg) return;
 
-    tg.ready();
-    tg.expand();
-
-    if (typeof tg.disableVerticalSwipes === 'function') {
-      tg.disableVerticalSwipes();
-    }
-
-    tg.setHeaderColor('#0A0A0F');
-    tg.setBackgroundColor('#0A0A0F');
+    tg.ready?.();
+    tg.expand?.();
+    tg.disableVerticalSwipes?.();
+    tg.setHeaderColor?.('#0A0A0F');
+    tg.setBackgroundColor?.('#0A0A0F');
   }, []);
 
   useEffect(() => {
-    const tg = (window as any).Telegram?.WebApp;
+    const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
     const backButton = tg?.BackButton;
 
     if (!backButton) return;
@@ -90,7 +103,7 @@ function AppShell() {
   }, [isFooterRoute, navigate, location.pathname]);
 
   useEffect(() => {
-    const orientation = (screen as any)?.orientation;
+    const orientation = window.screen.orientation as ScreenOrientation | undefined;
 
     if (typeof orientation?.lock !== 'function') return;
 
@@ -114,6 +127,7 @@ function AppShell() {
           <Route path="/game/gridlock/play" element={<GridLockGame />} />
           <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
           <Route path="/game/slingclash/play" element={<SlingClashGame />} />
+          <Route path="/game/parkduel/play" element={<ParkDuelGame />} />
           <Route path="/game/newgame/play" element={<NewGame />} />
           <Route path="/game/chase/play" element={<ChaseGame />} />
           <Route path="/game/race/play" element={<RaceGame />} />
