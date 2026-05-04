@@ -23,6 +23,7 @@ export const Lobbies = () => {
     blackjack: 'Blackjack Duel',
     slingclash: 'Sling Clash',
     parkduel: 'Park Duel',
+    chronoslash: 'Chrono Slash',
     newgame: 'New Game',
     chase: 'Tag Chase',
     archer: 'Neon Duel',
@@ -46,6 +47,7 @@ export const Lobbies = () => {
       blackjack: '/game/blackjack/play',
       slingclash: '/game/slingclash/play',
       parkduel: '/game/parkduel/play',
+      chronoslash: '/game/chronoslash/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
       race: '/game/race/play',
@@ -66,7 +68,8 @@ export const Lobbies = () => {
 
   const isSlingClash = gameId === 'slingclash';
   const isParkDuel = gameId === 'parkduel';
-  const isBotTest = isSlingClash || isParkDuel;
+  const isChronoSlash = gameId === 'chronoslash';
+  const isBotTest = isSlingClash || isParkDuel || isChronoSlash;
 
   return (
     <div className="p-4 pb-20 min-h-screen">
@@ -135,6 +138,27 @@ export const Lobbies = () => {
           <button
             onClick={() => navigate('/game/parkduel/play')}
             className="mt-4 w-full rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-500 py-3 font-black text-stone-950 active:scale-95 transition"
+          >
+            Играть с ботом
+          </button>
+        </motion.div>
+      )}
+
+      {isChronoSlash && (
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 overflow-hidden rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-cyan-950/70 via-indigo-950/80 to-fuchsia-950/70 p-4 shadow-2xl"
+        >
+          <div className="text-3xl mb-2">⚔️</div>
+          <h2 className="text-white text-xl font-black">Chrono Slash Bot Test</h2>
+          <p className="text-cyan-100/70 text-sm mt-1 leading-relaxed">
+            Кибер-самурайская дуэль: выбери точку рывка и приём, потом оба хода раскрываются одновременно.
+          </p>
+
+          <button
+            onClick={() => navigate('/game/chronoslash/play')}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 py-3 font-black text-white active:scale-95 transition"
           >
             Играть с ботом
           </button>

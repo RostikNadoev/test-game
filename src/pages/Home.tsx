@@ -59,6 +59,13 @@ const games = [
     color: 'from-yellow-400 to-orange-600',
   },
   {
+    id: 'chronoslash',
+    name: 'Chrono Slash',
+    icon: '⚔️',
+    description: 'Самурайская дуэль',
+    color: 'from-cyan-400 to-fuchsia-600',
+  },
+  {
     id: 'newgame',
     name: 'New Game',
     icon: '✨',
@@ -148,6 +155,11 @@ export const Home = () => {
 
               if (game.id === 'parkduel') {
                 navigate('/game/parkduel/play');
+                return;
+              }
+
+              if (game.id === 'chronoslash') {
+                navigate('/game/chronoslash/play');
                 return;
               }
 
