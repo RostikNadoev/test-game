@@ -1,29 +1,67 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const WORLD_W = 720;
 const WORLD_H = 1040;
 
-const PLAY_LEFT = 36;
-const PLAY_TOP = 42;
-const PLAY_RIGHT = WORLD_W - 36;
-const PLAY_BOTTOM = WORLD_H - 42;
+const PLAY_LEFT = 34;
+const PLAY_TOP = 38;
+const PLAY_RIGHT = WORLD_W - 34;
+const PLAY_BOTTOM = WORLD_H - 38;
 const PLAY_W = PLAY_RIGHT - PLAY_LEFT;
 const PLAY_H = PLAY_BOTTOM - PLAY_TOP;
 
 const BALL_R = 12;
-const HOLE_R = 17;
-const FRICTION = 0.982;
-const STOP_SPEED = 0.11;
-const MAX_POWER = 17;
-const AIM_MAX = 170;
+const HOLE_R = 18;
+const MAX_POWER = 22;
+const AIM_MAX = 178;
 const TOTAL_HOLES = 3;
-const MAX_DPR = 1.5;
+const MAX_DPR = 1.6;
+const STOP_SPEED = 0.075;
 
-type Vec = { x: number; y: number };
-type Rect = { x: number; y: number; w: number; h: number };
-type Water = Rect;
-type Bumper = { x: number; y: number; r: number; color: string };
+type Vec = {
+  x: number;
+  y: number;
+};
+
+type Rect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+type Circle = {
+  x: number;
+  y: number;
+  r: number;
+};
+
+type Theme = 'garden' | 'canyon' | 'neon';
+type PlayerIndex = 0 | 1;
+type TurnPhase = 'aim' | 'moving' | 'transition';
+
+type Deco =
+  | { kind: 'lamp'; x: number; y: number }
+  | { kind: 'rock'; x: number; y: number; s?: number }
+  | { kind: 'bush'; x: number; y: number; s?: number }
+  | { kind: 'crystal'; x: number; y: number; s?: number }
+  | { kind: 'sign'; x: number; y: number; text: string };
+
+type BallState = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  name: string;
+  shots: number;
+  totalShots: number;
+  done: boolean;
+  trail: Vec[];
+};
+
 type Spark = {
   x: number;
   y: number;
@@ -34,49 +72,41 @@ type Spark = {
   color: string;
 };
 
-type Deco =
-  | { kind: 'palm'; x: number; y: number }
-  | { kind: 'rock'; x: number; y: number }
-  | { kind: 'snow'; x: number; y: number }
-  | { kind: 'crystal'; x: number; y: number }
-  | { kind: 'bush'; x: number; y: number };
-
-type BallState = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  color: string;
-  trail: Vec[];
-  shots: number;
-  totalShots: number;
-  done: boolean;
-  name: string;
-};
-
 type HoleConfig = {
   name: string;
   subtitle: string;
-  theme: 'classic' | 'desert' | 'snow';
-  hole: Vec;
+  theme: Theme;
   spawn: Vec;
+  hole: Vec;
   walls: Rect[];
-  waters: Water[];
-  bumpers: Bumper[];
+  waters: Rect[];
+  sands: Rect[];
+  bumpers: Array<Circle & { color: string }>;
   bridges?: Rect[];
-  deco?: Deco[];
+  deco: Deco[];
 };
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v));
-}
+type TelegramWebApp = {
+  expand?: () => void;
+  disableVerticalSwipes?: () => void;
+};
 
-function len(x: number, y: number) {
-  return Math.hypot(x, y);
-}
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const len = (x: number, y: number) => Math.hypot(x, y);
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+const pointInRect = (x: number, y: number, rect: Rect) =>
+  x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+
+const roundRect = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+) => {
   const rr = Math.min(r, w / 2, h / 2);
+
   ctx.beginPath();
   ctx.moveTo(x + rr, y);
   ctx.arcTo(x + w, y, x + w, y + h, rr);
@@ -84,135 +114,181 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
-}
-
-function pointInRect(px: number, py: number, rect: Rect) {
-  return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
-}
+};
 
 const holeConfigs: HoleConfig[] = [
   {
-    name: 'Harbor Run',
-    subtitle: 'каналы и мостики',
-    theme: 'classic',
-    hole: { x: 118, y: 112 },
-    spawn: { x: 610, y: 915 },
+    name: 'Clover Gates',
+    subtitle: 'широкие ворота, понятный маршрут, без срезов по краям',
+    theme: 'garden',
+    spawn: { x: 360, y: 934 },
+    hole: { x: 360, y: 112 },
     walls: [
-      { x: 228, y: 150, w: 18, h: 170 },
-      { x: 455, y: 130, w: 18, h: 190 },
-      { x: 245, y: 320, w: 228, h: 18 },
-
-      { x: 148, y: 455, w: 18, h: 200 },
-      { x: 555, y: 435, w: 18, h: 220 },
-
-      { x: 250, y: 695, w: 18, h: 118 },
-      { x: 458, y: 665, w: 18, h: 145 },
-
-      { x: 300, y: 886, w: 126, h: 16 },
+      { x: PLAY_LEFT, y: 820, w: 260, h: 18 },
+      { x: 460, y: 820, w: PLAY_RIGHT - 460, h: 18 },
+      { x: 210, y: 650, w: PLAY_RIGHT - 210, h: 18 },
+      { x: PLAY_LEFT, y: 480, w: 500, h: 18 },
+      { x: PLAY_LEFT, y: 292, w: 260, h: 18 },
+      { x: 460, y: 292, w: PLAY_RIGHT - 460, h: 18 },
+      { x: 108, y: 706, w: 18, h: 92 },
+      { x: 594, y: 706, w: 18, h: 92 },
+      { x: 108, y: 354, w: 18, h: 104 },
+      { x: 594, y: 354, w: 18, h: 104 },
+      { x: 300, y: 188, w: 120, h: 16 },
     ],
     waters: [
-      { x: 275, y: 172, w: 155, h: 92 },
-      { x: 260, y: 500, w: 186, h: 128 },
-      { x: 92, y: 790, w: 118, h: 96 },
-      { x: 516, y: 772, w: 110, h: 102 },
+      { x: 78, y: 694, w: 94, h: 82 },
+      { x: 548, y: 694, w: 94, h: 82 },
+      { x: 268, y: 520, w: 184, h: 78 },
+      { x: 88, y: 342, w: 100, h: 78 },
+      { x: 532, y: 342, w: 100, h: 78 },
     ],
-    bridges: [
-      { x: 331, y: 490, w: 44, h: 150 },
+    sands: [
+      { x: 292, y: 742, w: 136, h: 58 },
+      { x: 76, y: 560, w: 112, h: 66 },
+      { x: 532, y: 560, w: 112, h: 66 },
+      { x: 292, y: 356, w: 136, h: 60 },
+      { x: 250, y: 146, w: 88, h: 54 },
+      { x: 382, y: 146, w: 88, h: 54 },
     ],
+    bridges: [],
     bumpers: [
-      { x: 350, y: 395, r: 19, color: '#fbbf24' },
-      { x: 168, y: 700, r: 17, color: '#f59e0b' },
-      { x: 560, y: 654, r: 17, color: '#fde047' },
-      { x: 515, y: 245, r: 16, color: '#fbbf24' },
+      { x: 360, y: 725, r: 19, color: '#facc15' },
+      { x: 168, y: 585, r: 17, color: '#fde047' },
+      { x: 552, y: 585, r: 17, color: '#fde047' },
+      { x: 360, y: 406, r: 20, color: '#f59e0b' },
+      { x: 220, y: 230, r: 16, color: '#facc15' },
+      { x: 500, y: 230, r: 16, color: '#facc15' },
     ],
     deco: [
-      { kind: 'bush', x: 214, y: 410 },
-      { kind: 'bush', x: 520, y: 405 },
-      { kind: 'bush', x: 245, y: 855 },
+      { kind: 'sign', x: 360, y: 890, text: 'TEE' },
+      { kind: 'bush', x: 92, y: 806, s: 0.9 },
+      { kind: 'bush', x: 628, y: 806, s: 0.9 },
+      { kind: 'bush', x: 96, y: 474, s: 0.85 },
+      { kind: 'bush', x: 624, y: 474, s: 0.85 },
+      { kind: 'lamp', x: 112, y: 126 },
+      { kind: 'lamp', x: 608, y: 126 },
+      { kind: 'rock', x: 250, y: 886, s: 0.85 },
+      { kind: 'rock', x: 470, y: 886, s: 0.85 },
     ],
   },
   {
-    name: 'Oasis Zigzag',
-    subtitle: 'зигзаг и песок',
-    theme: 'desert',
-    hole: { x: 575, y: 112 },
-    spawn: { x: 110, y: 935 },
+    name: 'Canyon Run',
+    subtitle: 'S-маршрут с широкими поворотами и честными бортами',
+    theme: 'canyon',
+    spawn: { x: 112, y: 930 },
+    hole: { x: 606, y: 112 },
     walls: [
-      { x: 188, y: 170, w: 230, h: 18 },
-      { x: 418, y: 170, w: 18, h: 155 },
-
-      { x: 250, y: 366, w: 200, h: 18 },
-      { x: 190, y: 515, w: 18, h: 165 },
-
-      { x: 190, y: 680, w: 248, h: 18 },
-      { x: 530, y: 480, w: 18, h: 205 },
-
-      { x: 350, y: 780, w: 18, h: 122 },
-      { x: 460, y: 860, w: 122, h: 16 },
+      { x: 220, y: 846, w: PLAY_RIGHT - 220, h: 18 },
+      { x: 196, y: 708, w: PLAY_RIGHT - 196, h: 18 },
+      { x: PLAY_LEFT, y: 570, w: 482, h: 18 },
+      { x: 206, y: 432, w: PLAY_RIGHT - 206, h: 18 },
+      { x: PLAY_LEFT, y: 286, w: 500, h: 18 },
+      { x: 90, y: 744, w: 18, h: 124 },
+      { x: 594, y: 622, w: 18, h: 86 },
+      { x: 92, y: 470, w: 18, h: 100 },
+      { x: 594, y: 316, w: 18, h: 116 },
+      { x: 500, y: 184, w: 18, h: 82 },
+      { x: 578, y: 184, w: 18, h: 82 },
     ],
     waters: [
-      { x: 290, y: 82, w: 125, h: 92 },
-      { x: 265, y: 405, w: 205, h: 136 },
-      { x: 510, y: 690, w: 120, h: 116 },
+      { x: 82, y: 754, w: 100, h: 74 },
+      { x: 500, y: 754, w: 126, h: 70 },
+      { x: 242, y: 608, w: 128, h: 72 },
+      { x: 498, y: 474, w: 118, h: 72 },
+      { x: 102, y: 332, w: 120, h: 74 },
+      { x: 378, y: 188, w: 98, h: 68 },
+    ],
+    sands: [
+      { x: 280, y: 780, w: 120, h: 58 },
+      { x: 118, y: 622, w: 116, h: 62 },
+      { x: 460, y: 610, w: 112, h: 62 },
+      { x: 262, y: 474, w: 126, h: 62 },
+      { x: 520, y: 328, w: 92, h: 58 },
+      { x: 232, y: 200, w: 112, h: 56 },
     ],
     bridges: [
-      { x: 346, y: 394, w: 42, h: 160 },
+      { x: 122, y: 748, w: 42, h: 90 },
+      { x: 540, y: 744, w: 42, h: 86 },
+      { x: 286, y: 600, w: 42, h: 86 },
     ],
     bumpers: [
-      { x: 226, y: 302, r: 17, color: '#ef4444' },
-      { x: 505, y: 420, r: 18, color: '#fb7185' },
-      { x: 305, y: 598, r: 19, color: '#f59e0b' },
-      { x: 568, y: 865, r: 18, color: '#fbbf24' },
+      { x: 556, y: 806, r: 18, color: '#f97316' },
+      { x: 168, y: 652, r: 18, color: '#facc15' },
+      { x: 544, y: 528, r: 18, color: '#fb7185' },
+      { x: 180, y: 386, r: 18, color: '#f97316' },
+      { x: 452, y: 238, r: 17, color: '#facc15' },
     ],
     deco: [
-      { kind: 'palm', x: 138, y: 510 },
-      { kind: 'palm', x: 570, y: 620 },
-      { kind: 'rock', x: 260, y: 842 },
-      { kind: 'rock', x: 520, y: 325 },
+      { kind: 'sign', x: 112, y: 884, text: 'START' },
+      { kind: 'rock', x: 92, y: 156, s: 1.1 },
+      { kind: 'rock', x: 606, y: 282, s: 0.9 },
+      { kind: 'rock', x: 98, y: 590, s: 0.9 },
+      { kind: 'rock', x: 618, y: 706, s: 1 },
+      { kind: 'rock', x: 342, y: 364, s: 0.8 },
+      { kind: 'lamp', x: 606, y: 118 },
     ],
   },
   {
-    name: 'Frost Split',
-    subtitle: 'ледяные окна',
-    theme: 'snow',
-    hole: { x: 360, y: 106 },
-    spawn: { x: 360, y: 938 },
+    name: 'Neon Locks',
+    subtitle: 'три камеры, аккуратные окна и финальная дуга',
+    theme: 'neon',
+    spawn: { x: 360, y: 934 },
+    hole: { x: 360, y: 108 },
     walls: [
-      { x: 165, y: 150, w: 18, h: 175 },
-      { x: 537, y: 150, w: 18, h: 175 },
-
-      { x: 230, y: 350, w: 110, h: 18 },
-      { x: 380, y: 350, w: 110, h: 18 },
-
-      { x: 265, y: 505, w: 18, h: 135 },
-      { x: 438, y: 505, w: 18, h: 135 },
-
-      { x: 218, y: 705, w: 112, h: 18 },
-      { x: 390, y: 705, w: 112, h: 18 },
-
-      { x: 310, y: 812, w: 100, h: 16 },
+      { x: PLAY_LEFT, y: 842, w: 240, h: 18 },
+      { x: 446, y: 842, w: PLAY_RIGHT - 446, h: 18 },
+      { x: 166, y: 706, w: PLAY_RIGHT - 166, h: 18 },
+      { x: PLAY_LEFT, y: 566, w: 470, h: 18 },
+      { x: 224, y: 426, w: PLAY_RIGHT - 224, h: 18 },
+      { x: PLAY_LEFT, y: 286, w: 250, h: 18 },
+      { x: 470, y: 286, w: PLAY_RIGHT - 470, h: 18 },
+      { x: 122, y: 744, w: 18, h: 92 },
+      { x: 580, y: 610, w: 18, h: 100 },
+      { x: 122, y: 468, w: 18, h: 92 },
+      { x: 580, y: 328, w: 18, h: 94 },
+      { x: 300, y: 176, w: 120, h: 16 },
     ],
     waters: [
-      { x: 248, y: 120, w: 224, h: 112 },
-      { x: 92, y: 462, w: 118, h: 98 },
-      { x: 510, y: 462, w: 118, h: 98 },
-      { x: 305, y: 590, w: 110, h: 84 },
+      { x: 282, y: 742, w: 156, h: 74 },
+      { x: 84, y: 612, w: 110, h: 74 },
+      { x: 526, y: 612, w: 110, h: 74 },
+      { x: 276, y: 470, w: 168, h: 72 },
+      { x: 86, y: 330, w: 112, h: 72 },
+      { x: 522, y: 330, w: 112, h: 72 },
+      { x: 252, y: 118, w: 216, h: 72 },
+    ],
+    sands: [
+      { x: 88, y: 760, w: 108, h: 58 },
+      { x: 524, y: 760, w: 108, h: 58 },
+      { x: 302, y: 616, w: 116, h: 56 },
+      { x: 106, y: 476, w: 104, h: 58 },
+      { x: 510, y: 476, w: 104, h: 58 },
+      { x: 286, y: 330, w: 148, h: 58 },
     ],
     bridges: [
-      { x: 338, y: 112, w: 44, h: 135 },
+      { x: 338, y: 730, w: 44, h: 96 },
+      { x: 338, y: 458, w: 44, h: 94 },
+      { x: 338, y: 108, w: 44, h: 96 },
     ],
     bumpers: [
-      { x: 360, y: 428, r: 19, color: '#93c5fd' },
-      { x: 235, y: 600, r: 16, color: '#dbeafe' },
-      { x: 485, y: 600, r: 16, color: '#dbeafe' },
-      { x: 360, y: 860, r: 17, color: '#bfdbfe' },
+      { x: 360, y: 786, r: 18, color: '#93c5fd' },
+      { x: 180, y: 646, r: 17, color: '#60a5fa' },
+      { x: 540, y: 646, r: 17, color: '#60a5fa' },
+      { x: 360, y: 508, r: 20, color: '#bfdbfe' },
+      { x: 198, y: 370, r: 17, color: '#93c5fd' },
+      { x: 522, y: 370, r: 17, color: '#93c5fd' },
+      { x: 360, y: 232, r: 18, color: '#dbeafe' },
     ],
     deco: [
-      { kind: 'snow', x: 142, y: 590 },
-      { kind: 'snow', x: 578, y: 590 },
-      { kind: 'snow', x: 360, y: 840 },
-      { kind: 'crystal', x: 215, y: 640 },
-      { kind: 'crystal', x: 505, y: 640 },
+      { kind: 'sign', x: 360, y: 890, text: 'NEON' },
+      { kind: 'crystal', x: 112, y: 712, s: 0.9 },
+      { kind: 'crystal', x: 608, y: 712, s: 0.9 },
+      { kind: 'crystal', x: 110, y: 424, s: 0.85 },
+      { kind: 'crystal', x: 610, y: 424, s: 0.85 },
+      { kind: 'crystal', x: 360, y: 260, s: 0.85 },
+      { kind: 'rock', x: 246, y: 888, s: 0.8 },
+      { kind: 'rock', x: 474, y: 888, s: 0.8 },
     ],
   },
 ];
@@ -224,16 +300,17 @@ function createBall(name: string, color: string, spawn: Vec): BallState {
     vx: 0,
     vy: 0,
     color,
-    trail: [],
+    name,
     shots: 0,
     totalShots: 0,
     done: false,
-    name,
+    trail: [],
   };
 }
 
-export function MiniGolfBeautiful() {
-  const rootRef = useRef<HTMLDivElement | null>(null);
+function MiniGolfBeautiful() {
+  const navigate = useNavigate();
+
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -241,797 +318,128 @@ export function MiniGolfBeautiful() {
   const holeTimeoutRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
 
-  const pointerRef = useRef({ active: false, x: 0, y: 0 });
-  const layoutRef = useRef({ width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0, dpr: 1 });
+  const layoutRef = useRef({
+    width: 0,
+    height: 0,
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    dpr: 1,
+  });
+
+  const pointerRef = useRef({
+    active: false,
+    x: 0,
+    y: 0,
+  });
 
   const holeIndexRef = useRef(0);
-  const activePlayerRef = useRef(0);
-  const turnPhaseRef = useRef<'aim' | 'ballMoving' | 'holeTransition'>('aim');
+  const activePlayerRef = useRef<PlayerIndex>(0);
+  const turnPhaseRef = useRef<TurnPhase>('aim');
   const winnerRef = useRef<string | null>(null);
 
-  const [winner, setWinner] = useState<string | null>(null);
-  const [holeIndex, setHoleIndex] = useState(0);
-  const [activePlayer, setActivePlayer] = useState(0);
-  const [turnPhase, setTurnPhase] = useState<'aim' | 'ballMoving' | 'holeTransition'>('aim');
-  const [, setUiTick] = useState(0);
-
-  const sparksRef = useRef<Spark[]>([]);
-  const waterSplashesRef = useRef<Spark[]>([]);
-  const bgDotsRef = useRef<Vec[]>([]);
   const ballsRef = useRef<BallState[]>([
-    createBall('Jack', '#ffd84d', holeConfigs[0].spawn),
-    createBall('Kirsten', '#ffffff', holeConfigs[0].spawn),
+    createBall('Player 1', '#facc15', holeConfigs[0].spawn),
+    createBall('Player 2', '#f8fafc', holeConfigs[0].spawn),
   ]);
 
-  useEffect(() => {
-    bgDotsRef.current = Array.from({ length: 36 }, (_, i) => ({
-      x: 30 + ((i * 83) % WORLD_W),
-      y: 60 + ((i * 131) % WORLD_H),
-    }));
-  }, []);
-
-  useEffect(() => {
-    const preventDefault = (e: TouchEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && rootRef.current?.contains(target) && e.cancelable) {
-        e.preventDefault();
-      }
-    };
-
-    document.addEventListener('touchmove', preventDefault, { passive: false });
-    return () => document.removeEventListener('touchmove', preventDefault);
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const wrap = canvasWrapRef.current;
-    if (!canvas || !wrap) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const resize = () => {
-      const rect = wrap.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-
-      const width = rect.width;
-      const height = rect.height;
-      const scale = Math.min(width / WORLD_W, height / WORLD_H);
-      const offsetX = (width - WORLD_W * scale) / 2;
-      const offsetY = (height - WORLD_H * scale) / 2;
-
-      layoutRef.current = { width, height, scale, offsetX, offsetY, dpr };
-
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-
-    resize();
-    const ro = new ResizeObserver(() => resize());
-    ro.observe(wrap);
-
-    const currentHole = () => holeConfigs[holeIndexRef.current];
-
-    const setPhase = (next: 'aim' | 'ballMoving' | 'holeTransition') => {
-      turnPhaseRef.current = next;
-      setTurnPhase(next);
-    };
-
-    const setActive = (next: number) => {
-      activePlayerRef.current = next;
-      setActivePlayer(next);
-    };
-
-    const setHole = (next: number) => {
-      holeIndexRef.current = next;
-      setHoleIndex(next);
-    };
-
-    const setWinnerBoth = (value: string | null) => {
-      winnerRef.current = value;
-      setWinner(value);
-    };
-
-    const bumpUi = () => setUiTick(v => v + 1);
-
-    const addSparks = (x: number, y: number, color: string, amount = 10) => {
-      for (let i = 0; i < amount; i += 1) {
-        const a = (Math.PI * 2 * i) / amount + Math.random() * 0.8;
-        const s = 0.7 + Math.random() * 3.1;
-        sparksRef.current.push({
-          x,
-          y,
-          vx: Math.cos(a) * s,
-          vy: Math.sin(a) * s,
-          life: 0.7 + Math.random() * 0.35,
-          size: 2 + Math.random() * 3.5,
-          color,
-        });
-      }
-    };
-
-    const resetBallToSpawn = (ball: BallState) => {
-      for (let i = 0; i < 18; i += 1) {
-        const a = (Math.PI * 2 * i) / 18 + Math.random() * 0.35;
-        const s = 0.8 + Math.random() * 2.6;
-        waterSplashesRef.current.push({
-          x: ball.x,
-          y: ball.y,
-          vx: Math.cos(a) * s,
-          vy: Math.sin(a) * s - 0.6,
-          life: 0.7 + Math.random() * 0.25,
-          size: 2 + Math.random() * 3.5,
-          color: '#dff8ff',
-        });
-      }
-
-      const spawn = currentHole().spawn;
-      ball.x = spawn.x;
-      ball.y = spawn.y;
-      ball.vx = 0;
-      ball.vy = 0;
-      ball.trail = [];
-      addSparks(ball.x, ball.y, '#7dd3fc', 12);
-    };
-
-    const resolveWallCollision = (ball: BallState, rect: Rect) => {
-      const nearestX = clamp(ball.x, rect.x, rect.x + rect.w);
-      const nearestY = clamp(ball.y, rect.y, rect.y + rect.h);
-      const dx = ball.x - nearestX;
-      const dy = ball.y - nearestY;
-      const distSq = dx * dx + dy * dy;
-      if (distSq >= BALL_R * BALL_R) return;
-
-      const overlapX1 = Math.abs(ball.x + BALL_R - rect.x);
-      const overlapX2 = Math.abs(rect.x + rect.w - (ball.x - BALL_R));
-      const overlapY1 = Math.abs(ball.y + BALL_R - rect.y);
-      const overlapY2 = Math.abs(rect.y + rect.h - (ball.y - BALL_R));
-      const minOverlap = Math.min(overlapX1, overlapX2, overlapY1, overlapY2);
-
-      if (minOverlap === overlapX1) {
-        ball.x = rect.x - BALL_R;
-        ball.vx = -Math.abs(ball.vx) * 0.88;
-      } else if (minOverlap === overlapX2) {
-        ball.x = rect.x + rect.w + BALL_R;
-        ball.vx = Math.abs(ball.vx) * 0.88;
-      } else if (minOverlap === overlapY1) {
-        ball.y = rect.y - BALL_R;
-        ball.vy = -Math.abs(ball.vy) * 0.88;
-      } else {
-        ball.y = rect.y + rect.h + BALL_R;
-        ball.vy = Math.abs(ball.vy) * 0.88;
-      }
-
-      addSparks(ball.x, ball.y, '#ffffff', 4);
-    };
-
-    const resolveBumperCollision = (ball: BallState, bumper: Bumper) => {
-      const dx = ball.x - bumper.x;
-      const dy = ball.y - bumper.y;
-      const d = len(dx, dy);
-      const minD = BALL_R + bumper.r;
-      if (d <= 0 || d >= minD) return;
-
-      const nx = dx / d;
-      const ny = dy / d;
-      ball.x = bumper.x + nx * minD;
-      ball.y = bumper.y + ny * minD;
-
-      const dot = ball.vx * nx + ball.vy * ny;
-      ball.vx = (ball.vx - 2 * dot * nx) * 0.92;
-      ball.vy = (ball.vy - 2 * dot * ny) * 0.92;
-      addSparks(ball.x, ball.y, bumper.color, 7);
-    };
-
-    const updateBall = (ball: BallState, dt60: number) => {
-      const config = currentHole();
-      if (ball.done) return;
-
-      ball.x += ball.vx * dt60;
-      ball.y += ball.vy * dt60;
-      ball.vx *= Math.pow(FRICTION, dt60);
-      ball.vy *= Math.pow(FRICTION, dt60);
-
-      if (Math.abs(ball.vx) < STOP_SPEED) ball.vx = 0;
-      if (Math.abs(ball.vy) < STOP_SPEED) ball.vy = 0;
-
-      if (ball.x < PLAY_LEFT + BALL_R) {
-        ball.x = PLAY_LEFT + BALL_R;
-        ball.vx = Math.abs(ball.vx) * 0.88;
-      }
-      if (ball.x > PLAY_RIGHT - BALL_R) {
-        ball.x = PLAY_RIGHT - BALL_R;
-        ball.vx = -Math.abs(ball.vx) * 0.88;
-      }
-      if (ball.y < PLAY_TOP + BALL_R) {
-        ball.y = PLAY_TOP + BALL_R;
-        ball.vy = Math.abs(ball.vy) * 0.88;
-      }
-      if (ball.y > PLAY_BOTTOM - BALL_R) {
-        ball.y = PLAY_BOTTOM - BALL_R;
-        ball.vy = -Math.abs(ball.vy) * 0.88;
-      }
-
-      for (let i = 0; i < config.walls.length; i += 1) {
-        resolveWallCollision(ball, config.walls[i]);
-      }
-
-      for (let i = 0; i < config.bumpers.length; i += 1) {
-        resolveBumperCollision(ball, config.bumpers[i]);
-      }
-
-      for (let i = 0; i < config.waters.length; i += 1) {
-        const water = config.waters[i];
-        let onBridge = false;
-
-        const bridges = config.bridges ?? [];
-        for (let j = 0; j < bridges.length; j += 1) {
-          if (pointInRect(ball.x, ball.y, bridges[j])) {
-            onBridge = true;
-            break;
-          }
-        }
-
-        if (!onBridge && pointInRect(ball.x, ball.y, water)) {
-          resetBallToSpawn(ball);
-          return;
-        }
-      }
-
-      const hx = ball.x - config.hole.x;
-      const hy = ball.y - config.hole.y;
-      const hd = len(hx, hy);
-      const speed = len(ball.vx, ball.vy);
-
-      if (hd < HOLE_R && speed < 2.05) {
-        ball.done = true;
-        ball.vx = 0;
-        ball.vy = 0;
-        ball.x = config.hole.x;
-        ball.y = config.hole.y;
-        addSparks(config.hole.x, config.hole.y, '#22c55e', 18);
-      }
-
-      ball.trail.push({ x: ball.x, y: ball.y });
-      if (ball.trail.length > 12) ball.trail.shift();
-    };
-
-    const drawThemeBackground = (theme: HoleConfig['theme']) => {
-      const bg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
-
-      if (theme === 'classic') {
-        bg.addColorStop(0, '#0d7fd9');
-        bg.addColorStop(1, '#166ec0');
-      } else if (theme === 'desert') {
-        bg.addColorStop(0, '#ffcd79');
-        bg.addColorStop(0.55, '#f59e0b');
-        bg.addColorStop(1, '#d97706');
-      } else {
-        bg.addColorStop(0, '#102445');
-        bg.addColorStop(0.45, '#1d4f91');
-        bg.addColorStop(1, '#0b1731');
-      }
-
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-
-      if (theme === 'classic') {
-        for (let i = 0; i < bgDotsRef.current.length; i += 1) {
-          const p = bgDotsRef.current[i];
-          ctx.fillStyle = 'rgba(255,255,255,0.12)';
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 1.5 + (i % 3), 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else if (theme === 'desert') {
-        const sun = ctx.createRadialGradient(585, 115, 10, 585, 115, 120);
-        sun.addColorStop(0, 'rgba(255,244,200,0.9)');
-        sun.addColorStop(1, 'rgba(255,244,200,0)');
-        ctx.fillStyle = sun;
-        ctx.beginPath();
-        ctx.arc(585, 115, 120, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        const aurora = ctx.createLinearGradient(80, 40, 620, 240);
-        aurora.addColorStop(0, 'rgba(96,165,250,0)');
-        aurora.addColorStop(0.35, 'rgba(96,165,250,0.18)');
-        aurora.addColorStop(0.7, 'rgba(167,243,208,0.14)');
-        aurora.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = aurora;
-        ctx.fillRect(0, 0, WORLD_W, 320);
-      }
-
-      const vignette = ctx.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 180, WORLD_W / 2, WORLD_H / 2, 900);
-      vignette.addColorStop(0, 'rgba(255,255,255,0)');
-      vignette.addColorStop(1, 'rgba(0,0,0,0.22)');
-      ctx.fillStyle = vignette;
-      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-    };
-
-    const drawWater = (w: Water, theme: HoleConfig['theme']) => {
-      const lip = 18;
-
-      ctx.fillStyle = theme === 'desert' ? '#7b5e34' : theme === 'snow' ? '#8fa5bc' : '#557d4a';
-      roundRect(ctx, w.x - 4, w.y - 3, w.w + 8, w.h + 8, lip);
-      ctx.fill();
-
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
-      roundRect(ctx, w.x, w.y + 3, w.w, w.h + 5, lip - 2);
-      ctx.fill();
-
-      const innerX = w.x + 9;
-      const innerY = w.y + 13;
-      const innerW = w.w - 18;
-      const innerH = w.h - 22;
-
-      const g = ctx.createLinearGradient(innerX, innerY, innerX, innerY + innerH);
-      if (theme === 'snow') {
-        g.addColorStop(0, '#e8f7ff');
-        g.addColorStop(0.35, '#9dd6ff');
-        g.addColorStop(1, '#5b9ede');
-      } else {
-        g.addColorStop(0, '#98efff');
-        g.addColorStop(0.45, '#2fcfff');
-        g.addColorStop(1, '#0e8ec2');
-      }
-
-      roundRect(ctx, innerX, innerY, innerW, innerH, lip - 6);
-      ctx.fillStyle = g;
-      ctx.fill();
-
-      ctx.save();
-      roundRect(ctx, innerX, innerY, innerW, innerH, lip - 6);
-      ctx.clip();
-
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(innerX, innerY, innerW, 12);
-
-      ctx.fillStyle = 'rgba(255,255,255,0.16)';
-      ctx.fillRect(innerX + 8, innerY + 10, innerW - 16, 6);
-
-      for (let i = 0; i < 3; i += 1) {
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.beginPath();
-        ctx.ellipse(
-          innerX + 32 + i * ((innerW - 64) / 2),
-          innerY + innerH * 0.58 + (i % 2 ? 8 : -2),
-          20,
-          8,
-          0,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
-
-      ctx.restore();
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-      ctx.lineWidth = 2;
-      roundRect(ctx, innerX, innerY, innerW, innerH, lip - 6);
-      ctx.stroke();
-    };
-
-    const drawBridge = (bridge: Rect) => {
-      const wood = ctx.createLinearGradient(bridge.x, bridge.y, bridge.x, bridge.y + bridge.h);
-      wood.addColorStop(0, '#c78c56');
-      wood.addColorStop(1, '#8b5a3c');
-
-      roundRect(ctx, bridge.x, bridge.y, bridge.w, bridge.h, 8);
-      ctx.fillStyle = wood;
-      ctx.fill();
-
-      ctx.strokeStyle = 'rgba(90,50,20,0.35)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      for (let yy = bridge.y + 6; yy < bridge.y + bridge.h - 4; yy += 12) {
-        ctx.fillRect(bridge.x + 4, yy, bridge.w - 8, 2);
-      }
-
-      ctx.fillStyle = 'rgba(0,0,0,0.16)';
-      ctx.fillRect(bridge.x + 3, bridge.y + bridge.h - 5, bridge.w - 6, 3);
-    };
-
-    const drawDeco = (config: HoleConfig) => {
-      if (!config.deco) return;
-
-      for (let i = 0; i < config.deco.length; i += 1) {
-        const d = config.deco[i];
-
-        if (d.kind === 'palm') {
-          ctx.fillStyle = '#8b5a2b';
-          ctx.fillRect(d.x - 5, d.y, 10, 36);
-          ctx.fillStyle = '#16a34a';
-          for (let k = 0; k < 5; k += 1) {
-            const a = -1.2 + k * 0.6;
-            ctx.beginPath();
-            ctx.ellipse(d.x + Math.cos(a) * 10, d.y - 6 + Math.sin(a) * 8, 20, 7, a, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        } else if (d.kind === 'rock') {
-          ctx.fillStyle = '#d6a35d';
-          ctx.beginPath();
-          ctx.ellipse(d.x, d.y, 18, 12, 0, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (d.kind === 'snow') {
-          ctx.fillStyle = 'rgba(255,255,255,0.9)';
-          ctx.beginPath();
-          ctx.arc(d.x, d.y, 18, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = 'rgba(191,219,254,0.8)';
-          ctx.beginPath();
-          ctx.arc(d.x + 6, d.y + 4, 8, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (d.kind === 'crystal') {
-          ctx.fillStyle = '#e0f2fe';
-          ctx.beginPath();
-          ctx.moveTo(d.x, d.y - 20);
-          ctx.lineTo(d.x + 14, d.y);
-          ctx.lineTo(d.x, d.y + 20);
-          ctx.lineTo(d.x - 14, d.y);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.strokeStyle = '#93c5fd';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        } else if (d.kind === 'bush') {
-          ctx.fillStyle = '#2f7a39';
-          ctx.beginPath();
-          ctx.arc(d.x, d.y, 16, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#4da856';
-          ctx.beginPath();
-          ctx.arc(d.x - 5, d.y - 5, 9, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    };
-
-    const drawCourse = () => {
-      const config = currentHole();
-
-      roundRect(ctx, PLAY_LEFT, PLAY_TOP, PLAY_W, PLAY_H, 28);
-      const grass = ctx.createLinearGradient(PLAY_LEFT, PLAY_TOP, PLAY_LEFT, PLAY_BOTTOM);
-
-      if (config.theme === 'classic') {
-        grass.addColorStop(0, '#90e648');
-        grass.addColorStop(0.35, '#76cf3a');
-        grass.addColorStop(1, '#63b530');
-      } else if (config.theme === 'desert') {
-        grass.addColorStop(0, '#e6c56a');
-        grass.addColorStop(0.4, '#d3ad4e');
-        grass.addColorStop(1, '#bd9039');
-      } else {
-        grass.addColorStop(0, '#f5fbff');
-        grass.addColorStop(0.45, '#d9ebfb');
-        grass.addColorStop(1, '#bdd4ee');
-      }
-
-      ctx.fillStyle = grass;
-      ctx.fill();
-
-      ctx.save();
-      roundRect(ctx, PLAY_LEFT, PLAY_TOP, PLAY_W, PLAY_H, 28);
-      ctx.clip();
-
-      for (let y = PLAY_TOP; y < PLAY_BOTTOM; y += 36) {
-        for (let x = PLAY_LEFT; x < PLAY_RIGHT; x += 36) {
-          ctx.fillStyle = ((x + y) / 36) % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
-          ctx.fillRect(x, y, 36, 36);
-        }
-      }
-
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
-      ctx.fillRect(PLAY_LEFT, PLAY_TOP, PLAY_W, 38);
-
-      for (let i = 0; i < config.waters.length; i += 1) {
-        drawWater(config.waters[i], config.theme);
-      }
-
-      const bridges = config.bridges ?? [];
-      for (let i = 0; i < bridges.length; i += 1) {
-        drawBridge(bridges[i]);
-      }
-
-      for (let i = 0; i < config.walls.length; i += 1) {
-        const rect = config.walls[i];
-        const wallGrad = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
-        wallGrad.addColorStop(0, '#ffffff');
-        wallGrad.addColorStop(1, '#dfe5ea');
-        roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 9);
-        ctx.fillStyle = wallGrad;
-        ctx.fill();
-
-        ctx.fillStyle = 'rgba(0,0,0,0.10)';
-        ctx.fillRect(rect.x + rect.w - 4, rect.y + 2, 4, rect.h - 4);
-
-        ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
-      for (let i = 0; i < config.bumpers.length; i += 1) {
-        const b = config.bumpers[i];
-        const g = ctx.createRadialGradient(b.x - 4, b.y - 5, 2, b.x, b.y, b.r);
-        g.addColorStop(0, '#fff7c2');
-        g.addColorStop(1, b.color);
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-        ctx.fillStyle = g;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-
-      drawDeco(config);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.24)';
-      ctx.beginPath();
-      ctx.arc(config.hole.x + 2, config.hole.y + 4, HOLE_R + 1, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(config.hole.x, config.hole.y, HOLE_R, 0, Math.PI * 2);
-      ctx.fillStyle = '#1b1f25';
-      ctx.fill();
-
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(config.hole.x, config.hole.y - 2);
-      ctx.lineTo(config.hole.x, config.hole.y - 65);
-      ctx.stroke();
-
-      ctx.fillStyle = config.theme === 'classic' ? '#ef4444' : config.theme === 'desert' ? '#f97316' : '#60a5fa';
-      ctx.beginPath();
-      ctx.moveTo(config.hole.x, config.hole.y - 64);
-      ctx.lineTo(config.hole.x + 32, config.hole.y - 55);
-      ctx.lineTo(config.hole.x, config.hole.y - 46);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.restore();
-    };
-
-    const drawTrail = (ball: BallState) => {
-      if (ball.trail.length < 2) return;
-
-      for (let i = 0; i < ball.trail.length; i += 1) {
-        const p = ball.trail[i];
-        const a = i / ball.trail.length;
-        ctx.globalAlpha = a * 0.22;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3 + a * 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = ball.color;
-        ctx.fill();
-      }
-
-      ctx.globalAlpha = 1;
-    };
-
-    const drawBall = (ball: BallState) => {
-      drawTrail(ball);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.beginPath();
-      ctx.ellipse(ball.x + 2, ball.y + 9, 12, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.shadowColor = ball.color;
-      ctx.shadowBlur = 14;
-
-      const grad = ctx.createRadialGradient(ball.x - 4, ball.y - 5, 2, ball.x, ball.y, BALL_R);
-      grad.addColorStop(0, '#ffffff');
-      grad.addColorStop(0.42, ball.color);
-      grad.addColorStop(1, ball.color === '#ffffff' ? '#e8edf2' : '#d6a600');
-
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
-      ctx.beginPath();
-      ctx.arc(ball.x - 4, ball.y - 5, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-    };
-
-    const drawAim = () => {
-      const ball = ballsRef.current[activePlayerRef.current];
-      if (winnerRef.current || ball.done || turnPhaseRef.current !== 'aim') return;
-
-      const moving = Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0;
-      if (!pointerRef.current.active || moving) return;
-
-      const dx = pointerRef.current.x - ball.x;
-      const dy = pointerRef.current.y - ball.y;
-      const d = Math.min(len(dx, dy), AIM_MAX);
-      if (d < 4) return;
-
-      const nx = dx / Math.max(d, 1);
-      const ny = dy / Math.max(d, 1);
-
-      ctx.setLineDash([12, 10]);
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.beginPath();
-      ctx.moveTo(ball.x, ball.y);
-      ctx.lineTo(ball.x - nx * d, ball.y - ny * d);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      ctx.arc(ball.x - nx * d, ball.y - ny * d, 12 + (d / AIM_MAX) * 8, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.14)';
-      ctx.fill();
-    };
-
-    const drawSparks = () => {
-      for (let i = 0; i < sparksRef.current.length; i += 1) {
-        const s = sparksRef.current[i];
-        ctx.globalAlpha = Math.max(0, s.life);
-        ctx.fillStyle = s.color;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      for (let i = 0; i < waterSplashesRef.current.length; i += 1) {
-        const s = waterSplashesRef.current[i];
-        ctx.globalAlpha = Math.max(0, s.life);
-        ctx.fillStyle = s.color;
-        ctx.beginPath();
-        ctx.ellipse(s.x, s.y, s.size, s.size * 0.7, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.globalAlpha = 1;
-    };
-
-    const draw = () => {
-      const { width, height, scale, offsetX, offsetY } = layoutRef.current;
-      ctx.clearRect(0, 0, width, height);
-
-      ctx.save();
-      ctx.translate(offsetX, offsetY);
-      ctx.scale(scale, scale);
-
-      drawThemeBackground(currentHole().theme);
-      drawCourse();
-      drawAim();
-
-      for (let i = 0; i < ballsRef.current.length; i += 1) {
-        drawBall(ballsRef.current[i]);
-      }
-
-      drawSparks();
-
-      ctx.restore();
-    };
-
-    const step = (now: number) => {
-      const prev = lastFrameRef.current || now;
-      const dtMs = Math.min(now - prev, 32);
-      const dt60 = dtMs / 16.6667;
-      lastFrameRef.current = now;
-
-      if (!winnerRef.current) {
-        for (let i = 0; i < ballsRef.current.length; i += 1) {
-          updateBall(ballsRef.current[i], dt60);
-        }
-
-        const active = ballsRef.current[activePlayerRef.current];
-        const activeMoving = Math.abs(active.vx) > 0 || Math.abs(active.vy) > 0;
-        const other = activePlayerRef.current === 0 ? 1 : 0;
-        const otherBall = ballsRef.current[other];
-
-        if (turnPhaseRef.current === 'ballMoving' && !activeMoving) {
-          if (!active.done && !otherBall.done) {
-            setActive(other);
-            setPhase('aim');
-          } else if (!active.done && otherBall.done) {
-            setPhase('aim');
-          } else if (active.done && !otherBall.done) {
-            setActive(other);
-            setPhase('aim');
-          }
-          bumpUi();
-        }
-
-        if (ballsRef.current.every(b => b.done) && turnPhaseRef.current !== 'holeTransition') {
-          setPhase('holeTransition');
-
-          if (holeIndexRef.current < TOTAL_HOLES - 1) {
-            holeTimeoutRef.current = window.setTimeout(() => {
-              const nextHole = holeIndexRef.current + 1;
-              const nextConfig = holeConfigs[nextHole];
-
-              ballsRef.current = [
-                {
-                  ...ballsRef.current[0],
-                  x: nextConfig.spawn.x,
-                  y: nextConfig.spawn.y,
-                  vx: 0,
-                  vy: 0,
-                  trail: [],
-                  shots: 0,
-                  done: false,
-                },
-                {
-                  ...ballsRef.current[1],
-                  x: nextConfig.spawn.x,
-                  y: nextConfig.spawn.y,
-                  vx: 0,
-                  vy: 0,
-                  trail: [],
-                  shots: 0,
-                  done: false,
-                },
-              ];
-
-              pointerRef.current.active = false;
-              setActive(0);
-              setHole(nextHole);
-              setPhase('aim');
-              bumpUi();
-            }, 650);
-          } else {
-            const [a, b] = ballsRef.current;
-            if (a.totalShots < b.totalShots) setWinnerBoth(a.name);
-            else if (b.totalShots < a.totalShots) setWinnerBoth(b.name);
-            else setWinnerBoth('Draw');
-          }
-        }
-      }
-
-      const nextSparks: Spark[] = [];
-      for (let i = 0; i < sparksRef.current.length; i += 1) {
-        const s = sparksRef.current[i];
-        s.x += s.vx * dt60;
-        s.y += s.vy * dt60;
-        s.vx *= Math.pow(0.985, dt60);
-        s.vy *= Math.pow(0.985, dt60);
-        s.life -= 0.02 * dt60;
-        if (s.life > 0) nextSparks.push(s);
-      }
-      sparksRef.current = nextSparks;
-
-      const nextWater: Spark[] = [];
-      for (let i = 0; i < waterSplashesRef.current.length; i += 1) {
-        const s = waterSplashesRef.current[i];
-        s.x += s.vx * dt60;
-        s.y += s.vy * dt60;
-        s.vx *= Math.pow(0.96, dt60);
-        s.vy *= Math.pow(0.96, dt60);
-        s.life -= 0.03 * dt60;
-        if (s.life > 0) nextWater.push(s);
-      }
-      waterSplashesRef.current = nextWater;
-
-      draw();
-      rafRef.current = requestAnimationFrame(step);
-    };
-
-    rafRef.current = requestAnimationFrame(step);
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (holeTimeoutRef.current) window.clearTimeout(holeTimeoutRef.current);
-      ro.disconnect();
-    };
-  }, []);
-
-  const toWorldPoint = (clientX: number, clientY: number) => {
+  const sparksRef = useRef<Spark[]>([]);
+
+  const [holeIndex, setHoleIndex] = useState(0);
+  const [activePlayer, setActivePlayer] = useState<PlayerIndex>(0);
+  const [turnPhase, setTurnPhase] = useState<TurnPhase>('aim');
+  const [winner, setWinner] = useState<string | null>(null);
+  const [, setUiTick] = useState(0);
+
+  const currentHole = () => holeConfigs[holeIndexRef.current];
+
+  const setPhaseState = (next: TurnPhase) => {
+    turnPhaseRef.current = next;
+    setTurnPhase(next);
+  };
+
+  const setActiveState = (next: PlayerIndex) => {
+    activePlayerRef.current = next;
+    setActivePlayer(next);
+  };
+
+  const setHoleState = (next: number) => {
+    holeIndexRef.current = next;
+    setHoleIndex(next);
+  };
+
+  const setWinnerState = (next: string | null) => {
+    winnerRef.current = next;
+    setWinner(next);
+  };
+
+  const bumpUi = () => setUiTick((prev) => prev + 1);
+
+  const bothPlayersDone = () => ballsRef.current.every((ball) => ball.done);
+
+  const resetHoleBalls = (nextHoleIndex: number) => {
+    const spawn = holeConfigs[nextHoleIndex].spawn;
+    const old = ballsRef.current;
+
+    ballsRef.current = [
+      {
+        ...createBall(old[0].name, old[0].color, spawn),
+        totalShots: old[0].totalShots,
+      },
+      {
+        ...createBall(old[1].name, old[1].color, spawn),
+        totalShots: old[1].totalShots,
+      },
+    ];
+
+    pointerRef.current.active = false;
+    sparksRef.current = [];
+    setActiveState(0);
+    setPhaseState('aim');
+    bumpUi();
+  };
+
+  const restart = () => {
+    if (holeTimeoutRef.current) {
+      window.clearTimeout(holeTimeoutRef.current);
+      holeTimeoutRef.current = null;
+    }
+
+    const spawn = holeConfigs[0].spawn;
+
+    ballsRef.current = [
+      createBall('Player 1', '#facc15', spawn),
+      createBall('Player 2', '#f8fafc', spawn),
+    ];
+
+    sparksRef.current = [];
+    pointerRef.current.active = false;
+
+    setWinnerState(null);
+    setHoleState(0);
+    setActiveState(0);
+    setPhaseState('aim');
+    bumpUi();
+  };
+
+  const addSparks = (x: number, y: number, color: string, amount = 8) => {
+    for (let i = 0; i < amount; i += 1) {
+      const a = (Math.PI * 2 * i) / amount + Math.random() * 0.45;
+      const s = 0.7 + Math.random() * 2.6;
+
+      sparksRef.current.push({
+        x,
+        y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 0.55 + Math.random() * 0.28,
+        size: 2 + Math.random() * 3,
+        color,
+      });
+    }
+  };
+
+  const toWorldPoint = (clientX: number, clientY: number): Vec => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
 
@@ -1044,204 +452,1173 @@ export function MiniGolfBeautiful() {
     };
   };
 
+  const isBallStopped = (ball: BallState) => Math.abs(ball.vx) < STOP_SPEED && Math.abs(ball.vy) < STOP_SPEED;
+
+  const activeBall = () => ballsRef.current[activePlayerRef.current];
+
+  const canAim = () => {
+    const ball = activeBall();
+
+    return !winnerRef.current && turnPhaseRef.current === 'aim' && !ball.done && isBallStopped(ball);
+  };
+
   const strike = () => {
-    const ball = ballsRef.current[activePlayerRef.current];
-    if (winnerRef.current || turnPhaseRef.current !== 'aim' || ball.done) return;
-    if (Math.abs(ball.vx) > 0 || Math.abs(ball.vy) > 0) return;
+    if (!canAim()) return;
 
-    const dx = pointerRef.current.x - ball.x;
-    const dy = pointerRef.current.y - ball.y;
-    const dist = Math.min(len(dx, dy), AIM_MAX);
-    if (dist < 4) return;
+    const ball = activeBall();
+    const dx = ball.x - pointerRef.current.x;
+    const dy = ball.y - pointerRef.current.y;
+    const distance = Math.min(len(dx, dy), AIM_MAX);
 
-    const nx = dx / Math.max(dist, 1);
-    const ny = dy / Math.max(dist, 1);
-    const strength = dist / AIM_MAX;
-    const power = Math.pow(strength, 1.85) * MAX_POWER;
-
-    ball.vx = -nx * power;
-    ball.vy = -ny * power;
-    ball.shots += 1;
-    ball.totalShots += 1;
-
-    turnPhaseRef.current = 'ballMoving';
-    setTurnPhase('ballMoving');
-
-    for (let i = 0; i < 10; i += 1) {
-      sparksRef.current.push({
-        x: ball.x,
-        y: ball.y,
-        vx: -nx * (0.4 + Math.random() * 2.4) + (Math.random() - 0.5),
-        vy: -ny * (0.4 + Math.random() * 2.4) + (Math.random() - 0.5),
-        life: 0.34 + Math.random() * 0.24,
-        size: 2 + Math.random() * 2.2,
-        color: '#fff8bf',
-      });
+    if (distance < 8) {
+      pointerRef.current.active = false;
+      return;
     }
 
-    setUiTick(v => v + 1);
+    const nx = dx / Math.max(distance, 1);
+    const ny = dy / Math.max(distance, 1);
+    const strength = distance / AIM_MAX;
+    const power = Math.pow(strength, 1.72) * MAX_POWER;
+
+    ball.vx = nx * power;
+    ball.vy = ny * power;
+    ball.shots += 1;
+    ball.totalShots += 1;
+    ball.trail = [];
+
+    pointerRef.current.active = false;
+    setPhaseState('moving');
+    bumpUi();
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (turnPhaseRef.current !== 'aim') return;
-    const ball = ballsRef.current[activePlayerRef.current];
-    if (winnerRef.current || ball.done) return;
+  const nextTurnOrHole = () => {
+    const balls = ballsRef.current;
 
-    e.preventDefault();
-    const p = toWorldPoint(e.clientX, e.clientY);
-    pointerRef.current = { active: true, x: p.x, y: p.y };
+    if (bothPlayersDone()) {
+      setPhaseState('transition');
+
+      holeTimeoutRef.current = window.setTimeout(() => {
+        const nextHole = holeIndexRef.current + 1;
+
+        if (nextHole >= TOTAL_HOLES) {
+          const a = ballsRef.current[0];
+          const b = ballsRef.current[1];
+
+          if (a.totalShots < b.totalShots) {
+            setWinnerState(a.name);
+          } else if (b.totalShots < a.totalShots) {
+            setWinnerState(b.name);
+          } else {
+            setWinnerState('Draw');
+          }
+
+          setPhaseState('aim');
+          return;
+        }
+
+        setHoleState(nextHole);
+        resetHoleBalls(nextHole);
+      }, 860);
+
+      return;
+    }
+
+    const current = activePlayerRef.current;
+    const other = (current === 0 ? 1 : 0) as PlayerIndex;
+
+    if (!balls[other].done) {
+      setActiveState(other);
+    } else {
+      setActiveState(current);
+    }
+
+    setPhaseState('aim');
+    bumpUi();
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!pointerRef.current.active) return;
-    e.preventDefault();
-    const p = toWorldPoint(e.clientX, e.clientY);
-    pointerRef.current.x = p.x;
-    pointerRef.current.y = p.y;
+  const resetBallToSpawn = (ball: BallState) => {
+    const spawn = currentHole().spawn;
+
+    addSparks(ball.x, ball.y, '#7dd3fc', 14);
+
+    ball.x = spawn.x;
+    ball.y = spawn.y;
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.trail = [];
   };
 
-  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+  const resolveRectCollision = (ball: BallState, rect: Rect, bounce = 0.86) => {
+    const nearestX = clamp(ball.x, rect.x, rect.x + rect.w);
+    const nearestY = clamp(ball.y, rect.y, rect.y + rect.h);
+    const dx = ball.x - nearestX;
+    const dy = ball.y - nearestY;
+    const distSq = dx * dx + dy * dy;
+
+    if (distSq > BALL_R * BALL_R) return false;
+
+    const inside =
+      ball.x > rect.x &&
+      ball.x < rect.x + rect.w &&
+      ball.y > rect.y &&
+      ball.y < rect.y + rect.h;
+
+    if (!inside && distSq > 0.0001) {
+      const d = Math.sqrt(distSq);
+      const nx = dx / d;
+      const ny = dy / d;
+      const overlap = BALL_R - d;
+
+      ball.x += nx * overlap;
+      ball.y += ny * overlap;
+
+      const dot = ball.vx * nx + ball.vy * ny;
+      if (dot < 0) {
+        ball.vx = (ball.vx - 2 * dot * nx) * bounce;
+        ball.vy = (ball.vy - 2 * dot * ny) * bounce;
+      }
+
+      return true;
+    }
+
+    const leftOverlap = Math.abs(ball.x + BALL_R - rect.x);
+    const rightOverlap = Math.abs(rect.x + rect.w - (ball.x - BALL_R));
+    const topOverlap = Math.abs(ball.y + BALL_R - rect.y);
+    const bottomOverlap = Math.abs(rect.y + rect.h - (ball.y - BALL_R));
+    const minOverlap = Math.min(leftOverlap, rightOverlap, topOverlap, bottomOverlap);
+
+    if (minOverlap === leftOverlap) {
+      ball.x = rect.x - BALL_R;
+      ball.vx = -Math.abs(ball.vx) * bounce;
+    } else if (minOverlap === rightOverlap) {
+      ball.x = rect.x + rect.w + BALL_R;
+      ball.vx = Math.abs(ball.vx) * bounce;
+    } else if (minOverlap === topOverlap) {
+      ball.y = rect.y - BALL_R;
+      ball.vy = -Math.abs(ball.vy) * bounce;
+    } else {
+      ball.y = rect.y + rect.h + BALL_R;
+      ball.vy = Math.abs(ball.vy) * bounce;
+    }
+
+    return true;
+  };
+
+  const resolveBumperCollision = (ball: BallState, bumper: Circle & { color: string }) => {
+    const dx = ball.x - bumper.x;
+    const dy = ball.y - bumper.y;
+    const d = len(dx, dy);
+    const minD = BALL_R + bumper.r;
+
+    if (d <= 0 || d >= minD) return;
+
+    const nx = dx / d;
+    const ny = dy / d;
+
+    ball.x = bumper.x + nx * minD;
+    ball.y = bumper.y + ny * minD;
+
+    const dot = ball.vx * nx + ball.vy * ny;
+
+    ball.vx = (ball.vx - 2 * dot * nx) * 1.04;
+    ball.vy = (ball.vy - 2 * dot * ny) * 1.04;
+
+    const speed = len(ball.vx, ball.vy);
+    if (speed < 6) {
+      ball.vx += nx * 2.6;
+      ball.vy += ny * 2.6;
+    }
+
+    addSparks(ball.x, ball.y, bumper.color, 8);
+  };
+
+  const isOnBridge = (x: number, y: number, bridges: Rect[] = []) => {
+    for (let i = 0; i < bridges.length; i += 1) {
+      if (pointInRect(x, y, bridges[i])) return true;
+    }
+
+    return false;
+  };
+
+  const updateBall = (ball: BallState, dt60: number) => {
+    const config = currentHole();
+
+    if (ball.done) return;
+
+    const inSand = config.sands.some((sand) => pointInRect(ball.x, ball.y, sand));
+    const friction = inSand ? 0.942 : config.theme === 'neon' ? 0.987 : 0.981;
+
+    ball.x += ball.vx * dt60;
+    ball.y += ball.vy * dt60;
+
+    ball.vx *= Math.pow(friction, dt60);
+    ball.vy *= Math.pow(friction, dt60);
+
+    if (Math.abs(ball.vx) < STOP_SPEED) ball.vx = 0;
+    if (Math.abs(ball.vy) < STOP_SPEED) ball.vy = 0;
+
+    if (ball.x < PLAY_LEFT + BALL_R) {
+      ball.x = PLAY_LEFT + BALL_R;
+      ball.vx = Math.abs(ball.vx) * 0.87;
+      addSparks(ball.x, ball.y, '#e2e8f0', 4);
+    }
+
+    if (ball.x > PLAY_RIGHT - BALL_R) {
+      ball.x = PLAY_RIGHT - BALL_R;
+      ball.vx = -Math.abs(ball.vx) * 0.87;
+      addSparks(ball.x, ball.y, '#e2e8f0', 4);
+    }
+
+    if (ball.y < PLAY_TOP + BALL_R) {
+      ball.y = PLAY_TOP + BALL_R;
+      ball.vy = Math.abs(ball.vy) * 0.87;
+      addSparks(ball.x, ball.y, '#e2e8f0', 4);
+    }
+
+    if (ball.y > PLAY_BOTTOM - BALL_R) {
+      ball.y = PLAY_BOTTOM - BALL_R;
+      ball.vy = -Math.abs(ball.vy) * 0.87;
+      addSparks(ball.x, ball.y, '#e2e8f0', 4);
+    }
+
+    for (let i = 0; i < config.walls.length; i += 1) {
+      const hit = resolveRectCollision(ball, config.walls[i]);
+      if (hit) addSparks(ball.x, ball.y, '#f8fafc', 4);
+    }
+
+    for (let i = 0; i < config.bumpers.length; i += 1) {
+      resolveBumperCollision(ball, config.bumpers[i]);
+    }
+
+    for (let i = 0; i < config.waters.length; i += 1) {
+      const water = config.waters[i];
+
+      if (!isOnBridge(ball.x, ball.y, config.bridges) && pointInRect(ball.x, ball.y, water)) {
+        resetBallToSpawn(ball);
+        return;
+      }
+    }
+
+    const holeDx = config.hole.x - ball.x;
+    const holeDy = config.hole.y - ball.y;
+    const holeDistance = len(holeDx, holeDy);
+    const speed = len(ball.vx, ball.vy);
+
+    if (holeDistance < HOLE_R + 14 && speed < 6.5) {
+      const pull = clamp((HOLE_R + 14 - holeDistance) / (HOLE_R + 14), 0, 1);
+
+      ball.vx += (holeDx / Math.max(holeDistance, 1)) * pull * 0.18 * dt60;
+      ball.vy += (holeDy / Math.max(holeDistance, 1)) * pull * 0.18 * dt60;
+    }
+
+    if (holeDistance < HOLE_R && speed < 3.6) {
+      ball.done = true;
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.x = config.hole.x;
+      ball.y = config.hole.y;
+      ball.trail = [];
+      addSparks(config.hole.x, config.hole.y, '#22c55e', 18);
+    }
+
+    ball.trail.push({ x: ball.x, y: ball.y });
+    if (ball.trail.length > 14) ball.trail.shift();
+  };
+
+  const drawThemeBackground = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    const bg = ctx.createLinearGradient(0, 0, 0, WORLD_H);
+
+    if (config.theme === 'garden') {
+      bg.addColorStop(0, '#0f2f1d');
+      bg.addColorStop(0.5, '#10271a');
+      bg.addColorStop(1, '#06120c');
+    } else if (config.theme === 'canyon') {
+      bg.addColorStop(0, '#3a2114');
+      bg.addColorStop(0.48, '#21130c');
+      bg.addColorStop(1, '#0f0805');
+    } else {
+      bg.addColorStop(0, '#07182c');
+      bg.addColorStop(0.45, '#06101f');
+      bg.addColorStop(1, '#030712');
+    }
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    if (config.theme === 'neon') {
+      const aurora = ctx.createLinearGradient(60, 60, 660, 250);
+      aurora.addColorStop(0, 'rgba(59,130,246,0)');
+      aurora.addColorStop(0.35, 'rgba(96,165,250,0.22)');
+      aurora.addColorStop(0.62, 'rgba(45,212,191,0.12)');
+      aurora.addColorStop(1, 'rgba(59,130,246,0)');
+      ctx.fillStyle = aurora;
+      ctx.fillRect(0, 0, WORLD_W, 330);
+    }
+
+    const vignette = ctx.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 120, WORLD_W / 2, WORLD_H / 2, 760);
+    vignette.addColorStop(0, 'rgba(255,255,255,0)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.34)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  };
+
+  const drawCourseBase = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    ctx.save();
+
+    roundRect(ctx, PLAY_LEFT - 10, PLAY_TOP - 10, PLAY_W + 20, PLAY_H + 20, 38);
+    ctx.fillStyle =
+      config.theme === 'canyon'
+        ? '#8b5a2b'
+        : config.theme === 'neon'
+          ? '#94a3b8'
+          : '#2e5a2a';
+    ctx.fill();
+
+    roundRect(ctx, PLAY_LEFT, PLAY_TOP, PLAY_W, PLAY_H, 30);
+    const grass = ctx.createLinearGradient(PLAY_LEFT, PLAY_TOP, PLAY_LEFT, PLAY_BOTTOM);
+
+    if (config.theme === 'garden') {
+      grass.addColorStop(0, '#7ed957');
+      grass.addColorStop(0.5, '#5bbd38');
+      grass.addColorStop(1, '#438c29');
+    } else if (config.theme === 'canyon') {
+      grass.addColorStop(0, '#d19a46');
+      grass.addColorStop(0.48, '#aa7130');
+      grass.addColorStop(1, '#795022');
+    } else {
+      grass.addColorStop(0, '#edf7ff');
+      grass.addColorStop(0.48, '#bfd9ef');
+      grass.addColorStop(1, '#8fb1d1');
+    }
+
+    ctx.fillStyle = grass;
+    ctx.fill();
+
+    ctx.save();
+    roundRect(ctx, PLAY_LEFT, PLAY_TOP, PLAY_W, PLAY_H, 30);
+    ctx.clip();
+
+    for (let y = PLAY_TOP; y < PLAY_BOTTOM; y += 36) {
+      for (let x = PLAY_LEFT; x < PLAY_RIGHT; x += 36) {
+        const even = Math.floor((x + y) / 36) % 2 === 0;
+        ctx.fillStyle = even ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.035)';
+        ctx.fillRect(x, y, 36, 36);
+      }
+    }
+
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(PLAY_LEFT, PLAY_TOP, PLAY_W, 28);
+
+    ctx.restore();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+    roundRect(ctx, PLAY_LEFT + 4, PLAY_TOP + 4, PLAY_W - 8, PLAY_H - 8, 26);
+    ctx.stroke();
+
+    ctx.restore();
+  };
+
+  const drawSand = (ctx: CanvasRenderingContext2D, rect: Rect, config: HoleConfig) => {
+    roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 26);
+    const g = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
+
+    if (config.theme === 'neon') {
+      g.addColorStop(0, '#d9e8f6');
+      g.addColorStop(1, '#adc5df');
+    } else {
+      g.addColorStop(0, '#f4d88b');
+      g.addColorStop(1, '#d6a14b');
+    }
+
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.save();
+    roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 26);
+    ctx.clip();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let i = 0; i < 9; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(rect.x + 18 + i * 19, rect.y + rect.h * 0.56 + Math.sin(i) * 8, 14, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  };
+
+  const drawWater = (ctx: CanvasRenderingContext2D, rect: Rect, config: HoleConfig) => {
+    roundRect(ctx, rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8, 24);
+    ctx.fillStyle = config.theme === 'canyon' ? '#654221' : config.theme === 'neon' ? '#7f95ad' : '#376737';
+    ctx.fill();
+
+    const x = rect.x + 8;
+    const y = rect.y + 9;
+    const w = rect.w - 16;
+    const h = rect.h - 18;
+
+    roundRect(ctx, x, y, w, h, 18);
+    const g = ctx.createLinearGradient(x, y, x, y + h);
+
+    if (config.theme === 'neon') {
+      g.addColorStop(0, '#e0f2fe');
+      g.addColorStop(0.35, '#7dd3fc');
+      g.addColorStop(1, '#2563eb');
+    } else {
+      g.addColorStop(0, '#a7f3ff');
+      g.addColorStop(0.45, '#38d5ff');
+      g.addColorStop(1, '#0284c7');
+    }
+
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.save();
+    roundRect(ctx, x, y, w, h, 18);
+    ctx.clip();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x + 10, y + 12, w - 20, 5);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i < 4; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(x + 28 + i * ((w - 56) / 3), y + h * 0.62 + (i % 2 ? 7 : -4), 18, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  };
+
+  const drawBridge = (ctx: CanvasRenderingContext2D, bridge: Rect) => {
+    roundRect(ctx, bridge.x, bridge.y, bridge.w, bridge.h, 9);
+    const g = ctx.createLinearGradient(bridge.x, bridge.y, bridge.x, bridge.y + bridge.h);
+    g.addColorStop(0, '#c78c56');
+    g.addColorStop(1, '#805030');
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    for (let yy = bridge.y + 8; yy < bridge.y + bridge.h - 6; yy += 14) {
+      ctx.fillRect(bridge.x + 4, yy, bridge.w - 8, 2);
+    }
+  };
+
+  const drawWalls = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    for (let i = 0; i < config.walls.length; i += 1) {
+      const rect = config.walls[i];
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.24)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 5;
+
+      roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 9);
+
+      const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+      if (config.theme === 'canyon') {
+        g.addColorStop(0, '#ead7b5');
+        g.addColorStop(1, '#9f7c50');
+      } else if (config.theme === 'neon') {
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(1, '#94a3b8');
+      } else {
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(1, '#cbd5e1');
+      }
+
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(rect.x + 2, rect.y + 2, Math.max(2, rect.w - 4), Math.min(4, rect.h - 4));
+    }
+  };
+
+  const drawBumpers = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    for (let i = 0; i < config.bumpers.length; i += 1) {
+      const b = config.bumpers[i];
+
+      const shadow = ctx.createRadialGradient(b.x, b.y + 3, 4, b.x, b.y + 3, b.r + 8);
+      shadow.addColorStop(0, 'rgba(0,0,0,0.16)');
+      shadow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = shadow;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y + 6, b.r + 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      const g = ctx.createRadialGradient(b.x - 5, b.y - 7, 2, b.x, b.y, b.r);
+      g.addColorStop(0, '#fff7cc');
+      g.addColorStop(0.45, b.color);
+      g.addColorStop(1, '#92400e');
+
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.36)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.36)';
+      ctx.beginPath();
+      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.35, b.r * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
+  const drawDeco = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    for (let i = 0; i < config.deco.length; i += 1) {
+      const d = config.deco[i];
+      const s = 's' in d && d.s ? d.s : 1;
+
+      if (d.kind === 'bush') {
+        ctx.fillStyle = '#1f7a3a';
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 17 * s, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#4ade80';
+        ctx.beginPath();
+        ctx.arc(d.x - 5 * s, d.y - 6 * s, 9 * s, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#166534';
+        ctx.beginPath();
+        ctx.arc(d.x + 7 * s, d.y + 5 * s, 10 * s, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.kind === 'rock') {
+        ctx.fillStyle = config.theme === 'neon' ? '#cbd5e1' : '#9ca3af';
+        ctx.beginPath();
+        ctx.ellipse(d.x, d.y, 18 * s, 12 * s, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.24)';
+        ctx.beginPath();
+        ctx.ellipse(d.x - 5 * s, d.y - 4 * s, 6 * s, 3 * s, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.kind === 'lamp') {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(d.x, d.y + 26, 13, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(d.x - 3, d.y, 6, 28);
+
+        const glow = ctx.createRadialGradient(d.x, d.y - 4, 2, d.x, d.y - 4, 28);
+        glow.addColorStop(0, 'rgba(254,240,138,0.85)');
+        glow.addColorStop(1, 'rgba(254,240,138,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y - 4, 28, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath();
+        ctx.arc(d.x, d.y - 4, 6, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (d.kind === 'crystal') {
+        const g = ctx.createLinearGradient(d.x, d.y - 22 * s, d.x, d.y + 22 * s);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.45, '#93c5fd');
+        g.addColorStop(1, '#2563eb');
+
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y - 22 * s);
+        ctx.lineTo(d.x + 14 * s, d.y);
+        ctx.lineTo(d.x, d.y + 22 * s);
+        ctx.lineTo(d.x - 14 * s, d.y);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (d.kind === 'sign') {
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(d.x, d.y + 17, 34, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(d.x - 3, d.y - 3, 6, 27);
+
+        roundRect(ctx, d.x - 38, d.y - 25, 76, 26, 8);
+        ctx.fillStyle = '#f8fafc';
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 11px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(d.text, d.x, d.y - 8);
+      }
+    }
+  };
+
+  const drawHole = (ctx: CanvasRenderingContext2D, config: HoleConfig) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.arc(config.hole.x + 2, config.hole.y + 5, HOLE_R + 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    const holeGrad = ctx.createRadialGradient(config.hole.x - 4, config.hole.y - 5, 2, config.hole.x, config.hole.y, HOLE_R + 2);
+    holeGrad.addColorStop(0, '#334155');
+    holeGrad.addColorStop(1, '#020617');
+
+    ctx.fillStyle = holeGrad;
+    ctx.beginPath();
+    ctx.arc(config.hole.x, config.hole.y, HOLE_R, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.86)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(config.hole.x, config.hole.y - 2);
+    ctx.lineTo(config.hole.x, config.hole.y - 66);
+    ctx.stroke();
+
+    ctx.fillStyle = config.theme === 'canyon' ? '#f97316' : config.theme === 'neon' ? '#38bdf8' : '#ef4444';
+    ctx.beginPath();
+    ctx.moveTo(config.hole.x, config.hole.y - 66);
+    ctx.lineTo(config.hole.x + 42, config.hole.y - 53);
+    ctx.lineTo(config.hole.x, config.hole.y - 40);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  };
+
+  const drawBall = (ctx: CanvasRenderingContext2D, ball: BallState, isActive: boolean) => {
+    for (let i = 0; i < ball.trail.length; i += 1) {
+      const p = ball.trail[i];
+      const a = i / Math.max(ball.trail.length - 1, 1);
+
+      ctx.fillStyle = `rgba(255,255,255,${0.04 + a * 0.10})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, BALL_R * (0.35 + a * 0.35), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.beginPath();
+    ctx.ellipse(ball.x, ball.y + 14, BALL_R + 5, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (isActive && turnPhaseRef.current === 'aim' && !ball.done) {
+      ctx.strokeStyle = 'rgba(250,204,21,0.55)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R + 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const g = ctx.createRadialGradient(ball.x - 5, ball.y - 6, 2, ball.x, ball.y, BALL_R + 1);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.38, ball.color);
+    g.addColorStop(1, ball.color === '#f8fafc' ? '#94a3b8' : '#b45309');
+
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.arc(ball.x - 4, ball.y - 5, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  const drawAim = (ctx: CanvasRenderingContext2D) => {
+    if (!pointerRef.current.active || !canAim()) return;
+
+    const ball = activeBall();
+    const dx = ball.x - pointerRef.current.x;
+    const dy = ball.y - pointerRef.current.y;
+    const distance = Math.min(len(dx, dy), AIM_MAX);
+
+    if (distance < 8) return;
+
+    const nx = dx / Math.max(distance, 1);
+    const ny = dy / Math.max(distance, 1);
+    const strength = distance / AIM_MAX;
+    const endX = ball.x + nx * (64 + strength * 132);
+    const endY = ball.y + ny * (64 + strength * 132);
+
+    ctx.save();
+
+    ctx.strokeStyle = strength > 0.78 ? 'rgba(248,113,113,0.95)' : strength > 0.48 ? 'rgba(250,204,21,0.95)' : 'rgba(125,211,252,0.95)';
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const angle = Math.atan2(ny, nx);
+
+    ctx.translate(endX, endY);
+    ctx.rotate(angle);
+
+    ctx.fillStyle = strength > 0.78 ? '#f87171' : strength > 0.48 ? '#facc15' : '#7dd3fc';
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.lineTo(-9, -9);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-9, 9);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+
+    const barW = 180;
+    const barH = 12;
+    const barX = ball.x - barW / 2;
+    const barY = ball.y + 34;
+
+    roundRect(ctx, barX, barY, barW, barH, 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fill();
+
+    roundRect(ctx, barX, barY, barW * strength, barH, 8);
+    ctx.fillStyle = strength > 0.78 ? '#f87171' : strength > 0.48 ? '#facc15' : '#7dd3fc';
+    ctx.fill();
+  };
+
+  const drawParticles = (ctx: CanvasRenderingContext2D) => {
+    for (let i = 0; i < sparksRef.current.length; i += 1) {
+      const s = sparksRef.current[i];
+
+      ctx.globalAlpha = clamp(s.life, 0, 1);
+      ctx.fillStyle = s.color;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+  };
+
+  const drawHudMarkers = (ctx: CanvasRenderingContext2D) => {
+    const ball = activeBall();
+
+    if (turnPhaseRef.current !== 'aim' || ball.done) return;
+
+    ctx.save();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    roundRect(ctx, ball.x - 68, ball.y - 52, 136, 27, 14);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.86)';
+    ctx.font = '900 13px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${ball.name} • shot ${ball.shots + 1}`, ball.x, ball.y - 34);
+
+    ctx.restore();
+  };
+
+  const draw = (ctx: CanvasRenderingContext2D) => {
+    const { width, height, scale, offsetX, offsetY } = layoutRef.current;
+    const config = currentHole();
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    drawThemeBackground(ctx, config);
+    drawCourseBase(ctx, config);
+
+    for (let i = 0; i < config.sands.length; i += 1) drawSand(ctx, config.sands[i], config);
+    for (let i = 0; i < config.waters.length; i += 1) drawWater(ctx, config.waters[i], config);
+
+    const bridges = config.bridges ?? [];
+    for (let i = 0; i < bridges.length; i += 1) drawBridge(ctx, bridges[i]);
+
+    drawWalls(ctx, config);
+    drawBumpers(ctx, config);
+    drawDeco(ctx, config);
+    drawHole(ctx, config);
+
+    drawParticles(ctx);
+
+    const balls = ballsRef.current;
+    drawBall(ctx, balls[0], activePlayerRef.current === 0);
+    drawBall(ctx, balls[1], activePlayerRef.current === 1);
+
+    drawAim(ctx);
+    drawHudMarkers(ctx);
+
+    ctx.restore();
+  };
+
+  useEffect(() => {
+    const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+
+    tg?.expand?.();
+    tg?.disableVerticalSwipes?.();
+
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlTouch = document.documentElement.style.touchAction;
+    const prevBodyTouch = document.body.style.touchAction;
+    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+    const prevBodyUserSelect = document.body.style.userSelect;
+
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.touchAction = 'none';
+    document.body.style.touchAction = 'none';
+    document.documentElement.style.overscrollBehavior = 'none';
+    document.body.style.overscrollBehavior = 'none';
+    document.body.style.userSelect = 'none';
+
+    const preventTouch = (event: TouchEvent) => {
+      if (event.cancelable) event.preventDefault();
+    };
+
+    const preventContext = (event: Event) => {
+      event.preventDefault();
+    };
+
+    document.addEventListener('touchmove', preventTouch, { passive: false });
+    document.addEventListener('contextmenu', preventContext);
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.touchAction = prevHtmlTouch;
+      document.body.style.touchAction = prevBodyTouch;
+      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+      document.body.style.userSelect = prevBodyUserSelect;
+
+      document.removeEventListener('touchmove', preventTouch);
+      document.removeEventListener('contextmenu', preventContext);
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = canvasWrapRef.current;
+
+    if (!canvas || !wrap) return undefined;
+
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) return undefined;
+
+    const resize = () => {
+      const rect = wrap.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+
+      const width = Math.max(1, rect.width);
+      const height = Math.max(1, rect.height);
+      const scale = Math.min(width / WORLD_W, height / WORLD_H);
+      const offsetX = (width - WORLD_W * scale) / 2;
+      const offsetY = (height - WORLD_H * scale) / 2;
+
+      layoutRef.current = {
+        width,
+        height,
+        scale,
+        offsetX,
+        offsetY,
+        dpr,
+      };
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    resize();
+
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+
+    lastFrameRef.current = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(2, (now - lastFrameRef.current) / 16.666);
+      lastFrameRef.current = now;
+
+      if (turnPhaseRef.current === 'moving') {
+        const ball = activeBall();
+
+        updateBall(ball, dt);
+
+        if (ball.done || isBallStopped(ball)) {
+          ball.vx = 0;
+          ball.vy = 0;
+
+          nextTurnOrHole();
+        }
+
+        bumpUi();
+      }
+
+      const nextSparks: Spark[] = [];
+
+      for (let i = 0; i < sparksRef.current.length; i += 1) {
+        const s = sparksRef.current[i];
+
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.vx *= Math.pow(0.975, dt);
+        s.vy *= Math.pow(0.975, dt);
+        s.life -= 0.028 * dt;
+
+        if (s.life > 0) nextSparks.push(s);
+      }
+
+      sparksRef.current = nextSparks;
+
+      draw(ctx);
+      rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+
+    return () => {
+      ro.disconnect();
+
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (holeTimeoutRef.current !== null) window.clearTimeout(holeTimeoutRef.current);
+    };
+  }, []);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!canAim()) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const point = toWorldPoint(event.clientX, event.clientY);
+    const ball = activeBall();
+
+    pointerRef.current = {
+      active: true,
+      x: point.x,
+      y: point.y,
+    };
+
+    if (len(point.x - ball.x, point.y - ball.y) > 240) {
+      pointerRef.current.x = ball.x;
+      pointerRef.current.y = ball.y + 90;
+    }
+
+    bumpUi();
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!pointerRef.current.active || !canAim()) return;
+
+    const point = toWorldPoint(event.clientX, event.clientY);
+
+    pointerRef.current.x = point.x;
+    pointerRef.current.y = point.y;
+
+    bumpUi();
+  };
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
     strike();
-    pointerRef.current.active = false;
-  };
-
-  const restart = () => {
-    const spawn = holeConfigs[0].spawn;
-
-    winnerRef.current = null;
-    holeIndexRef.current = 0;
-    activePlayerRef.current = 0;
-    turnPhaseRef.current = 'aim';
-
-    setWinner(null);
-    setHoleIndex(0);
-    setActivePlayer(0);
-    setTurnPhase('aim');
-
-    ballsRef.current = [
-      createBall('Jack', '#ffd84d', spawn),
-      createBall('Kirsten', '#ffffff', spawn),
-    ];
-
-    sparksRef.current = [];
-    waterSplashesRef.current = [];
-    pointerRef.current.active = false;
-    setUiTick(v => v + 1);
   };
 
   const p1 = ballsRef.current[0];
   const p2 = ballsRef.current[1];
-  const currentHole = holeConfigs[holeIndex];
+  const config = holeConfigs[holeIndex];
 
   return (
-    <div ref={rootRef} className="w-full h-full bg-black overflow-hidden touch-none select-none flex flex-col">
-      <div className="shrink-0 px-2 pt-2 pb-2 bg-black/45 backdrop-blur-sm z-20">
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center text-white">
+    <div
+      className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#070a12] text-white touch-none select-none"
+      style={{
+        touchAction: 'none',
+        overscrollBehavior: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+      }}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_8%,rgba(34,197,94,.16),transparent_26%),radial-gradient(circle_at_86%_16%,rgba(56,189,248,.13),transparent_26%),linear-gradient(180deg,#101827_0%,#07101c_100%)]" />
+
+      <div className="relative z-10 shrink-0 px-3 pt-2">
+        <div className="overflow-hidden rounded-[26px] border border-white/10 bg-black/32 shadow-[0_16px_45px_rgba(0,0,0,.28)] backdrop-blur-xl">
           <div
-            className={`min-w-0 rounded-2xl px-2 py-2 border ${
-              activePlayer === 0 ? 'bg-emerald-500/12 border-emerald-300/30' : 'bg-white/8 border-white/10'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-lime-300 to-emerald-500 text-black text-xs font-black">
-                5
+            className="h-1.5"
+            style={{
+              backgroundImage:
+                'linear-gradient(90deg,#22c55e 0 20%,#84cc16 20% 38%,#38bdf8 38% 58%,#facc15 58% 76%,#22c55e 76% 100%)',
+              backgroundSize: '110px 100%',
+            }}
+          />
+
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2">
+            <div className={`rounded-2xl border px-3 py-2 ${activePlayer === 0 ? 'border-yellow-300/30 bg-yellow-300/14' : 'border-white/8 bg-white/6'}`}>
+              <div className="text-[8px] font-black uppercase tracking-[0.2em] text-white/38">Player 1</div>
+              <div className="mt-1 text-lg font-black leading-none text-yellow-200">{p1.totalShots}</div>
+              <div className="mt-0.5 text-[9px] font-bold text-white/38">hole {p1.shots}</div>
+            </div>
+
+            <div className="min-w-[134px] text-center">
+              <div className="text-[8px] font-black uppercase tracking-[0.22em] text-white/35">
+                Hole {holeIndex + 1}/{TOTAL_HOLES}
               </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-black leading-none">Jack</div>
-                <div className="text-[11px] text-white/70">{p1.totalShots} shots</div>
+              <div className="mt-0.5 truncate bg-gradient-to-r from-lime-200 via-white to-sky-200 bg-clip-text text-lg font-black leading-none text-transparent">
+                {config.name}
               </div>
+              <div className="mt-0.5 truncate text-[9px] font-bold text-white/42">{config.subtitle}</div>
+            </div>
+
+            <div className={`rounded-2xl border px-3 py-2 text-right ${activePlayer === 1 ? 'border-sky-200/30 bg-sky-200/14' : 'border-white/8 bg-white/6'}`}>
+              <div className="text-[8px] font-black uppercase tracking-[0.2em] text-white/38">Player 2</div>
+              <div className="mt-1 text-lg font-black leading-none text-slate-100">{p2.totalShots}</div>
+              <div className="mt-0.5 text-[9px] font-bold text-white/38">hole {p2.shots}</div>
             </div>
           </div>
 
-          <div className="rounded-2xl px-3 py-2 bg-white/8 border border-white/10 text-center min-w-[116px]">
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
-              {holeIndex + 1}/{TOTAL_HOLES}
+          <div className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 pb-2">
+            <div className="truncate rounded-xl bg-white/6 px-3 py-1.5 text-[10px] font-bold text-white/52">
+              {winner
+                ? 'Матч завершён'
+                : turnPhase === 'aim'
+                  ? `Тяни от шара назад и отпускай • ${activePlayer === 0 ? 'Player 1' : 'Player 2'}`
+                  : turnPhase === 'moving'
+                    ? 'Шар катится...'
+                    : 'Переход к следующей карте...'}
             </div>
-            <div className="text-sm font-black leading-none mt-1">{currentHole.name}</div>
-          </div>
 
-          <div
-            className={`min-w-0 rounded-2xl px-2 py-2 border ${
-              activePlayer === 1 ? 'bg-amber-500/12 border-amber-300/30' : 'bg-white/8 border-white/10'
-            }`}
-          >
-            <div className="flex items-center gap-2 justify-end">
-              <div className="min-w-0 text-right">
-                <div className="truncate text-sm font-black leading-none">Kirsten</div>
-                <div className="text-[11px] text-white/70">{p2.totalShots} shots</div>
-              </div>
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-yellow-500 text-black text-xs font-black">
-                6
-              </div>
-            </div>
+            <button
+              onClick={restart}
+              className="pointer-events-auto rounded-xl border border-white/10 bg-white/8 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white/72 active:scale-95"
+            >
+              reset
+            </button>
           </div>
         </div>
       </div>
 
-      <div ref={canvasWrapRef} className="relative flex-1 min-h-0 overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={() => {
-            pointerRef.current.active = false;
-          }}
-          onPointerLeave={() => {
-            pointerRef.current.active = false;
-          }}
-          className="block w-full h-full touch-none"
-          style={{ touchAction: 'none' }}
-        />
+      <div ref={canvasWrapRef} className="relative z-10 min-h-0 flex-1 overflow-hidden px-2 pb-2 pt-2">
+        <div className="relative h-full overflow-hidden rounded-[32px] border border-white/10 bg-black/20 shadow-[inset_0_1px_0_rgba(255,255,255,.07),0_18px_60px_rgba(0,0,0,.3)]">
+          <canvas
+            ref={canvasRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
 
-        <div className="absolute bottom-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
-          <div className="text-[11px] uppercase tracking-[0.18em] font-bold text-white/65 bg-black/25 px-3 py-2 rounded-full backdrop-blur-sm">
-            {turnPhase === 'aim'
-              ? `Aim • ${activePlayer === 0 ? 'Jack' : 'Kirsten'}`
-              : turnPhase === 'ballMoving'
-              ? 'Ball moving'
-              : 'Loading next hole'}
-          </div>
+              pointerRef.current.active = false;
+            }}
+            onPointerLeave={() => {
+              pointerRef.current.active = false;
+            }}
+            className="block h-full w-full touch-none"
+            style={{ touchAction: 'none' }}
+          />
 
-          <button
-            onClick={restart}
-            className="pointer-events-auto rounded-full bg-black/30 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] border border-white/10 text-white/90 hover:bg-black/40 transition"
-          >
-            Restart
-          </button>
-        </div>
-
-        <AnimatePresence>
           {winner && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center z-30"
-            >
-              <motion.div
-                initial={{ scale: 0.92, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="rounded-[28px] bg-white px-8 py-10 text-center shadow-2xl max-w-[340px]"
-              >
-                <div className="text-sm font-bold uppercase tracking-[0.28em] text-slate-400">Result</div>
-                <div className="mt-3 text-4xl font-black text-slate-900">
-                  {winner === 'Draw' ? 'Draw' : `${winner} wins`}
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/68 p-5 backdrop-blur-md">
+              <div className="w-full max-w-[360px] overflow-hidden rounded-[34px] border border-white/12 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] text-center shadow-[0_30px_90px_rgba(0,0,0,0.56)]">
+                <div className="h-3 bg-gradient-to-r from-lime-400 via-sky-400 to-yellow-300" />
+
+                <div className="px-6 py-6">
+                  <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white/38">result</div>
+
+                  <div className="mt-2 bg-gradient-to-r from-lime-200 via-white to-sky-200 bg-clip-text text-5xl font-black tracking-tight text-transparent">
+                    {winner === 'Draw' ? 'DRAW' : `${winner} WINS`}
+                  </div>
+
+                  <div className="mt-3 text-sm font-semibold text-white/52">
+                    Player 1: {p1.totalShots} • Player 2: {p2.totalShots}
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    <div className="rounded-3xl border border-yellow-300/12 bg-yellow-300/8 px-4 py-4">
+                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/38">
+                        Player 1
+                      </div>
+                      <div className="mt-2 text-4xl font-black leading-none text-yellow-200">
+                        {p1.totalShots}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-sky-300/12 bg-sky-300/8 px-4 py-4">
+                      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/38">
+                        Player 2
+                      </div>
+                      <div className="mt-2 text-4xl font-black leading-none text-sky-100">
+                        {p2.totalShots}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={restart}
+                    className="mt-7 w-full rounded-3xl bg-gradient-to-r from-lime-500 to-emerald-600 py-4 text-sm font-black uppercase tracking-[0.18em] text-white shadow-[0_16px_34px_rgba(34,197,94,0.18)] transition active:scale-[0.98]"
+                  >
+                    Play Again
+                  </button>
+
+                  <button
+                    onClick={() => navigate(-1)}
+                    className="mt-3 w-full rounded-3xl border border-white/10 bg-white/8 py-3 text-sm font-black text-white/75 transition active:scale-[0.98]"
+                  >
+                    Назад
+                  </button>
                 </div>
-                <div className="mt-4 text-slate-600">
-                  Jack: {p1.totalShots} shots • Kirsten: {p2.totalShots} shots
-                </div>
-                <button
-                  onClick={restart}
-                  className="mt-8 rounded-full bg-sky-600 px-6 py-3 text-white font-bold hover:bg-sky-500 transition"
-                >
-                  Restart 3 Holes
-                </button>
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           )}
-        </AnimatePresence>
+        </div>
       </div>
     </div>
   );
