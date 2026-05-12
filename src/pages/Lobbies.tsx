@@ -24,6 +24,8 @@ export const Lobbies = () => {
     slingclash: 'Sling Clash',
     parkduel: 'Park Duel',
     chronoslash: 'Chrono Slash',
+    royalbluff: 'Royal Bluff',
+    icebump: 'Ice Bump',
     newgame: 'New Game',
     chase: 'Tag Chase',
     archer: 'Neon Duel',
@@ -48,6 +50,8 @@ export const Lobbies = () => {
       slingclash: '/game/slingclash/play',
       parkduel: '/game/parkduel/play',
       chronoslash: '/game/chronoslash/play',
+      royalbluff: '/game/royalbluff/play',
+      icebump: '/game/icebump/play',
       newgame: '/game/newgame/play',
       chase: '/game/chase/play',
       race: '/game/race/play',
@@ -60,7 +64,7 @@ export const Lobbies = () => {
     };
 
     if (gameRoutes[gameId || '']) {
-      navigate(gameRoutes[gameId!]);
+      navigate(gameRoutes[gameId || '']);
     } else {
       alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
     }
@@ -69,16 +73,21 @@ export const Lobbies = () => {
   const isSlingClash = gameId === 'slingclash';
   const isParkDuel = gameId === 'parkduel';
   const isChronoSlash = gameId === 'chronoslash';
-  const isBotTest = isSlingClash || isParkDuel || isChronoSlash;
+  const isRoyalBluff = gameId === 'royalbluff';
+  const isIceBump = gameId === 'icebump';
+
+  const isLocalTest =
+    isSlingClash ||
+    isParkDuel ||
+    isChronoSlash ||
+    isRoyalBluff ||
+    isIceBump;
 
   return (
     <div className="p-4 pb-20 min-h-screen">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <button
-            onClick={() => navigate(-1)}
-            className="text-gray-400 mb-2 block"
-          >
+          <button onClick={() => navigate(-1)} className="text-gray-400 mb-2 block">
             ← Назад
           </button>
 
@@ -87,11 +96,11 @@ export const Lobbies = () => {
           </h1>
 
           <p className="text-gray-400">
-            {isBotTest ? 'Тестовый режим против бота' : 'Доступные лобби'}
+            {isLocalTest ? 'Тестовый оффлайн-режим' : 'Доступные лобби'}
           </p>
         </div>
 
-        {!isBotTest && (
+        {!isLocalTest && (
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate(`/game/${gameId}/create`)}
@@ -165,11 +174,53 @@ export const Lobbies = () => {
         </motion.div>
       )}
 
+      {isRoyalBluff && (
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 overflow-hidden rounded-3xl border border-yellow-300/20 bg-gradient-to-br from-[#2b1549] via-[#171126] to-[#3b1f09] p-4 shadow-2xl"
+        >
+          <div className="text-3xl mb-2">👑</div>
+          <h2 className="text-white text-xl font-black">Royal Bluff Local Test</h2>
+          <p className="text-yellow-100/70 text-sm mt-1 leading-relaxed">
+            Пока все 4 игрока управляются с одного телефона. Кидай карты, верь или сомневайся, а револьвер решает судьбу.
+          </p>
+
+          <button
+            onClick={() => navigate('/game/royalbluff/play')}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-yellow-400 via-orange-500 to-fuchsia-500 py-3 font-black text-stone-950 active:scale-95 transition"
+          >
+            Играть локально
+          </button>
+        </motion.div>
+      )}
+
+      {isIceBump && (
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-sky-950/80 via-cyan-950/70 to-slate-950 p-4 shadow-2xl"
+        >
+          <div className="text-3xl mb-2">🐧</div>
+          <h2 className="text-white text-xl font-black">Ice Bump Bot Test</h2>
+          <p className="text-cyan-100/70 text-sm mt-1 leading-relaxed">
+            4 пингвина на ледяной платформе. Выбери силу и направление, после таймера все стартуют одновременно.
+          </p>
+
+          <button
+            onClick={() => navigate('/game/icebump/play')}
+            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-300 to-sky-500 py-3 font-black text-slate-950 active:scale-95 transition"
+          >
+            Играть с ботами
+          </button>
+        </motion.div>
+      )}
+
       <div className="space-y-3">
         {lobbies.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <Users size={48} className="mx-auto opacity-30 mb-2" />
-            <p>{isBotTest ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
+            <p>{isLocalTest ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
           </div>
         ) : (
           lobbies.map((lobby) => (

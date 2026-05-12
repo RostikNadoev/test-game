@@ -66,6 +66,20 @@ const games = [
     color: 'from-cyan-400 to-fuchsia-600',
   },
   {
+    id: 'royalbluff',
+    name: 'Royal Bluff',
+    icon: '👑',
+    description: 'Блеф за круглым столом',
+    color: 'from-yellow-500 via-orange-500 to-purple-700',
+  },
+  {
+    id: 'icebump',
+    name: 'Ice Bump',
+    icon: '🐧',
+    description: 'Пингвины на льду',
+    color: 'from-sky-400 to-cyan-600',
+  },
+  {
     id: 'newgame',
     name: 'New Game',
     icon: '✨',
@@ -148,18 +162,14 @@ export const Home = () => {
             key={game.id}
             game={game}
             onClick={() => {
-              if (game.id === 'slingclash') {
-                navigate('/game/slingclash/play');
-                return;
-              }
-
-              if (game.id === 'parkduel') {
-                navigate('/game/parkduel/play');
-                return;
-              }
-
-              if (game.id === 'chronoslash') {
-                navigate('/game/chronoslash/play');
+              if (
+                game.id === 'slingclash' ||
+                game.id === 'parkduel' ||
+                game.id === 'chronoslash' ||
+                game.id === 'royalbluff' ||
+                game.id === 'icebump'
+              ) {
+                navigate(`/game/${game.id}/play`);
                 return;
               }
 

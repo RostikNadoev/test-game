@@ -1,736 +1,1669 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-type Choice = 'rock' | 'paper' | 'scissors';
-type Phase = 'countdown' | 'reveal' | 'round_end' | 'finished';
-type RoundWinner = 'player' | 'bot' | 'draw' | null;
+type Move = 'rock' | 'paper' | 'scissors';
+type Phase = 'choosing' | 'reveal' | 'result' | 'matchOver';
+type RoundResult = 'win' | 'lose' | 'draw';
+type ImpactKind = 'crush' | 'cut' | 'wrap' | 'tie';
 
-const TURN_SECONDS = 5;
-const TARGET_SCORE = 5;
-
-const CHOICES: Array<{
-  key: Choice;
-  label: string;
-  icon: string;
-  color: string;
-  accent: string;
-  glow: string;
-}> = [
-  {
-    key: 'rock',
-    label: 'Rock',
-    icon: '✊',
-    color: 'from-orange-400 via-rose-500 to-red-500',
-    accent: '#fb923c',
-    glow: 'rgba(251,146,60,0.28)',
-  },
-  {
-    key: 'paper',
-    label: 'Paper',
-    icon: '✋',
-    color: 'from-cyan-400 via-sky-500 to-blue-500',
-    accent: '#22d3ee',
-    glow: 'rgba(34,211,238,0.28)',
-  },
-  {
-    key: 'scissors',
-    label: 'Scissors',
-    icon: '✌️',
-    color: 'from-fuchsia-400 via-violet-500 to-purple-500',
-    accent: '#d946ef',
-    glow: 'rgba(217,70,239,0.28)',
-  },
-];
-
-const beats: Record<Choice, Choice> = {
-  rock: 'scissors',
-  paper: 'rock',
-  scissors: 'paper',
+type Score = {
+  player: number;
+  bot: number;
 };
 
-const getChoiceMeta = (choice: Choice | null) => {
-  if (!choice) return null;
-  return CHOICES.find((item) => item.key === choice) ?? null;
+type HistoryItem = {
+  result: RoundResult;
+  player: Move;
+  bot: Move;
 };
 
-const getRoundWinner = (player: Choice, bot: Choice): RoundWinner => {
+const CHOOSE_MS = 5000;
+const WIN_TARGET = 5;
+const MOVES: Move[] = ['rock', 'paper', 'scissors'];
+
+const MOVE_LABEL: Record<Move, string> = {
+  rock: 'Камень',
+  paper: 'Бумага',
+  scissors: 'Ножницы',
+};
+
+const MOVE_HINT: Record<Move, string> = {
+  rock: 'давит ножницы',
+  paper: 'накрывает камень',
+  scissors: 'режут бумагу',
+};
+
+const randomMove = (): Move => MOVES[Math.floor(Math.random() * MOVES.length)];
+
+const judge = (player: Move, bot: Move): RoundResult => {
   if (player === bot) return 'draw';
-  return beats[player] === bot ? 'player' : 'bot';
+  if (
+    (player === 'rock' && bot === 'scissors') ||
+    (player === 'paper' && bot === 'rock') ||
+    (player === 'scissors' && bot === 'paper')
+  ) {
+    return 'win';
+  }
+  return 'lose';
 };
 
-const randomChoice = (): Choice => {
-  const variants: Choice[] = ['rock', 'paper', 'scissors'];
-  return variants[Math.floor(Math.random() * variants.length)];
+const getImpactKind = (player: Move, bot: Move): ImpactKind => {
+  if (player === bot) return 'tie';
+  const winningMove = judge(player, bot) === 'win' ? player : bot;
+  if (winningMove === 'rock') return 'crush';
+  if (winningMove === 'scissors') return 'cut';
+  return 'wrap';
 };
 
-const ScoreDots = ({ score, tone }: { score: number; tone: 'emerald' | 'rose' }) => {
-  const activeClass =
-    tone === 'emerald'
-      ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.75)]'
-      : 'bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.75)]';
+const getResultText = (result: RoundResult | null, player: Move | null, bot: Move | null) => {
+  if (!result || !player || !bot) return 'Сделай выбор';
+  if (result === 'draw') return `${MOVE_LABEL[player]} против ${MOVE_LABEL[bot]} — ничья`;
+  if (result === 'win') return `${MOVE_LABEL[player]} побеждает ${MOVE_LABEL[bot]}`;
+  return `${MOVE_LABEL[bot]} побеждает ${MOVE_LABEL[player]}`;
+};
+
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+type ObjectArtProps = {
+  move: Move;
+  side?: 'left' | 'right';
+  small?: boolean;
+};
+
+function RockArt({ side = 'left', small = false }: Pick<ObjectArtProps, 'side' | 'small'>) {
+  const id = `rock-${side}-${small ? 's' : 'b'}`;
 
   return (
-    <div className="flex items-center gap-1.5">
-      {Array.from({ length: TARGET_SCORE }).map((_, i) => (
-        <div
-          key={i}
-          className={`h-2.5 w-2.5 rounded-full border border-white/10 transition-all duration-500 ${
-            i < score ? activeClass : 'bg-white/10'
-          }`}
+    <svg className={cx('moveSvg', small && 'smallSvg')} viewBox="0 0 240 240" aria-hidden="true">
+      <defs>
+        <radialGradient id={`${id}-body`} cx="36%" cy="25%" r="72%">
+          <stop offset="0%" stopColor="#eef2ff" />
+          <stop offset="19%" stopColor="#cbd5e1" />
+          <stop offset="56%" stopColor="#64748b" />
+          <stop offset="100%" stopColor="#273449" />
+        </radialGradient>
+        <linearGradient id={`${id}-edge`} x1="40" y1="25" x2="210" y2="210">
+          <stop offset="0%" stopColor="#f8fafc" stopOpacity="0.62" />
+          <stop offset="55%" stopColor="#475569" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#020617" stopOpacity="0.55" />
+        </linearGradient>
+        <filter id={`${id}-shadow`} x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="0" dy="18" stdDeviation="12" floodColor="#000" floodOpacity="0.42" />
+          <feDropShadow dx="-8" dy="-10" stdDeviation="8" floodColor="#fff" floodOpacity="0.1" />
+        </filter>
+      </defs>
+
+      <ellipse cx="122" cy="198" rx="75" ry="15" fill="#020617" opacity="0.24" />
+      <g filter={`url(#${id}-shadow)`}>
+        <path
+          d="M39 129 C30 98 51 63 84 51 C102 27 144 30 166 48 C199 50 221 79 217 113 C231 144 205 181 172 190 C146 214 104 209 84 193 C50 190 28 162 39 129 Z"
+          fill={`url(#${id}-body)`}
+        />
+        <path
+          d="M39 129 C30 98 51 63 84 51 C102 27 144 30 166 48 C199 50 221 79 217 113 C231 144 205 181 172 190 C146 214 104 209 84 193 C50 190 28 162 39 129 Z"
+          fill={`url(#${id}-edge)`}
+        />
+        <path
+          d="M71 117 C89 103 109 104 123 119 C144 109 165 113 181 129"
+          fill="none"
+          stroke="#1e293b"
+          strokeWidth="7"
+          strokeLinecap="round"
+          opacity="0.42"
+        />
+        <path
+          d="M103 70 C119 62 143 65 157 79"
+          fill="none"
+          stroke="#f8fafc"
+          strokeWidth="11"
+          strokeLinecap="round"
+          opacity="0.3"
+        />
+        <path
+          d="M83 151 L110 140 L126 160 L155 144"
+          fill="none"
+          stroke="#0f172a"
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity="0.35"
+        />
+        <circle cx="78" cy="86" r="8" fill="#fff" opacity="0.2" />
+        <circle cx="188" cy="116" r="12" fill="#020617" opacity="0.14" />
+        <circle cx="147" cy="178" r="9" fill="#020617" opacity="0.18" />
+      </g>
+    </svg>
+  );
+}
+
+function PaperArt({ side = 'left', small = false }: Pick<ObjectArtProps, 'side' | 'small'>) {
+  const id = `paper-${side}-${small ? 's' : 'b'}`;
+
+  return (
+    <svg className={cx('moveSvg', small && 'smallSvg')} viewBox="0 0 240 240" aria-hidden="true">
+      <defs>
+        <linearGradient id={`${id}-sheet`} x1="54" y1="30" x2="187" y2="214">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="48%" stopColor="#dbeafe" />
+          <stop offset="100%" stopColor="#93c5fd" />
+        </linearGradient>
+        <linearGradient id={`${id}-fold`} x1="155" y1="28" x2="205" y2="84">
+          <stop offset="0%" stopColor="#bfdbfe" />
+          <stop offset="100%" stopColor="#eff6ff" />
+        </linearGradient>
+        <filter id={`${id}-shadow`} x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="0" dy="18" stdDeviation="13" floodColor="#000" floodOpacity="0.36" />
+        </filter>
+      </defs>
+
+      <ellipse cx="120" cy="202" rx="72" ry="14" fill="#020617" opacity="0.22" />
+      <g filter={`url(#${id}-shadow)`}>
+        <path
+          d="M66 31 H156 L201 77 V202 C201 213 193 221 181 221 H61 C49 221 41 213 41 201 V56 C41 41 51 31 66 31 Z"
+          fill={`url(#${id}-sheet)`}
+        />
+        <path d="M156 31 V70 C156 79 164 86 173 86 H201 Z" fill={`url(#${id}-fold)`} />
+        <path d="M156 31 V70 C156 79 164 86 173 86 H201" fill="none" stroke="#60a5fa" strokeWidth="4" opacity="0.38" />
+        <path
+          d="M69 91 H162 M69 118 H174 M69 145 H154 M69 172 H135"
+          stroke="#2563eb"
+          strokeWidth="7"
+          strokeLinecap="round"
+          opacity="0.22"
+        />
+        <path
+          d="M58 64 C82 48 103 47 125 62"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="10"
+          strokeLinecap="round"
+          opacity="0.45"
+        />
+        <path
+          d="M52 199 C81 189 111 195 137 209 C157 220 184 215 201 201 V202 C201 213 193 221 181 221 H61 C51 221 43 215 41 205 C44 203 48 201 52 199 Z"
+          fill="#1d4ed8"
+          opacity="0.08"
+        />
+        <circle cx="171" cy="168" r="18" fill="#f97316" opacity="0.22" />
+        <path d="M162 168 L168 176 L183 158" fill="none" stroke="#ea580c" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" opacity="0.65" />
+      </g>
+    </svg>
+  );
+}
+
+function ScissorsArt({ side = 'left', small = false }: Pick<ObjectArtProps, 'side' | 'small'>) {
+  const id = `scissors-${side}-${small ? 's' : 'b'}`;
+
+  return (
+    <svg className={cx('moveSvg', small && 'smallSvg')} viewBox="0 0 240 240" aria-hidden="true">
+      <defs>
+        <linearGradient id={`${id}-blade`} x1="55" y1="55" x2="203" y2="162">
+          <stop offset="0%" stopColor="#f8fafc" />
+          <stop offset="42%" stopColor="#cbd5e1" />
+          <stop offset="100%" stopColor="#64748b" />
+        </linearGradient>
+        <linearGradient id={`${id}-metalDark`} x1="60" y1="190" x2="205" y2="80">
+          <stop offset="0%" stopColor="#334155" />
+          <stop offset="100%" stopColor="#e2e8f0" />
+        </linearGradient>
+        <filter id={`${id}-shadow`} x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="0" dy="18" stdDeviation="11" floodColor="#000" floodOpacity="0.4" />
+        </filter>
+      </defs>
+
+      <ellipse cx="120" cy="204" rx="72" ry="15" fill="#020617" opacity="0.24" />
+      <g filter={`url(#${id}-shadow)`}>
+        <path
+          d="M113 118 C135 94 166 62 209 38 C191 82 163 112 128 132 Z"
+          fill={`url(#${id}-blade)`}
+          stroke="#475569"
+          strokeWidth="5"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M122 128 C154 141 184 160 211 201 C166 188 133 164 112 141 Z"
+          fill={`url(#${id}-blade)`}
+          stroke="#475569"
+          strokeWidth="5"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M121 126 L50 61"
+          stroke={`url(#${id}-metalDark)`}
+          strokeWidth="15"
+          strokeLinecap="round"
+        />
+        <path
+          d="M116 136 L52 183"
+          stroke={`url(#${id}-metalDark)`}
+          strokeWidth="15"
+          strokeLinecap="round"
+        />
+        <circle cx="119" cy="130" r="13" fill="#facc15" stroke="#713f12" strokeWidth="5" />
+        <circle cx="52" cy="59" r="31" fill="none" stroke="#fb7185" strokeWidth="14" />
+        <circle cx="49" cy="185" r="32" fill="none" stroke="#38bdf8" strokeWidth="14" />
+        <circle cx="52" cy="59" r="15" fill="#020617" opacity="0.2" />
+        <circle cx="49" cy="185" r="16" fill="#020617" opacity="0.18" />
+        <path d="M151 91 L185 62" stroke="#fff" strokeWidth="6" strokeLinecap="round" opacity="0.55" />
+        <path d="M157 155 L188 180" stroke="#fff" strokeWidth="6" strokeLinecap="round" opacity="0.45" />
+      </g>
+    </svg>
+  );
+}
+
+function MoveArt({ move, side = 'left', small = false }: ObjectArtProps) {
+  if (move === 'rock') return <RockArt side={side} small={small} />;
+  if (move === 'paper') return <PaperArt side={side} small={small} />;
+  return <ScissorsArt side={side} small={small} />;
+}
+
+function MysteryArt({ side = 'left' }: { side?: 'left' | 'right' }) {
+  return (
+    <svg className="moveSvg mysterySvg" viewBox="0 0 240 240" aria-hidden="true">
+      <defs>
+        <radialGradient id={`mystery-${side}`} cx="35%" cy="25%" r="72%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+          <stop offset="42%" stopColor="#8b5cf6" stopOpacity="0.78" />
+          <stop offset="100%" stopColor="#1e1b4b" />
+        </radialGradient>
+      </defs>
+      <ellipse cx="120" cy="202" rx="72" ry="15" fill="#020617" opacity="0.22" />
+      <circle cx="120" cy="118" r="76" fill={`url(#mystery-${side})`} />
+      <circle cx="120" cy="118" r="78" fill="none" stroke="#fff" strokeWidth="4" opacity="0.2" />
+      <text x="120" y="142" textAnchor="middle" fontSize="82" fontWeight="900" fill="#fff" opacity="0.92">
+        ?
+      </text>
+    </svg>
+  );
+}
+
+function SparkField({ impactKind, active }: { impactKind: ImpactKind; active: boolean }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 26 }, (_, i) => ({
+        id: i,
+        angle: (i / 26) * 360 + (i % 5) * 8,
+        distance: 72 + (i % 7) * 14,
+        size: 5 + (i % 4) * 3,
+        delay: `${(i % 8) * 26}ms`,
+      })),
+    [],
+  );
+
+  return (
+    <div className={cx('impactLayer', active && 'active', `impact-${impactKind}`)} aria-hidden="true">
+      <div className="shockwave one" />
+      <div className="shockwave two" />
+      <div className="impactFlash" />
+      {impactKind === 'cut' && (
+        <>
+          <div className="slash slashA" />
+          <div className="slash slashB" />
+        </>
+      )}
+      {impactKind === 'wrap' && (
+        <>
+          <div className="wrapRibbon ribbonA" />
+          <div className="wrapRibbon ribbonB" />
+          <div className="wrapRibbon ribbonC" />
+        </>
+      )}
+      {impactKind === 'crush' && (
+        <>
+          <div className="crack crackA" />
+          <div className="crack crackB" />
+          <div className="crack crackC" />
+        </>
+      )}
+      {pieces.map(piece => (
+        <i
+          key={piece.id}
+          className="spark"
+          style={
+            {
+              '--a': `${piece.angle}deg`,
+              '--d': `${piece.distance}px`,
+              '--s': `${piece.size}px`,
+              '--delay': piece.delay,
+            } as React.CSSProperties
+          }
         />
       ))}
     </div>
   );
-};
+}
 
-const ChoiceCard = ({
-  choice,
-  selected,
-  disabled,
-  onClick,
-}: {
-  choice: (typeof CHOICES)[number];
-  selected: boolean;
-  disabled: boolean;
-  onClick: () => void;
-}) => {
+function ChoiceButton({ move, selected, onClick }: { move: Move; selected: boolean; onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`group relative rounded-[24px] border p-2 transition-all duration-300 ${
-        selected
-          ? 'bg-white text-slate-950 border-white scale-[1.03] shadow-[0_18px_40px_rgba(255,255,255,0.12)]'
-          : disabled
-          ? 'bg-white/6 border-white/8 text-white/30'
-          : 'bg-white/8 border-white/10 text-white hover:bg-white/10 active:scale-[0.98]'
-      }`}
-    >
-      <div className="absolute inset-0 rounded-[24px] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_34%)] pointer-events-none" />
-
-      <div className="relative flex flex-col items-center justify-center gap-1.5 py-2">
-        <div
-          className={`grid h-12 w-12 place-items-center rounded-[16px] bg-gradient-to-br ${choice.color} text-[28px] text-white shadow-[0_12px_28px_rgba(0,0,0,0.22)] transition-transform duration-300 ${
-            selected ? 'scale-105' : 'group-hover:scale-[1.03]'
-          }`}
-        >
-          {choice.icon}
-        </div>
-
-        <div className="text-[10px] uppercase tracking-[0.16em] font-black">
-          {choice.label}
-        </div>
-      </div>
+    <button className={cx('choiceButton', selected && 'selected')} onClick={onClick} type="button">
+      <span className="choiceArt">
+        <MoveArt move={move} small />
+      </span>
+      <span className="choiceName">{MOVE_LABEL[move]}</span>
+      <span className="choiceHint">{MOVE_HINT[move]}</span>
     </button>
   );
-};
+}
 
-const RevealHand = ({
-  title,
-  choice,
-  hidden,
-  win,
-  side,
-  isThinking,
-}: {
-  title: string;
-  choice: Choice | null;
-  hidden: boolean;
-  win: boolean;
-  side: 'left' | 'right';
-  isThinking?: boolean;
-}) => {
-  const meta = getChoiceMeta(choice);
+export const RockPaperScissorsDuelGame: React.FC = () => {
+  const [phase, setPhase] = useState<Phase>('choosing');
+  const [score, setScore] = useState<Score>({ player: 0, bot: 0 });
+  const [selected, setSelected] = useState<Move | null>(null);
+  const [botMove, setBotMove] = useState<Move | null>(null);
+  const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
+  const [impactKind, setImpactKind] = useState<ImpactKind>('tie');
+  const [countdown, setCountdown] = useState(CHOOSE_MS);
+  const [roundNumber, setRoundNumber] = useState(1);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  const selectedRef = useRef<Move | null>(null);
+  const phaseRef = useRef<Phase>('choosing');
+  const scoreRef = useRef<Score>({ player: 0, bot: 0 });
+  const rafRef = useRef<number | null>(null);
+  const timeoutsRef = useRef<number[]>([]);
+
+  const matchWinner = score.player >= WIN_TARGET ? 'player' : score.bot >= WIN_TARGET ? 'bot' : null;
+  const timerRatio = Math.max(0, Math.min(1, countdown / CHOOSE_MS));
+  const timerSeconds = Math.ceil(countdown / 1000);
+  const playerSideResult = roundResult === 'draw' ? 'draw' : roundResult === 'win' ? 'win' : roundResult === 'lose' ? 'lose' : 'idle';
+  const botSideResult = roundResult === 'draw' ? 'draw' : roundResult === 'win' ? 'lose' : roundResult === 'lose' ? 'win' : 'idle';
+
+  const clearTimers = useCallback(() => {
+    timeoutsRef.current.forEach(id => window.clearTimeout(id));
+    timeoutsRef.current = [];
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const pushTimeout = useCallback((callback: () => void, ms: number) => {
+    const id = window.setTimeout(callback, ms);
+    timeoutsRef.current.push(id);
+    return id;
+  }, []);
+
+  const startRound = useCallback(() => {
+    clearTimers();
+    selectedRef.current = null;
+    phaseRef.current = 'choosing';
+    setPhase('choosing');
+    setSelected(null);
+    setBotMove(null);
+    setRoundResult(null);
+    setImpactKind('tie');
+    setCountdown(CHOOSE_MS);
+    setRoundNumber(v => v + 1);
+  }, [clearTimers]);
+
+  const resolveRound = useCallback(() => {
+    if (phaseRef.current !== 'choosing') return;
+
+    phaseRef.current = 'reveal';
+    setPhase('reveal');
+    setCountdown(0);
+
+    const player = selectedRef.current ?? randomMove();
+    const bot = randomMove();
+    const result = judge(player, bot);
+    const impact = getImpactKind(player, bot);
+
+    const newScore: Score = {
+      player: scoreRef.current.player + (result === 'win' ? 1 : 0),
+      bot: scoreRef.current.bot + (result === 'lose' ? 1 : 0),
+    };
+
+    scoreRef.current = newScore;
+    selectedRef.current = player;
+
+    setSelected(player);
+    setBotMove(bot);
+    setRoundResult(result);
+    setImpactKind(impact);
+    setScore(newScore);
+    setHistory(prev => [{ result, player, bot }, ...prev].slice(0, 9));
+
+    pushTimeout(() => {
+      if (newScore.player >= WIN_TARGET || newScore.bot >= WIN_TARGET) {
+        phaseRef.current = 'matchOver';
+        setPhase('matchOver');
+      } else {
+        phaseRef.current = 'result';
+        setPhase('result');
+        pushTimeout(startRound, 1450);
+      }
+    }, 2450);
+  }, [pushTimeout, startRound]);
+
+  const chooseMove = useCallback(
+    (move: Move) => {
+      if (phaseRef.current !== 'choosing') return;
+      selectedRef.current = move;
+      setSelected(move);
+    },
+    [],
+  );
+
+  const resetMatch = useCallback(() => {
+    clearTimers();
+    scoreRef.current = { player: 0, bot: 0 };
+    selectedRef.current = null;
+    phaseRef.current = 'choosing';
+    setScore({ player: 0, bot: 0 });
+    setSelected(null);
+    setBotMove(null);
+    setRoundResult(null);
+    setImpactKind('tie');
+    setCountdown(CHOOSE_MS);
+    setRoundNumber(1);
+    setHistory([]);
+    setPhase('choosing');
+  }, [clearTimers]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    scoreRef.current = score;
+  }, [score]);
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  useEffect(() => {
+    if (phase !== 'choosing') return;
+
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const left = Math.max(0, CHOOSE_MS - (now - startedAt));
+      setCountdown(left);
+
+      if (left <= 0) {
+        resolveRound();
+        return;
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [phase, resolveRound]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key === '1' || key === 'r' || key === 'к') chooseMove('rock');
+      if (key === '2' || key === 'p' || key === 'б') chooseMove('paper');
+      if (key === '3' || key === 's' || key === 'н') chooseMove('scissors');
+      if ((key === 'enter' || key === ' ') && phaseRef.current === 'matchOver') resetMatch();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [chooseMove, resetMatch]);
+
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
+  const resultText = getResultText(roundResult, selected, botMove);
+  const leftMove = selected;
+  const rightMove = phase === 'choosing' ? null : botMove;
 
   return (
-    <div
-      className={`relative rounded-[30px] border backdrop-blur-xl p-4 transition-all duration-500 ${
-        win
-          ? 'bg-white/12 border-white/18 shadow-[0_0_36px_rgba(255,255,255,0.10)]'
-          : 'bg-white/7 border-white/10'
-      }`}
-    >
-      <div className="text-[10px] uppercase tracking-[0.22em] text-white/40 font-bold text-center">
-        {title}
+    <div className={cx('rpsPage', `phase-${phase}`, `impactMode-${impactKind}`)}>
+      <style>{styles}</style>
+
+      <div className="funBackdrop" aria-hidden="true">
+        {Array.from({ length: 34 }, (_, i) => (
+          <span
+            key={i}
+            className="floatShape"
+            style={
+              {
+                '--x': `${(i * 29 + 7) % 100}%`,
+                '--y': `${(i * 47 + 13) % 100}%`,
+                '--d': `${7 + (i % 8)}s`,
+                '--r': `${(i * 31) % 360}deg`,
+                '--s': `${0.55 + (i % 5) * 0.12}`,
+              } as React.CSSProperties
+            }
+          >
+            {['✦', '●', '◆', '✧', '×'][i % 5]}
+          </span>
+        ))}
+        <div className="gridGlow" />
+        <div className="spotlight left" />
+        <div className="spotlight right" />
       </div>
 
-      <div className="mt-4 flex items-center justify-center min-h-[148px]">
-        {hidden || !meta ? (
-          <div className="relative h-[130px] w-[108px] rounded-[26px] border border-white/10 bg-[linear-gradient(135deg,#111827,#1f2937)] shadow-[0_18px_40px_rgba(0,0,0,0.24)]">
-            <div className="absolute inset-2 rounded-[20px] border border-white/10 bg-[linear-gradient(45deg,rgba(255,255,255,0.06)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.06)_50%,rgba(255,255,255,0.06)_75%,transparent_75%,transparent)] bg-[length:18px_18px]" />
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/80">
-              <div className="text-lg font-black tracking-[0.14em]">?</div>
-              {isThinking && (
-                <div className="mt-3 flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce [animation-delay:-0.2s]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce [animation-delay:-0.1s]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce" />
-                </div>
-              )}
-            </div>
+      <header className="topHud">
+        <div className="scorePanel">
+          <div className="scoreSide player">
+            <span>Ты</span>
+            <strong>{score.player}</strong>
           </div>
-        ) : (
-          <div
-            className="relative"
-            style={{ animation: 'rpsRevealIn 500ms cubic-bezier(.2,.85,.2,1) both' }}
-          >
-            <div
-              className="absolute inset-0 rounded-[30px] blur-2xl opacity-60"
-              style={{
-                background: `radial-gradient(circle, ${meta.glow} 0%, transparent 70%)`,
-                animation: 'rpsAura 1.6s ease-in-out infinite',
-              }}
-            />
-            <div className={`relative h-[130px] w-[108px] rounded-[28px] bg-gradient-to-br ${meta.color} text-white shadow-[0_22px_42px_rgba(0,0,0,0.24)]`}>
-              <div className="absolute inset-0 rounded-[28px] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.22),transparent_34%)]" />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div
-                  className="text-[50px] leading-none"
-                  style={{ transform: side === 'left' ? 'rotate(-4deg)' : 'rotate(4deg)' }}
-                >
-                  {meta.icon}
-                </div>
-                <div className="mt-2.5 text-[10px] uppercase tracking-[0.2em] font-black">
-                  {meta.label}
-                </div>
+          <div className="scoreCenter">
+            <span>до {WIN_TARGET} побед</span>
+            <b>Бой {roundNumber}</b>
+          </div>
+          <div className="scoreSide bot">
+            <span>Бот</span>
+            <strong>{score.bot}</strong>
+          </div>
+        </div>
+
+        <div
+          className={cx('timerPanel', phase !== 'choosing' && 'locked')}
+          style={
+            {
+              '--timer': timerRatio,
+            } as React.CSSProperties
+          }
+        >
+          <div className="timerNumber">
+            {phase === 'choosing' ? timerSeconds : phase === 'matchOver' ? 'END' : 'CLASH'}
+          </div>
+          <div className="timerTrack">
+            <div className="timerFill" />
+            <div className="timerComet" />
+          </div>
+        </div>
+      </header>
+
+      <main className="arenaWrap">
+        <section className={cx('arena', `result-${playerSideResult}`, `bot-${botSideResult}`)}>
+          <div className="arenaFloor" />
+          <div className="versusCore" aria-hidden="true">
+            <span>VS</span>
+          </div>
+
+          <div className={cx('fighter leftFighter', phase === 'reveal' && 'reveal', playerSideResult)}>
+            <div className="fighterLabel">Твой ход</div>
+            <div className="objectRig playerRig">{leftMove ? <MoveArt move={leftMove} side="left" /> : <MysteryArt side="left" />}</div>
+          </div>
+
+          <div className={cx('fighter rightFighter', phase === 'reveal' && 'reveal', botSideResult)}>
+            <div className="fighterLabel">Бот</div>
+            <div className="objectRig botRig">{rightMove ? <MoveArt move={rightMove} side="right" /> : <MysteryArt side="right" />}</div>
+          </div>
+
+          <SparkField impactKind={impactKind} active={phase === 'reveal'} />
+
+          {phase === 'choosing' && (
+            <div className="choiceDock">
+              <div className="choiceTitle">
+                <strong>Выбери ход</strong>
+                <span>{selected ? `${MOVE_LABEL[selected]} выбран — можно поменять до нуля` : '5 секунд до вскрытия'}</span>
+              </div>
+              <div className="choices">
+                {MOVES.map(move => (
+                  <ChoiceButton key={move} move={move} selected={selected === move} onClick={() => chooseMove(move)} />
+                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {(phase === 'reveal' || phase === 'result') && (
+            <div className={cx('resultBanner', roundResult && `res-${roundResult}`)}>
+              <strong>{roundResult === 'win' ? '+1 тебе' : roundResult === 'lose' ? '+1 боту' : 'ничья'}</strong>
+              <span>{resultText}</span>
+            </div>
+          )}
+
+          {phase === 'matchOver' && (
+            <div className="matchOverCard">
+              <div className="crown">{matchWinner === 'player' ? '🏆' : '🤖'}</div>
+              <h2>{matchWinner === 'player' ? 'Победа!' : 'Бот забрал матч'}</h2>
+              <p>
+                Итог: {score.player}:{score.bot}. Игра шла до {WIN_TARGET} побед, ничьи не дают очков.
+              </p>
+              <button type="button" onClick={resetMatch}>
+                Сыграть ещё
+              </button>
+            </div>
+          )}
+        </section>
+      </main>
+
+      <div className="historyRail" aria-label="История последних ходов">
+        {Array.from({ length: 9 }, (_, i) => {
+          const item = history[i];
+          return <span key={i} className={cx('historyDot', item && `h-${item.result}`)} />;
+        })}
       </div>
     </div>
   );
 };
 
-export const RockPaperScissorsDuelGame: React.FC = () => {
-  const countdownIntervalRef = useRef<number | null>(null);
-  const revealTimeoutRef = useRef<number | null>(null);
-  const nextRoundTimeoutRef = useRef<number | null>(null);
+const styles = `
+.rpsPage {
+  position: relative;
+  width: 100%;
+  height: min(100dvh, 920px);
+  min-height: 560px;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(251, 191, 36, 0.12), transparent 26%),
+    radial-gradient(circle at 18% 20%, rgba(56, 189, 248, 0.28), transparent 31%),
+    radial-gradient(circle at 82% 24%, rgba(244, 63, 94, 0.28), transparent 29%),
+    linear-gradient(135deg, #09090b 0%, #111827 44%, #2e1065 100%);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  isolation: isolate;
+  user-select: none;
+}
 
-  const phaseRef = useRef<Phase>('countdown');
-  const previewChoiceRef = useRef<Choice | null>(null);
-  const playerScoreRef = useRef(0);
-  const botScoreRef = useRef(0);
-  const roundNumberRef = useRef(1);
-  const matchWinnerRef = useRef<RoundWinner>(null);
+.rpsPage * {
+  box-sizing: border-box;
+}
 
-  const [phase, setPhase] = useState<Phase>('countdown');
-  const [timeLeft, setTimeLeft] = useState(TURN_SECONDS);
+.funBackdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
 
-  const [lockedPlayerChoice, setLockedPlayerChoice] = useState<Choice | null>(null);
-  const [previewChoice, setPreviewChoice] = useState<Choice | null>(null);
-  const [botChoice, setBotChoice] = useState<Choice | null>(null);
+.gridGlow {
+  position: absolute;
+  inset: auto -10% -26% -10%;
+  height: 46%;
+  background-image:
+    linear-gradient(rgba(255,255,255,.11) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.11) 1px, transparent 1px);
+  background-size: 56px 56px;
+  transform: perspective(620px) rotateX(64deg);
+  transform-origin: center top;
+  opacity: .28;
+  filter: blur(.2px);
+}
 
-  const [playerScore, setPlayerScore] = useState(0);
-  const [botScore, setBotScore] = useState(0);
-  const [roundNumber, setRoundNumber] = useState(1);
+.spotlight {
+  position: absolute;
+  width: 54vw;
+  height: 54vw;
+  border-radius: 999px;
+  filter: blur(50px);
+  opacity: .35;
+  animation: pulseSpot 4.7s ease-in-out infinite;
+}
 
-  const [roundWinner, setRoundWinner] = useState<RoundWinner>(null);
-  const [statusTitle, setStatusTitle] = useState('Choose your sign');
-  const [statusText, setStatusText] = useState('У тебя 5 секунд на выбор');
-  const [matchWinner, setMatchWinner] = useState<RoundWinner>(null);
-  const [showCountdownBlast, setShowCountdownBlast] = useState(false);
+.spotlight.left {
+  left: -20vw;
+  top: 18%;
+  background: #22d3ee;
+}
 
-  const clearTimers = () => {
-    if (countdownIntervalRef.current !== null) {
-      window.clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
-    }
-    if (revealTimeoutRef.current !== null) {
-      window.clearTimeout(revealTimeoutRef.current);
-      revealTimeoutRef.current = null;
-    }
-    if (nextRoundTimeoutRef.current !== null) {
-      window.clearTimeout(nextRoundTimeoutRef.current);
-      nextRoundTimeoutRef.current = null;
-    }
-  };
+.spotlight.right {
+  right: -20vw;
+  top: 14%;
+  background: #f43f5e;
+  animation-delay: -2s;
+}
 
-  const syncPhase = (next: Phase) => {
-    phaseRef.current = next;
-    setPhase(next);
-  };
+.floatShape {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  font-size: calc(16px * var(--s));
+  color: rgba(255,255,255,.34);
+  text-shadow: 0 0 18px rgba(255,255,255,.35);
+  transform: rotate(var(--r));
+  animation: floatShape var(--d) ease-in-out infinite alternate;
+}
 
-  const syncPlayerScore = (next: number) => {
-    playerScoreRef.current = next;
-    setPlayerScore(next);
-  };
+.topHud {
+  position: absolute;
+  top: clamp(10px, 2.2vh, 22px);
+  left: 50%;
+  z-index: 10;
+  width: min(460px, calc(100% - 28px));
+  transform: translateX(-50%);
+  display: grid;
+  gap: 10px;
+}
 
-  const syncBotScore = (next: number) => {
-    botScoreRef.current = next;
-    setBotScore(next);
-  };
+.scorePanel {
+  height: 70px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 24px;
+  background: rgba(4, 7, 18, .68);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 22px 60px rgba(0,0,0,.36), inset 0 1px 0 rgba(255,255,255,.08);
+}
 
-  const syncRoundNumber = (next: number) => {
-    roundNumberRef.current = next;
-    setRoundNumber(next);
-  };
+.scoreSide {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 18px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(255,255,255,.7);
+}
 
-  const syncMatchWinner = (next: RoundWinner) => {
-    matchWinnerRef.current = next;
-    setMatchWinner(next);
-  };
+.scoreSide strong {
+  min-width: 38px;
+  text-align: center;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -.08em;
+  color: #fff;
+}
 
-  const startCountdown = () => {
-    if (countdownIntervalRef.current !== null) {
-      window.clearInterval(countdownIntervalRef.current);
-    }
+.scoreSide.player {
+  background: linear-gradient(135deg, rgba(34,211,238,.22), rgba(34,197,94,.08));
+}
 
-    countdownIntervalRef.current = window.setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          window.setTimeout(() => {
-            lockAndReveal();
-          }, 0);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
+.scoreSide.bot {
+  background: linear-gradient(135deg, rgba(244,63,94,.22), rgba(251,146,60,.08));
+}
 
-  const beginRound = (nextRound: number) => {
-    clearTimers();
-    syncPhase('countdown');
-    setTimeLeft(TURN_SECONDS);
-    setLockedPlayerChoice(null);
-    setPreviewChoice(null);
-    setBotChoice(null);
-    setRoundWinner(null);
-    setShowCountdownBlast(false);
-    previewChoiceRef.current = null;
-    syncRoundNumber(nextRound);
-    setStatusTitle('Choose your sign');
-    setStatusText('У тебя 5 секунд на выбор');
-    startCountdown();
-  };
+.scoreCenter {
+  min-width: 98px;
+  text-align: center;
+  display: grid;
+  gap: 2px;
+}
 
-  useEffect(() => {
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
-    const prevBodyOverscroll = document.body.style.overscrollBehavior;
-    const prevBodyTouch = document.body.style.touchAction;
+.scoreCenter span {
+  font-size: 9px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  color: rgba(255,255,255,.45);
+  font-weight: 900;
+}
 
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overscrollBehavior = 'none';
-    document.body.style.overscrollBehavior = 'none';
-    document.body.style.touchAction = 'none';
+.scoreCenter b {
+  font-size: 17px;
+  color: #fde68a;
+  text-shadow: 0 0 18px rgba(250,204,21,.45);
+}
 
-    beginRound(1);
+.timerPanel {
+  height: 42px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.13);
+  background: rgba(2, 6, 23, .58);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 40px rgba(0,0,0,.28);
+}
 
-    return () => {
-      clearTimers();
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
-      document.body.style.overscrollBehavior = prevBodyOverscroll;
-      document.body.style.touchAction = prevBodyTouch;
-    };
-  }, []);
+.timerNumber {
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 1000;
+  letter-spacing: -.06em;
+  color: #020617;
+  background: #facc15;
+  box-shadow: 0 0 24px rgba(250,204,21,.5);
+}
 
-  const finishMatchIfNeeded = (nextPlayerScore: number, nextBotScore: number) => {
-    if (nextPlayerScore >= TARGET_SCORE) {
-      syncMatchWinner('player');
-      syncPhase('finished');
-      return true;
-    }
-    if (nextBotScore >= TARGET_SCORE) {
-      syncMatchWinner('bot');
-      syncPhase('finished');
-      return true;
-    }
-    return false;
-  };
+.timerPanel.locked .timerNumber {
+  font-size: 12px;
+  letter-spacing: .08em;
+  background: #fff;
+  color: #111827;
+}
 
-  const lockAndReveal = () => {
-    if (phaseRef.current !== 'countdown' || matchWinnerRef.current) return;
+.timerTrack {
+  position: relative;
+  height: 13px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.09);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.07);
+}
 
-    clearTimers();
+.timerFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--timer) * 100%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e 0%, #facc15 58%, #fb7185 100%);
+  box-shadow: 0 0 26px rgba(250,204,21,.65);
+  transition: width .08s linear;
+}
 
-    const finalPlayerChoice: Choice = previewChoiceRef.current ?? randomChoice();
-    const finalBotChoice: Choice = randomChoice();
+.timerComet {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--timer) * 100%);
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  box-shadow: 0 0 22px #fff, 0 0 32px #facc15;
+  opacity: calc(.25 + var(--timer) * .75);
+}
 
-    setLockedPlayerChoice(finalPlayerChoice);
-    setBotChoice(finalBotChoice);
-    setShowCountdownBlast(true);
-    syncPhase('reveal');
-    setStatusTitle('3 · 2 · 1 · Reveal');
-    setStatusText('Вскрываем выборы');
+.arenaWrap {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  padding: clamp(104px, 17vh, 146px) clamp(10px, 3vw, 34px) 28px;
+}
 
-    revealTimeoutRef.current = window.setTimeout(() => {
-      const result = getRoundWinner(finalPlayerChoice, finalBotChoice);
-      setRoundWinner(result);
+.arena {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  border-radius: clamp(28px, 5vw, 54px);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.14);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255,255,255,.14), transparent 18%),
+    radial-gradient(circle at 25% 35%, rgba(14,165,233,.14), transparent 28%),
+    radial-gradient(circle at 75% 33%, rgba(244,63,94,.15), transparent 28%),
+    linear-gradient(180deg, rgba(15,23,42,.58), rgba(3,7,18,.82));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 28px 90px rgba(0,0,0,.45);
+  perspective: 1100px;
+  transform-style: preserve-3d;
+}
 
-      if (result === 'player') {
-        const nextPlayerScore = playerScoreRef.current + 1;
-        syncPlayerScore(nextPlayerScore);
-        setStatusTitle('You win the round');
-        setStatusText(`${getChoiceMeta(finalPlayerChoice)?.label} beats ${getChoiceMeta(finalBotChoice)?.label}`);
+.arena::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0 48%, rgba(255,255,255,.08) 49%, transparent 52%),
+    radial-gradient(circle at 50% 50%, rgba(250,204,21,.16), transparent 22%);
+  opacity: .62;
+  pointer-events: none;
+}
 
-        if (finishMatchIfNeeded(nextPlayerScore, botScoreRef.current)) {
-          return;
-        }
-      } else if (result === 'bot') {
-        const nextBotScore = botScoreRef.current + 1;
-        syncBotScore(nextBotScore);
-        setStatusTitle('Bot wins the round');
-        setStatusText(`${getChoiceMeta(finalBotChoice)?.label} beats ${getChoiceMeta(finalPlayerChoice)?.label}`);
+.arenaFloor {
+  position: absolute;
+  left: 50%;
+  bottom: -18%;
+  width: min(900px, 92vw);
+  height: 46%;
+  border-radius: 50%;
+  transform: translateX(-50%) rotateX(62deg);
+  transform-origin: center top;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255,255,255,.16), transparent 18%),
+    repeating-radial-gradient(circle at center, rgba(255,255,255,.08) 0 3px, transparent 3px 32px),
+    linear-gradient(135deg, rgba(14,165,233,.22), rgba(244,63,94,.18));
+  box-shadow: 0 0 90px rgba(250,204,21,.16), inset 0 0 0 2px rgba(255,255,255,.08);
+  opacity: .72;
+}
 
-        if (finishMatchIfNeeded(playerScoreRef.current, nextBotScore)) {
-          return;
-        }
-      } else {
-        setStatusTitle('Draw round');
-        setStatusText('Одинаковый выбор');
-      }
+.versusCore {
+  position: absolute;
+  left: 50%;
+  top: 49%;
+  width: clamp(62px, 9vmin, 112px);
+  height: clamp(62px, 9vmin, 112px);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, rgba(250,204,21,.3), rgba(250,204,21,.05) 58%, transparent 70%);
+  color: rgba(255,255,255,.6);
+  font-weight: 1000;
+  letter-spacing: -.06em;
+  font-size: clamp(20px, 3vmin, 40px);
+  text-shadow: 0 0 20px rgba(255,255,255,.4);
+  animation: coreBreathe 2.6s ease-in-out infinite;
+}
 
-      syncPhase('round_end');
+.fighter {
+  position: absolute;
+  top: 50%;
+  width: min(34vmin, 310px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  will-change: transform, filter;
+}
 
-      nextRoundTimeoutRef.current = window.setTimeout(() => {
-        beginRound(roundNumberRef.current + 1);
-      }, 2100);
-    }, 1050);
-  };
+.leftFighter {
+  left: clamp(12px, 7vw, 92px);
+  transform: translate3d(0, -47%, 0) rotateY(-14deg) rotateZ(-2deg);
+}
 
-  const handleSelect = (choice: Choice) => {
-    if (phaseRef.current !== 'countdown') return;
+.rightFighter {
+  right: clamp(12px, 7vw, 92px);
+  transform: translate3d(0, -47%, 0) rotateY(14deg) rotateZ(2deg) scaleX(-1);
+}
 
-    previewChoiceRef.current = choice;
-    setPreviewChoice(choice);
-    setStatusTitle(`${getChoiceMeta(choice)?.label} selected`);
-    setStatusText('Можно поменять выбор до конца таймера');
-  };
+.fighterLabel {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(2,6,23,.46);
+  color: rgba(255,255,255,.62);
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  font-size: 10px;
+  font-weight: 1000;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+}
 
-  const handleRestart = () => {
-    clearTimers();
-    syncPlayerScore(0);
-    syncBotScore(0);
-    syncMatchWinner(null);
-    beginRound(1);
-  };
+.objectRig {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  animation: idleHover 2.25s ease-in-out infinite;
+  filter: drop-shadow(0 34px 26px rgba(0,0,0,.26));
+}
 
-  const progress = (timeLeft / TURN_SECONDS) * 100;
+.botRig {
+  animation-delay: -1.1s;
+}
 
-  const roundBadge =
-    roundWinner === 'player'
-      ? {
-          title: 'YOU WIN',
-          cls: 'from-emerald-500/30 to-cyan-500/10 border-emerald-300/20 text-emerald-200',
-        }
-      : roundWinner === 'bot'
-      ? {
-          title: 'BOT WINS',
-          cls: 'from-rose-500/30 to-orange-500/10 border-rose-300/20 text-rose-200',
-        }
-      : roundWinner === 'draw'
-      ? {
-          title: 'DRAW',
-          cls: 'from-white/16 to-white/6 border-white/15 text-white',
-        }
-      : null;
+.moveSvg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform-style: preserve-3d;
+}
 
-  const panelGlow =
-    phase === 'reveal' || phase === 'round_end'
-      ? roundWinner === 'player'
-        ? 'shadow-[0_0_90px_rgba(52,211,153,0.10)]'
-        : roundWinner === 'bot'
-        ? 'shadow-[0_0_90px_rgba(251,113,133,0.10)]'
-        : 'shadow-[0_0_90px_rgba(255,255,255,0.06)]'
-      : '';
+.smallSvg {
+  width: 82px;
+  height: 82px;
+}
 
-  const isCountdownUrgent = timeLeft <= 2 && phase === 'countdown';
+.mysterySvg {
+  opacity: .82;
+  filter: saturate(1.25);
+}
 
-  const finalTitle = useMemo(() => {
-    if (matchWinner === 'player') return 'YOU WIN';
-    if (matchWinner === 'bot') return 'BOT WINS';
-    return '';
-  }, [matchWinner]);
+.phase-choosing .mysterySvg {
+  animation: mysteryPulse 1.4s ease-in-out infinite;
+}
 
-  return (
-    <>
-      <style>{`
-        @keyframes rpsRevealIn {
-          0% { transform: translateY(18px) scale(.84) rotate(-6deg); opacity: 0; filter: blur(4px); }
-          100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; filter: blur(0); }
-        }
-        @keyframes rpsFadeRise {
-          0% { transform: translateY(12px) scale(.96); opacity: 0; }
-          100% { transform: translateY(0) scale(1); opacity: 1; }
-        }
-        @keyframes rpsPulse {
-          0%,100% { transform: scale(1); }
-          50% { transform: scale(1.04); }
-        }
-        @keyframes rpsAura {
-          0%,100% { opacity: .65; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.07); }
-        }
-        @keyframes rpsVsIn {
-          0% { transform: scale(.7); opacity: 0; filter: blur(3px); }
-          100% { transform: scale(1); opacity: 1; filter: blur(0); }
-        }
-        @keyframes rpsCountdownBlast {
-          0% { transform: scale(.72); opacity: 0; filter: blur(3px); }
-          40% { transform: scale(1.08); opacity: 1; filter: blur(0); }
-          100% { transform: scale(1); opacity: .96; }
-        }
-      `}</style>
+.leftFighter.reveal.win {
+  animation: leftWin 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-      <div
-        className="w-full h-full overflow-hidden touch-none select-none bg-[radial-gradient(circle_at_top,rgba(251,146,60,0.16),transparent_22%),radial-gradient(circle_at_left,rgba(34,211,238,0.15),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(217,70,239,0.18),transparent_24%),linear-gradient(180deg,#0a0f1e,#120d1f_46%,#17101d)]"
-        style={{ touchAction: 'none', overscrollBehavior: 'none' }}
-      >
-        <div className="h-full flex flex-col p-2">
-          <div className="shrink-0 rounded-[28px] border border-white/10 bg-black/30 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.24)] px-3 py-2">
-            <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
-              <div className="rounded-2xl border border-emerald-400/12 bg-emerald-500/10 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 font-bold">You</div>
-                <div className="mt-1 flex items-end gap-2">
-                  <div className="text-[28px] font-black text-emerald-300 leading-none">{playerScore}</div>
-                  <div className="text-xs text-white/35 font-bold pb-0.5">points</div>
-                </div>
-              </div>
+.leftFighter.reveal.lose {
+  animation: leftLose 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-              <div className="text-center min-w-[116px]">
-                <div className="text-[10px] uppercase tracking-[0.22em] text-white/40 font-bold">
-                  RPS Duel
-                </div>
-                <div className="text-xl font-black text-white leading-none mt-1">
-                  Round {roundNumber}
-                </div>
-                <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-white/38 font-bold">
-                  First to 5
-                </div>
-              </div>
+.leftFighter.reveal.draw {
+  animation: leftDraw 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-              <div className="rounded-2xl border border-rose-400/12 bg-rose-500/10 px-3 py-2 text-right">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 font-bold">Bot</div>
-                <div className="mt-1 flex items-end justify-end gap-2">
-                  <div className="text-xs text-white/35 font-bold pb-0.5">points</div>
-                  <div className="text-[28px] font-black text-rose-300 leading-none">{botScore}</div>
-                </div>
-              </div>
-            </div>
+.rightFighter.reveal.win {
+  animation: rightWin 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-            <div className="mt-2 grid grid-cols-[1fr_auto_auto] items-center gap-2">
-              <div className="h-2 rounded-full bg-white/8 overflow-hidden border border-white/8">
-                <div
-                  className={`h-full transition-[width] duration-500 ${
-                    isCountdownUrgent
-                      ? 'bg-gradient-to-r from-red-400 to-orange-500'
-                      : 'bg-gradient-to-r from-orange-400 via-fuchsia-400 to-cyan-400'
-                  }`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+.rightFighter.reveal.lose {
+  animation: rightLose 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-              <div className="rounded-full px-3 py-1.5 border border-white/10 bg-white/10 text-[11px] uppercase tracking-[0.18em] font-black text-white">
-                {phase === 'countdown'
-                  ? 'Choose'
-                  : phase === 'reveal'
-                  ? 'Reveal'
-                  : phase === 'finished'
-                  ? 'Finished'
-                  : 'Next'}
-              </div>
+.rightFighter.reveal.draw {
+  animation: rightDraw 2.35s cubic-bezier(.2,.78,.08,1) both;
+}
 
-              <div
-                className={`rounded-full px-3 py-1.5 text-[11px] font-black text-white uppercase tracking-[0.18em] min-w-[62px] text-center ${
-                  isCountdownUrgent
-                    ? 'bg-red-500/20 border border-red-400/20 shadow-[0_0_16px_rgba(248,113,113,0.16)]'
-                    : 'bg-white/10 border border-white/10'
-                }`}
-              >
-                {phase === 'countdown' ? `${timeLeft}s` : 'LOCK'}
-              </div>
-            </div>
-          </div>
+.leftFighter.reveal.win .objectRig,
+.rightFighter.reveal.win .objectRig {
+  animation: winnerPulse 2.35s ease both;
+}
 
-          <div className="flex-1 min-h-0 pt-2 pb-0">
-            <div className={`relative h-full rounded-[34px] overflow-hidden border border-white/10 bg-[linear-gradient(180deg,rgba(12,16,29,0.98),rgba(17,11,29,0.98))] shadow-[0_24px_60px_rgba(0,0,0,0.26)] ${panelGlow}`}>
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.07),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.05),transparent_25%)]" />
+.leftFighter.reveal.lose .objectRig,
+.rightFighter.reveal.lose .objectRig {
+  animation: loserDamage 2.35s ease both;
+}
 
-              <div className="absolute inset-x-3 top-3 z-10">
-                <div className="rounded-[24px] border border-white/10 bg-black/22 backdrop-blur-xl px-4 py-3 shadow-[0_10px_26px_rgba(0,0,0,0.16)]">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 font-bold">
-                        Status
-                      </div>
-                      <div className="text-base font-black text-white mt-1">{statusTitle}</div>
-                      <div className="text-[12px] text-white/55 font-semibold mt-1">{statusText}</div>
-                    </div>
+.choiceDock {
+  position: absolute;
+  left: 50%;
+  top: 51%;
+  z-index: 8;
+  width: min(760px, calc(100% - 24px));
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: clamp(10px, 1.8vh, 16px);
+  padding: clamp(14px, 2.1vw, 22px);
+  border-radius: clamp(24px, 4vw, 38px);
+  background: rgba(2, 6, 23, .62);
+  border: 1px solid rgba(255,255,255,.14);
+  backdrop-filter: blur(22px);
+  box-shadow: 0 34px 86px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+  animation: dockIn .36s ease both;
+}
 
-                    <div className="hidden sm:flex items-center gap-3">
-                      <ScoreDots score={playerScore} tone="emerald" />
-                      <div className="w-5 h-px bg-white/10" />
-                      <ScoreDots score={botScore} tone="rose" />
-                    </div>
-                  </div>
-                </div>
-              </div>
+.choiceTitle {
+  text-align: center;
+  display: grid;
+  gap: 2px;
+}
 
-              <div className="absolute inset-x-4 top-[92px] bottom-[116px] grid grid-cols-2 gap-4 items-center">
-                <RevealHand
-                  title="You"
-                  choice={lockedPlayerChoice}
-                  hidden={phase === 'countdown'}
-                  win={roundWinner === 'player'}
-                  side="left"
-                />
+.choiceTitle strong {
+  font-size: clamp(22px, 3.2vw, 36px);
+  line-height: 1;
+  letter-spacing: -.06em;
+  text-transform: uppercase;
+}
 
-                <RevealHand
-                  title="Bot"
-                  choice={botChoice}
-                  hidden={phase === 'countdown'}
-                  win={roundWinner === 'bot'}
-                  side="right"
-                  isThinking={phase === 'countdown'}
-                />
-              </div>
+.choiceTitle span {
+  font-size: clamp(11px, 1.5vw, 14px);
+  color: rgba(255,255,255,.58);
+  font-weight: 800;
+}
 
-              {(phase === 'reveal' || phase === 'round_end') && lockedPlayerChoice && botChoice && (
-                <div className="absolute left-1/2 top-[49%] -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none">
-                  <div
-                    className="rounded-full border border-white/10 bg-black/28 backdrop-blur-xl px-4 py-2 text-white font-black tracking-[0.18em] uppercase shadow-[0_16px_40px_rgba(0,0,0,0.22)]"
-                    style={{ animation: 'rpsVsIn 320ms ease-out both' }}
-                  >
-                    VS
-                  </div>
-                </div>
-              )}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 1.6vw, 16px);
+}
 
-              {phase === 'reveal' && showCountdownBlast && (
-                <div className="absolute left-1/2 top-[34%] -translate-x-1/2 z-20 pointer-events-none">
-                  <div
-                    className="rounded-full border border-white/12 bg-white/10 backdrop-blur-xl px-5 py-2 text-white text-lg font-black tracking-[0.28em]"
-                    style={{ animation: 'rpsCountdownBlast 420ms ease-out both' }}
-                  >
-                    3 · 2 · 1
-                  </div>
-                </div>
-              )}
+.choiceButton {
+  position: relative;
+  height: clamp(132px, 22vh, 206px);
+  min-height: 120px;
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  justify-items: center;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 8px 13px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: clamp(20px, 3vw, 32px);
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255,255,255,.16), transparent 38%),
+    rgba(255,255,255,.06);
+  color: #fff;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+  overflow: hidden;
+}
 
-              <div className="absolute inset-x-4 bottom-3 z-10">
-                <div className="rounded-[24px] border border-white/10 bg-black/24 backdrop-blur-xl p-2.5 shadow-[0_10px_26px_rgba(0,0,0,0.16)]">
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {CHOICES.map((choice) => (
-                      <ChoiceCard
-                        key={choice.key}
-                        choice={choice}
-                        selected={previewChoice === choice.key}
-                        disabled={phase !== 'countdown'}
-                        onClick={() => handleSelect(choice.key)}
-                      />
-                    ))}
-                  </div>
+.choiceButton::before {
+  content: '';
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 72%;
+  transform: rotate(-12deg);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
 
-                  <div className="mt-2 text-center text-[11px] text-white/45 font-semibold">
-                    {phase === 'countdown'
-                      ? 'Выбери знак до конца таймера'
-                      : phase === 'reveal'
-                      ? 'Открываем выборы...'
-                      : phase === 'round_end'
-                      ? 'Готовим следующий раунд'
-                      : 'Матч завершён'}
-                  </div>
-                </div>
-              </div>
+.choiceButton:hover,
+.choiceButton.selected {
+  transform: translateY(-6px) rotateX(7deg) scale(1.03);
+  border-color: rgba(250,204,21,.62);
+  background:
+    radial-gradient(circle at 50% 16%, rgba(250,204,21,.3), transparent 45%),
+    rgba(255,255,255,.09);
+  box-shadow: 0 22px 44px rgba(0,0,0,.28), 0 0 34px rgba(250,204,21,.18);
+}
 
-              {roundBadge && phase !== 'finished' && (
-                <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center px-6">
-                  <div
-                    className={`rounded-[28px] border backdrop-blur-xl px-7 py-5 text-center bg-gradient-to-b ${roundBadge.cls}`}
-                    style={{ animation: 'rpsFadeRise 320ms ease-out both' }}
-                  >
-                    <div className="text-[12px] uppercase tracking-[0.28em] font-black">
-                      {roundBadge.title}
-                    </div>
-                    <div className="text-sm mt-2 font-semibold text-white/85">
-                      {roundWinner === 'draw' ? 'Никто не взял раунд' : 'Очко уходит победителю'}
-                    </div>
-                  </div>
-                </div>
-              )}
+.choiceButton.selected::before,
+.choiceButton:hover::before {
+  opacity: 1;
+  animation: shineSweep 1.1s ease both;
+}
 
-              {phase === 'finished' && (
-                <div className="absolute inset-0 z-30 bg-black/54 backdrop-blur-md flex items-center justify-center p-5">
-                  <div
-                    className="w-full max-w-[360px] rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(12,17,31,0.96),rgba(17,11,33,0.96))] shadow-[0_30px_80px_rgba(0,0,0,0.28)] overflow-hidden"
-                    style={{ animation: 'rpsFadeRise .34s ease-out both' }}
-                  >
-                    <div className="px-6 pt-6 pb-5 text-center">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/40 font-bold">
-                        Match finished
-                      </div>
-                      <div
-                        className={`mt-3 text-4xl font-black ${
-                          matchWinner === 'player' ? 'text-emerald-300' : 'text-rose-300'
-                        }`}
-                        style={{ animation: 'rpsPulse 1.4s ease-in-out infinite' }}
-                      >
-                        {finalTitle}
-                      </div>
-                      <div className="mt-2 text-sm text-white/55">
-                        {matchWinner === 'player' ? 'Ты забрал дуэль' : 'Бот оказался сильнее'}
-                      </div>
+.choiceArt {
+  width: clamp(82px, 13vmin, 142px);
+  height: clamp(82px, 13vmin, 142px);
+  display: grid;
+  place-items: center;
+  transform: translateZ(28px);
+}
 
-                      <div className="mt-6 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-emerald-500/8 border border-emerald-500/10 px-4 py-4">
-                          <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 font-bold">
-                            You
-                          </div>
-                          <div className="text-3xl font-black text-emerald-300 mt-2 leading-none">
-                            {playerScore}
-                          </div>
-                          <div className="text-[11px] text-white/45 mt-2">points</div>
-                        </div>
+.choiceName {
+  font-size: clamp(15px, 2.2vw, 22px);
+  line-height: 1;
+  font-weight: 1000;
+  letter-spacing: -.04em;
+}
 
-                        <div className="rounded-2xl bg-rose-500/8 border border-rose-500/10 px-4 py-4">
-                          <div className="text-[10px] uppercase tracking-[0.18em] text-white/40 font-bold">
-                            Bot
-                          </div>
-                          <div className="text-3xl font-black text-rose-300 mt-2 leading-none">
-                            {botScore}
-                          </div>
-                          <div className="text-[11px] text-white/45 mt-2">points</div>
-                        </div>
-                      </div>
+.choiceHint {
+  font-size: clamp(9px, 1.25vw, 12px);
+  line-height: 1;
+  color: rgba(255,255,255,.48);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
 
-                      <button
-                        onClick={handleRestart}
-                        className="mt-7 w-full py-3.5 rounded-2xl bg-gradient-to-r from-orange-400 via-rose-500 to-fuchsia-500 text-white font-black uppercase tracking-[0.12em] active:scale-[0.98] transition shadow-[0_12px_30px_rgba(251,146,60,0.22)]"
-                      >
-                        Play Again
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+.impactLayer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+}
 
-              {(phase === 'reveal' || phase === 'round_end') && (
-                <div className="pointer-events-none absolute inset-0 overflow-hidden">
-                  <div
-                    className="absolute left-[14%] top-[24%] h-40 w-40 rounded-full bg-cyan-400/10 blur-3xl"
-                    style={{ animation: 'rpsAura 1.6s ease-in-out infinite' }}
-                  />
-                  <div
-                    className="absolute right-[12%] top-[22%] h-44 w-44 rounded-full bg-fuchsia-400/10 blur-3xl"
-                    style={{ animation: 'rpsAura 1.6s ease-in-out .2s infinite' }}
-                  />
-                  <div
-                    className="absolute left-1/2 bottom-[20%] h-32 w-32 -translate-x-1/2 rounded-full bg-orange-400/10 blur-3xl"
-                    style={{ animation: 'rpsAura 1.6s ease-in-out .4s infinite' }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
+.impactLayer.active {
+  opacity: 1;
+}
+
+.shockwave {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  border: 3px solid rgba(255,255,255,.72);
+  transform: translate(-50%, -50%) scale(.05);
+  opacity: 0;
+}
+
+.impactLayer.active .shockwave.one {
+  animation: shockwave .78s .76s ease-out both;
+}
+
+.impactLayer.active .shockwave.two {
+  animation: shockwave 1.05s .86s ease-out both;
+  border-color: rgba(250,204,21,.54);
+}
+
+.impactFlash {
+  position: absolute;
+  width: 118px;
+  height: 118px;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  transform: translate(-50%, -50%) scale(.15);
+  background: radial-gradient(circle, #fff 0 8%, #facc15 20%, rgba(244,63,94,.7) 38%, transparent 70%);
+  opacity: 0;
+}
+
+.impactLayer.active .impactFlash {
+  animation: impactFlash .36s .78s ease-out both;
+}
+
+.spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 3px;
+  background: #fef08a;
+  box-shadow: 0 0 16px #facc15;
+  transform: rotate(var(--a)) translateX(0) scale(.2);
+  opacity: 0;
+}
+
+.impactLayer.active .spark {
+  animation: sparkFly .72s cubic-bezier(.15,.8,.18,1) both;
+  animation-delay: calc(.74s + var(--delay));
+}
+
+.impact-cut .spark {
+  background: #bfdbfe;
+  box-shadow: 0 0 18px #38bdf8;
+}
+
+.impact-wrap .spark {
+  background: #f8fafc;
+  box-shadow: 0 0 18px #ffffff;
+}
+
+.slash {
+  position: absolute;
+  left: -130px;
+  top: -7px;
+  width: 260px;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #fff, #38bdf8, transparent);
+  box-shadow: 0 0 30px #38bdf8;
+  opacity: 0;
+}
+
+.slashA { transform: rotate(-28deg) scaleX(.2); }
+.slashB { transform: rotate(24deg) scaleX(.2); }
+
+.impactLayer.active .slashA { animation: slashHit .45s .8s ease-out both; }
+.impactLayer.active .slashB { animation: slashHit .45s .9s ease-out both; }
+
+.wrapRibbon {
+  position: absolute;
+  left: -110px;
+  top: -18px;
+  width: 220px;
+  height: 36px;
+  border-radius: 999px;
+  border: 8px solid rgba(219,234,254,.95);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(0deg) scale(.15);
+  opacity: 0;
+  filter: drop-shadow(0 0 18px rgba(147,197,253,.7));
+}
+
+.ribbonB { transform: rotate(70deg) scale(.15); }
+.ribbonC { transform: rotate(140deg) scale(.15); }
+
+.impactLayer.active .wrapRibbon { animation: wrapSpin .7s .72s ease-out both; }
+.impactLayer.active .ribbonB { animation-delay: .82s; }
+.impactLayer.active .ribbonC { animation-delay: .92s; }
+
+.crack {
+  position: absolute;
+  width: 150px;
+  height: 8px;
+  left: -75px;
+  top: -4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #020617, #fff7ed, transparent);
+  transform: rotate(0deg) scaleX(.1);
+  opacity: 0;
+}
+
+.crackA { transform: rotate(8deg) scaleX(.1); }
+.crackB { transform: rotate(55deg) scaleX(.1); }
+.crackC { transform: rotate(-42deg) scaleX(.1); }
+
+.impactLayer.active .crack { animation: crackOpen .62s .78s ease-out both; }
+.impactLayer.active .crackB { animation-delay: .85s; }
+.impactLayer.active .crackC { animation-delay: .9s; }
+
+.resultBanner {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(18px, 4vh, 42px);
+  z-index: 9;
+  width: min(560px, calc(100% - 28px));
+  transform: translateX(-50%);
+  display: grid;
+  gap: 3px;
+  text-align: center;
+  padding: 14px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.13);
+  background: rgba(2,6,23,.68);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 54px rgba(0,0,0,.34);
+  animation: bannerIn .28s ease both;
+}
+
+.resultBanner strong {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  font-weight: 1000;
+  color: #fde68a;
+}
+
+.resultBanner span {
+  font-size: clamp(17px, 2.5vw, 28px);
+  line-height: 1.05;
+  font-weight: 1000;
+  letter-spacing: -.05em;
+}
+
+.resultBanner.res-win strong { color: #86efac; }
+.resultBanner.res-lose strong { color: #fca5a5; }
+
+.matchOverCard {
+  position: absolute;
+  left: 50%;
+  top: 51%;
+  z-index: 12;
+  width: min(440px, calc(100% - 32px));
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: clamp(22px, 4vw, 36px);
+  text-align: center;
+  border-radius: 34px;
+  border: 1px solid rgba(255,255,255,.15);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(250,204,21,.23), transparent 42%),
+    rgba(2,6,23,.78);
+  backdrop-filter: blur(22px);
+  box-shadow: 0 34px 90px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.09);
+  animation: dockIn .38s ease both;
+}
+
+.matchOverCard .crown {
+  font-size: 54px;
+  filter: drop-shadow(0 16px 20px rgba(0,0,0,.32));
+}
+
+.matchOverCard h2 {
+  margin: 0;
+  font-size: clamp(34px, 6vw, 58px);
+  line-height: .9;
+  letter-spacing: -.08em;
+}
+
+.matchOverCard p {
+  margin: 0;
+  max-width: 310px;
+  color: rgba(255,255,255,.62);
+  font-weight: 700;
+}
+
+.matchOverCard button {
+  margin-top: 4px;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 22px;
+  cursor: pointer;
+  color: #020617;
+  background: linear-gradient(135deg, #fef08a, #facc15, #fb923c);
+  font-weight: 1000;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  box-shadow: 0 18px 34px rgba(250,204,21,.25);
+}
+
+.historyRail {
+  position: absolute;
+  right: clamp(8px, 2vw, 22px);
+  top: 50%;
+  z-index: 10;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.historyDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.17);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06);
+}
+
+.historyDot.h-win {
+  background: #22c55e;
+  box-shadow: 0 0 18px rgba(34,197,94,.85);
+}
+
+.historyDot.h-lose {
+  background: #fb7185;
+  box-shadow: 0 0 18px rgba(251,113,133,.85);
+}
+
+.historyDot.h-draw {
+  background: #facc15;
+  box-shadow: 0 0 18px rgba(250,204,21,.85);
+}
+
+@keyframes pulseSpot {
+  0%, 100% { transform: scale(.92); opacity: .27; }
+  50% { transform: scale(1.08); opacity: .42; }
+}
+
+@keyframes floatShape {
+  from { transform: translate3d(-8px, -12px, 0) rotate(var(--r)) scale(var(--s)); opacity: .15; }
+  to { transform: translate3d(12px, 18px, 0) rotate(calc(var(--r) + 44deg)) scale(calc(var(--s) + .25)); opacity: .5; }
+}
+
+@keyframes coreBreathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(.95); opacity: .55; }
+  50% { transform: translate(-50%, -50%) scale(1.08); opacity: .95; }
+}
+
+@keyframes idleHover {
+  0%, 100% { transform: translate3d(0, -3px, 28px) rotateX(5deg) rotateZ(-1deg); }
+  50% { transform: translate3d(0, 7px, 48px) rotateX(-4deg) rotateZ(2deg); }
+}
+
+@keyframes mysteryPulse {
+  0%, 100% { transform: scale(.92) rotate(-3deg); filter: saturate(1.1); }
+  50% { transform: scale(1.03) rotate(3deg); filter: saturate(1.55); }
+}
+
+@keyframes dockIn {
+  from { opacity: 0; transform: translate(-50%, -45%) scale(.92); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes shineSweep {
+  from { transform: translateX(-130%) rotate(-12deg); }
+  to { transform: translateX(130%) rotate(-12deg); }
+}
+
+@keyframes leftWin {
+  0% { transform: translate3d(0, -47%, 0) rotateY(-14deg) rotateZ(-2deg) scale(1); }
+  28% { transform: translate3d(7vw, -51%, 110px) rotateY(-30deg) rotateZ(-9deg) scale(1.08); }
+  42% { transform: translate3d(24vw, -50%, 180px) rotateY(-4deg) rotateZ(12deg) scale(1.22); }
+  55% { transform: translate3d(20vw, -54%, 130px) rotateY(-12deg) rotateZ(-6deg) scale(1.08); }
+  100% { transform: translate3d(4vw, -52%, 40px) rotateY(-18deg) rotateZ(-4deg) scale(1.05); }
+}
+
+@keyframes leftLose {
+  0% { transform: translate3d(0, -47%, 0) rotateY(-14deg) rotateZ(-2deg) scale(1); }
+  33% { transform: translate3d(18vw, -50%, 120px) rotateY(-4deg) rotateZ(10deg) scale(1.1); }
+  45% { transform: translate3d(21vw, -50%, 150px) rotateY(-10deg) rotateZ(-8deg) scale(.95); }
+  68% { transform: translate3d(-10vw, -43%, 15px) rotateY(-58deg) rotateZ(-24deg) scale(.82); filter: brightness(.75) saturate(.7); }
+  100% { transform: translate3d(-3vw, -46%, 0) rotateY(-28deg) rotateZ(-14deg) scale(.88); filter: brightness(.88); }
+}
+
+@keyframes leftDraw {
+  0% { transform: translate3d(0, -47%, 0) rotateY(-14deg) rotateZ(-2deg) scale(1); }
+  38% { transform: translate3d(20vw, -50%, 120px) rotateY(-2deg) rotateZ(8deg) scale(1.1); }
+  52% { transform: translate3d(16vw, -54%, 90px) rotateY(-30deg) rotateZ(-16deg) scale(.95); }
+  100% { transform: translate3d(0, -47%, 0) rotateY(-14deg) rotateZ(-2deg) scale(1); }
+}
+
+@keyframes rightWin {
+  0% { transform: translate3d(0, -47%, 0) rotateY(14deg) rotateZ(2deg) scaleX(-1) scale(1); }
+  28% { transform: translate3d(-7vw, -51%, 110px) rotateY(30deg) rotateZ(9deg) scaleX(-1) scale(1.08); }
+  42% { transform: translate3d(-24vw, -50%, 180px) rotateY(4deg) rotateZ(-12deg) scaleX(-1) scale(1.22); }
+  55% { transform: translate3d(-20vw, -54%, 130px) rotateY(12deg) rotateZ(6deg) scaleX(-1) scale(1.08); }
+  100% { transform: translate3d(-4vw, -52%, 40px) rotateY(18deg) rotateZ(4deg) scaleX(-1) scale(1.05); }
+}
+
+@keyframes rightLose {
+  0% { transform: translate3d(0, -47%, 0) rotateY(14deg) rotateZ(2deg) scaleX(-1) scale(1); }
+  33% { transform: translate3d(-18vw, -50%, 120px) rotateY(4deg) rotateZ(-10deg) scaleX(-1) scale(1.1); }
+  45% { transform: translate3d(-21vw, -50%, 150px) rotateY(10deg) rotateZ(8deg) scaleX(-1) scale(.95); }
+  68% { transform: translate3d(10vw, -43%, 15px) rotateY(58deg) rotateZ(24deg) scaleX(-1) scale(.82); filter: brightness(.75) saturate(.7); }
+  100% { transform: translate3d(3vw, -46%, 0) rotateY(28deg) rotateZ(14deg) scaleX(-1) scale(.88); filter: brightness(.88); }
+}
+
+@keyframes rightDraw {
+  0% { transform: translate3d(0, -47%, 0) rotateY(14deg) rotateZ(2deg) scaleX(-1) scale(1); }
+  38% { transform: translate3d(-20vw, -50%, 120px) rotateY(2deg) rotateZ(-8deg) scaleX(-1) scale(1.1); }
+  52% { transform: translate3d(-16vw, -54%, 90px) rotateY(30deg) rotateZ(16deg) scaleX(-1) scale(.95); }
+  100% { transform: translate3d(0, -47%, 0) rotateY(14deg) rotateZ(2deg) scaleX(-1) scale(1); }
+}
+
+@keyframes winnerPulse {
+  0%, 45% { filter: drop-shadow(0 34px 26px rgba(0,0,0,.26)); }
+  55% { filter: drop-shadow(0 0 38px rgba(250,204,21,.76)) drop-shadow(0 34px 26px rgba(0,0,0,.2)); }
+  100% { filter: drop-shadow(0 0 20px rgba(250,204,21,.34)) drop-shadow(0 34px 26px rgba(0,0,0,.22)); }
+}
+
+@keyframes loserDamage {
+  0%, 40% { filter: drop-shadow(0 34px 26px rgba(0,0,0,.26)); }
+  55% { filter: brightness(.7) saturate(.72) drop-shadow(0 34px 26px rgba(0,0,0,.28)); }
+  100% { filter: brightness(.85) saturate(.82) drop-shadow(0 34px 26px rgba(0,0,0,.28)); }
+}
+
+@keyframes shockwave {
+  0% { opacity: .92; transform: translate(-50%, -50%) scale(.06); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(4.6); }
+}
+
+@keyframes impactFlash {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.2); }
+  35% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.9); }
+}
+
+@keyframes sparkFly {
+  0% { opacity: 0; transform: rotate(var(--a)) translateX(0) scale(.2); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) rotate(420deg) scale(1); }
+}
+
+@keyframes slashHit {
+  0% { opacity: 0; transform: rotate(-28deg) scaleX(.1); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(-28deg) scaleX(1.28); }
+}
+
+@keyframes wrapSpin {
+  0% { opacity: 0; transform: rotate(0deg) scale(.15); }
+  38% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(260deg) scale(1.05); }
+}
+
+@keyframes crackOpen {
+  0% { opacity: 0; transform: rotate(8deg) scaleX(.1); }
+  26% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(8deg) scaleX(1.25); }
+}
+
+@keyframes bannerIn {
+  from { opacity: 0; transform: translate(-50%, 14px) scale(.95); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+@media (max-height: 660px) {
+  .rpsPage {
+    min-height: 500px;
+  }
+
+  .arenaWrap {
+    padding-top: 100px;
+    padding-bottom: 16px;
+  }
+
+  .scorePanel {
+    height: 58px;
+  }
+
+  .scoreSide {
+    height: 42px;
+  }
+
+  .scoreSide strong {
+    font-size: 28px;
+  }
+
+  .timerPanel {
+    height: 34px;
+  }
+
+  .choiceButton {
+    height: 116px;
+    min-height: 106px;
+  }
+
+  .choiceArt {
+    width: 70px;
+    height: 70px;
+  }
+
+  .fighterLabel {
+    display: none;
+  }
+
+  .resultBanner {
+    bottom: 12px;
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 680px) {
+  .rpsPage {
+    min-height: 560px;
+  }
+
+  .arenaWrap {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .scoreCenter {
+    min-width: 78px;
+  }
+
+  .scoreSide {
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  .scoreSide strong {
+    min-width: 28px;
+    font-size: 30px;
+  }
+
+  .fighter {
+    width: min(38vmin, 220px);
+  }
+
+  .leftFighter {
+    left: -3vw;
+  }
+
+  .rightFighter {
+    right: -3vw;
+  }
+
+  .choiceDock {
+    top: 52%;
+  }
+
+  .choices {
+    gap: 7px;
+  }
+
+  .choiceButton {
+    border-radius: 22px;
+    padding: 7px 4px 10px;
+  }
+
+  .choiceHint {
+    display: none;
+  }
+
+  .historyRail {
+    display: none;
+  }
+}
+`;
 
 export default RockPaperScissorsDuelGame;
