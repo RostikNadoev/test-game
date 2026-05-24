@@ -1,8 +1,108 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { motion } from 'framer-motion';
-import { Plus, Users, Coins } from 'lucide-react';
+import { ChevronLeft, Coins, Gamepad2, Plus, Sparkles, Users } from 'lucide-react';
 import { useMemo } from 'react';
+
+const gameNames: Record<string, string> = {
+  virusmarket: 'Virus Market',
+  hexfall: 'Hex Fall',
+  rps: 'RPS Duel',
+  tictactoe: 'Tic Tac Toe Duel',
+  gridlock: 'Grid Lock',
+  blackjack: 'Blackjack Duel',
+  diceduel: 'Dice Duel',
+  neonmatrix: 'Neon Matrix',
+  slingclash: 'Sling Clash',
+  icebump: 'Ice Bump',
+  archer: 'Neon Duel',
+  race: 'Street Race',
+  airhockey: 'Air Hockey',
+  pingpong: 'Golf',
+  darts: 'Darts',
+};
+
+const gameRoutes: Record<string, string> = {
+  virusmarket: '/game/virusmarket/play',
+  hexfall: '/game/hexfall/play',
+  rps: '/game/rps/play',
+  tictactoe: '/game/tictactoe/play',
+  gridlock: '/game/gridlock/play',
+  blackjack: '/game/blackjack/play',
+  diceduel: '/game/diceduel/play',
+  neonmatrix: '/game/neonmatrix/play',
+  slingclash: '/game/slingclash/play',
+  icebump: '/game/icebump/play',
+  race: '/game/race/play',
+  airhockey: '/game/airhockey/play',
+  archer: '/game/archer/play',
+  pingpong: '/game/pingpong/play',
+  darts: '/game/darts/play',
+};
+
+const localCards: Record<
+  string,
+  {
+    icon: string;
+    title: string;
+    description: string;
+    cta: string;
+    card: string;
+    button: string;
+    text: string;
+  }
+> = {
+  virusmarket: {
+    icon: '🦠',
+    title: 'Virus Market Local Duel',
+    description:
+      '2 игрока выбирают мем-коин, потом рынок пампит и дампит. Побеждает тот, чей coin дал больше профита.',
+    cta: 'Открыть биржу',
+    card: 'from-[#031a13] via-[#071827] to-[#211039]',
+    button: 'from-emerald-300 via-cyan-400 to-violet-500 text-slate-950',
+    text: 'text-emerald-100/75',
+  },
+  neonmatrix: {
+    icon: '🔢',
+    title: 'Neon Matrix Local Test',
+    description:
+      '2 игрока с одного устройства. Каждый выбирает число от 1 до 100, потом рулетка выбирает финал.',
+    cta: 'Играть локально',
+    card: 'from-[#071827] via-[#16062b] to-[#2b0631]',
+    button: 'from-cyan-300 via-fuchsia-500 to-violet-600 text-white',
+    text: 'text-cyan-100/75',
+  },
+  diceduel: {
+    icon: '🎲',
+    title: 'Dice Duel Local Test',
+    description:
+      '2 игрока с одного устройства. Каждый кидает 3 кубика и может один раз рискнуть перебросом одного кубика.',
+    cta: 'Играть локально',
+    card: 'from-[#331405] via-[#150907] to-[#2b113f]',
+    button: 'from-yellow-300 via-orange-500 to-red-500 text-stone-950',
+    text: 'text-yellow-100/75',
+  },
+  slingclash: {
+    icon: '🪵',
+    title: 'Sling Clash Bot Test',
+    description:
+      'Оффлайн-прототип: ты снизу, бот сверху. Каждые 5 секунд оба хода запускаются одновременно.',
+    cta: 'Играть с ботом',
+    card: 'from-amber-900/70 via-yellow-950/70 to-stone-950',
+    button: 'from-amber-500 to-yellow-400 text-stone-950',
+    text: 'text-amber-100/75',
+  },
+  icebump: {
+    icon: '🐧',
+    title: 'Ice Bump Bot Test',
+    description:
+      '4 пингвина на ледяной платформе. Выбери силу и направление, после таймера все стартуют одновременно.',
+    cta: 'Играть с ботами',
+    card: 'from-sky-950/80 via-cyan-950/70 to-slate-950',
+    button: 'from-cyan-300 to-sky-500 text-slate-950',
+    text: 'text-cyan-100/75',
+  },
+};
 
 export const Lobbies = () => {
   const { gameId } = useParams();
@@ -14,243 +114,153 @@ export const Lobbies = () => {
     return allLobbies.filter((l) => l.gameId === gameId && l.status === 'waiting');
   }, [allLobbies, gameId]);
 
-  const gameNames: Record<string, string> = {
-    hideout: 'Hideout',
-    hexfall: 'Hex Fall',
-    rps: 'RPS Duel',
-    tictactoe: 'Tic Tac Toe Duel',
-    gridlock: 'Grid Lock',
-    blackjack: 'Blackjack Duel',
-    slingclash: 'Sling Clash',
-    parkduel: 'Park Duel',
-    chronoslash: 'Chrono Slash',
-    royalbluff: 'Royal Bluff',
-    icebump: 'Ice Bump',
-    newgame: 'New Game',
-    chase: 'Tag Chase',
-    archer: 'Neon Duel',
-    race: 'Street Race',
-    airhockey: 'Air Hockey',
-    pool: 'Pool',
-    paper: 'Paper Duel',
-    pingpong: 'Pong',
-    darts: 'Darts',
-  };
+  const gameName = gameNames[gameId || ''] || 'Игра';
+  const localConfig = gameId ? localCards[gameId] : undefined;
+  const isLocalTest = Boolean(localConfig);
 
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
 
-    const gameRoutes: Record<string, string> = {
-      hideout: '/game/hideout/play',
-      hexfall: '/game/hexfall/play',
-      rps: '/game/rps/play',
-      tictactoe: '/game/tictactoe/play',
-      gridlock: '/game/gridlock/play',
-      blackjack: '/game/blackjack/play',
-      slingclash: '/game/slingclash/play',
-      parkduel: '/game/parkduel/play',
-      chronoslash: '/game/chronoslash/play',
-      royalbluff: '/game/royalbluff/play',
-      icebump: '/game/icebump/play',
-      newgame: '/game/newgame/play',
-      chase: '/game/chase/play',
-      race: '/game/race/play',
-      airhockey: '/game/airhockey/play',
-      archer: '/game/archer/play',
-      paper: '/game/paper/play',
-      pingpong: '/game/pingpong/play',
-      pool: '/game/pool/play',
-      darts: '/game/darts/play',
-    };
-
     if (gameRoutes[gameId || '']) {
       navigate(gameRoutes[gameId || '']);
     } else {
-      alert(`Игра ${gameNames[gameId || ''] || ''} в разработке!`);
+      alert(`Игра ${gameName} в разработке!`);
     }
   };
 
-  const isSlingClash = gameId === 'slingclash';
-  const isParkDuel = gameId === 'parkduel';
-  const isChronoSlash = gameId === 'chronoslash';
-  const isRoyalBluff = gameId === 'royalbluff';
-  const isIceBump = gameId === 'icebump';
-
-  const isLocalTest =
-    isSlingClash ||
-    isParkDuel ||
-    isChronoSlash ||
-    isRoyalBluff ||
-    isIceBump;
-
   return (
-    <div className="p-4 pb-20 min-h-screen">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <button onClick={() => navigate(-1)} className="text-gray-400 mb-2 block">
-            ← Назад
-          </button>
+    <div className="relative min-h-full w-full min-w-0 overflow-x-hidden pb-32 text-white">
+      <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-cyan-400/16 blur-[90px]" />
+      <div className="pointer-events-none absolute -right-24 top-20 h-72 w-72 rounded-full bg-fuchsia-500/16 blur-[90px]" />
 
-          <h1 className="text-2xl font-bold text-white">
-            {gameNames[gameId || ''] || 'Игра'}
-          </h1>
+      <div className="relative w-full min-w-0 px-4 pt-2">
+        <div className="mb-5 flex w-full min-w-0 items-center justify-between gap-3">
+          <div className="min-w-0">
+            <button
+              onClick={() => navigate(-1)}
+              className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-black text-slate-300 backdrop-blur-xl transition active:scale-95"
+            >
+              <ChevronLeft size={16} />
+              Назад
+            </button>
 
-          <p className="text-gray-400">
-            {isLocalTest ? 'Тестовый оффлайн-режим' : 'Доступные лобби'}
-          </p>
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-100/55">
+              <Sparkles size={13} />
+              {isLocalTest ? 'Offline arena' : 'Online lobby'}
+            </div>
+
+            <h1 className="mt-1 truncate text-[30px] font-black leading-none tracking-[-0.05em]">
+              {gameName}
+            </h1>
+
+            <p className="mt-2 text-sm font-medium text-slate-400">
+              {isLocalTest ? 'Тестовый оффлайн-режим' : 'Доступные лобби'}
+            </p>
+          </div>
+
+          {!isLocalTest && (
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => navigate(`/game/${gameId}/create`)}
+              className="grid h-14 w-14 shrink-0 place-items-center rounded-[22px] bg-gradient-to-br from-cyan-300 via-blue-500 to-fuchsia-500 text-white shadow-[0_18px_45px_rgba(34,211,238,0.25)]"
+            >
+              <Plus size={25} />
+            </motion.button>
+          )}
         </div>
 
-        {!isLocalTest && (
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigate(`/game/${gameId}/create`)}
-            className="bg-accent p-3 rounded-full shadow-lg"
+        {localConfig && (
+          <motion.div
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`relative mb-5 w-full overflow-hidden rounded-[34px] border border-white/10 bg-gradient-to-br ${localConfig.card} p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)]`}
           >
-            <Plus size={24} />
-          </motion.button>
-        )}
-      </div>
+            <div className="absolute -right-12 -top-14 h-44 w-44 rounded-full bg-white/10 blur-3xl" />
+            <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
 
-      {isSlingClash && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 rounded-3xl border border-amber-300/20 bg-gradient-to-br from-amber-900/60 via-yellow-950/70 to-stone-950 p-4 shadow-2xl"
-        >
-          <div className="text-3xl mb-2">🪵</div>
-          <h2 className="text-white text-xl font-black">Sling Clash Bot Test</h2>
-          <p className="text-amber-100/70 text-sm mt-1 leading-relaxed">
-            Оффлайн-прототип: ты снизу, бот сверху. Каждые 5 секунд оба хода запускаются одновременно.
-          </p>
-
-          <button
-            onClick={() => navigate('/game/slingclash/play')}
-            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 py-3 font-black text-stone-950 active:scale-95 transition"
-          >
-            Играть с ботом
-          </button>
-        </motion.div>
-      )}
-
-      {isParkDuel && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 rounded-3xl border border-yellow-300/20 bg-gradient-to-br from-stone-950 via-slate-950 to-yellow-950/70 p-4 shadow-2xl"
-        >
-          <div className="text-3xl mb-2">🅿️</div>
-          <h2 className="text-white text-xl font-black">Park Duel Bot Test</h2>
-          <p className="text-yellow-100/70 text-sm mt-1 leading-relaxed">
-            3 уровня парковки. Газ, тормоз, руль, штрафы за касания и победа по суммарному времени.
-          </p>
-
-          <button
-            onClick={() => navigate('/game/parkduel/play')}
-            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-500 py-3 font-black text-stone-950 active:scale-95 transition"
-          >
-            Играть с ботом
-          </button>
-        </motion.div>
-      )}
-
-      {isChronoSlash && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 overflow-hidden rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-cyan-950/70 via-indigo-950/80 to-fuchsia-950/70 p-4 shadow-2xl"
-        >
-          <div className="text-3xl mb-2">⚔️</div>
-          <h2 className="text-white text-xl font-black">Chrono Slash Bot Test</h2>
-          <p className="text-cyan-100/70 text-sm mt-1 leading-relaxed">
-            Кибер-самурайская дуэль: выбери точку рывка и приём, потом оба хода раскрываются одновременно.
-          </p>
-
-          <button
-            onClick={() => navigate('/game/chronoslash/play')}
-            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 py-3 font-black text-white active:scale-95 transition"
-          >
-            Играть с ботом
-          </button>
-        </motion.div>
-      )}
-
-      {isRoyalBluff && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 overflow-hidden rounded-3xl border border-yellow-300/20 bg-gradient-to-br from-[#2b1549] via-[#171126] to-[#3b1f09] p-4 shadow-2xl"
-        >
-          <div className="text-3xl mb-2">👑</div>
-          <h2 className="text-white text-xl font-black">Royal Bluff Local Test</h2>
-          <p className="text-yellow-100/70 text-sm mt-1 leading-relaxed">
-            Пока все 4 игрока управляются с одного телефона. Кидай карты, верь или сомневайся, а револьвер решает судьбу.
-          </p>
-
-          <button
-            onClick={() => navigate('/game/royalbluff/play')}
-            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-yellow-400 via-orange-500 to-fuchsia-500 py-3 font-black text-stone-950 active:scale-95 transition"
-          >
-            Играть локально
-          </button>
-        </motion.div>
-      )}
-
-      {isIceBump && (
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4 rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-sky-950/80 via-cyan-950/70 to-slate-950 p-4 shadow-2xl"
-        >
-          <div className="text-3xl mb-2">🐧</div>
-          <h2 className="text-white text-xl font-black">Ice Bump Bot Test</h2>
-          <p className="text-cyan-100/70 text-sm mt-1 leading-relaxed">
-            4 пингвина на ледяной платформе. Выбери силу и направление, после таймера все стартуют одновременно.
-          </p>
-
-          <button
-            onClick={() => navigate('/game/icebump/play')}
-            className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-300 to-sky-500 py-3 font-black text-slate-950 active:scale-95 transition"
-          >
-            Играть с ботами
-          </button>
-        </motion.div>
-      )}
-
-      <div className="space-y-3">
-        {lobbies.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Users size={48} className="mx-auto opacity-30 mb-2" />
-            <p>{isLocalTest ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}</p>
-          </div>
-        ) : (
-          lobbies.map((lobby) => (
-            <motion.div
-              key={lobby.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-card rounded-2xl p-4 border border-white/10"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-white font-bold text-lg">{lobby.name}</h3>
-
-                  <div className="flex items-center gap-2 mt-1">
-                    <Coins size={14} className="text-accent" />
-                    <span className="text-accent text-sm">{lobby.betAmount}</span>
-                    <span className="text-gray-500 text-xs">• {lobby.players.length}/2</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleJoinAndPlay(lobby.id)}
-                  className="bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-xl text-sm font-bold active:scale-95 transition"
-                >
-                  Играть
-                </button>
+            <div className="relative">
+              <div className="mb-4 grid h-16 w-16 place-items-center rounded-[24px] border border-white/15 bg-white/10 text-4xl shadow-inner">
+                {localConfig.icon}
               </div>
-            </motion.div>
-          ))
+
+              <h2 className="text-2xl font-black tracking-[-0.04em] text-white">
+                {localConfig.title}
+              </h2>
+
+              <p className={`mt-2 text-sm font-medium leading-relaxed ${localConfig.text}`}>
+                {localConfig.description}
+              </p>
+
+              <button
+                onClick={() => navigate(gameRoutes[gameId || ''])}
+                className={`mt-5 w-full rounded-2xl bg-gradient-to-r ${localConfig.button} py-3.5 text-sm font-black shadow-xl transition active:scale-95`}
+              >
+                {localConfig.cta}
+              </button>
+            </div>
+          </motion.div>
         )}
+
+        <div className="relative w-full min-w-0 space-y-3">
+          {lobbies.length === 0 ? (
+            <div className="w-full rounded-[32px] border border-white/10 bg-white/[0.055] px-4 py-12 text-center shadow-xl backdrop-blur-xl">
+              <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-[24px] border border-white/10 bg-white/[0.08]">
+                {isLocalTest ? (
+                  <Gamepad2 size={30} className="text-cyan-100/65" />
+                ) : (
+                  <Users size={30} className="text-cyan-100/65" />
+                )}
+              </div>
+
+              <p className="text-base font-black text-white">
+                {isLocalTest ? 'Онлайн-лобби пока отключены' : 'Нет активных лобби'}
+              </p>
+
+              <p className="mx-auto mt-2 max-w-[270px] text-sm font-medium leading-relaxed text-slate-400">
+                {isLocalTest
+                  ? 'Запусти локальный режим и протестируй игру прямо сейчас.'
+                  : 'Создай комнату первым и пригласи соперника в дуэль.'}
+              </p>
+            </div>
+          ) : (
+            lobbies.map((lobby) => (
+              <motion.div
+                key={lobby.id}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="relative w-full min-w-0 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.055] p-4 shadow-xl backdrop-blur-xl"
+              >
+                <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-cyan-400/10 blur-3xl" />
+
+                <div className="relative flex w-full min-w-0 items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-lg font-black text-white">
+                      {lobby.name}
+                    </h3>
+
+                    <div className="mt-2 flex items-center gap-2 text-sm">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-300/10 px-2.5 py-1 font-black text-cyan-100">
+                        <Coins size={14} />
+                        {lobby.betAmount}
+                      </span>
+
+                      <span className="rounded-full bg-white/[0.08] px-2.5 py-1 text-xs font-black text-slate-400">
+                        {lobby.players.length}/2
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleJoinAndPlay(lobby.id)}
+                    className="shrink-0 rounded-2xl bg-gradient-to-r from-emerald-300 to-cyan-400 px-4 py-3 text-sm font-black text-slate-950 shadow-lg transition active:scale-95"
+                  >
+                    Играть
+                  </button>
+                </div>
+              </motion.div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

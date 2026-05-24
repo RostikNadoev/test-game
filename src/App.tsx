@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
+import { GameIntroOverlay } from './components/GameIntroOverlay';
 import { Home } from './pages/Home';
 import { Lobbies } from './pages/Lobbies';
 import { CreateLobby } from './pages/CreateLobby';
@@ -10,24 +11,49 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
-import { PaperGame } from './pages/PaperGame';
 import MiniGolfBeautiful from './pages/MiniGolfGame';
-import NewGame from './pages/NewGame';
-import PoolGame from './pages/PoolGame';
-import { ChaseGame } from './pages/ChaseGame';
 import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
 import { GridLockGame } from './pages/GridLockGame';
 import { TicTacToeDuelGame } from './pages/TicTacToeDuelGame';
 import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
 import { HexFallGame } from './pages/HexFallGame';
-import { ApartmentHideoutGame } from './pages/ApartmentHideoutGame';
 import { SlingClashGame } from './pages/SlingClashGame';
-import { ParkDuelGame } from './pages/ParkDuelGame';
-import { ChronoSlashGame } from './pages/ChronoSlashGame';
-import { RoyalBluffGame } from './pages/RoyalBluffGame';
 import { IceBumpGame } from './pages/IceBumpGame';
+import { DiceDuelGame } from './pages/DiceDuelGame';
+import { NeonMatrixGame } from './pages/NeonMatrixGame';
+import { VirusMarketGame } from './pages/VirusMarketGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
+
+const GAME_TITLES: Record<string, string> = {
+  '/game/hexfall/play': 'Hex Fall',
+  '/game/rps/play': 'RPS Duel',
+  '/game/tictactoe/play': 'Tic Tac Toe',
+  '/game/gridlock/play': 'Grid Lock',
+  '/game/blackjack/play': 'Blackjack Duel',
+  '/game/diceduel/play': 'Dice Duel',
+  '/game/neonmatrix/play': 'Neon Matrix',
+  '/game/slingclash/play': 'Sling Clash',
+  '/game/icebump/play': 'Ice Bump',
+  '/game/virusmarket/play': 'Virus Market',
+  '/game/race/play': 'Street Race',
+  '/game/airhockey/play': 'Air Hockey',
+  '/game/archer/play': 'Neon Duel',
+  '/game/pingpong/play': 'Golf',
+};
+
+const LOCKED_GAME_ROUTES = new Set([
+  '/game/hexfall/play',
+  '/game/rps/play',
+  '/game/tictactoe/play',
+  '/game/gridlock/play',
+  '/game/blackjack/play',
+  '/game/diceduel/play',
+  '/game/neonmatrix/play',
+  '/game/slingclash/play',
+  '/game/icebump/play',
+  '/game/virusmarket/play',
+]);
 
 type TelegramWebApp = {
   ready?: () => void;
@@ -43,43 +69,24 @@ type TelegramWebApp = {
   };
 };
 
-type LockableScreenOrientation = ScreenOrientation & {
-  lock?: (orientation: 'portrait' | 'landscape') => Promise<void>;
-};
-
 function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
-  const isPoolRoute = location.pathname === '/game/pool/play';
-  const isChaseRoute = location.pathname === '/game/chase/play';
-  const isBlackjackRoute = location.pathname === '/game/blackjack/play';
-  const isGridLockRoute = location.pathname === '/game/gridlock/play';
-  const isTicTacToeRoute = location.pathname === '/game/tictactoe/play';
-  const isRpsRoute = location.pathname === '/game/rps/play';
-  const isHexFallRoute = location.pathname === '/game/hexfall/play';
-  const isHideoutRoute = location.pathname === '/game/hideout/play';
-  const isSlingClashRoute = location.pathname === '/game/slingclash/play';
-  const isParkDuelRoute = location.pathname === '/game/parkduel/play';
-  const isChronoSlashRoute = location.pathname === '/game/chronoslash/play';
-  const isRoyalBluffRoute = location.pathname === '/game/royalbluff/play';
-  const isIceBumpRoute = location.pathname === '/game/icebump/play';
+  const [introCompletedPath, setIntroCompletedPath] = useState<string | null>(null);
 
-  const isLockedGameRoute =
-    isPoolRoute ||
-    isChaseRoute ||
-    isBlackjackRoute ||
-    isGridLockRoute ||
-    isTicTacToeRoute ||
-    isRpsRoute ||
-    isHexFallRoute ||
-    isHideoutRoute ||
-    isSlingClashRoute ||
-    isParkDuelRoute ||
-    isChronoSlashRoute ||
-    isRoyalBluffRoute ||
-    isIceBumpRoute;
+  const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
+  const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
+  const gameIntroTitle = GAME_TITLES[location.pathname] || null;
+
+  const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
+  const shouldMountRoutes = !shouldShowGameIntro;
+
+  useEffect(() => {
+    if (!gameIntroTitle) {
+      setIntroCompletedPath(null);
+    }
+  }, [gameIntroTitle]);
 
   useEffect(() => {
     const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
@@ -89,8 +96,8 @@ function AppShell() {
     tg.ready?.();
     tg.expand?.();
     tg.disableVerticalSwipes?.();
-    tg.setHeaderColor?.('#0A0A0F');
-    tg.setBackgroundColor?.('#0A0A0F');
+    tg.setHeaderColor?.('#050610');
+    tg.setBackgroundColor?.('#050610');
   }, []);
 
   useEffect(() => {
@@ -115,50 +122,53 @@ function AppShell() {
     };
   }, [isFooterRoute, navigate, location.pathname]);
 
-  useEffect(() => {
-    const orientation = window.screen.orientation as LockableScreenOrientation | undefined;
-
-    if (typeof orientation?.lock !== 'function') return;
-
-    orientation.lock(isPoolRoute ? 'landscape' : 'portrait').catch(() => undefined);
-  }, [isPoolRoute]);
-
   return (
-    <div className="relative min-h-screen h-full flex flex-col pt-[100px] bg-[#0A0A0F] overflow-hidden">
+    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
       <Header />
 
-      <main className={`flex-1 ${isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-20'}`}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
-          <Route path="/game/:gameId/create" element={<CreateLobby />} />
+      <main
+        className={`relative z-10 w-full min-w-0 flex-1 ${
+          isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24'
+        }`}
+      >
+        {shouldMountRoutes ? (
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
+            <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
-          <Route path="/game/hideout/play" element={<ApartmentHideoutGame />} />
-          <Route path="/game/hexfall/play" element={<HexFallGame />} />
-          <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
-          <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
-          <Route path="/game/gridlock/play" element={<GridLockGame />} />
-          <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
-          <Route path="/game/slingclash/play" element={<SlingClashGame />} />
-          <Route path="/game/parkduel/play" element={<ParkDuelGame />} />
-          <Route path="/game/chronoslash/play" element={<ChronoSlashGame />} />
-          <Route path="/game/royalbluff/play" element={<RoyalBluffGame />} />
-          <Route path="/game/icebump/play" element={<IceBumpGame />} />
-          <Route path="/game/newgame/play" element={<NewGame />} />
-          <Route path="/game/chase/play" element={<ChaseGame />} />
-          <Route path="/game/race/play" element={<RaceGame />} />
-          <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
-          <Route path="/game/archer/play" element={<ArcherGame />} />
-          <Route path="/game/paper/play" element={<PaperGame />} />
-          <Route path="/game/pingpong/play" element={<MiniGolfBeautiful />} />
-          <Route path="/game/pool/play" element={<PoolGame />} />
+            <Route path="/game/hexfall/play" element={<HexFallGame />} />
+            <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
+            <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
+            <Route path="/game/gridlock/play" element={<GridLockGame />} />
+            <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
+            <Route path="/game/diceduel/play" element={<DiceDuelGame />} />
+            <Route path="/game/neonmatrix/play" element={<NeonMatrixGame />} />
+            <Route path="/game/slingclash/play" element={<SlingClashGame />} />
+            <Route path="/game/icebump/play" element={<IceBumpGame />} />
+            <Route path="/game/virusmarket/play" element={<VirusMarketGame />} />
+            <Route path="/game/race/play" element={<RaceGame />} />
+            <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
+            <Route path="/game/archer/play" element={<ArcherGame />} />
+            <Route path="/game/pingpong/play" element={<MiniGolfBeautiful />} />
 
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/rating" element={<Rating />} />
-        </Routes>
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/rating" element={<Rating />} />
+          </Routes>
+        ) : (
+          <div className="h-full w-full bg-[#050610]" />
+        )}
       </main>
 
-      <BottomNav />
+      {isFooterRoute && <BottomNav />}
+
+      {shouldShowGameIntro && gameIntroTitle && (
+        <GameIntroOverlay
+          key={location.pathname}
+          gameTitle={gameIntroTitle}
+          onComplete={() => setIntroCompletedPath(location.pathname)}
+        />
+      )}
     </div>
   );
 }

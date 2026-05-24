@@ -697,7 +697,7 @@ function drawDecor(ctx: CanvasRenderingContext2D, d: Decor, now: number, car: Ca
     ctx.fill();
     ctx.fillStyle = '#020617';
     ctx.font = `900 ${Math.max(10, d.size * 0.17)}px ui-monospace, monospace`;
-    ctx.fillText(d.seed > 0.5 ? 'PIXEL GP' : 'DRIFT CLUB', -w * 0.38, 4);
+    ctx.fillText(d.seed > 0.5 ? 'TWIN Games' : 'DRIFT CLUB', -w * 0.38, 4);
   } else if (d.kind === 'tent') {
     shadow(d.size * 0.54, d.size * 0.28, 0.16);
     ctx.fillStyle = '#7c3aed';
@@ -900,7 +900,7 @@ function drawCar(ctx: CanvasRenderingContext2D, car: Car, now: number) {
 function drawMiniMap(ctx: CanvasRenderingContext2D, track: TrackPoint[], car: Car, width: number, height: number) {
   const size = SETTINGS.minimap;
   const x = 18;
-  const y = height - size - 18;
+  const y = height - size - 70;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   track.forEach(p => {
     minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);

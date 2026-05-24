@@ -587,72 +587,73 @@ export const GridLockGame: React.FC = () => {
       `}</style>
 
       <div
-        className="relative h-full min-h-[620px] w-full overflow-hidden touch-none select-none bg-[#20140d] text-white"
+        className="relative h-full min-h-0 w-full overflow-hidden touch-none select-none bg-[#050713] text-white"
         style={{ touchAction: 'none', overscrollBehavior: 'none' }}
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,rgba(255,235,190,0.18),transparent_30%),radial-gradient(circle_at_12%_82%,rgba(120,53,15,0.4),transparent_28%),radial-gradient(circle_at_88%_72%,rgba(41,26,16,0.55),transparent_32%),linear-gradient(135deg,#4a2b18,#21140c_48%,#130d08)]" />
-        <div className="absolute inset-0 opacity-[0.2] bg-[linear-gradient(90deg,rgba(255,255,255,.04)_0_1px,transparent_1px_72px),linear-gradient(0deg,rgba(0,0,0,.22)_0_2px,transparent_2px_96px)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-4%,rgba(34,211,238,0.16),transparent_30%),radial-gradient(circle_at_12%_82%,rgba(16,185,129,0.16),transparent_30%),radial-gradient(circle_at_88%_72%,rgba(99,102,241,0.18),transparent_32%),linear-gradient(145deg,#050713,#070b16_48%,#03040b)]" />
+        <div className="absolute inset-0 opacity-[0.18] bg-[linear-gradient(90deg,rgba(255,255,255,.035)_0_1px,transparent_1px_58px),linear-gradient(0deg,rgba(255,255,255,.025)_0_1px,transparent_1px_58px)]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/55 to-transparent" />
 
-        <div className="relative z-10 flex h-full flex-col gap-2 px-2 py-2 sm:px-3 sm:py-3">
-          <div className="shrink-0 rounded-[22px] border border-white/15 bg-black/28 px-3 py-2 shadow-[0_14px_40px_rgba(0,0,0,.35)] backdrop-blur-xl">
-            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+        <div className="relative z-10 flex h-full min-h-0 flex-col gap-1 px-0.5 pb-0 pt-0.5">
+          <div className="mx-0.5 shrink-0 overflow-hidden rounded-[18px] border border-white/10 bg-[#070b15]/90 px-2 py-1.5 shadow-[0_12px_34px_rgba(0,0,0,.42)] backdrop-blur-2xl">
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1.5">
               <button
                 onClick={() => window.history.back()}
-                className="rounded-2xl border border-white/10 bg-white/8 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-white/60 transition active:scale-95"
+                className="rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-white/55 transition active:scale-95"
               >
                 Back
               </button>
 
               <div className="text-center leading-none">
-                <div className={`text-sm font-black ${winner ? 'text-yellow-200' : currentCfg.text}`}>{describeTurn(currentPlayer, winner)}</div>
+                <div className={`text-[13px] font-black ${winner ? 'text-yellow-200' : currentCfg.text}`}>{describeTurn(currentPlayer, winner)}</div>
               </div>
 
               <button
                 onClick={onRestart}
-                className="rounded-2xl border border-white/10 bg-white/8 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-white/60 transition active:scale-95"
+                className="rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-white/55 transition active:scale-95"
               >
                 Reset
               </button>
             </div>
 
-            <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/10 px-3 py-2">
+            <div className="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+              <div className="rounded-xl border border-emerald-300/12 bg-emerald-400/[0.075] px-2.5 py-1.5">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">P1 walls</div>
-                <div className="mt-0.5 text-xl font-black leading-none text-emerald-200">{wallsLeft.p1}</div>
+                <div className="mt-0.5 text-[17px] font-black leading-none text-emerald-200">{wallsLeft.p1}</div>
               </div>
 
-              <div className="rounded-full border border-white/10 bg-white/8 px-3 py-2 text-center shadow-inner">
+              <div className="rounded-xl border border-white/10 bg-white/[0.055] px-2.5 py-1.5 text-center shadow-inner">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">Goal</div>
                 <div className="mt-0.5 text-[11px] font-black text-white/75">{currentCfg.target}</div>
               </div>
 
-              <div className="rounded-2xl border border-sky-300/15 bg-sky-400/10 px-3 py-2 text-right">
+              <div className="rounded-xl border border-sky-300/12 bg-sky-400/[0.075] px-2.5 py-1.5 text-right">
                 <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/35">P2 walls</div>
-                <div className="mt-0.5 text-xl font-black leading-none text-sky-200">{wallsLeft.p2}</div>
+                <div className="mt-0.5 text-[17px] font-black leading-none text-sky-200">{wallsLeft.p2}</div>
               </div>
             </div>
           </div>
 
-          <div className="relative flex flex-1 min-h-0 items-center justify-center px-0 py-1 sm:py-2">
-            <div className="absolute inset-x-6 bottom-0 top-5 rounded-[42px] bg-black/30 blur-2xl" />
+          <div className="relative flex min-h-0 flex-1 items-start justify-center overflow-hidden px-0 py-0">
+            <div className="absolute inset-x-0 bottom-0 top-3 rounded-[34px] bg-cyan-400/6 blur-2xl" />
 
             <div
               ref={boardRef}
-              className="relative aspect-square h-full max-h-[min(100%,calc(100vw-16px))] w-full max-w-[min(100%,760px)] overflow-hidden rounded-[38px] border border-amber-100/25 bg-[#3a2212] shadow-[0_34px_100px_rgba(0,0,0,.55),inset_0_2px_0_rgba(255,255,255,.18),inset_0_-8px_22px_rgba(0,0,0,.35)]"
+              className="relative aspect-square w-[calc(100%+14px)] max-w-none shrink-0 overflow-hidden rounded-[30px] border border-white/10 bg-[#070a12] shadow-[0_28px_90px_rgba(0,0,0,.62),inset_0_1px_0_rgba(255,255,255,.12),inset_0_-18px_42px_rgba(0,0,0,.44)]"
             >
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,rgba(255,255,255,.14),transparent_22%),linear-gradient(135deg,#87552c,#4f2d17_48%,#28160c)]" />
-              <div className="absolute inset-[4.4%] rounded-[30px] border border-emerald-100/15 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,.12),transparent_27%),linear-gradient(180deg,#247a45,#17633a_52%,#0f3f28)] shadow-[inset_0_10px_20px_rgba(255,255,255,.08),inset_0_-24px_36px_rgba(0,0,0,.32),0_8px_0_rgba(0,0,0,.2)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_5%,rgba(255,255,255,.11),transparent_24%),radial-gradient(circle_at_16%_88%,rgba(16,185,129,.14),transparent_34%),linear-gradient(145deg,#111827,#060913_54%,#02040a)]" />
+              <div className="absolute inset-[3.6%] rounded-[26px] border border-white/10 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,.10),transparent_27%),linear-gradient(180deg,#10251f,#0b1c18_52%,#07110f)] shadow-[inset_0_10px_20px_rgba(255,255,255,.055),inset_0_-24px_36px_rgba(0,0,0,.38),0_10px_28px_rgba(0,0,0,.28)]" />
 
               <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full">
                 <defs>
                   <linearGradient id="cellPlate" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
-                    <stop offset="55%" stopColor="rgba(230,255,236,0.08)" />
-                    <stop offset="100%" stopColor="rgba(0,0,0,0.18)" />
+                    <stop offset="0%" stopColor="rgba(255,255,255,0.105)" />
+                    <stop offset="55%" stopColor="rgba(34,211,238,0.045)" />
+                    <stop offset="100%" stopColor="rgba(0,0,0,0.34)" />
                   </linearGradient>
                   <linearGradient id="cellRim" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor="rgba(255,255,255,0.28)" />
-                    <stop offset="100%" stopColor="rgba(0,0,0,0.3)" />
+                    <stop offset="0%" stopColor="rgba(255,255,255,0.16)" />
+                    <stop offset="100%" stopColor="rgba(0,0,0,0.44)" />
                   </linearGradient>
                   <linearGradient id="wallGrad-p1-h" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#6ee7b7" />
@@ -682,11 +683,11 @@ export const GridLockGame: React.FC = () => {
                   </linearGradient>
                 </defs>
 
-                <rect x="2.8" y="2.8" width="94.4" height="94.4" rx="6.2" fill="rgba(0,0,0,0.15)" />
-                <rect x="4" y="4" width="92" height="92" rx="5.2" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)" strokeWidth="0.35" />
+                <rect x="2.8" y="2.8" width="94.4" height="94.4" rx="6.2" fill="rgba(0,0,0,0.34)" />
+                <rect x="4" y="4" width="92" height="92" rx="5.2" fill="rgba(255,255,255,0.025)" stroke="rgba(255,255,255,0.10)" strokeWidth="0.35" />
 
-                <rect x={PAD} y={PAD} width={GRID} height={CELL} fill="rgba(96,165,250,0.1)" />
-                <rect x={PAD} y={PAD + CELL * 8} width={GRID} height={CELL} fill="rgba(52,211,153,0.1)" />
+                <rect x={PAD} y={PAD} width={GRID} height={CELL} fill="rgba(96,165,250,0.08)" />
+                <rect x={PAD} y={PAD + CELL * 8} width={GRID} height={CELL} fill="rgba(52,211,153,0.08)" />
 
                 {boardCells.map((cell) => {
                   const legal = legalKeys.has(`${cell.r},${cell.c}`);
@@ -713,7 +714,7 @@ export const GridLockGame: React.FC = () => {
                         cx={cell.x + CELL / 2}
                         cy={cell.y + CELL / 2}
                         r="2.12"
-                        fill={isHomeLine ? currentCfg.soft : 'rgba(255,255,255,0.055)'}
+                        fill={isHomeLine ? currentCfg.soft : 'rgba(255,255,255,0.035)'}
                         stroke="rgba(255,255,255,0.12)"
                         strokeWidth="0.18"
                       />
@@ -835,26 +836,26 @@ export const GridLockGame: React.FC = () => {
             </div>
           </div>
 
-          <div className="mb-[70px] shrink-0 rounded-[24px] border border-white/12 bg-black/28 p-2.5 shadow-[0_16px_45px_rgba(0,0,0,.35)] backdrop-blur-xl">
+          <div className="mx-0.5 shrink-0 rounded-t-[22px] border border-white/10 bg-[#070b15]/90 p-2 shadow-[0_-10px_38px_rgba(0,0,0,.35)] backdrop-blur-2xl">
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <button
                 onPointerDown={startWallDrag}
                 disabled={winner !== null || wallsLeft[currentPlayer] <= 0}
-                className={`group relative h-[66px] overflow-hidden rounded-[22px] border text-left transition active:scale-[.985] ${
+                className={`group relative h-[58px] overflow-hidden rounded-[18px] border text-left transition active:scale-[.985] ${
                   winner || wallsLeft[currentPlayer] <= 0
                     ? 'border-white/8 bg-white/5 text-white/30'
                     : 'border-white/12 bg-white/9 text-white hover:bg-white/12'
                 }`}
               >
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,.16),transparent_34%)]" />
-                <div className="relative flex h-full items-center justify-between px-4">
+                <div className="relative flex h-full items-center justify-between px-3">
                   <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/38">Drag wall</div>
-                    <div className={`mt-1 text-sm font-black ${currentCfg.text}`}>{currentCfg.name} • {wallsLeft[currentPlayer]} left</div>
+                    <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/36">Drag wall</div>
+                    <div className={`mt-1 text-[13px] font-black ${currentCfg.text}`}>{currentCfg.name} • {wallsLeft[currentPlayer]} left</div>
                   </div>
-                  <div className="flex h-12 w-24 items-center justify-center">
+                  <div className="flex h-11 w-20 items-center justify-center">
                     <div
-                      className={wallOrientation === 'h' ? 'h-4 w-20 rounded-lg' : 'h-14 w-4 rounded-lg'}
+                      className={wallOrientation === 'h' ? 'h-3.5 w-16 rounded-lg' : 'h-12 w-3.5 rounded-lg'}
                       style={{
                         background: `linear-gradient(${wallOrientation === 'h' ? '90deg' : '180deg'}, ${currentCfg.wallA}, ${currentCfg.wallB})`,
                         boxShadow: `0 0 24px ${currentCfg.glow}`,
@@ -870,7 +871,7 @@ export const GridLockGame: React.FC = () => {
               <button
                 onClick={onRotate}
                 disabled={winner !== null}
-                className="h-[66px] w-[74px] rounded-[22px] border border-white/12 bg-white/9 text-3xl font-black text-white/80 transition active:scale-[.96] disabled:text-white/25"
+                className="h-[58px] w-[64px] rounded-[18px] border border-white/10 bg-white/[0.065] text-2xl font-black text-white/75 transition active:scale-[.96] disabled:text-white/25"
                 title="Rotate wall"
               >
                 ↻
