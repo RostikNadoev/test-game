@@ -47,6 +47,8 @@ type MarketData = {
   histories: Record<CoinId, number[]>;
   eventLabel: string;
   eventTone: string;
+  hotCoin: CoinId;
+  weakCoin: CoinId;
 };
 
 const TARGET_SCORE = 4;
@@ -54,16 +56,21 @@ const MARKET_STEPS = 100;
 const TICK_MS = 100;
 const TRADE_DURATION_MS = MARKET_STEPS * TICK_MS;
 
+// Баланс рынка: больше не будет огромных +1000%.
+// В одном раунде coin ограничен примерно от -42% до +85%, поэтому борьба ближе и интереснее.
+const MAX_PRICE_MULTIPLIER = 1.85;
+const MIN_PRICE_MULTIPLIER = 0.58;
+
 const COINS: Coin[] = [
   {
     id: 'frogx',
     symbol: 'FRGX',
     name: 'Frog X',
     emoji: '🐸',
-    tag: 'community pump',
+    tag: 'community',
     base: 1.12,
-    volatility: 0.105,
-    bias: 0.009,
+    volatility: 0.038,
+    bias: 0.0014,
     color: '#22c55e',
     glow: 'rgba(34,197,94,.55)',
     gradient: 'from-emerald-300 via-lime-400 to-green-500',
@@ -75,8 +82,8 @@ const COINS: Coin[] = [
     emoji: '🐶',
     tag: 'chaos meme',
     base: 0.74,
-    volatility: 0.13,
-    bias: 0.005,
+    volatility: 0.046,
+    bias: 0.001,
     color: '#facc15',
     glow: 'rgba(250,204,21,.55)',
     gradient: 'from-yellow-200 via-amber-400 to-orange-500',
@@ -86,10 +93,10 @@ const COINS: Coin[] = [
     symbol: 'MCAT',
     name: 'Moon Cat',
     emoji: '🐱',
-    tag: 'quiet whale',
+    tag: 'stable hype',
     base: 2.4,
-    volatility: 0.08,
-    bias: 0.008,
+    volatility: 0.032,
+    bias: 0.0012,
     color: '#38bdf8',
     glow: 'rgba(56,189,248,.55)',
     gradient: 'from-sky-200 via-cyan-400 to-blue-500',
@@ -99,10 +106,10 @@ const COINS: Coin[] = [
     symbol: 'RUG',
     name: 'Rug Rat',
     emoji: '🐭',
-    tag: 'danger coin',
+    tag: 'high risk',
     base: 0.42,
-    volatility: 0.17,
-    bias: -0.002,
+    volatility: 0.052,
+    bias: -0.0002,
     color: '#e879f9',
     glow: 'rgba(232,121,249,.55)',
     gradient: 'from-fuchsia-300 via-purple-500 to-violet-700',
@@ -114,8 +121,8 @@ const COINS: Coin[] = [
     emoji: '🟢',
     tag: 'viral wave',
     base: 1.86,
-    volatility: 0.115,
-    bias: 0.006,
+    volatility: 0.041,
+    bias: 0.001,
     color: '#84cc16',
     glow: 'rgba(132,204,22,.55)',
     gradient: 'from-lime-200 via-green-400 to-emerald-600',
@@ -127,8 +134,8 @@ const COINS: Coin[] = [
     emoji: '🐹',
     tag: 'tap hype',
     base: 0.31,
-    volatility: 0.145,
-    bias: 0.004,
+    volatility: 0.049,
+    bias: 0.0007,
     color: '#fb923c',
     glow: 'rgba(251,146,60,.55)',
     gradient: 'from-orange-200 via-orange-400 to-red-500',
@@ -140,8 +147,8 @@ const COINS: Coin[] = [
     emoji: '🍌',
     tag: 'degen fuel',
     base: 0.92,
-    volatility: 0.125,
-    bias: 0.007,
+    volatility: 0.043,
+    bias: 0.001,
     color: '#fde047',
     glow: 'rgba(253,224,71,.55)',
     gradient: 'from-yellow-100 via-yellow-300 to-lime-500',
@@ -151,10 +158,10 @@ const COINS: Coin[] = [
     symbol: 'GOBL',
     name: 'Goblin Bank',
     emoji: '👹',
-    tag: 'dark liquidity',
+    tag: 'liquidity',
     base: 3.15,
-    volatility: 0.09,
-    bias: 0.003,
+    volatility: 0.033,
+    bias: 0.0006,
     color: '#a78bfa',
     glow: 'rgba(167,139,250,.55)',
     gradient: 'from-violet-200 via-purple-400 to-indigo-700',
@@ -164,10 +171,10 @@ const COINS: Coin[] = [
     symbol: 'TONR',
     name: 'TON Rocket',
     emoji: '🚀',
-    tag: 'telegram alpha',
+    tag: 'telegram',
     base: 1.58,
-    volatility: 0.1,
-    bias: 0.009,
+    volatility: 0.036,
+    bias: 0.0013,
     color: '#22d3ee',
     glow: 'rgba(34,211,238,.55)',
     gradient: 'from-cyan-200 via-sky-400 to-blue-600',
@@ -179,8 +186,8 @@ const COINS: Coin[] = [
     emoji: '🦍',
     tag: 'nft relic',
     base: 0.67,
-    volatility: 0.155,
-    bias: 0.001,
+    volatility: 0.05,
+    bias: 0.0002,
     color: '#f472b6',
     glow: 'rgba(244,114,182,.55)',
     gradient: 'from-pink-200 via-rose-400 to-fuchsia-600',
@@ -208,51 +215,64 @@ const getPct = (history: number[], step: number) => {
   return ((current - first) / first) * 100;
 };
 
+const getCurrent = (history: number[], step: number) => history[Math.min(step, history.length - 1)];
+
 const generateMarket = (): MarketData => {
   const histories = {} as Record<CoinId, number[]>;
 
   const hotCoin = COINS[Math.floor(Math.random() * COINS.length)].id;
-  let cursedCoin = COINS[Math.floor(Math.random() * COINS.length)].id;
+  let weakCoin = COINS[Math.floor(Math.random() * COINS.length)].id;
 
-  if (cursedCoin === hotCoin) {
-    cursedCoin = COINS[(COINS.findIndex((coin) => coin.id === hotCoin) + 3) % COINS.length].id;
+  if (weakCoin === hotCoin) {
+    weakCoin = COINS[(COINS.findIndex((coin) => coin.id === hotCoin) + 4) % COINS.length].id;
   }
 
   const eventPool = [
-    { label: 'Whale entered', tone: 'large wallet bought the dip' },
-    { label: 'Meme wave', tone: 'social feed exploded' },
-    { label: 'Fake listing rumor', tone: 'market is unstable' },
-    { label: 'Liquidity trap', tone: 'spread got dangerous' },
-    { label: 'Influencer candle', tone: 'one post moved the chart' },
-    { label: 'Bot war', tone: 'algos are fighting' },
+    { label: 'Whale entered', tone: 'large wallet opened position' },
+    { label: 'Meme wave', tone: 'social feed volume increased' },
+    { label: 'Listing rumor', tone: 'market is pricing news' },
+    { label: 'Liquidity trap', tone: 'spread became unstable' },
+    { label: 'Influencer candle', tone: 'one post moved buyers' },
+    { label: 'Bot war', tone: 'algos are fighting the spread' },
   ];
 
   const event = eventPool[Math.floor(Math.random() * eventPool.length)];
 
   COINS.forEach((coin) => {
-    const values = [coin.base * randomBetween(0.97, 1.03)];
-    let momentum = coin.bias + randomBetween(-0.012, 0.014);
+    const start = coin.base * randomBetween(0.985, 1.015);
+    const values = [start];
+    let momentum = coin.bias + randomBetween(-0.004, 0.005);
 
     for (let i = 1; i <= MARKET_STEPS; i += 1) {
       const prev = values[i - 1];
+      const progress = i / MARKET_STEPS;
+      const trendWindow = Math.sin(Math.PI * progress);
+      const endDamping = i > 78 ? 0.55 : 1;
 
-      if (coin.id === hotCoin && i > 20 && i < 70) {
-        momentum += randomBetween(0.004, 0.015);
+      let localMomentum = momentum * 0.78 + coin.bias;
+
+      if (coin.id === hotCoin && i > 18 && i < 76) {
+        localMomentum += randomBetween(0.0008, 0.0035) * trendWindow;
       }
 
-      if (coin.id === cursedCoin && i > 35 && i < 84) {
-        momentum -= randomBetween(0.006, 0.02);
+      if (coin.id === weakCoin && i > 30 && i < 86) {
+        localMomentum -= randomBetween(0.0008, 0.004) * trendWindow;
       }
 
-      const lateShake = i > 72 ? randomBetween(-coin.volatility, coin.volatility) * 0.2 : 0;
-      const noise = randomBetween(-coin.volatility, coin.volatility) * 0.18;
-      const shock = Math.random() > 0.94 ? randomBetween(-coin.volatility * 0.65, coin.volatility * 0.82) : 0;
+      const noise = randomBetween(-coin.volatility, coin.volatility) * 0.07 * endDamping;
+      const microShock =
+        Math.random() > 0.94
+          ? randomBetween(-coin.volatility * 0.16, coin.volatility * 0.18)
+          : 0;
 
-      momentum *= 0.9;
-      momentum += coin.bias;
-      momentum += noise + shock + lateShake;
+      momentum = localMomentum + noise + microShock;
 
-      const next = Math.max(0.025, prev * (1 + momentum));
+      const rawNext = prev * (1 + momentum);
+      const next = Math.max(
+        start * MIN_PRICE_MULTIPLIER,
+        Math.min(start * MAX_PRICE_MULTIPLIER, rawNext),
+      );
+
       values.push(next);
     }
 
@@ -263,6 +283,8 @@ const generateMarket = (): MarketData => {
     histories,
     eventLabel: event.label,
     eventTone: event.tone,
+    hotCoin,
+    weakCoin,
   };
 };
 
@@ -319,42 +341,56 @@ const ExchangeChart = ({
   }, [picks]);
 
   const width = 420;
-  const height = 238;
-  const padX = 18;
-  const padY = 18;
+  const height = 244;
+  const padX = 22;
+  const padY = 22;
 
   if (!market) {
     return (
       <div className="vm-chart-empty">
         <div className="vm-chart-grid" />
-        <BarChart3 size={32} />
-        <span>WAITING FOR TRADES</span>
+        <div className="vm-chart-empty-icon">
+          <BarChart3 size={34} />
+        </div>
+        <span>WAITING FOR ENTRY</span>
       </div>
     );
   }
 
-  const series = activeIds.map((id) => ({
-    coin: coinById(id),
-    values: market.histories[id].slice(0, Math.max(2, step + 1)),
-  }));
+  const series = activeIds.map((id) => {
+    const coin = coinById(id);
+    const values = market.histories[id].slice(0, Math.max(2, step + 1));
+    const pctValues = values.map((_, index) => getPct(market.histories[id], index));
 
-  const all = series.flatMap((item) => item.values);
-  const min = Math.min(...all);
-  const max = Math.max(...all);
-  const range = Math.max(max - min, 0.0001);
+    return {
+      coin,
+      pctValues,
+    };
+  });
 
-  const yOf = (value: number) => height - padY - ((value - min) / range) * (height - padY * 2);
+  const allPct = series.flatMap((item) => item.pctValues);
+  const minPct = Math.min(-12, Math.min(...allPct));
+  const maxPct = Math.max(12, Math.max(...allPct));
+  const pctRange = Math.max(maxPct - minPct, 0.0001);
+
+  const yOf = (value: number) => height - padY - ((value - minPct) / pctRange) * (height - padY * 2);
   const xOf = (index: number) => padX + (index / MARKET_STEPS) * (width - padX * 2);
+  const zeroY = yOf(0);
 
-  const gridLabels = [max, min + range * 0.66, min + range * 0.33, min];
+  const scaleLabels = [maxPct, minPct + pctRange * 0.66, minPct + pctRange * 0.33, minPct];
 
   return (
     <div className="vm-chart">
       <div className="vm-chart-grid" />
 
+      <div className="vm-chart-topline">
+        <span>PERFORMANCE</span>
+        <b>{Math.min(step, MARKET_STEPS)} / {MARKET_STEPS}</b>
+      </div>
+
       <div className="vm-chart-scale">
-        {gridLabels.map((label) => (
-          <span key={label}>{formatPrice(label)}</span>
+        {scaleLabels.map((label) => (
+          <span key={label}>{formatPct(label)}</span>
         ))}
       </div>
 
@@ -366,13 +402,23 @@ const ExchangeChart = ({
             x2={width - padX}
             y1={padY + (height - padY * 2) * line}
             y2={padY + (height - padY * 2) * line}
-            stroke="rgba(255,255,255,.08)"
+            stroke="rgba(255,255,255,.075)"
             strokeWidth="1"
           />
         ))}
 
-        {series.map(({ coin, values }, seriesIndex) => {
-          const path = values
+        <line
+          x1={padX}
+          x2={width - padX}
+          y1={zeroY}
+          y2={zeroY}
+          stroke="rgba(255,255,255,.18)"
+          strokeWidth="1.2"
+          strokeDasharray="7 7"
+        />
+
+        {series.map(({ coin, pctValues }, seriesIndex) => {
+          const path = pctValues
             .map((value, index) => {
               const x = xOf(index);
               const y = yOf(value);
@@ -381,9 +427,9 @@ const ExchangeChart = ({
             })
             .join(' ');
 
-          const last = values[values.length - 1];
-          const lastX = xOf(values.length - 1);
-          const lastY = yOf(last);
+          const lastPct = pctValues[pctValues.length - 1];
+          const lastX = xOf(pctValues.length - 1);
+          const lastY = yOf(lastPct);
 
           return (
             <g key={coin.id}>
@@ -394,19 +440,20 @@ const ExchangeChart = ({
                 strokeWidth={seriesIndex === 0 ? 5 : 4}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity={seriesIndex === 0 ? 1 : 0.82}
+                opacity={seriesIndex === 0 ? 1 : 0.78}
               />
 
               <circle cx={lastX} cy={lastY} r={6} fill={coin.color} />
-              <circle cx={lastX} cy={lastY} r={12} fill={coin.color} opacity="0.14" />
+              <circle cx={lastX} cy={lastY} r={14} fill={coin.color} opacity="0.12" />
             </g>
           );
         })}
       </svg>
 
       <div className="vm-chart-legend">
-        {series.map(({ coin, values }) => {
-          const currentPct = getPct(values, values.length - 1);
+        {series.map(({ coin }) => {
+          const history = market.histories[coin.id];
+          const currentPct = getPct(history, step);
 
           return (
             <div key={coin.id} className="vm-legend-item">
@@ -436,9 +483,9 @@ const CoinCard = ({
   step: number;
   onClick: () => void;
 }) => {
-  const history = market?.histories[coin.id] ?? [coin.base, coin.base * 1.01, coin.base * 0.99, coin.base * 1.02];
+  const history = market?.histories[coin.id] ?? [coin.base, coin.base * 1.006, coin.base * 0.996, coin.base * 1.01];
   const visibleStep = Math.min(step, history.length - 1);
-  const current = history[visibleStep];
+  const current = getCurrent(history, visibleStep);
   const currentPct = getPct(history, visibleStep);
   const isUp = currentPct >= 0;
 
@@ -538,7 +585,7 @@ export const VirusMarketGame = () => {
     const p1Pnl = getPct(finalMarket.histories[picks.p1], MARKET_STEPS);
     const p2Pnl = getPct(finalMarket.histories[picks.p2], MARKET_STEPS);
 
-    if (Math.abs(p1Pnl - p2Pnl) < 0.15) {
+    if (Math.abs(p1Pnl - p2Pnl) < 0.2) {
       setLastWinner('draw');
       setPhase('result');
       setMessage('Ничья. Оба почти одинаково зашли в рынок.');
@@ -658,10 +705,10 @@ export const VirusMarketGame = () => {
           padding: 8px 8px max(10px, env(safe-area-inset-bottom));
           color: white;
           background:
-            radial-gradient(circle at 12% 0%, rgba(16,185,129,.18), transparent 30%),
-            radial-gradient(circle at 88% 8%, rgba(139,92,246,.18), transparent 34%),
-            radial-gradient(circle at 48% 42%, rgba(34,211,238,.08), transparent 36%),
-            linear-gradient(180deg, #020617 0%, #050610 46%, #020617 100%);
+            radial-gradient(circle at 14% 0%, rgba(16,185,129,.13), transparent 29%),
+            radial-gradient(circle at 86% 8%, rgba(139,92,246,.14), transparent 34%),
+            radial-gradient(circle at 50% 38%, rgba(34,211,238,.055), transparent 36%),
+            linear-gradient(180deg, #02040c 0%, #050610 46%, #02030a 100%);
           user-select: none;
           -webkit-overflow-scrolling: touch;
         }
@@ -675,7 +722,7 @@ export const VirusMarketGame = () => {
           position: fixed;
           inset: -30%;
           pointer-events: none;
-          opacity: .13;
+          opacity: .10;
           background:
             linear-gradient(rgba(255,255,255,.055) 1px, transparent 1px),
             linear-gradient(90deg, rgba(255,255,255,.055) 1px, transparent 1px);
@@ -763,7 +810,7 @@ export const VirusMarketGame = () => {
           justify-content: space-between;
           border-radius: 15px;
           border: 1px solid rgba(255,255,255,.09);
-          background: rgba(255,255,255,.052);
+          background: rgba(255,255,255,.045);
           padding: 0 11px;
           opacity: .72;
           backdrop-filter: blur(18px);
@@ -796,8 +843,9 @@ export const VirusMarketGame = () => {
           border-radius: 25px;
           border: 1px solid rgba(255,255,255,.1);
           background:
-            linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.026)),
-            rgba(2,6,23,.7);
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.07), transparent 45%),
+            linear-gradient(180deg, rgba(255,255,255,.058), rgba(255,255,255,.024)),
+            rgba(2,6,23,.76);
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.1),
             0 22px 70px rgba(0,0,0,.34);
@@ -885,7 +933,7 @@ export const VirusMarketGame = () => {
         .vm-chart,
         .vm-chart-empty {
           position: relative;
-          height: 248px;
+          height: 252px;
           margin: 10px;
           overflow: hidden;
           border-radius: 22px;
@@ -906,14 +954,20 @@ export const VirusMarketGame = () => {
           text-transform: uppercase;
         }
 
-        .vm-chart-empty svg {
-          opacity: .55;
-          margin-bottom: 34px;
+        .vm-chart-empty-icon {
+          width: 62px;
+          height: 62px;
+          display: grid;
+          place-items: center;
+          border-radius: 22px;
+          background: rgba(255,255,255,.05);
+          color: rgba(255,255,255,.52);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
         }
 
         .vm-chart-empty span {
           position: absolute;
-          bottom: 74px;
+          bottom: 70px;
         }
 
         .vm-chart-grid {
@@ -927,6 +981,35 @@ export const VirusMarketGame = () => {
           mask-image: linear-gradient(180deg, transparent, black 12%, black 88%, transparent);
         }
 
+
+        .vm-chart-topline {
+          position: absolute;
+          left: 10px;
+          right: 10px;
+          top: 9px;
+          z-index: 5;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          pointer-events: none;
+        }
+
+        .vm-chart-topline span,
+        .vm-chart-topline b {
+          border-radius: 999px;
+          background: rgba(0,0,0,.30);
+          padding: 5px 8px;
+          color: rgba(255,255,255,.44);
+          font-size: 8px;
+          font-weight: 1000;
+          letter-spacing: .16em;
+          backdrop-filter: blur(12px);
+        }
+
+        .vm-chart-topline b {
+          color: rgba(255,255,255,.70);
+        }
+
         .vm-chart-svg {
           position: absolute;
           inset: 0;
@@ -938,7 +1021,7 @@ export const VirusMarketGame = () => {
         .vm-chart-scale {
           position: absolute;
           right: 8px;
-          top: 13px;
+          top: 42px;
           bottom: 50px;
           z-index: 2;
           display: flex;
@@ -1091,12 +1174,12 @@ export const VirusMarketGame = () => {
 
         .vm-coin {
           position: relative;
-          min-height: 136px;
+          min-height: 130px;
           overflow: hidden;
           text-align: left;
           border-radius: 24px;
           border: 1px solid rgba(255,255,255,.1);
-          background: rgba(255,255,255,.052);
+          background: rgba(255,255,255,.045);
           padding: 11px;
           color: white;
           box-shadow:
@@ -1392,7 +1475,7 @@ export const VirusMarketGame = () => {
           </div>
 
           <div className="vm-event">
-            {market ? `${market.eventLabel} · ${market.eventTone}` : 'fake meme coin exchange'}
+            {market ? `${market.eventLabel} · ${market.eventTone}` : 'balanced fake meme exchange'}
           </div>
         </div>
 

@@ -22,6 +22,7 @@ import { IceBumpGame } from './pages/IceBumpGame';
 import { DiceDuelGame } from './pages/DiceDuelGame';
 import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
+import { CrashDuelGame } from './pages/CrashDuelGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -36,6 +37,7 @@ const GAME_TITLES: Record<string, string> = {
   '/game/slingclash/play': 'Sling Clash',
   '/game/icebump/play': 'Ice Bump',
   '/game/virusmarket/play': 'Virus Market',
+  '/game/crashduel/play': 'Crash Duel',
   '/game/race/play': 'Street Race',
   '/game/airhockey/play': 'Air Hockey',
   '/game/archer/play': 'Neon Duel',
@@ -53,6 +55,7 @@ const LOCKED_GAME_ROUTES = new Set([
   '/game/slingclash/play',
   '/game/icebump/play',
   '/game/virusmarket/play',
+  '/game/crashduel/play',
 ]);
 
 type TelegramWebApp = {
@@ -147,6 +150,7 @@ function AppShell() {
             <Route path="/game/slingclash/play" element={<SlingClashGame />} />
             <Route path="/game/icebump/play" element={<IceBumpGame />} />
             <Route path="/game/virusmarket/play" element={<VirusMarketGame />} />
+            <Route path="/game/crashduel/play" element={<CrashDuelGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />

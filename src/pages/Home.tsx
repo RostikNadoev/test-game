@@ -5,13 +5,22 @@ import { GameCard } from '../components/GameCard';
 
 const games = [
   {
+    id: 'crashduel',
+    name: 'Crash Duel',
+    icon: '🚀',
+    description: 'Забери множитель до краша',
+    color: 'from-cyan-300 via-blue-500 to-fuchsia-700',
+    meta: 'Crash',
+    status: 'New',
+  },
+  {
     id: 'virusmarket',
     name: 'Virus Market',
     icon: '🦠',
     description: 'Мем-коины, памп и выход',
     color: 'from-emerald-400 via-cyan-500 to-violet-700',
     meta: 'Market',
-    status: 'New',
+    status: 'Hot',
   },
   {
     id: 'hexfall',
@@ -133,6 +142,7 @@ const games = [
 ];
 
 const LOCAL_PLAY_IDS = new Set([
+  'crashduel',
   'virusmarket',
   'slingclash',
   'icebump',
@@ -140,7 +150,7 @@ const LOCAL_PLAY_IDS = new Set([
   'neonmatrix',
 ]);
 
-const featuredIds = new Set(['virusmarket', 'neonmatrix', 'diceduel']);
+const featuredIds = new Set(['crashduel', 'virusmarket', 'neonmatrix']);
 
 export const Home = () => {
   const navigate = useNavigate();
