@@ -949,7 +949,7 @@ export const IceBumpGame = () => {
 
   const [phase, setPhase] = useState<Phase>('planning');
   const [penguins, setPenguins] = useState<Penguin[]>(createInitialPenguins());
-  const [impacts, setImpacts] = useState<Impact[]>([]);
+  const [, setImpacts] = useState<Impact[]>([]);
   const [round, setRound] = useState(1);
   const [countdownMs, setCountdownMs] = useState(PLAN_MS_HUMAN);
   const [playerPlan, setPlayerPlan] = useState<Vec2>({ x: 0, z: 0 });
