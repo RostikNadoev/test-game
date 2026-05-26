@@ -10,8 +10,7 @@ import {
   Star,
   Swords,
   TrendingUp,
-  Trophy,
-  UserRound,
+  Trophy
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 

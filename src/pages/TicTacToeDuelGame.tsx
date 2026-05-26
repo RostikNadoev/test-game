@@ -278,7 +278,7 @@ export const TicTacToeGame: React.FC = () => {
     setPulseKey((value) => value + 1);
   };
 
-  const finishRound = (nextBoard: Cell[], result: WinResult) => {
+  const finishRound = (result: WinResult) => {
     setWinner(result.winner);
     setWinningLine(result.line);
     setPhase(result.winner && result.winner !== null ? 'round_over' : 'player_turn');
@@ -326,7 +326,7 @@ export const TicTacToeGame: React.FC = () => {
     sparkTimerRef.current = window.setTimeout(() => setSparks([]), 760);
 
     const result = getWinner(nextBoard);
-    if (finishRound(nextBoard, result)) return;
+    if (finishRound(result)) return;
 
     setPhase('bot_thinking');
     botTimerRef.current = window.setTimeout(() => {
@@ -339,7 +339,7 @@ export const TicTacToeGame: React.FC = () => {
       setLastMove(botIndex);
       setSparks(makeSparks(botIndex, BOT));
       sparkTimerRef.current = window.setTimeout(() => setSparks([]), 760);
-      finishRound(botBoard, getWinner(botBoard));
+      finishRound(getWinner(botBoard));
       if (!getWinner(botBoard).winner) setPhase('player_turn');
     }, BOT_THINK_MS);
   };

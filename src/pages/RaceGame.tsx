@@ -897,7 +897,7 @@ function drawCar(ctx: CanvasRenderingContext2D, car: Car, now: number) {
   ctx.restore();
 }
 
-function drawMiniMap(ctx: CanvasRenderingContext2D, track: TrackPoint[], car: Car, width: number, height: number) {
+function drawMiniMap(ctx: CanvasRenderingContext2D, track: TrackPoint[], car: Car, height: number) {
   const size = SETTINGS.minimap;
   const x = 18;
   const y = height - size - 70;
@@ -1122,7 +1122,7 @@ export const RaceGame: React.FC = () => {
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, vp.width, vp.height);
 
-      drawMiniMap(ctx, track, c, vp.width, vp.height);
+      drawMiniMap(ctx, track, c, vp.height);
       raf.current = requestAnimationFrame(loop);
     };
 
