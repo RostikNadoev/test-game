@@ -181,7 +181,7 @@ export const CrashDuelGame = () => {
   const [round, setRound] = useState(1);
   const [multiplier, setMultiplier] = useState(1);
   const [userCashout, setUserCashout] = useState<number | null>(null);
-  const [botCashoutReveal, setBotCashoutReveal] = useState<number | null>(null);
+  const [, setBotCashoutReveal] = useState<number | null>(null);
   const [crashPoint, setCrashPoint] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [totals, setTotals] = useState<Totals>({

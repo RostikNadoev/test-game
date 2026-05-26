@@ -230,7 +230,7 @@ export const DiceDuelGame: React.FC = () => {
 
       setActiveDice((prev) => {
         if (isFull) {
-          return prev.map((value, index) => (elapsed >= fullStopTimes[index] ? finalDice[index] : rollDie()));
+          return prev.map((_, index) => (elapsed >= fullStopTimes[index] ? finalDice[index] : rollDie()));
         }
 
         return prev.map((value, index) => {
@@ -243,7 +243,7 @@ export const DiceDuelGame: React.FC = () => {
         setStoppedDice(fullStopTimes.map((stopTime) => elapsed >= stopTime));
       } else {
         setStoppedDice((prev) =>
-          prev.map((value, index) => {
+          prev.map((_, index) => {
             if (index !== dieIndex) return true;
             return elapsed >= singleStopTime;
           }),
