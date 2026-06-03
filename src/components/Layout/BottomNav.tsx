@@ -10,21 +10,21 @@ export const BottomNav = () => {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-[480px] px-4 pb-[calc(12px+env(safe-area-inset-bottom))]">
-      <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#090B17]/85 p-2 shadow-[0_-18px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-cyan-400/10 via-fuchsia-500/10 to-amber-300/10" />
-        <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+      <div className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#080910]/90 p-1.5 shadow-[0_-18px_55px_rgba(0,0,0,0.46)] backdrop-blur-2xl">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.07),transparent_48%,rgba(216,183,106,0.06))]" />
+        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
 
-        <div className="relative grid grid-cols-3 gap-2">
+        <div className="relative grid grid-cols-3 gap-1.5">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
                 [
-                  'group relative flex min-h-[58px] flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl transition-all duration-300',
+                  'group relative flex min-h-[60px] flex-col items-center justify-center gap-1 overflow-hidden rounded-[22px] transition-all duration-300',
                   isActive
-                    ? 'text-white shadow-[0_10px_30px_rgba(34,211,238,0.22)]'
-                    : 'text-slate-500 hover:text-white',
+                    ? 'text-white'
+                    : 'text-white/34 hover:text-white/72',
                 ].join(' ')
               }
             >
@@ -32,17 +32,21 @@ export const BottomNav = () => {
                 <>
                   {isActive && (
                     <>
-                      <span className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-400/25 via-violet-500/25 to-fuchsia-500/25" />
-                      <span className="absolute inset-x-5 top-1 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+                      <span className="absolute inset-0 rounded-[22px] border border-white/[0.08] bg-white/[0.065] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
+                      <span className="absolute left-1/2 top-2 h-1 w-1 -translate-x-1/2 rounded-full bg-[#D8B76A]" />
                     </>
                   )}
 
                   <item.icon
-                    size={22}
-                    strokeWidth={isActive ? 2.6 : 2.2}
-                    className="relative z-10 transition-transform duration-300 group-active:scale-90"
+                    size={21}
+                    strokeWidth={isActive ? 2.4 : 2.1}
+                    className={[
+                      'relative z-10 transition duration-300 group-active:scale-90',
+                      isActive ? 'text-[#D8B76A]' : '',
+                    ].join(' ')}
                   />
-                  <span className="relative z-10 text-[10px] font-black uppercase tracking-[0.14em]">
+
+                  <span className="relative z-10 text-[10px] font-semibold uppercase tracking-[0.16em]">
                     {item.label}
                   </span>
                 </>

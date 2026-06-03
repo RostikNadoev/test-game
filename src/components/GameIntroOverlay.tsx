@@ -27,35 +27,35 @@ const opponents = [
     avatar: '🦊',
     rank: 'DIAMOND',
     level: 47,
-    color: '#22d3ee',
+    color: '#52FFE5',
   },
   {
     name: 'NeonWolf',
     avatar: '🐺',
     rank: 'MASTER',
     level: 52,
-    color: '#a78bfa',
+    color: '#9D7CFF',
   },
   {
     name: 'CyberCat',
     avatar: '🐱',
     rank: 'ELITE',
     level: 39,
-    color: '#f472b6',
+    color: '#FF7A90',
   },
   {
     name: 'GhostPanda',
     avatar: '🐼',
     rank: 'PRO',
     level: 44,
-    color: '#34d399',
+    color: '#54F2A8',
   },
   {
     name: 'RocketApe',
     avatar: '🦍',
     rank: 'LEGEND',
     level: 61,
-    color: '#facc15',
+    color: '#F2C766',
   },
 ];
 
@@ -137,26 +137,29 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
     <div className={`gi-overlay gi-${phase}`}>
       <style>{`
         .gi-overlay {
+          --gold: #F2C766;
+          --mint: #52FFE5;
+          --dark: #050507;
+
           position: absolute;
           inset: 0;
           z-index: 9999;
           display: grid;
           place-items: center;
           overflow: hidden;
-          padding: 18px;
+          padding: 22px;
           color: white;
-          background:
-            radial-gradient(circle at 50% 12%, rgba(255,255,255,.09), transparent 28%),
-            radial-gradient(circle at 20% 30%, rgba(34,211,238,.16), transparent 32%),
-            radial-gradient(circle at 82% 34%, rgba(168,85,247,.15), transparent 34%),
-            linear-gradient(180deg, #02040c 0%, #050610 46%, #02030a 100%);
           isolation: isolate;
-          animation: giOverlayIn .16s ease both;
+          background:
+            radial-gradient(circle at 50% 0%, rgba(242, 199, 102, .10), transparent 34%),
+            radial-gradient(circle at 100% 20%, rgba(82, 255, 229, .075), transparent 30%),
+            linear-gradient(180deg, rgba(3, 3, 5, .98) 0%, rgba(8, 8, 12, .98) 50%, rgba(3, 3, 5, .98) 100%);
+          animation: giOverlayIn .18s ease both;
         }
 
         .gi-closing {
           pointer-events: none;
-          animation: giOverlayOut .64s cubic-bezier(.2,.8,.2,1) both;
+          animation: giOverlayOut .54s cubic-bezier(.2,.8,.2,1) both;
         }
 
         .gi-overlay::before {
@@ -164,12 +167,12 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           position: absolute;
           inset: 0;
           z-index: -2;
-          opacity: .42;
+          opacity: .18;
           background:
-            linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
-          background-size: 36px 36px;
-          mask-image: radial-gradient(circle at 50% 44%, black 0%, transparent 72%);
+            linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+          background-size: 46px 46px;
+          mask-image: linear-gradient(to bottom, black 0%, transparent 76%);
         }
 
         .gi-overlay::after {
@@ -177,46 +180,27 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           position: absolute;
           inset: 0;
           z-index: -1;
-          pointer-events: none;
           background:
-            radial-gradient(circle at 50% 50%, transparent 0 36%, rgba(0,0,0,.58) 100%),
-            linear-gradient(180deg, rgba(255,255,255,.035), transparent 30%, rgba(0,0,0,.35));
+            radial-gradient(circle at 50% 50%, transparent 0 36%, rgba(0,0,0,.48) 100%);
+          pointer-events: none;
         }
 
         .gi-shell {
-          position: relative;
-          z-index: 3;
-          width: min(100%, 420px);
-          animation: giShellIn .36s cubic-bezier(.16,1,.3,1) both;
-        }
-
-        .gi-shell-border {
-          position: absolute;
-          inset: -1px;
-          border-radius: 34px;
-          background:
-            linear-gradient(
-              135deg,
-              rgba(255,255,255,.24),
-              rgba(34,211,238,.28),
-              rgba(168,85,247,.26),
-              rgba(255,255,255,.12)
-            );
-          pointer-events: none;
+          width: min(100%, 390px);
+          animation: giShellIn .34s cubic-bezier(.16,1,.3,1) both;
         }
 
         .gi-card {
           position: relative;
           overflow: hidden;
           border-radius: 34px;
-          border: 1px solid rgba(255,255,255,.10);
+          border: 1px solid rgba(255,255,255,.09);
           background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.105), transparent 42%),
-            linear-gradient(180deg, rgba(255,255,255,.078), rgba(255,255,255,.035)),
-            rgba(3,7,18,.84);
+            linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035)),
+            rgba(8,8,12,.9);
           box-shadow:
-            0 34px 105px rgba(0,0,0,.62),
-            inset 0 1px 0 rgba(255,255,255,.13);
+            0 28px 90px rgba(0,0,0,.56),
+            inset 0 1px 0 rgba(255,255,255,.10);
           backdrop-filter: blur(26px);
           padding: 18px;
         }
@@ -224,69 +208,64 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         .gi-card::before {
           content: "";
           position: absolute;
-          left: 24px;
-          right: 24px;
+          left: 38px;
+          right: 38px;
           top: 0;
           height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,.54), transparent);
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent);
         }
 
-        .gi-top {
+        .gi-head {
           position: relative;
           z-index: 2;
-          display: grid;
-          justify-items: center;
           text-align: center;
-          margin-bottom: 18px;
+          padding: 4px 8px 18px;
         }
 
         .gi-kicker {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 7px;
-          min-height: 26px;
-          padding: 0 11px;
+          min-height: 27px;
+          padding: 0 12px;
           border-radius: 999px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(0,0,0,.22);
-          color: rgba(255,255,255,.54);
+          border: 1px solid rgba(255,255,255,.08);
+          background: rgba(255,255,255,.045);
+          color: rgba(255,255,255,.46);
           font-size: 8px;
           line-height: 1;
           font-weight: 1000;
-          letter-spacing: .2em;
+          letter-spacing: .22em;
           text-transform: uppercase;
-          backdrop-filter: blur(14px);
         }
 
-        .gi-kicker-dot {
+        .gi-kicker i {
           width: 6px;
           height: 6px;
           border-radius: 999px;
-          background: ${isMatched ? '#22c55e' : '#22d3ee'};
-          box-shadow: 0 0 16px ${isMatched ? 'rgba(34,197,94,.82)' : 'rgba(34,211,238,.82)'};
+          background: ${isMatched ? '#22c55e' : '#F2C766'};
+          box-shadow: 0 0 14px ${isMatched ? 'rgba(34,197,94,.72)' : 'rgba(242,199,102,.62)'};
         }
 
         .gi-title {
-          max-width: 340px;
-          margin-top: 11px;
+          margin-top: 13px;
           overflow: hidden;
           white-space: nowrap;
           text-overflow: ellipsis;
-          font-size: clamp(34px, 8vw, 44px);
-          line-height: .84;
+          color: white;
+          font-size: clamp(25px, 7vw, 34px);
+          line-height: 1;
           font-weight: 1000;
-          letter-spacing: -.085em;
-          background: linear-gradient(90deg, #bae6fd 0%, #ffffff 48%, #ddd6fe 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
+          letter-spacing: -.075em;
         }
 
         .gi-subtitle {
-          margin-top: 9px;
-          color: rgba(255,255,255,.56);
+          margin: 8px auto 0;
+          max-width: 270px;
+          color: rgba(255,255,255,.43);
           font-size: 12px;
-          line-height: 1.3;
+          line-height: 1.45;
           font-weight: 800;
         }
 
@@ -294,66 +273,58 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           position: relative;
           z-index: 2;
           display: grid;
-          grid-template-columns: 1fr 58px 1fr;
+          grid-template-columns: 1fr auto 1fr;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
+          padding: 8px 0 4px;
         }
 
         .gi-player {
           min-width: 0;
           display: grid;
-          gap: 9px;
           justify-items: center;
+          gap: 10px;
         }
 
-        .gi-avatar-box {
+        .gi-avatar-wrap {
           position: relative;
-          width: 122px;
-          height: 122px;
+          width: 92px;
+          height: 92px;
           display: grid;
           place-items: center;
           border-radius: 30px;
-          border: 1px solid rgba(255,255,255,.10);
+          border: 1px solid rgba(255,255,255,.09);
           background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.11), transparent 46%),
-            linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.028));
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.10), transparent 46%),
+            rgba(255,255,255,.045);
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.12),
-            0 22px 54px rgba(0,0,0,.30);
+            inset 0 1px 0 rgba(255,255,255,.08),
+            0 18px 42px rgba(0,0,0,.26);
         }
 
-        .gi-avatar-box::before {
+        .gi-avatar-wrap::after {
           content: "";
           position: absolute;
           inset: -1px;
           border-radius: inherit;
-          background: linear-gradient(135deg, rgba(34,211,238,.38), rgba(255,255,255,.08), rgba(168,85,247,.28));
-          opacity: .72;
-          z-index: -1;
-        }
-
-        .gi-opponent .gi-avatar-box::before {
-          background: linear-gradient(135deg, var(--opponent-color), rgba(255,255,255,.08), rgba(168,85,247,.32));
-          opacity: ${isMatched ? '.72' : '.32'};
+          border: 1px solid rgba(255,255,255,.05);
+          pointer-events: none;
         }
 
         .gi-avatar {
-          position: relative;
-          width: 86px;
-          height: 86px;
+          width: 66px;
+          height: 66px;
           display: grid;
           place-items: center;
           overflow: hidden;
-          border-radius: 24px;
+          border-radius: 23px;
           background:
-            radial-gradient(circle at 30% 18%, rgba(255,255,255,.28), transparent 38%),
-            linear-gradient(135deg, #111827, #020617);
+            linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.02)),
+            #0D0D13;
           color: white;
-          font-size: 24px;
+          font-size: 22px;
           font-weight: 1000;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.14),
-            0 18px 32px rgba(0,0,0,.32);
+          letter-spacing: -.04em;
         }
 
         .gi-avatar img {
@@ -363,173 +334,152 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         }
 
         .gi-opponent .gi-avatar {
-          font-size: 38px;
+          font-size: 33px;
         }
 
-        .gi-loader-center {
-          position: absolute;
-          inset: 0;
-          display: grid;
-          place-items: center;
-        }
-
-        .gi-spinner {
-          width: 38px;
-          height: 38px;
+        .gi-loader {
+          width: 34px;
+          height: 34px;
           border-radius: 999px;
-          border: 3px solid rgba(255,255,255,.12);
-          border-top-color: var(--opponent-color);
-          border-right-color: rgba(255,255,255,.36);
-          box-shadow: 0 0 24px rgba(34,211,238,.18);
-          animation: giSpin .72s linear infinite;
-        }
-
-        .gi-opponent-ready {
-          animation: giOpponentIn .44s cubic-bezier(.16,1.12,.28,1) both;
+          border: 2px solid rgba(255,255,255,.10);
+          border-top-color: var(--gold);
+          animation: giSpin .78s linear infinite;
         }
 
         .gi-name {
-          max-width: 126px;
+          max-width: 112px;
           overflow: hidden;
           white-space: nowrap;
           text-overflow: ellipsis;
           color: white;
           text-align: center;
-          font-size: 14px;
+          font-size: 13px;
           line-height: 1;
           font-weight: 1000;
-          letter-spacing: -.04em;
+          letter-spacing: -.035em;
         }
 
-        .gi-badge {
+        .gi-label {
           min-height: 22px;
           display: inline-flex;
           align-items: center;
-          gap: 5px;
-          padding: 0 8px;
+          justify-content: center;
+          gap: 6px;
+          padding: 0 9px;
           border-radius: 999px;
-          border: 1px solid rgba(255,255,255,.075);
-          background: rgba(0,0,0,.24);
-          color: rgba(255,255,255,.50);
-          font-size: 8px;
-          line-height: 1;
-          font-weight: 1000;
-          letter-spacing: .13em;
-          text-transform: uppercase;
-        }
-
-        .gi-badge i {
-          width: 6px;
-          height: 6px;
-          border-radius: 999px;
-          background: var(--badge-color);
-          box-shadow: 0 0 12px var(--badge-color);
-        }
-
-        .gi-vs-wrap {
-          position: relative;
-          display: grid;
-          place-items: center;
-          height: 122px;
-        }
-
-        .gi-vs-line {
-          position: absolute;
-          top: 6px;
-          bottom: 6px;
-          width: 1px;
-          background: linear-gradient(180deg, transparent, rgba(255,255,255,.20), transparent);
-        }
-
-        .gi-vs {
-          position: relative;
-          z-index: 2;
-          width: 56px;
-          height: 56px;
-          display: grid;
-          place-items: center;
-          border-radius: 20px;
-          border: 1px solid rgba(255,255,255,.12);
-          background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.18), transparent 38%),
-            rgba(255,255,255,.065);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.15),
-            0 18px 42px rgba(0,0,0,.32);
-          color: white;
-          font-size: 18px;
-          font-weight: 1000;
-          letter-spacing: -.08em;
-        }
-
-        .gi-vs::before {
-          content: "";
-          position: absolute;
-          inset: -7px;
-          border-radius: 24px;
           border: 1px solid rgba(255,255,255,.07);
-        }
-
-        .gi-bottom {
-          position: relative;
-          z-index: 2;
-          margin-top: 18px;
-          display: grid;
-          justify-items: center;
-          gap: 10px;
-        }
-
-        .gi-status {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          min-height: 32px;
-          padding: 0 13px;
-          border-radius: 999px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(0,0,0,.24);
-          color: rgba(255,255,255,.68);
-          font-size: 9px;
+          background: rgba(0,0,0,.18);
+          color: rgba(255,255,255,.40);
+          font-size: 8px;
           line-height: 1;
           font-weight: 1000;
           letter-spacing: .15em;
           text-transform: uppercase;
         }
 
-        .gi-status i {
+        .gi-label i {
+          width: 5px;
+          height: 5px;
+          border-radius: 999px;
+          background: var(--badge-color);
+          box-shadow: 0 0 10px var(--badge-color);
+        }
+
+        .gi-vs {
+          width: 46px;
+          height: 46px;
+          display: grid;
+          place-items: center;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,.10);
+          background: rgba(255,255,255,.07);
+          color: rgba(255,255,255,.82);
+          font-size: 13px;
+          font-weight: 1000;
+          letter-spacing: -.05em;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+        }
+
+        .gi-opponent-ready {
+          animation: giOpponentIn .34s cubic-bezier(.16,1,.3,1) both;
+        }
+
+        .gi-footer {
+          position: relative;
+          z-index: 2;
+          margin-top: 18px;
+          display: grid;
+          gap: 12px;
+        }
+
+        .gi-status {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          min-height: 42px;
+          border-radius: 22px;
+          border: 1px solid rgba(255,255,255,.08);
+          background: rgba(255,255,255,.045);
+          padding: 0 13px;
+        }
+
+        .gi-status-text {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+          color: rgba(255,255,255,.58);
+          font-size: 10px;
+          line-height: 1;
+          font-weight: 1000;
+          letter-spacing: .14em;
+          text-transform: uppercase;
+        }
+
+        .gi-status-text i {
           width: 7px;
           height: 7px;
+          flex: 0 0 auto;
           border-radius: 999px;
-          background: ${isMatched ? '#22c55e' : '#22d3ee'};
-          box-shadow: 0 0 16px ${isMatched ? 'rgba(34,197,94,.82)' : 'rgba(34,211,238,.82)'};
+          background: ${isMatched ? '#22c55e' : '#F2C766'};
+          box-shadow: 0 0 14px ${isMatched ? 'rgba(34,197,94,.72)' : 'rgba(242,199,102,.62)'};
+        }
+
+        .gi-status-code {
+          color: rgba(255,255,255,.30);
+          font-size: 9px;
+          line-height: 1;
+          font-weight: 1000;
+          letter-spacing: .16em;
+          text-transform: uppercase;
         }
 
         .gi-progress {
-          width: min(100%, 250px);
+          position: relative;
           height: 5px;
           overflow: hidden;
           border-radius: 999px;
-          background: rgba(255,255,255,.08);
-          box-shadow: inset 0 1px 2px rgba(0,0,0,.28);
+          background: rgba(255,255,255,.075);
         }
 
         .gi-progress i {
           display: block;
           height: 100%;
           border-radius: inherit;
-          background: linear-gradient(90deg, #22d3ee, #a78bfa);
-          box-shadow: 0 0 18px rgba(34,211,238,.26);
+          background: linear-gradient(90deg, var(--gold), var(--mint));
+          box-shadow: 0 0 18px rgba(82,255,229,.20);
         }
 
         .gi-searching .gi-progress i {
-          width: 42%;
+          width: 38%;
           animation: giProgressSearch 1.08s ease-in-out infinite;
         }
 
         .gi-matched .gi-progress i,
         .gi-closing .gi-progress i {
           width: 100%;
-          animation: giProgressComplete .34s ease both;
+          animation: giProgressComplete .32s ease both;
         }
 
         @keyframes giOverlayIn {
@@ -551,16 +501,16 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
 
           to {
             opacity: 0;
-            transform: scale(1.025);
-            filter: blur(8px);
+            transform: scale(1.015);
+            filter: blur(6px);
           }
         }
 
         @keyframes giShellIn {
           from {
             opacity: 0;
-            transform: translateY(14px) scale(.975);
-            filter: blur(10px);
+            transform: translateY(12px) scale(.98);
+            filter: blur(8px);
           }
 
           to {
@@ -573,13 +523,13 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         @keyframes giOpponentIn {
           from {
             opacity: 0;
-            transform: scale(.9);
-            filter: blur(10px);
+            transform: translateY(6px) scale(.96);
+            filter: blur(7px);
           }
 
           to {
             opacity: 1;
-            transform: scale(1);
+            transform: translateY(0) scale(1);
             filter: blur(0);
           }
         }
@@ -596,13 +546,13 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           }
 
           100% {
-            transform: translateX(260%);
+            transform: translateX(280%);
           }
         }
 
         @keyframes giProgressComplete {
           from {
-            width: 70%;
+            width: 68%;
           }
 
           to {
@@ -611,127 +561,139 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         }
 
         @media (max-width: 390px) {
+          .gi-overlay {
+            padding: 16px;
+          }
+
           .gi-card {
             border-radius: 30px;
             padding: 16px;
           }
 
-          .gi-shell-border {
-            border-radius: 30px;
-          }
-
-          .gi-title {
-            font-size: 32px;
-          }
-
           .gi-match {
-            grid-template-columns: 1fr 50px 1fr;
-            gap: 6px;
+            gap: 7px;
           }
 
-          .gi-avatar-box {
-            width: 104px;
-            height: 104px;
-            border-radius: 26px;
+          .gi-avatar-wrap {
+            width: 82px;
+            height: 82px;
+            border-radius: 27px;
           }
 
           .gi-avatar {
-            width: 72px;
-            height: 72px;
-            border-radius: 21px;
+            width: 58px;
+            height: 58px;
+            border-radius: 20px;
+            font-size: 20px;
           }
 
-          .gi-vs-wrap {
-            height: 104px;
-          }
-
-          .gi-vs {
-            width: 48px;
-            height: 48px;
-            border-radius: 18px;
-            font-size: 16px;
+          .gi-opponent .gi-avatar {
+            font-size: 30px;
           }
 
           .gi-name {
-            max-width: 104px;
+            max-width: 96px;
             font-size: 12px;
           }
 
-          .gi-badge {
-            font-size: 7px;
-            padding: 0 7px;
+          .gi-vs {
+            width: 40px;
+            height: 40px;
+            border-radius: 16px;
+            font-size: 12px;
+          }
+
+          .gi-status {
+            min-height: 40px;
+          }
+
+          .gi-status-text {
+            font-size: 9px;
+          }
+
+          .gi-status-code {
+            display: none;
           }
         }
       `}</style>
 
       <div className="gi-shell">
-        <div className="gi-shell-border" />
-
         <div className="gi-card">
-          <div className="gi-top">
+          <div className="gi-head">
             <div className="gi-kicker">
-              <span className="gi-kicker-dot" />
+              <i />
               Matchmaking
             </div>
 
             <div className="gi-title">{gameTitle}</div>
 
             <div className="gi-subtitle">
-              {isMatched ? 'Противник найден. Арена готовится...' : 'Ожидание противника'}
+              {isMatched
+                ? 'Противник найден. Подготавливаем арену.'
+                : 'Ищем свободного соперника для дуэли.'}
             </div>
           </div>
 
           <div className="gi-match">
             <div className="gi-player gi-you">
-              <div className="gi-avatar-box">
+              <div className="gi-avatar-wrap">
                 <div className="gi-avatar">
-                  {user.photoUrl ? <img src={user.photoUrl} alt={user.name} /> : getInitials(user.name)}
+                  {user.photoUrl ? (
+                    <img src={user.photoUrl} alt={user.name} />
+                  ) : (
+                    getInitials(user.name)
+                  )}
                 </div>
               </div>
 
               <div className="gi-name">{user.name}</div>
 
-              <div className="gi-badge" style={cssVars({ '--badge-color': '#22d3ee' })}>
+              <div
+                className="gi-label"
+                style={cssVars({ '--badge-color': '#F2C766' })}
+              >
                 <i />
                 You
               </div>
             </div>
 
-            <div className="gi-vs-wrap">
-              <div className="gi-vs-line" />
-              <div className="gi-vs">VS</div>
-            </div>
+            <div className="gi-vs">VS</div>
 
             <div
               className={`gi-player gi-opponent ${isMatched ? 'gi-opponent-ready' : ''}`}
               style={cssVars({
-                '--opponent-color': opponent.color,
                 '--badge-color': opponent.color,
               })}
             >
-              <div className="gi-avatar-box">
+              <div className="gi-avatar-wrap">
                 {isMatched ? (
                   <div className="gi-avatar">{opponent.avatar}</div>
                 ) : (
-                  <div className="gi-loader-center">
-                    <div className="gi-spinner" />
-                  </div>
+                  <div className="gi-loader" />
                 )}
               </div>
 
-              <div className="gi-name">{isMatched ? opponent.name : 'Searching'}</div>
+              <div className="gi-name">
+                {isMatched ? opponent.name : 'Поиск'}
+              </div>
 
-              <div className="gi-badge">
+              <div className="gi-label">
                 <i />
-                {isMatched ? opponent.rank : 'Waiting'}
+                {isMatched ? opponent.rank : 'Wait'}
               </div>
             </div>
           </div>
 
-          <div className="gi-bottom">
+          <div className="gi-footer">
             <div className="gi-status">
-              <i />
-              {isMatched ? 'Opponent connected' : 'Finding opponent'}
+              <div className="gi-status-text">
+                <i />
+                {isMatched ? 'Connected' : 'Searching'}
+              </div>
+
+              <div className="gi-status-code">
+                TwinGames
+              </div>
             </div>
 
             <div className="gi-progress">
