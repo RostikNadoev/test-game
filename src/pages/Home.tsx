@@ -13,7 +13,6 @@ import {
   Shield,
   Sparkles,
   Users,
-  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
