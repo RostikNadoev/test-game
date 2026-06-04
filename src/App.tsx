@@ -68,27 +68,13 @@ type TelegramWebApp = {
   isVersionAtLeast?: (version: string) => boolean;
   lockOrientation?: () => void;
   unlockOrientation?: () => void;
+  isOrientationLocked?: boolean;
   BackButton?: {
     show: () => void;
     hide: () => void;
     onClick: (callback: () => void) => void;
     offClick?: (callback: () => void) => void;
   };
-};
-
-type AppOrientationLockType =
-  | 'any'
-  | 'natural'
-  | 'landscape'
-  | 'portrait'
-  | 'portrait-primary'
-  | 'portrait-secondary'
-  | 'landscape-primary'
-  | 'landscape-secondary';
-
-type OrientationApi = ScreenOrientation & {
-  lock?: (orientation: AppOrientationLockType) => Promise<void>;
-  unlock?: () => void;
 };
 
 function getTelegramWebApp() {
@@ -123,13 +109,12 @@ function AppShell() {
     tg?.setHeaderColor?.('#050610');
     tg?.setBackgroundColor?.('#050610');
 
-    if (tg?.isVersionAtLeast?.('8.0')) {
-      tg.lockOrientation?.();
+    // Важно:
+    // lockOrientation блокирует текущую ориентацию Mini App.
+    // Если приложение открыто вертикально, оно должно оставаться вертикальным.
+    if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
+      tg?.lockOrientation?.();
     }
-
-    const orientation = screen.orientation as OrientationApi | undefined;
-
-    orientation?.lock?.('portrait').catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -158,7 +143,7 @@ function AppShell() {
       backButton.offClick?.(handleBack);
       backButton.hide();
     };
-  }, [isFooterRoute, navigate, location.pathname]);
+  }, [isFooterRoute, navigate]);
 
   return (
     <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
