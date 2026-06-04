@@ -62,8 +62,12 @@ type TelegramWebApp = {
   ready?: () => void;
   expand?: () => void;
   disableVerticalSwipes?: () => void;
+  enableVerticalSwipes?: () => void;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  isVersionAtLeast?: (version: string) => boolean;
+  lockOrientation?: () => void;
+  unlockOrientation?: () => void;
   BackButton?: {
     show: () => void;
     hide: () => void;
@@ -71,6 +75,15 @@ type TelegramWebApp = {
     offClick?: (callback: () => void) => void;
   };
 };
+
+type OrientationApi = ScreenOrientation & {
+  lock?: (orientation: OrientationLockType) => Promise<void>;
+  unlock?: () => void;
+};
+
+function getTelegramWebApp() {
+  return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+}
 
 function AppShell() {
   const location = useLocation();
@@ -92,7 +105,7 @@ function AppShell() {
   }, [gameIntroTitle]);
 
   useEffect(() => {
-    const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
 
     if (!tg) return;
 
@@ -101,15 +114,34 @@ function AppShell() {
     tg.disableVerticalSwipes?.();
     tg.setHeaderColor?.('#050610');
     tg.setBackgroundColor?.('#050610');
+
+    if (tg.isVersionAtLeast?.('8.0')) {
+      tg.lockOrientation?.();
+    }
+
+    const orientation = screen.orientation as OrientationApi | undefined;
+
+    orientation?.lock?.('portrait').catch(() => undefined);
+
+    return () => {
+      tg.unlockOrientation?.();
+      orientation?.unlock?.();
+    };
   }, []);
 
   useEffect(() => {
-    const tg = (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
     const backButton = tg?.BackButton;
 
     if (!backButton) return;
 
-    const handleBack = () => navigate(-1);
+    const handleBack = () => {
+      if (window.history.length > 1) {
+        navigate(-1);
+      } else {
+        navigate('/');
+      }
+    };
 
     if (isFooterRoute) {
       backButton.hide();
@@ -126,11 +158,11 @@ function AppShell() {
   }, [isFooterRoute, navigate, location.pathname]);
 
   return (
-    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
+    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
       <Header />
 
       <main
-        className={`relative z-10 w-full min-w-0 flex-1 ${
+        className={`relative z-10 w-full min-w-0 flex-1 overflow-x-hidden ${
           isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24'
         }`}
       >
@@ -173,6 +205,13 @@ function AppShell() {
           onComplete={() => setIntroCompletedPath(location.pathname)}
         />
       )}
+
+      <div className="landscape-lock">
+        <div>
+          <div className="mb-3 text-3xl">↻</div>
+          <div>Поверни телефон вертикально</div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -30,18 +30,22 @@
 html,
 body {
   width: 100%;
+  max-width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
 }
 
 html {
   background: #020203;
   overscroll-behavior: none;
+  overflow-x: clip;
 }
 
 body {
   position: fixed;
+  inset: 0;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% -8%, rgba(242, 199, 102, 0.12), transparent 32%),
@@ -85,9 +89,11 @@ a:focus-visible {
   display: flex;
   width: 100%;
   max-width: 480px;
+  min-width: 0;
   height: 100%;
   margin: 0 auto;
   overflow: hidden;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 18% 0%, rgba(242, 199, 102, 0.13), transparent 31%),
     radial-gradient(circle at 100% 22%, rgba(82, 255, 229, 0.09), transparent 29%),
@@ -96,6 +102,40 @@ a:focus-visible {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.045),
     0 0 75px rgba(0, 0, 0, 0.82);
+}
+
+#root * {
+  min-width: 0;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+.landscape-lock {
+  display: none;
+}
+
+@media screen and (orientation: landscape) and (max-height: 520px) {
+  .landscape-lock {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(242, 199, 102, 0.14), transparent 36%),
+      linear-gradient(180deg, #050610 0%, #020203 100%);
+    color: white;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
 }
 
 @layer utilities {
