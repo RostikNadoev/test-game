@@ -24,6 +24,7 @@
 
 * {
   box-sizing: border-box;
+  min-width: 0;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -104,38 +105,11 @@ a:focus-visible {
     0 0 75px rgba(0, 0, 0, 0.82);
 }
 
-#root * {
-  min-width: 0;
-}
-
 img,
 svg,
 video,
 canvas {
   max-width: 100%;
-}
-
-.landscape-lock {
-  display: none;
-}
-
-@media screen and (orientation: landscape) and (max-height: 520px) {
-  .landscape-lock {
-    position: fixed;
-    inset: 0;
-    z-index: 99999;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background:
-      radial-gradient(circle at 50% 0%, rgba(242, 199, 102, 0.14), transparent 36%),
-      linear-gradient(180deg, #050610 0%, #020203 100%);
-    color: white;
-    text-align: center;
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
 }
 
 @layer utilities {

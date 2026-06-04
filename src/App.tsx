@@ -117,26 +117,19 @@ function AppShell() {
   useEffect(() => {
     const tg = getTelegramWebApp();
 
-    if (!tg) return;
+    tg?.ready?.();
+    tg?.expand?.();
+    tg?.disableVerticalSwipes?.();
+    tg?.setHeaderColor?.('#050610');
+    tg?.setBackgroundColor?.('#050610');
 
-    tg.ready?.();
-    tg.expand?.();
-    tg.disableVerticalSwipes?.();
-    tg.setHeaderColor?.('#050610');
-    tg.setBackgroundColor?.('#050610');
-
-    if (tg.isVersionAtLeast?.('8.0')) {
+    if (tg?.isVersionAtLeast?.('8.0')) {
       tg.lockOrientation?.();
     }
 
     const orientation = screen.orientation as OrientationApi | undefined;
 
     orientation?.lock?.('portrait').catch(() => undefined);
-
-    return () => {
-      tg.unlockOrientation?.();
-      orientation?.unlock?.();
-    };
   }, []);
 
   useEffect(() => {
@@ -215,13 +208,6 @@ function AppShell() {
           onComplete={() => setIntroCompletedPath(location.pathname)}
         />
       )}
-
-      <div className="landscape-lock">
-        <div>
-          <div className="mb-3 text-3xl">↻</div>
-          <div>Поверни телефон вертикально</div>
-        </div>
-      </div>
     </div>
   );
 }
