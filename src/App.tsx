@@ -23,6 +23,7 @@ import { DiceDuelGame } from './pages/DiceDuelGame';
 import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
+import { VolleyballDuelGame } from './pages/VolleyballDuelGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -45,6 +46,7 @@ const GAME_TITLES: Record<string, string> = {
 };
 
 const LOCKED_GAME_ROUTES = new Set([
+  '/game/volleyball/play',
   '/game/hexfall/play',
   '/game/rps/play',
   '/game/tictactoe/play',
@@ -109,9 +111,6 @@ function AppShell() {
     tg?.setHeaderColor?.('#050610');
     tg?.setBackgroundColor?.('#050610');
 
-    // Важно:
-    // lockOrientation блокирует текущую ориентацию Mini App.
-    // Если приложение открыто вертикально, оно должно оставаться вертикальным.
     if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
       tg?.lockOrientation?.();
     }
@@ -143,7 +142,7 @@ function AppShell() {
       backButton.offClick?.(handleBack);
       backButton.hide();
     };
-  }, [isFooterRoute, navigate]);
+  }, [isFooterRoute, navigate, location.pathname]);
 
   return (
     <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
@@ -160,6 +159,7 @@ function AppShell() {
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
+            <Route path="/game/volleyball/play" element={<VolleyballDuelGame />} />
             <Route path="/game/hexfall/play" element={<HexFallGame />} />
             <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
             <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
