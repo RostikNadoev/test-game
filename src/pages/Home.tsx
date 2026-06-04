@@ -35,15 +35,6 @@ type Stat = {
 
 const games: Game[] = [
   {
-    id: 'volleyball',
-    name: 'Volleyball Duel',
-    icon: '🏐',
-    description: 'Горизонтальный волейбол 1v1',
-    color: 'from-[#52FFE5]/24 via-[#F2C766]/12 to-transparent',
-    meta: 'Sport',
-    status: 'New',
-  },
-  {
     id: 'crashduel',
     name: 'Crash Duel',
     icon: '🚀',
@@ -181,7 +172,6 @@ const games: Game[] = [
 ];
 
 const LOCAL_PLAY_IDS = new Set([
-  'volleyball',
   'crashduel',
   'virusmarket',
   'slingclash',
@@ -190,7 +180,7 @@ const LOCAL_PLAY_IDS = new Set([
   'neonmatrix',
 ]);
 
-const featuredIds = new Set(['volleyball', 'crashduel', 'virusmarket', 'neonmatrix']);
+const featuredIds = new Set(['crashduel', 'virusmarket', 'neonmatrix']);
 
 export const Home = () => {
   const navigate = useNavigate();
