@@ -23,8 +23,8 @@ const CFG = {
   TOP_Y: 52, SY: 36, SX: 30,
   pegR: 5, ballR: 6.5,
   WALL_L: 10, WALL_R: 350,
-  FLOOR: 428,
-  SLOT_TOP: 388,
+  FLOOR: 412,
+  SLOT_TOP: 370,
   N_SLOTS: 10,
   g: 760,
   eRest: 0.48,
@@ -37,8 +37,9 @@ const CFG = {
   LAUNCH_VX: 120,
   LAUNCH_VY: 20,
   pegFric: 0.06,
-  SUBSTEPS_PER_FRAME: 4,     // скорость проигрывания (меньше = медленнее)
-  VALUES: [8, 2.7, 5, 1.6, 1.2, 1.1, 3.4, 1.8, 6, 9] as number[], // 10 разных лунок, не зеркало
+  SUBSTEPS_PER_FRAME: 4,
+  VALUES: [9, 6, 3.5, 2, 1.2, 1.1, 1.8, 3.2, 5.5, 8.5] as number[],
+  WIND_MAX: 0.16,
   WALL_MIN_ROW: 3,
   ACTIONS_PER_TURN: 2,
   TURN_SECONDS: 10,
@@ -56,6 +57,66 @@ type Board = {
   gaps: Gap[];
 };
 type SimResult = { path: number[][]; slot: number };
+
+type TelegramWebApp = {
+  HapticFeedback?: {
+    impactOccurred?: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;
+    notificationOccurred?: (type: "error" | "success" | "warning") => void;
+    selectionChanged?: () => void;
+  };
+};
+
+function getTelegramWebApp() {
+  return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+}
+
+function hapticImpact(style: "light" | "medium" | "heavy" | "rigid" | "soft" = "light") {
+  const tg = getTelegramWebApp();
+  tg?.HapticFeedback?.impactOccurred?.(style);
+
+  if (!tg?.HapticFeedback?.impactOccurred && navigator.vibrate) {
+    navigator.vibrate(style === "heavy" ? 55 : style === "medium" ? 32 : 18);
+  }
+}
+
+function hapticSelection() {
+  const tg = getTelegramWebApp();
+  tg?.HapticFeedback?.selectionChanged?.();
+
+  if (!tg?.HapticFeedback?.selectionChanged && navigator.vibrate) {
+    navigator.vibrate(10);
+  }
+}
+
+function hapticNotify(type: "error" | "success" | "warning") {
+  const tg = getTelegramWebApp();
+  tg?.HapticFeedback?.notificationOccurred?.(type);
+
+  if (!tg?.HapticFeedback?.notificationOccurred && navigator.vibrate) {
+    navigator.vibrate(type === "success" ? [25, 35, 25] : 35);
+  }
+}
+
+function shuffleArray<T>(items: T[]): T[] {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+}
+
+function makeMatchValues() {
+  return shuffleArray(CFG.VALUES);
+}
+
+function makeMatchWind() {
+  return Math.round((Math.random() * 2 - 1) * CFG.WIND_MAX * 1000) / 1000;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
 
 function buildBoard(): Board {
   const c = CFG;
@@ -225,6 +286,9 @@ type Pop = { x: number; y: number; life: number; max: number; color: string; rad
 export default function PlinkoPvpGame() {
   const board = useMemo(() => buildBoard(), []);
 
+  const [matchValues, setMatchValues] = useState<number[]>(() => makeMatchValues());
+  const [matchWind, setMatchWind] = useState(0);
+
   const [phase, setPhase] = useState<Phase>("intro");
   const [turn, setTurn] = useState(0);
 
@@ -243,15 +307,15 @@ export default function PlinkoPvpGame() {
 
   const [scores, setScores] = useState<[number, number]>([1, 1]);
   const [revealIdx, setRevealIdx] = useState(0);
-  const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number } | null>(null);
+  const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
 
   const [handoff, setHandoff] = useState<{ to: number; label: string; next: Phase }>(
     { to: 0, label: "", next: "angles" }
   );
 
   const combinedValues = useMemo(
-    () => CFG.VALUES.map((v, i) => Math.round(v * factors[0][i] * factors[1][i] * 100) / 100),
-    [factors]
+    () => matchValues.map((v, i) => Math.round(v * factors[0][i] * factors[1][i] * 100) / 100),
+    [matchValues, factors]
   );
 
   const allWallSegs = useMemo<Seg[]>(() => {
@@ -273,7 +337,7 @@ export default function PlinkoPvpGame() {
     return order;
   }, []);
 
-  const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number }[]>([]);
+  const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number; stuck: boolean }[]>([]);
 
   /* --------------------------- ЗАПРЕТ СКРОЛЛА ------------------------------ */
   useEffect(() => {
@@ -328,10 +392,10 @@ export default function PlinkoPvpGame() {
     trail: number[][];
   }>({ path: [], i: 0, color: "#fff", player: 0, landed: [], pausing: 0, done: false, trail: [] });
 
-  const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues });
+  const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoffNext: handoff.next });
   useEffect(() => {
-    view.current = { phase, turn, liveAngle, factors, walls, actionMode, combinedValues };
-  }, [phase, turn, liveAngle, factors, walls, actionMode, combinedValues]);
+    view.current = { phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoffNext: handoff.next };
+  }, [phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoff.next]);
 
   const resize = useCallback(() => {
     const cv = canvasRef.current, wrap = wrapRef.current;
@@ -342,7 +406,6 @@ export default function PlinkoPvpGame() {
     cv.height = Math.round(h * dpr);
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
-    // заполняем ширину; если не влезает по высоте — подгоняем по высоте
     let scale = cv.width / CFG.VW;
     if (CFG.VH * scale > cv.height) scale = cv.height / CFG.VH;
     tf.current = {
@@ -370,14 +433,14 @@ export default function PlinkoPvpGame() {
     const X = (v: number) => tf.current.offX + v * tf.current.scale;
     const Y = (v: number) => tf.current.offY + v * tf.current.scale;
 
-    const drawCup = (i: number, val: number, viewer: number, isReveal: boolean) => {
+    const drawCup = (i: number, val: number, viewer: number, isReveal: boolean, showValues: boolean) => {
       const d = board.dividers;
       const x0 = d[i], x1 = d[i + 1];
       const cx = (x0 + x1) / 2;
-      const col = tierColor(val);
+      const col = showValues ? tierColor(val) : "#6b7280";
       const r = S(7);
       const top = Y(CFG.SLOT_TOP), bot = Y(CFG.FLOOR);
-      // корпус стакана
+
       ctx.beginPath();
       const lx = X(x0) + S(2), rx = X(x1) - S(2);
       ctx.moveTo(lx, top);
@@ -387,27 +450,34 @@ export default function PlinkoPvpGame() {
       ctx.quadraticCurveTo(rx, bot, rx, bot - r);
       ctx.lineTo(rx, top);
       const grad = ctx.createLinearGradient(0, top, 0, bot);
-      grad.addColorStop(0, "rgba(255,255,255,0.03)");
-      grad.addColorStop(1, col + "7a");
+      grad.addColorStop(0, "rgba(255,255,255,0.04)");
+      grad.addColorStop(1, col + "88");
       ctx.fillStyle = grad;
       ctx.fill();
       ctx.lineWidth = S(1.5);
-      ctx.strokeStyle = col + "dd";
+      ctx.strokeStyle = col + "ee";
       ctx.stroke();
 
-      // значение
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.9)";
+      ctx.shadowBlur = S(4);
       ctx.fillStyle = "#fff";
-      ctx.font = `800 ${S(12)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `900 ${S(12.5)}px ui-sans-serif, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const label = `×${fmt(val)}`;
-      ctx.fillText(label, X(cx), (top + bot) / 2 + S(1));
+      ctx.fillText(showValues ? `×${fmt(val)}` : "?", X(cx), (top + bot) / 2 + S(1));
+      ctx.restore();
 
-      // пометка, что текущий игрок модифицировал лунку
-      if (!isReveal && factorOf(viewer, i) !== 1) {
+      if (showValues && !isReveal && factorOf(viewer, i) !== 1) {
+        ctx.save();
         ctx.fillStyle = PLAYERS[viewer].color;
-        ctx.font = `800 ${S(7.5)}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.shadowColor = "rgba(0,0,0,0.9)";
+        ctx.shadowBlur = S(4);
+        ctx.font = `900 ${S(7.5)}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         ctx.fillText(factorOf(viewer, i) > 1 ? "буст" : "сброс", X(cx), top - S(5));
+        ctx.restore();
       }
     };
 
@@ -417,9 +487,14 @@ export default function PlinkoPvpGame() {
       const v = view.current;
       const isReveal = v.phase === "reveal" || v.phase === "result";
       const viewer = v.turn;
+      const showValues =
+        v.phase === "actions" ||
+        v.phase === "reveal" ||
+        v.phase === "result" ||
+        (v.phase === "handoff" && v.handoffNext !== "angles");
       const display = isReveal
         ? v.combinedValues
-        : CFG.VALUES.map((val, i) => Math.round(val * v.factors[viewer][i] * 100) / 100);
+        : v.matchValues.map((val, i) => Math.round(val * v.factors[viewer][i] * 100) / 100);
 
       ctx.clearRect(0, 0, cv.width, cv.height);
 
@@ -436,13 +511,13 @@ export default function PlinkoPvpGame() {
       ctx.lineWidth = S(2);
       ctx.strokeRect(X(CFG.WALL_L), Y(8), S(CFG.WALL_R - CFG.WALL_L), S(CFG.FLOOR - 8));
 
-      // боковые стены (мягкое свечение)
+      // боковые стены
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(X(CFG.WALL_L) - S(3), Y(8), S(3), S(CFG.FLOOR - 8));
       ctx.fillRect(X(CFG.WALL_R), Y(8), S(3), S(CFG.FLOOR - 8));
 
       // стаканы
-      for (let i = 0; i < CFG.N_SLOTS; i++) drawCup(i, display[i], viewer, isReveal);
+      for (let i = 0; i < CFG.N_SLOTS; i++) drawCup(i, display[i], viewer, isReveal, showValues);
 
       // пеги
       for (const p of board.pegs) {
@@ -514,12 +589,12 @@ export default function PlinkoPvpGame() {
         ctx.setLineDash([S(5), S(4)]);
         ctx.stroke();
         ctx.setLineDash([]);
-        // наконечник
+
         ctx.beginPath();
         ctx.arc(X(ex), Y(ey), S(4), 0, Math.PI * 2);
         ctx.fillStyle = PLAYERS[viewer].color;
         ctx.fill();
-        // шарик на старте
+
         ctx.beginPath();
         ctx.arc(X(dropX), Y(dropY), S(CFG.ballR), 0, Math.PI * 2);
         ctx.fillStyle = PLAYERS[viewer].color;
@@ -538,10 +613,11 @@ export default function PlinkoPvpGame() {
           pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
           if (pb.i >= pb.path.length - 1) {
             const [lx, ly] = pb.path[pb.path.length - 1];
-            const activeData = revealData.current[revealIdx];
-            const mult = activeData?.value ?? CFG.VALUES[activeData?.slot ?? 0] ?? 1;
+            const activeData = revealData.current[v.revealIdx];
+            const mult = activeData?.value ?? 1;
+            const stuck = activeData?.stuck ?? false;
             pb.landed.push({ x: lx, y: ly, color: pb.color });
-            spawnLanding(lx, ly, pb.color, mult);
+            spawnLanding(lx, ly, pb.color, mult, stuck);
             pb.done = true;
             onBallLanded();
           }
@@ -621,9 +697,36 @@ export default function PlinkoPvpGame() {
     raf.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board, revealIdx]);
+  }, [board]);
 
-  const spawnLanding = (x: number, y: number, color: string, value: number) => {
+  const spawnLanding = (x: number, y: number, color: string, value: number, stuck: boolean) => {
+    if (stuck) {
+      hapticImpact("light");
+
+      particles.current.push({
+        x,
+        y,
+        vx: 0,
+        vy: -1.5,
+        life: 22,
+        max: 22,
+        color: "rgba(255,255,255,0.65)",
+        r: 2,
+      });
+
+      pops.current.push({
+        x,
+        y,
+        life: 18,
+        max: 18,
+        color: "rgba(255,255,255,0.45)",
+        radius: 18,
+        width: 2,
+      });
+
+      return;
+    }
+
     const slot = (() => {
       const d = board.dividers;
       for (let i = 0; i < d.length - 1; i++) if (x >= d[i] && x < d[i + 1]) return i;
@@ -633,6 +736,10 @@ export default function PlinkoPvpGame() {
     const tcol = tierColor(value);
     const power = Math.max(1, Math.min(10, value));
     const n = Math.round(14 + power * 8);
+
+    if (value >= 5) hapticImpact("heavy");
+    else if (value >= 2) hapticImpact("medium");
+    else hapticImpact("light");
 
     screenShake.current = Math.max(screenShake.current, Math.min(7, 1 + power * 0.65));
 
@@ -703,6 +810,9 @@ export default function PlinkoPvpGame() {
   };
 
   const startGame = () => {
+    hapticNotify("success");
+    setMatchValues(makeMatchValues());
+    setMatchWind(makeMatchWind());
     setScores([1, 1]);
     setFactors([Array(CFG.N_SLOTS).fill(1), Array(CFG.N_SLOTS).fill(1)]);
     setWalls([[], []]);
@@ -728,6 +838,8 @@ export default function PlinkoPvpGame() {
   }, [phase]);
 
   const confirmAngle = () => {
+    hapticSelection();
+
     setAngles((prev) => {
       const next = prev.map((a) => [...a]);
       next[turn][curBall] = liveAngle;
@@ -742,7 +854,7 @@ export default function PlinkoPvpGame() {
         toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков`, "angles");
       } else {
         setCurBall(0);
-        toHandoff(0, "Ваши 2 действия · 10 секунд", "actions");
+        toHandoff(0, "Множители открыты · ваши 2 действия", "actions");
       }
     }
   };
@@ -781,7 +893,7 @@ export default function PlinkoPvpGame() {
         const key = `${best.row}:${best.idx}`;
         setWalls((prev) => {
           const mine = prev[turn];
-          if (mine.includes(key)) return prev; // уже стоит
+          if (mine.includes(key)) return prev;
           const next = prev.map((w) => [...w]) as WallKey[][];
           next[turn].push(key);
           return next;
@@ -807,6 +919,8 @@ export default function PlinkoPvpGame() {
   };
 
   const consumeAction = () => {
+    hapticImpact("medium");
+
     setActionMode(null);
     setActionsLeft((a) => {
       const left = a - 1;
@@ -816,10 +930,12 @@ export default function PlinkoPvpGame() {
   };
 
   const finishActionTurn = () => {
+    hapticSelection();
+
     setActionMode(null);
     setActionsLeft(CFG.ACTIONS_PER_TURN);
     setPhase((ph) => {
-      if (ph !== "actions") return ph; // защита от двойного вызова
+      if (ph !== "actions") return ph;
       if (turn === 0) toHandoff(1, "Ваши 2 действия · 10 секунд", "actions");
       else toHandoff(0, "Вскрытие — запуск шариков", "reveal");
       return "handoff";
@@ -827,6 +943,8 @@ export default function PlinkoPvpGame() {
   };
 
   const proceedHandoff = () => {
+    hapticSelection();
+
     setTurn(handoff.to);
     if (handoff.next === "actions") { setActionsLeft(CFG.ACTIONS_PER_TURN); setActionMode(null); }
     if (handoff.next === "reveal") { startReveal(); return; }
@@ -836,8 +954,16 @@ export default function PlinkoPvpGame() {
   /* ------------------------------ ВСКРЫТИЕ -------------------------------- */
   const startReveal = () => {
     revealData.current = revealOrder.map(({ player, ball }) => {
-      const r = simulate(angles[player][ball], board, allWallSegs);
-      return { player, path: r.path, slot: r.slot, value: combinedValues[r.slot] };
+      const r = simulate(clamp(angles[player][ball] + matchWind, -1, 1), board, allWallSegs);
+      const last = r.path[r.path.length - 1];
+      const stuck = !last || last[1] < CFG.SLOT_TOP + 6;
+      return {
+        player,
+        path: r.path,
+        slot: r.slot,
+        value: stuck ? 1 : combinedValues[r.slot],
+        stuck,
+      };
     });
     particles.current = []; pops.current = [];
     screenShake.current = 0;
@@ -866,13 +992,16 @@ export default function PlinkoPvpGame() {
         setScores((s) => {
           const ns: [number, number] = [s[0], s[1]];
           ns[d.player] = Math.round(ns[d.player] * d.value * 100) / 100;
-          setLastGain({ p: d.player, v: d.value, score: ns[d.player] });
+          setLastGain({ p: d.player, v: d.value, score: ns[d.player], stuck: d.stuck });
           return ns;
         });
       }
       const nextIdx = idx + 1;
       if (nextIdx >= revealData.current.length) {
-        window.setTimeout(() => setPhase("result"), 1100);
+        window.setTimeout(() => {
+          hapticNotify("success");
+          setPhase("result");
+        }, 1100);
         return idx;
       }
       window.setTimeout(() => { setLastGain(null); loadBall(nextIdx); }, 850);
@@ -895,6 +1024,7 @@ export default function PlinkoPvpGame() {
   };
   const sliderDown = (e: React.PointerEvent<HTMLDivElement>) => {
     (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+    hapticSelection();
     setAngleFromClientX(e.clientX);
   };
   const sliderMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -947,7 +1077,7 @@ export default function PlinkoPvpGame() {
         {phase === "actions" && `${PLAYERS[turn].name}: действий ${actionsLeft} · ${timeLeft}с`}
         {phase === "reveal" && `Шарик ${Math.min(revealIdx + 1, revealOrder.length)} из ${revealOrder.length}`}
         {phase === "result" && "Игра окончена"}
-        {phase === "intro" && `PvP · ${CFG.BALLS_PER_PLAYER} шариков · счёт умножается`}
+        {phase === "intro" && `PvP · ${CFG.BALLS_PER_PLAYER} шариков · скрытые множители`}
       </div>
 
       {/* ПОЛЕ */}
@@ -964,7 +1094,7 @@ export default function PlinkoPvpGame() {
             className="pointer-events-none absolute left-1/2 top-1.5 z-30 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-black"
             style={{ background: PLAYERS[lastGain.p].color, color: "#05070f", boxShadow: `0 0 18px ${PLAYERS[lastGain.p].color}` }}
           >
-            {PLAYERS[lastGain.p].emoji} ×{fmt(lastGain.v)} → ×{fmt(lastGain.score)}
+            {PLAYERS[lastGain.p].emoji} {lastGain.stuck ? "застрял · ×1" : `×${fmt(lastGain.v)} → ×${fmt(lastGain.score)}`}
           </div>
         )}
       </div>
@@ -986,7 +1116,7 @@ export default function PlinkoPvpGame() {
               </span>
               <span>вправо ▶</span>
             </div>
-            {/* кастомный ползунок */}
+
             <div
               ref={sliderRef}
               onPointerDown={sliderDown}
@@ -1005,9 +1135,10 @@ export default function PlinkoPvpGame() {
                 }}
               />
             </div>
+
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setLiveAngle((a) => Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000))}
+                onClick={() => { hapticSelection(); setLiveAngle((a) => Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000)); }}
                 className="h-8 w-11 shrink-0 rounded-xl text-base font-bold active:scale-95"
                 style={{ background: "rgba(255,255,255,0.08)" }}
               >−</button>
@@ -1019,7 +1150,7 @@ export default function PlinkoPvpGame() {
                 Готово · {curBall + 1}/{CFG.BALLS_PER_PLAYER}
               </button>
               <button
-                onClick={() => setLiveAngle((a) => Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000))}
+                onClick={() => { hapticSelection(); setLiveAngle((a) => Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000)); }}
                 className="h-8 w-11 shrink-0 rounded-xl text-base font-bold active:scale-95"
                 style={{ background: "rgba(255,255,255,0.08)" }}
               >+</button>
@@ -1040,7 +1171,10 @@ export default function PlinkoPvpGame() {
                   <button
                     key={b.m}
                     disabled={actionsLeft <= 0}
-                    onClick={() => setActionMode(on ? null : b.m)}
+                    onClick={() => {
+                      hapticSelection();
+                      setActionMode(on ? null : b.m);
+                    }}
                     className="flex h-10 flex-col items-center justify-center rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-40"
                     style={{
                       background: on ? PLAYERS[turn].color : "rgba(255,255,255,0.06)",
@@ -1130,8 +1264,8 @@ export default function PlinkoPvpGame() {
           </div>
           <div className="max-w-[300px] text-sm leading-relaxed opacity-75">
             Двое на одном телефоне. Счёт каждого начинается с ×1.
-            Попадание в стакан умножает счёт. У каждого игрока по 5 бросков,
-            затем 2 скрытых действия: ×2, ÷2 или стенка между пегами.
+            Множители и ветер меняются каждую игру. Сначала оба выбирают углы,
+            потом открываются стаканы и начинаются скрытые действия.
           </div>
         </div>
       )}
