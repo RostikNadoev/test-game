@@ -118,6 +118,30 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function isStuckPathResting(path: number[][], idx: number) {
+  if (idx < 120 || path.length < 2) return false;
+
+  const cur = path[idx];
+  const last = path[path.length - 1];
+  if (!cur || !last) return false;
+
+  // Важно: не прыгаем в финальную точку. Считаем шарик остановившимся
+  // только когда текущая видимая позиция уже почти совпадает с финальным
+  // местом зависания и следующие кадры почти не двигаются.
+  const nearFinal = Math.hypot(cur[0] - last[0], cur[1] - last[1]) < 3.2;
+  if (!nearFinal) return false;
+
+  const lookAhead = Math.min(path.length - 1, idx + 72);
+  let maxDrift = 0;
+  for (let i = idx; i <= lookAhead; i += 6) {
+    const pt = path[i];
+    if (!pt) continue;
+    maxDrift = Math.max(maxDrift, Math.hypot(pt[0] - cur[0], pt[1] - cur[1]));
+  }
+
+  return maxDrift < 2.4;
+}
+
 function buildBoard(): Board {
   const c = CFG;
   const pegs: Peg[] = [];
@@ -611,18 +635,14 @@ export default function PlinkoPvpGame() {
           pb.pausing--;
         } else if (!pb.done && pb.path.length) {
           const activeData = revealData.current[v.revealIdx];
+          pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
 
-          // Если шарик завис на пользовательской стенке/пеге и не дошёл до стакана,
-          // не заставляем игрока ждать весь длинный хвост симуляции.
-          // Показываем пару секунд движения, затем считаем бросок завершённым как ×1.
-          if (activeData?.stuck && pb.i > 600) {
-            pb.i = pb.path.length - 1;
-          } else {
-            pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
-          }
+          const stuckRested = Boolean(activeData?.stuck && isStuckPathResting(pb.path, pb.i));
+          const reachedEnd = pb.i >= pb.path.length - 1;
 
-          if (pb.i >= pb.path.length - 1) {
-            const [lx, ly] = pb.path[pb.path.length - 1];
+          if (stuckRested || reachedEnd) {
+            const finishIdx = stuckRested ? pb.i : pb.path.length - 1;
+            const [lx, ly] = pb.path[finishIdx];
             const mult = activeData?.value ?? 1;
             const stuck = activeData?.stuck ?? false;
             pb.landed.push({ x: lx, y: ly, color: pb.color });
