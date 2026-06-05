@@ -610,10 +610,19 @@ export default function PlinkoPvpGame() {
         if (pb.pausing > 0) {
           pb.pausing--;
         } else if (!pb.done && pb.path.length) {
-          pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
+          const activeData = revealData.current[v.revealIdx];
+
+          // Если шарик завис на пользовательской стенке/пеге и не дошёл до стакана,
+          // не заставляем игрока ждать весь длинный хвост симуляции.
+          // Показываем пару секунд движения, затем считаем бросок завершённым как ×1.
+          if (activeData?.stuck && pb.i > 600) {
+            pb.i = pb.path.length - 1;
+          } else {
+            pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
+          }
+
           if (pb.i >= pb.path.length - 1) {
             const [lx, ly] = pb.path[pb.path.length - 1];
-            const activeData = revealData.current[v.revealIdx];
             const mult = activeData?.value ?? 1;
             const stuck = activeData?.stuck ?? false;
             pb.landed.push({ x: lx, y: ly, color: pb.color });
@@ -1101,10 +1110,11 @@ export default function PlinkoPvpGame() {
 
       {/* НИЗ: управление */}
       <div
-        className="relative z-30 shrink-0 border-t border-white/5 px-3 pb-2 pt-1.5"
+        className="relative z-30 shrink-0 border-t border-white/5 px-3 pb-4 pt-1.5"
         style={{
           background: "linear-gradient(180deg, rgba(5,6,16,0.84), rgba(5,6,16,0.98))",
           backdropFilter: "blur(8px)",
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 14px)",
         }}
       >
         {phase === "angles" && (
