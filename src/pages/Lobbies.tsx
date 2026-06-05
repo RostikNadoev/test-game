@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 const gameNames: Record<string, string> = {
+  plinko: 'Plinko PvP',
   virusmarket: 'Virus Market',
   hexfall: 'Hex Fall',
   rps: 'RPS Duel',
@@ -32,6 +33,7 @@ const gameNames: Record<string, string> = {
 };
 
 const gameRoutes: Record<string, string> = {
+  plinko: '/game/plinko/play',
   virusmarket: '/game/virusmarket/play',
   hexfall: '/game/hexfall/play',
   rps: '/game/rps/play',

@@ -23,10 +23,13 @@ import { DiceDuelGame } from './pages/DiceDuelGame';
 import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
+import { TowerStackGame } from './pages/TowerStackGame';
+import { PlinkoPvpGame } from './pages/PlinkoPvpGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
 const GAME_TITLES: Record<string, string> = {
+  '/game/plinko/play': 'Plinko PvP',
   '/game/hexfall/play': 'Hex Fall',
   '/game/rps/play': 'RPS Duel',
   '/game/tictactoe/play': 'Tic Tac Toe',
@@ -38,6 +41,7 @@ const GAME_TITLES: Record<string, string> = {
   '/game/icebump/play': 'Ice Bump',
   '/game/virusmarket/play': 'Virus Market',
   '/game/crashduel/play': 'Crash Duel',
+  '/game/towerstack/play': 'Tower Stack',
   '/game/race/play': 'Street Race',
   '/game/airhockey/play': 'Air Hockey',
   '/game/archer/play': 'Neon Duel',
@@ -45,6 +49,7 @@ const GAME_TITLES: Record<string, string> = {
 };
 
 const LOCKED_GAME_ROUTES = new Set([
+  '/game/plinko/play',
   '/game/hexfall/play',
   '/game/rps/play',
   '/game/tictactoe/play',
@@ -56,6 +61,7 @@ const LOCKED_GAME_ROUTES = new Set([
   '/game/icebump/play',
   '/game/virusmarket/play',
   '/game/crashduel/play',
+  '/game/towerstack/play',
 ]);
 
 type TelegramWebApp = {
@@ -160,6 +166,7 @@ function AppShell() {
             <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
+            <Route path="/game/plinko/play" element={<PlinkoPvpGame />} />
             <Route path="/game/hexfall/play" element={<HexFallGame />} />
             <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
             <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
@@ -171,6 +178,7 @@ function AppShell() {
             <Route path="/game/icebump/play" element={<IceBumpGame />} />
             <Route path="/game/virusmarket/play" element={<VirusMarketGame />} />
             <Route path="/game/crashduel/play" element={<CrashDuelGame />} />
+            <Route path="/game/towerstack/play" element={<TowerStackGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />

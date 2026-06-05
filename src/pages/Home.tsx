@@ -35,6 +35,24 @@ type Stat = {
 
 const games: Game[] = [
   {
+    id: 'plinko',
+    name: 'Plinko PvP',
+    icon: '🔵',
+    description: 'Шарик, пины и дуэль на удачу',
+    color: 'from-[#52FFE5]/24 via-[#9D7CFF]/12 to-transparent',
+    meta: 'Plinko',
+    status: 'New',
+  },
+  {
+    id: 'towerstack',
+    name: 'Tower Stack',
+    icon: '🧱',
+    description: 'Строй башню выше соперника',
+    color: 'from-[#9D7CFF]/26 via-[#52FFE5]/12 to-transparent',
+    meta: 'Stack',
+    status: 'New',
+  },
+  {
     id: 'crashduel',
     name: 'Crash Duel',
     icon: '🚀',
@@ -172,6 +190,7 @@ const games: Game[] = [
 ];
 
 const LOCAL_PLAY_IDS = new Set([
+  'towerstack',
   'crashduel',
   'virusmarket',
   'slingclash',
@@ -180,7 +199,7 @@ const LOCAL_PLAY_IDS = new Set([
   'neonmatrix',
 ]);
 
-const featuredIds = new Set(['crashduel', 'virusmarket', 'neonmatrix']);
+const featuredIds = new Set(['plinko', 'towerstack', 'crashduel', 'virusmarket', 'neonmatrix']);
 
 export const Home = () => {
   const navigate = useNavigate();
