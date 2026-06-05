@@ -24,7 +24,7 @@ import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
 import { TowerStackGame } from './pages/TowerStackGame';
-import { PlinkoPvpGame } from './pages/PlinkoPvpGame';
+import PlinkoPvpGame  from './pages/PlinkoPvpGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 

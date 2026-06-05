@@ -1,102 +1,94 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /* ============================================================================
-   PLINKO PvP  —  Telegram mini-app, mobile only
+   PLINKO PvP — Telegram mini-app (mobile only)
    ----------------------------------------------------------------------------
-   Поток игры (хот-сит, потом легко вынести в онлайн):
-     1) intro
-     2) Каждый игрок задаёт угол наклона для 3 своих шариков (по очереди).
-     3) Каждый игрок за 10 сек делает 2 действия (по очереди, не видя чужих):
-          • ×2 множителя в лунке   • ÷2 множителя в лунке   • стенка между пегами
-        Стенку можно ставить только НИЖЕ 3-го ряда сверху.
-     4) Вскрытие: складываем модификаторы обоих, расставляем все стенки,
-        запускаем шарики по очереди (П1-1, П2-1, П1-2, ...). Каждый шарик
-        приносит игроку значение лунки. Кто набрал больше — победил.
-   Между ходами — экран «передай телефон», чтобы соперник не подсмотрел.
-   Физика детерминированная (фикс. шаг) => одинаковый угол = одинаковый путь.
+   ФИЗИКА: настоящая импульсная, детерминированная (фикс. шаг dt=1/240).
+   Никаких скриптовых "толчков". Шарик падает реально по заданному углу;
+   один и тот же угол всегда даёт один и тот же путь (честный PvP).
+   От залипания на вершинах пегов спасают реальные средства: микросмещение
+   точки сброса (реальный бросок не идеально по центру) + трение о поверхность
+   пега + чистый "жёлоб" вдоль боковых стен (крайние пеги отодвинуты).
+
+   ПОТОК (хот-сит): intro → каждый задаёт углы 3 шариков → каждый делает
+   2 действия за 10с (×2 / ÷2 лунки, стенка между пегами ниже 3-го ряда),
+   не видя чужих → вскрытие: модификаторы и стенки обоих складываются на
+   общей доске, шарики падают по очереди (П1·1, П2·1, П1·2 …). Между ходами —
+   экран «передай телефон».
    ========================================================================== */
 
-/* ----------------------------- КОНФИГ / ФИЗИКА ---------------------------- */
-
 const CFG = {
-  VW: 360,
-  VH: 480,
-  ROWS: 8,
-  TOP_Y: 70,
-  SY: 32,
-  SX: 30,
-  TOP_PEGS: 3,
-  pegR: 4.5,
-  ballR: 6,
-  WALL_L: 45,
-  WALL_R: 315,
-  SLOT_TOP: 300,
-  FLOOR: 460,
-  N_SLOTS: 9,
-  g: 1300,
-  eRest: 0.5,
-  wRest: 0.45,
-  air: 0.996,
+  VW: 360, VH: 450,
+  ROWS: 9, TOP_PEGS: 3,
+  TOP_Y: 52, SY: 36, SX: 30,
+  pegR: 5, ballR: 6.5,
+  WALL_L: 10, WALL_R: 350,
+  FLOOR: 428,
+  SLOT_TOP: 388,
+  N_SLOTS: 10,
+  g: 760,
+  eRest: 0.48,
+  wRest: 0.4,
+  air: 0.999,
   DT: 1 / 240,
-  MAX_STEPS: 5200,
-  // базовые очки лунок (удобно делятся на 2 / умножаются)
-  VALUES: [40, 16, 8, 4, 2, 4, 8, 16, 40] as number[],
-  // ставить стенку можно начиная с этого ряда (индекс с 0) — «ниже 3-го ряда»
+  MAX_STEPS: 9000,
+  DROP_Y: 40,
+  DROP_OFFSET: 0.6,
+  LAUNCH_VX: 120,
+  LAUNCH_VY: 20,
+  pegFric: 0.06,
+  SUBSTEPS_PER_FRAME: 4,     // скорость проигрывания (меньше = медленнее)
+  VALUES: [11, 4, 2, 1.5, 1, 1, 1.5, 2, 4, 11] as number[], // 10 лунок, симметрично
   WALL_MIN_ROW: 3,
   ACTIONS_PER_TURN: 2,
   TURN_SECONDS: 10,
   BALLS_PER_PLAYER: 3,
-  ANGLE_MAX_DEG: 16,
+  ANGLE_MAX_DEG: 18,
 };
 
 type Peg = { x: number; y: number; row: number; col: number };
 type Seg = { ax: number; ay: number; bx: number; by: number };
 type Gap = { row: number; idx: number } & Seg & { mx: number; my: number };
-type Board = { pegs: Peg[]; dividers: number[]; gaps: Gap[] };
+type Board = {
+  pegs: Peg[];
+  dividers: number[];
+  posts: number[];
+  gaps: Gap[];
+};
 type SimResult = { path: number[][]; slot: number };
 
 function buildBoard(): Board {
+  const c = CFG;
   const pegs: Peg[] = [];
-  for (let r = 0; r < CFG.ROWS; r++) {
-    const n = CFG.TOP_PEGS + r;
-    const w = (n - 1) * CFG.SX;
-    const left = CFG.VW / 2 - w / 2;
-    for (let c = 0; c < n; c++)
-      pegs.push({ x: left + c * CFG.SX, y: CFG.TOP_Y + r * CFG.SY, row: r, col: c });
+  for (let r = 0; r < c.ROWS; r++) {
+    const n = c.TOP_PEGS + r;
+    const w = (n - 1) * c.SX;
+    const left = c.VW / 2 - w / 2;
+    for (let col = 0; col < n; col++)
+      pegs.push({ x: left + col * c.SX, y: c.TOP_Y + r * c.SY, row: r, col });
   }
-  const bottom = pegs.filter((p) => p.row === CFG.ROWS - 1).sort((a, b) => a.x - b.x);
-  const dividers = bottom.map((p) => p.x);
+  const dividers: number[] = [];
+  for (let i = 0; i <= c.N_SLOTS; i++)
+    dividers.push(c.WALL_L + ((c.WALL_R - c.WALL_L) * i) / c.N_SLOTS);
+  const posts = dividers.slice(1, -1);
 
   const gaps: Gap[] = [];
-  for (let r = CFG.WALL_MIN_ROW; r < CFG.ROWS; r++) {
+  for (let r = c.WALL_MIN_ROW; r < c.ROWS; r++) {
     const row = pegs.filter((p) => p.row === r).sort((a, b) => a.x - b.x);
     for (let i = 0; i < row.length - 1; i++) {
-      const a = row[i];
-      const b = row[i + 1];
+      const a = row[i], b = row[i + 1];
       gaps.push({
-        row: r,
-        idx: i,
-        ax: a.x,
-        ay: a.y,
-        bx: b.x,
-        by: b.y,
-        mx: (a.x + b.x) / 2,
-        my: (a.y + b.y) / 2,
+        row: r, idx: i,
+        ax: a.x, ay: a.y, bx: b.x, by: b.y,
+        mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
       });
     }
   }
-  return { pegs, dividers, gaps };
+  return { pegs, dividers, posts, gaps };
 }
 
 function closestOnSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
-  const dx = bx - ax;
-  const dy = by - ay;
+  const dx = bx - ax, dy = by - ay;
   const l2 = dx * dx + dy * dy;
   if (l2 < 1e-9) return [ax, ay] as const;
   let t = ((px - ax) * dx + (py - ay) * dy) / l2;
@@ -104,179 +96,138 @@ function closestOnSeg(px: number, py: number, ax: number, ay: number, bx: number
   return [ax + t * dx, ay + t * dy] as const;
 }
 
-/** Детерминированная симуляция падения. angleNorm ∈ [-1, 1]. */
+/** Настоящая детерминированная симуляция. angleNorm ∈ [-1, 1]. */
 function simulate(angleNorm: number, board: Board, userWalls: Seg[]): SimResult {
   const c = CFG;
-  let x = c.VW / 2;
-  let y = 28;
-  let vx = angleNorm * 95;
-  let vy = 25;
+  let x = c.VW / 2 + c.DROP_OFFSET;
+  let y = c.DROP_Y;
+  let vx = angleNorm * c.LAUNCH_VX;
+  let vy = c.LAUNCH_VY;
   const path: number[][] = [];
-  let lowEnergy = 0;
   let settle = 0;
+
+  const posts = board.posts;
 
   for (let step = 0; step < c.MAX_STEPS; step++) {
     vy += c.g * c.DT;
-    vx *= c.air;
-    vy *= c.air;
+    vx *= c.air; vy *= c.air;
     x += vx * c.DT;
     y += vy * c.DT;
 
-    // пеги
+    // пеги — импульсное столкновение круг-круг + трение по касательной
     for (const p of board.pegs) {
-      const dx = x - p.x;
-      const dy = y - p.y;
-      const d2 = dx * dx + dy * dy;
+      const dx = x - p.x, dy = y - p.y;
       const md = c.ballR + c.pegR;
-      if (d2 < md * md && d2 > 1e-9) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 < md * md && d2 > 1e-12) {
         const d = Math.sqrt(d2);
-        const nx = dx / d;
-        const ny = dy / d;
-        const ov = md - d;
-        x += nx * ov;
-        y += ny * ov;
+        const nx = dx / d, ny = dy / d;
+        x += nx * (md - d); y += ny * (md - d);
         const vn = vx * nx + vy * ny;
         if (vn < 0) {
-          vx -= (1 + c.eRest) * vn * nx;
-          vy -= (1 + c.eRest) * vn * ny;
+          vx -= (1 + c.eRest) * vn * nx; vy -= (1 + c.eRest) * vn * ny;
+          const tx = -ny, ty = nx;
+          const vt = vx * tx + vy * ty;
+          vx -= c.pegFric * vt * tx; vy -= c.pegFric * vt * ty;
         }
       }
     }
-    // стенки игроков
+    // стенки игроков (отрезок-круг)
     for (const w of userWalls) {
-      const [px, py] = closestOnSeg(x, y, w.ax, w.ay, w.bx, w.by);
-      const dx = x - px;
-      const dy = y - py;
-      const d2 = dx * dx + dy * dy;
+      const [cx, cy] = closestOnSeg(x, y, w.ax, w.ay, w.bx, w.by);
+      const dx = x - cx, dy = y - cy;
       const md = c.ballR + 3.5;
-      if (d2 < md * md && d2 > 1e-9) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 < md * md && d2 > 1e-12) {
         const d = Math.sqrt(d2);
-        const nx = dx / d;
-        const ny = dy / d;
-        const ov = md - d;
-        x += nx * ov;
-        y += ny * ov;
+        const nx = dx / d, ny = dy / d;
+        x += nx * (md - d); y += ny * (md - d);
         const vn = vx * nx + vy * ny;
-        if (vn < 0) {
-          vx -= (1 + c.eRest) * vn * nx;
-          vy -= (1 + c.eRest) * vn * ny;
-        }
+        if (vn < 0) { vx -= (1 + c.eRest) * vn * nx; vy -= (1 + c.eRest) * vn * ny; }
       }
     }
     // боковые стены
-    if (x - c.ballR < c.WALL_L) {
-      x = c.WALL_L + c.ballR;
-      if (vx < 0) vx = -vx * c.wRest;
-    }
-    if (x + c.ballR > c.WALL_R) {
-      x = c.WALL_R - c.ballR;
-      if (vx > 0) vx = -vx * c.wRest;
-    }
-    // разделители лунок
-    if (y + c.ballR > c.SLOT_TOP) {
-      for (const dx0 of board.dividers) {
-        const ddx = x - dx0;
-        const ddy = y - c.SLOT_TOP;
-        const d2 = ddx * ddx + ddy * ddy;
+    if (x - c.ballR < c.WALL_L) { x = c.WALL_L + c.ballR; if (vx < 0) vx = -vx * c.wRest; }
+    if (x + c.ballR > c.WALL_R) { x = c.WALL_R - c.ballR; if (vx > 0) vx = -vx * c.wRest; }
+
+    // столбики между лунками (короткие, образуют мелкие стаканы)
+    if (y + c.ballR > c.SLOT_TOP - 12) {
+      for (const dvx of posts) {
+        const tdx = x - dvx, tdy = y - c.SLOT_TOP;
         const md = c.ballR + 2.5;
-        if (d2 < md * md && d2 > 1e-9) {
-          const d = Math.sqrt(d2);
-          const nx = ddx / d;
-          const ny = ddy / d;
-          const ov = md - d;
-          x += nx * ov;
-          y += ny * ov;
+        const td2 = tdx * tdx + tdy * tdy;
+        if (tdy < 0 && td2 < md * md && td2 > 1e-12) {
+          const d = Math.sqrt(td2);
+          const nx = tdx / d, ny = tdy / d;
+          x += nx * (md - d); y += ny * (md - d);
           const vn = vx * nx + vy * ny;
-          if (vn < 0) {
-            vx -= (1 + c.eRest) * vn * nx;
-            vy -= (1 + c.eRest) * vn * ny;
-          }
+          if (vn < 0) { vx -= (1 + c.eRest) * vn * nx; vy -= (1 + c.eRest) * vn * ny; }
         }
-        if (Math.abs(x - dx0) < c.ballR && y > c.SLOT_TOP) {
-          if (x < dx0) {
-            x = dx0 - c.ballR;
-            if (vx > 0) vx = -vx * c.wRest;
-          } else {
-            x = dx0 + c.ballR;
-            if (vx < 0) vx = -vx * c.wRest;
-          }
+        if (y >= c.SLOT_TOP && Math.abs(x - dvx) < c.ballR + 2.5) {
+          if (x < dvx) { x = dvx - (c.ballR + 2.5); if (vx > 0) vx = -vx * c.wRest; }
+          else { x = dvx + (c.ballR + 2.5); if (vx < 0) vx = -vx * c.wRest; }
         }
       }
     }
     // пол
     if (y + c.ballR > c.FLOOR) {
       y = c.FLOOR - c.ballR;
-      if (vy > 0) vy = -vy * 0.12;
-      vx *= 0.78;
+      if (vy > 0) vy = -vy * 0.18;
+      vx *= 0.7;
     }
-    if (y > c.SLOT_TOP) vx *= 0.92;
 
-    // анти-залипание (детерминированное) только над лунками
-    const sp = Math.abs(vx) + Math.abs(vy);
-    if (sp < 2.2 && y < c.SLOT_TOP) {
-      if (++lowEnergy > 8) {
-        const dir = (Math.floor(x * 7) + Math.floor(y * 13)) & 1 ? 1 : -1;
-        vx += dir * 22;
-        vy += 10;
-        lowEnergy = 0;
-      }
-    } else lowEnergy = 0;
+    path.push([x, y]);
 
-    if (step % 2 === 0) path.push([x, y]);
-
-    if (y > c.SLOT_TOP + 18 && Math.abs(vx) < 4 && Math.abs(vy) < 7) {
-      if (++settle > 36) break;
+    if (y > c.SLOT_TOP + 6 && Math.abs(vx) < 5 && Math.abs(vy) < 8) {
+      if (++settle > 40) break;
     } else settle = 0;
   }
 
   const d = board.dividers;
-  let slot = x < d[0] ? 0 : x >= d[d.length - 1] ? c.N_SLOTS - 1 : 0;
-  for (let i = 0; i < d.length - 1; i++)
-    if (x >= d[i] && x < d[i + 1]) {
-      slot = i;
-      break;
-    }
+  let slot = c.N_SLOTS - 1;
+  for (let i = 0; i < d.length - 1; i++) if (x >= d[i] && x < d[i + 1]) { slot = i; break; }
+  if (x < d[0]) slot = 0;
   slot = Math.max(0, Math.min(c.N_SLOTS - 1, slot));
   return { path, slot };
 }
 
 /* ------------------------------- ТИПЫ ИГРЫ -------------------------------- */
 
-type Phase =
-  | "intro"
-  | "handoff"
-  | "angles"
-  | "actions"
-  | "reveal"
-  | "result";
-
+type Phase = "intro" | "handoff" | "angles" | "actions" | "reveal" | "result";
 type ActionMode = "x2" | "half" | "wall" | null;
-type WallKey = string; // `${row}:${idx}`
+type WallKey = string;
 
 const PLAYERS = [
-  { name: "Игрок 1", color: "#22e0ff", soft: "rgba(34,224,255,0.18)", emoji: "🔵" },
-  { name: "Игрок 2", color: "#ff45d8", soft: "rgba(255,69,216,0.18)", emoji: "🟣" },
+  { name: "Игрок 1", color: "#22e0ff", soft: "rgba(34,224,255,0.16)", emoji: "🔵" },
+  { name: "Игрок 2", color: "#ff45d8", soft: "rgba(255,69,216,0.16)", emoji: "🟣" },
 ];
 
-const fmt = (n: number) => (Number.isInteger(n) ? `${n}` : n.toFixed(1));
+// цвет по «ценности» лунки
+function tierColor(v: number): string {
+  if (v >= 10) return "#ffd23f";
+  if (v >= 4) return "#ff9f1c";
+  if (v >= 2) return "#a78bfa";
+  if (v >= 1.5) return "#5ad1ff";
+  return "#7dffc0";
+}
+const fmt = (n: number) =>
+  Number.isInteger(n) ? `${n}` : (Math.round(n * 10) / 10).toString();
+
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; r: number };
+type Pop = { x: number; y: number; life: number; max: number; color: string };
 
 /* =============================== КОМПОНЕНТ ================================= */
 
-export const PlinkoPvpGame: React.FC = () => {
+export default function PlinkoPvpGame() {
   const board = useMemo(() => buildBoard(), []);
 
   const [phase, setPhase] = useState<Phase>("intro");
-  const [turn, setTurn] = useState(0); // активный игрок 0/1
+  const [turn, setTurn] = useState(0);
 
-  // углы: angles[player][ball]
-  const [angles, setAngles] = useState<number[][]>([
-    [0, 0, 0],
-    [0, 0, 0],
-  ]);
+  const [angles, setAngles] = useState<number[][]>([[0, 0, 0], [0, 0, 0]]);
   const [curBall, setCurBall] = useState(0);
   const [liveAngle, setLiveAngle] = useState(0);
 
-  // модификаторы множителей и стенки — отдельно по игрокам
   const [factors, setFactors] = useState<number[][]>([
     Array(CFG.N_SLOTS).fill(1),
     Array(CFG.N_SLOTS).fill(1),
@@ -286,34 +237,29 @@ export const PlinkoPvpGame: React.FC = () => {
   const [actionsLeft, setActionsLeft] = useState(CFG.ACTIONS_PER_TURN);
   const [timeLeft, setTimeLeft] = useState(CFG.TURN_SECONDS);
 
-  // вскрытие
   const [scores, setScores] = useState<[number, number]>([0, 0]);
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number } | null>(null);
 
-  // экран передачи телефона
   const [handoff, setHandoff] = useState<{ to: number; label: string; next: Phase }>(
     { to: 0, label: "", next: "angles" }
   );
 
-  /* ---- комбинированная доска для вскрытия ---- */
-  const combinedValues = useMemo(() => {
-    return CFG.VALUES.map((v, i) =>
-      Math.round(v * factors[0][i] * factors[1][i] * 10) / 10
-    );
-  }, [factors]);
+  const combinedValues = useMemo(
+    () => CFG.VALUES.map((v, i) => Math.round(v * factors[0][i] * factors[1][i] * 10) / 10),
+    [factors]
+  );
 
   const allWallSegs = useMemo<Seg[]>(() => {
-    const keys = new Set([...walls[0], ...walls[1]]);
+    const keys = new Set<string>([...walls[0], ...walls[1]]);
     const segs: Seg[] = [];
     keys.forEach((k) => {
-      const g = board.gaps.find((g) => `${g.row}:${g.idx}` === k);
+      const g = board.gaps.find((gg) => `${gg.row}:${gg.idx}` === k);
       if (g) segs.push({ ax: g.ax, ay: g.ay, bx: g.bx, by: g.by });
     });
     return segs;
   }, [walls, board.gaps]);
 
-  /* ---- порядок запуска шариков при вскрытии (чередуем) ---- */
   const revealOrder = useMemo(() => {
     const order: { player: number; ball: number }[] = [];
     for (let b = 0; b < CFG.BALLS_PER_PLAYER; b++) {
@@ -323,267 +269,298 @@ export const PlinkoPvpGame: React.FC = () => {
     return order;
   }, []);
 
-  // предрасчёт путей всех шариков на момент вскрытия
-  const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number }[]>(
-    []
-  );
+  const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number }[]>([]);
 
-  /* --------------------------- АНИМАЦИЯ / CANVAS --------------------------- */
+  /* --------------------------- CANVAS / АНИМАЦИЯ --------------------------- */
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const tf = useRef({ scale: 1, offX: 0, offY: 0 });
-  const raf = useRef<number>(0);
+  const tf = useRef({ scale: 1, offX: 0, offY: 0, dpr: 1 });
+  const raf = useRef(0);
+  const particles = useRef<Particle[]>([]);
+  const pops = useRef<Pop[]>([]);
 
-  // состояние проигрывания вскрытия
   const playback = useRef<{
     path: number[][];
     i: number;
-    step: number;
     color: string;
     player: number;
     landed: { x: number; y: number; color: string }[];
     pausing: number;
     done: boolean;
-  }>({
-    path: [],
-    i: 0,
-    step: 1,
-    color: "#fff",
-    player: 0,
-    landed: [],
-    pausing: 0,
-    done: false,
-  });
+    trail: number[][];
+  }>({ path: [], i: 0, color: "#fff", player: 0, landed: [], pausing: 0, done: false, trail: [] });
 
-  // ссылки на изменяемое состояние для цикла рисования
-  const view = useRef({
-    phase,
-    turn,
-    liveAngle,
-    factors,
-    walls,
-    actionMode,
-    combinedValues,
-  });
+  const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues });
   useEffect(() => {
     view.current = { phase, turn, liveAngle, factors, walls, actionMode, combinedValues };
   }, [phase, turn, liveAngle, factors, walls, actionMode, combinedValues]);
 
   const resize = useCallback(() => {
-    const cv = canvasRef.current;
-    const wrap = wrapRef.current;
+    const cv = canvasRef.current, wrap = wrapRef.current;
     if (!cv || !wrap) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const w = wrap.clientWidth;
-    const h = wrap.clientHeight;
-    cv.width = w * dpr;
-    cv.height = h * dpr;
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
-    const scale = Math.min((w * dpr) / CFG.VW, (h * dpr) / CFG.VH);
+    // заполняем ширину; если не влезает по высоте — подгоняем по высоте
+    let scale = cv.width / CFG.VW;
+    if (CFG.VH * scale > cv.height) scale = cv.height / CFG.VH;
     tf.current = {
       scale,
-      offX: (w * dpr - CFG.VW * scale) / 2,
-      offY: (h * dpr - CFG.VH * scale) / 2,
+      offX: (cv.width - CFG.VW * scale) / 2,
+      offY: (cv.height - CFG.VH * scale) / 2,
+      dpr,
     };
   }, []);
 
   useEffect(() => {
     resize();
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    const id = window.setTimeout(resize, 60);
+    return () => { window.removeEventListener("resize", resize); window.clearTimeout(id); };
   }, [resize]);
 
-  // главный цикл отрисовки
+  /* ------------------------------ ЦИКЛ ОТРИСОВКИ -------------------------- */
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
-    const ctx = cv.getContext("2d")!;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
     const S = (v: number) => v * tf.current.scale;
     const X = (v: number) => tf.current.offX + v * tf.current.scale;
     const Y = (v: number) => tf.current.offY + v * tf.current.scale;
 
+    const drawCup = (i: number, val: number, viewer: number, isReveal: boolean) => {
+      const d = board.dividers;
+      const x0 = d[i], x1 = d[i + 1];
+      const cx = (x0 + x1) / 2;
+      const col = tierColor(CFG.VALUES[i]);
+      const r = S(7);
+      const top = Y(CFG.SLOT_TOP), bot = Y(CFG.FLOOR);
+      // корпус стакана
+      ctx.beginPath();
+      const lx = X(x0) + S(2), rx = X(x1) - S(2);
+      ctx.moveTo(lx, top);
+      ctx.lineTo(lx, bot - r);
+      ctx.quadraticCurveTo(lx, bot, lx + r, bot);
+      ctx.lineTo(rx - r, bot);
+      ctx.quadraticCurveTo(rx, bot, rx, bot - r);
+      ctx.lineTo(rx, top);
+      const grad = ctx.createLinearGradient(0, top, 0, bot);
+      grad.addColorStop(0, "rgba(255,255,255,0.02)");
+      grad.addColorStop(1, col + "66");
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = S(1.5);
+      ctx.strokeStyle = col + "cc";
+      ctx.stroke();
+      // значение
+      ctx.fillStyle = "#fff";
+      ctx.font = `800 ${S(13)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const label = isReveal ? `×${fmt(val)}` : `×${fmt(val)}`;
+      ctx.fillText(label, X(cx), (top + bot) / 2 + S(1));
+      // пометка, что текущий игрок модифицировал лунку
+      if (!isReveal && factorOf(viewer, i) !== 1) {
+        ctx.fillStyle = PLAYERS[viewer].color;
+        ctx.font = `700 ${S(8)}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.fillText(factorOf(viewer, i) > 1 ? "буст" : "сброс", X(cx), top - S(6));
+      }
+    };
+
+    const factorOf = (viewer: number, i: number) => view.current.factors[viewer][i];
+
     const loop = () => {
-      const { phase, turn, liveAngle, factors, walls, actionMode, combinedValues } =
-        view.current;
+      const v = view.current;
+      const isReveal = v.phase === "reveal" || v.phase === "result";
+      const viewer = v.turn;
+      const display = isReveal
+        ? v.combinedValues
+        : CFG.VALUES.map((val, i) => Math.round(val * v.factors[viewer][i] * 10) / 10);
+
       ctx.clearRect(0, 0, cv.width, cv.height);
 
-      const isReveal = phase === "reveal" || phase === "result";
-      const pColor = PLAYERS[turn].color;
-
-      // значения и стенки, видимые сейчас
-      const displayValues = isReveal
-        ? combinedValues
-        : CFG.VALUES.map((v, i) => Math.round(v * factors[turn][i] * 10) / 10);
-      const visibleWallKeys = isReveal
-        ? new Set([...walls[0], ...walls[1]])
-        : new Set(walls[turn]);
-
-      // фон-рамка поля
-      ctx.save();
+      // рамка поля
       ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = S(1);
-      ctx.strokeRect(X(CFG.WALL_L), Y(CFG.TOP_Y - 24), S(CFG.WALL_R - CFG.WALL_L), S(CFG.FLOOR - CFG.TOP_Y + 24));
-      ctx.restore();
-
-      // боковые стены
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
       ctx.lineWidth = S(2);
-      ctx.beginPath();
-      ctx.moveTo(X(CFG.WALL_L), Y(CFG.TOP_Y - 24));
-      ctx.lineTo(X(CFG.WALL_L), Y(CFG.FLOOR));
-      ctx.moveTo(X(CFG.WALL_R), Y(CFG.TOP_Y - 24));
-      ctx.lineTo(X(CFG.WALL_R), Y(CFG.FLOOR));
-      ctx.stroke();
+      ctx.strokeRect(X(CFG.WALL_L), Y(8), S(CFG.WALL_R - CFG.WALL_L), S(CFG.FLOOR - 8));
 
-      // доступные щели для стенки (режим wall)
-      if (phase === "actions" && actionMode === "wall") {
-        for (const g of board.gaps) {
-          const key = `${g.row}:${g.idx}`;
-          if (visibleWallKeys.has(key)) continue;
-          ctx.beginPath();
-          ctx.arc(X(g.mx), Y(g.my), S(4), 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,255,255,0.18)";
-          ctx.fill();
-          ctx.strokeStyle = pColor;
-          ctx.lineWidth = S(1);
-          ctx.stroke();
-        }
-      }
+      // боковые стены (мягкое свечение)
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(X(CFG.WALL_L) - S(3), Y(8), S(3), S(CFG.FLOOR - 8));
+      ctx.fillRect(X(CFG.WALL_R), Y(8), S(3), S(CFG.FLOOR - 8));
+
+      // стаканы
+      for (let i = 0; i < CFG.N_SLOTS; i++) drawCup(i, display[i], viewer, isReveal);
 
       // пеги
       for (const p of board.pegs) {
         ctx.beginPath();
         ctx.arc(X(p.x), Y(p.y), S(CFG.pegR), 0, Math.PI * 2);
-        ctx.fillStyle = "#fff";
-        ctx.shadowColor = "rgba(120,200,255,0.5)";
+        ctx.fillStyle = "rgba(220,235,255,0.9)";
+        ctx.shadowColor = "rgba(150,200,255,0.6)";
         ctx.shadowBlur = S(4);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
 
-      // стенки игроков
-      visibleWallKeys.forEach((key) => {
-        const g = board.gaps.find((g) => `${g.row}:${g.idx}` === key);
+      // стенки: свои во время хода, все при вскрытии
+      const wallKeys = isReveal
+        ? new Set<string>([...v.walls[0], ...v.walls[1]])
+        : new Set<string>(v.walls[viewer]);
+      wallKeys.forEach((k) => {
+        const g = board.gaps.find((gg) => `${gg.row}:${gg.idx}` === k);
         if (!g) return;
-        // если вскрытие — цвет того, кто поставил; иначе цвет хода
-        let col = pColor;
-        if (isReveal) col = walls[0].includes(key) ? PLAYERS[0].color : PLAYERS[1].color;
         ctx.beginPath();
         ctx.moveTo(X(g.ax), Y(g.ay));
         ctx.lineTo(X(g.bx), Y(g.by));
-        ctx.strokeStyle = col;
-        ctx.lineWidth = S(5);
         ctx.lineCap = "round";
-        ctx.shadowColor = col;
+        ctx.lineWidth = S(6);
+        ctx.strokeStyle = isReveal ? "#ffe16b" : PLAYERS[viewer].color;
+        ctx.shadowColor = ctx.strokeStyle as string;
         ctx.shadowBlur = S(8);
         ctx.stroke();
         ctx.shadowBlur = 0;
       });
 
-      // разделители лунок
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.lineWidth = S(2);
-      for (const dx of board.dividers) {
-        ctx.beginPath();
-        ctx.moveTo(X(dx), Y(CFG.SLOT_TOP));
-        ctx.lineTo(X(dx), Y(CFG.FLOOR));
-        ctx.stroke();
-      }
-
-      // лунки + значения
-      for (let i = 0; i < CFG.N_SLOTS; i++) {
-        const x0 = board.dividers[i];
-        const x1 = board.dividers[i + 1];
-        const cx = (x0 + x1) / 2;
-        const base = CFG.VALUES[i];
-        const val = displayValues[i];
-        const hot = val >= 20;
-        const grad = ctx.createLinearGradient(0, Y(CFG.SLOT_TOP), 0, Y(CFG.FLOOR));
-        const baseCol = hot ? "255,196,64" : "120,160,255";
-        grad.addColorStop(0, `rgba(${baseCol},0.05)`);
-        grad.addColorStop(1, `rgba(${baseCol},0.28)`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(X(x0) + S(1), Y(CFG.SLOT_TOP), S(x1 - x0) - S(2), S(CFG.FLOOR - CFG.SLOT_TOP));
-
-        ctx.fillStyle = hot ? "#ffd23f" : "#cfe0ff";
-        ctx.font = `700 ${S(13)}px ui-sans-serif, system-ui, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`${fmt(val)}`, X(cx), Y((CFG.SLOT_TOP + CFG.FLOOR) / 2));
-        // бейдж изменения
-        if (!isReveal && val !== base) {
-          ctx.fillStyle = val > base ? "#5dff9b" : "#ff6b6b";
-          ctx.font = `700 ${S(8)}px ui-sans-serif`;
-          ctx.fillText(val > base ? "×2" : "÷2", X(cx), Y(CFG.FLOOR - 8));
+      // подсказки кликабельных целей во время действий
+      if (v.phase === "actions") {
+        const t = (Date.now() % 1000) / 1000;
+        const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
+        if (v.actionMode === "x2" || v.actionMode === "half") {
+          for (let i = 0; i < CFG.N_SLOTS; i++) {
+            const d = board.dividers;
+            ctx.beginPath();
+            ctx.rect(X(d[i]) + S(2), Y(CFG.SLOT_TOP), S(d[i + 1] - d[i]) - S(4), S(CFG.FLOOR - CFG.SLOT_TOP));
+            ctx.strokeStyle = PLAYERS[viewer].color + (pulse > 0.5 ? "ff" : "70");
+            ctx.lineWidth = S(2);
+            ctx.stroke();
+          }
+        } else if (v.actionMode === "wall") {
+          for (const g of board.gaps) {
+            ctx.beginPath();
+            ctx.arc(X(g.mx), Y(g.my), S(4 + pulse * 2), 0, Math.PI * 2);
+            ctx.fillStyle = PLAYERS[viewer].color + "cc";
+            ctx.fill();
+          }
         }
       }
 
-      // прицельная линия (фаза углов)
-      if (phase === "angles") {
-        const a = liveAngle;
-        const sx = CFG.VW / 2;
-        const sy = 28;
+      // фаза углов: точка сброса + стрелка прицела
+      if (v.phase === "angles") {
+        const dropX = CFG.VW / 2, dropY = CFG.DROP_Y;
+        const a = v.liveAngle;
+        const len = 46;
+        const dirx = a, diry = 1;
+        const nlen = Math.hypot(dirx, diry) || 1;
+        const ex = dropX + (dirx / nlen) * len;
+        const ey = dropY + (diry / nlen) * len;
         ctx.beginPath();
-        ctx.moveTo(X(sx), Y(sy));
-        ctx.lineTo(X(sx + a * 70), Y(sy + 90));
-        ctx.strokeStyle = pColor;
-        ctx.lineWidth = S(2);
-        ctx.setLineDash([S(5), S(5)]);
+        ctx.moveTo(X(dropX), Y(dropY));
+        ctx.lineTo(X(ex), Y(ey));
+        ctx.strokeStyle = PLAYERS[viewer].color;
+        ctx.lineWidth = S(3);
+        ctx.setLineDash([S(5), S(4)]);
         ctx.stroke();
         ctx.setLineDash([]);
+        // наконечник
+        ctx.beginPath();
+        ctx.arc(X(ex), Y(ey), S(4), 0, Math.PI * 2);
+        ctx.fillStyle = PLAYERS[viewer].color;
+        ctx.fill();
         // шарик на старте
         ctx.beginPath();
-        ctx.arc(X(sx), Y(sy), S(CFG.ballR), 0, Math.PI * 2);
-        ctx.fillStyle = pColor;
-        ctx.shadowColor = pColor;
+        ctx.arc(X(dropX), Y(dropY), S(CFG.ballR), 0, Math.PI * 2);
+        ctx.fillStyle = PLAYERS[viewer].color;
+        ctx.shadowColor = PLAYERS[viewer].color;
         ctx.shadowBlur = S(10);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
 
-      // вскрытие: осевшие + летящий
-      if (isReveal) {
-        const pb = playback.current;
-        for (const b of pb.landed) {
-          ctx.beginPath();
-          ctx.arc(X(b.x), Y(b.y), S(CFG.ballR), 0, Math.PI * 2);
-          ctx.fillStyle = b.color;
-          ctx.globalAlpha = 0.85;
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-        if (phase === "reveal" && !pb.done && pb.path.length) {
-          // продвижение
-          if (pb.pausing > 0) {
-            pb.pausing--;
-          } else {
-            pb.i += pb.step;
-            if (pb.i >= pb.path.length - 1) {
-              pb.i = pb.path.length - 1;
-              if (!pb.done) {
-                pb.done = true;
-                const last = pb.path[pb.i];
-                pb.landed.push({
-                  x: last[0],
-                  y: Math.min(last[1], CFG.FLOOR - CFG.ballR),
-                  color: pb.color,
-                });
-                // сигнал наверх, что шарик долетел
-                window.setTimeout(() => onBallLanded(), 450);
-              }
-            }
+      // вскрытие: проигрывание
+      const pb = playback.current;
+      if (v.phase === "reveal") {
+        if (pb.pausing > 0) {
+          pb.pausing--;
+        } else if (!pb.done && pb.path.length) {
+          pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
+          if (pb.i >= pb.path.length - 1) {
+            const [lx, ly] = pb.path[pb.path.length - 1];
+            pb.landed.push({ x: lx, y: ly, color: pb.color });
+            spawnLanding(lx, ly, pb.color);
+            pb.done = true;
+            onBallLanded();
           }
-          const pt = pb.path[Math.min(pb.i, pb.path.length - 1)];
-          ctx.beginPath();
-          ctx.arc(X(pt[0]), Y(pt[1]), S(CFG.ballR), 0, Math.PI * 2);
-          ctx.fillStyle = pb.color;
-          ctx.shadowColor = pb.color;
-          ctx.shadowBlur = S(12);
-          ctx.fill();
-          ctx.shadowBlur = 0;
         }
       }
+
+      // уже упавшие шарики
+      for (const b of pb.landed) {
+        ctx.beginPath();
+        ctx.arc(X(b.x), Y(b.y), S(CFG.ballR), 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      // активный шарик + след
+      if (v.phase === "reveal" && !pb.done && pb.path.length && pb.pausing <= 0) {
+        const [bx, by] = pb.path[pb.i];
+        pb.trail.push([bx, by]);
+        if (pb.trail.length > 12) pb.trail.shift();
+        for (let i = 0; i < pb.trail.length; i++) {
+          const [tx, ty] = pb.trail[i];
+          ctx.beginPath();
+          ctx.arc(X(tx), Y(ty), S(CFG.ballR * (0.3 + 0.6 * (i / pb.trail.length))), 0, Math.PI * 2);
+          ctx.fillStyle = pb.color;
+          ctx.globalAlpha = (i / pb.trail.length) * 0.35;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(X(bx), Y(by), S(CFG.ballR), 0, Math.PI * 2);
+        ctx.fillStyle = pb.color;
+        ctx.shadowColor = pb.color;
+        ctx.shadowBlur = S(12);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // частицы
+      const ps = particles.current;
+      for (let i = ps.length - 1; i >= 0; i--) {
+        const p = ps[i];
+        p.life--;
+        p.vy += 0.25;
+        p.x += p.vx; p.y += p.vy;
+        if (p.life <= 0) { ps.splice(i, 1); continue; }
+        ctx.beginPath();
+        ctx.arc(X(p.x), Y(p.y), S(p.r), 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life / p.max);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // кольца-вспышки
+      const pp = pops.current;
+      for (let i = pp.length - 1; i >= 0; i--) {
+        const o = pp[i];
+        o.life--;
+        if (o.life <= 0) { pp.splice(i, 1); continue; }
+        const k = 1 - o.life / o.max;
+        ctx.beginPath();
+        ctx.arc(X(o.x), Y(o.y), S(6 + k * 26), 0, Math.PI * 2);
+        ctx.strokeStyle = o.color;
+        ctx.globalAlpha = Math.max(0, o.life / o.max);
+        ctx.lineWidth = S(3 * (1 - k) + 1);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
 
       raf.current = requestAnimationFrame(loop);
     };
@@ -593,6 +570,30 @@ export const PlinkoPvpGame: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board]);
 
+  const spawnLanding = (x: number, y: number, color: string) => {
+    const slot = (() => {
+      const d = board.dividers;
+      for (let i = 0; i < d.length - 1; i++) if (x >= d[i] && x < d[i + 1]) return i;
+      return x < d[0] ? 0 : CFG.N_SLOTS - 1;
+    })();
+    const tcol = tierColor(CFG.VALUES[slot]);
+    const n = 16 + Math.round(CFG.VALUES[slot]);
+    for (let i = 0; i < n; i++) {
+      const ang = (Math.PI * 2 * i) / n + Math.random() * 0.4;
+      const sp = 1.4 + Math.random() * 2.6;
+      particles.current.push({
+        x, y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp - 1.5,
+        life: 26 + Math.round(Math.random() * 16),
+        max: 42,
+        color: Math.random() < 0.5 ? tcol : color,
+        r: 1.4 + Math.random() * 1.8,
+      });
+    }
+    pops.current.push({ x, y, life: 22, max: 22, color: tcol });
+  };
+
   /* ----------------------------- ТАЙМЕР ХОДА ------------------------------ */
   useEffect(() => {
     if (phase !== "actions") return;
@@ -601,17 +602,13 @@ export const PlinkoPvpGame: React.FC = () => {
     const id = window.setInterval(() => {
       const left = CFG.TURN_SECONDS - Math.floor((Date.now() - t0) / 1000);
       setTimeLeft(left);
-      if (left <= 0) {
-        window.clearInterval(id);
-        finishActionTurn();
-      }
+      if (left <= 0) { window.clearInterval(id); finishActionTurn(); }
     }, 200);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, turn]);
 
   /* ------------------------------- ХЕНДЛЕРЫ ------------------------------- */
-
   const toHandoff = (to: number, label: string, next: Phase) => {
     setHandoff({ to, label, next });
     setPhase("handoff");
@@ -621,17 +618,23 @@ export const PlinkoPvpGame: React.FC = () => {
     setScores([0, 0]);
     setFactors([Array(CFG.N_SLOTS).fill(1), Array(CFG.N_SLOTS).fill(1)]);
     setWalls([[], []]);
-    setAngles([
-      [0, 0, 0],
-      [0, 0, 0],
-    ]);
-    setTurn(0);
-    setCurBall(0);
-    setLiveAngle(0);
+    setAngles([[0, 0, 0], [0, 0, 0]]);
+    setTurn(0); setCurBall(0); setLiveAngle(0);
+    particles.current = []; pops.current = [];
     setPhase("angles");
   };
 
-  // подтвердить угол текущего шарика
+  useEffect(() => {
+    if (phase !== "intro") return;
+
+    const id = window.setTimeout(() => {
+      startGame();
+    }, 4000);
+
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   const confirmAngle = () => {
     setAngles((prev) => {
       const next = prev.map((a) => [...a]);
@@ -642,119 +645,111 @@ export const PlinkoPvpGame: React.FC = () => {
       setCurBall((b) => b + 1);
       setLiveAngle(0);
     } else {
-      // углы этого игрока готовы
       if (turn === 0) {
-        setCurBall(0);
-        setLiveAngle(0);
-        toHandoff(1, "Задайте углы своих шариков", "angles");
+        setCurBall(0); setLiveAngle(0);
+        toHandoff(1, "Задайте углы своих 3 шариков", "angles");
       } else {
-        // оба задали углы -> переходим к действиям первого
         setCurBall(0);
-        toHandoff(0, "Ваши 2 действия (10 сек)", "actions");
+        toHandoff(0, "Ваши 2 действия · 10 секунд", "actions");
       }
     }
   };
 
-  // нажатие по канвасу (лунки / щели)
-  const onCanvasPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (phase !== "actions" || actionsLeft <= 0 || !actionMode) return;
-    const cv = canvasRef.current!;
+  const worldFromEvent = (e: { clientX: number; clientY: number }) => {
+    const cv = canvasRef.current;
+    if (!cv) return { wx: 0, wy: 0 };
     const rect = cv.getBoundingClientRect();
-    const dpr = cv.width / rect.width;
-    const px = (e.clientX - rect.left) * dpr;
-    const py = (e.clientY - rect.top) * dpr;
-    const vx = (px - tf.current.offX) / tf.current.scale;
-    const vy = (py - tf.current.offY) / tf.current.scale;
+    const px = (e.clientX - rect.left) * tf.current.dpr;
+    const py = (e.clientY - rect.top) * tf.current.dpr;
+    return {
+      wx: (px - tf.current.offX) / tf.current.scale,
+      wy: (py - tf.current.offY) / tf.current.scale,
+    };
+  };
+
+  const onCanvasPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const { wx, wy } = worldFromEvent(e);
+
+    // прицеливание перетаскиванием в фазе углов
+    if (phase === "angles") {
+      const a = (wx - CFG.VW / 2) / ((CFG.WALL_R - CFG.WALL_L) / 2);
+      setLiveAngle(Math.max(-1, Math.min(1, a)));
+      return;
+    }
+
+    if (phase !== "actions" || actionsLeft <= 0 || !actionMode) return;
 
     if (actionMode === "wall") {
-      // ближайшая свободная щель
-      let best: Gap | null = null;
-      let bd = 22 * 22;
+      let best: Gap | null = null, bestD = 22;
       for (const g of board.gaps) {
-        const key = `${g.row}:${g.idx}`;
-        if (walls[turn].includes(key)) continue;
-        const d = (g.mx - vx) ** 2 + (g.my - vy) ** 2;
-        if (d < bd) {
-          bd = d;
-          best = g;
-        }
+        const d = Math.hypot(wx - g.mx, wy - g.my);
+        if (d < bestD) { bestD = d; best = g; }
       }
       if (best) {
         const key = `${best.row}:${best.idx}`;
         setWalls((prev) => {
-          const n = prev.map((w) => [...w]);
-          n[turn].push(key);
-          return n;
+          const mine = prev[turn];
+          if (mine.includes(key)) return prev; // уже стоит
+          const next = prev.map((w) => [...w]) as WallKey[][];
+          next[turn].push(key);
+          return next;
         });
         consumeAction();
       }
       return;
     }
 
-    // ×2 / ÷2: выбрать лунку
-    if (vy >= CFG.SLOT_TOP && vy <= CFG.FLOOR) {
-      let slot = -1;
-      for (let i = 0; i < CFG.N_SLOTS; i++)
-        if (vx >= board.dividers[i] && vx < board.dividers[i + 1]) {
-          slot = i;
-          break;
-        }
-      if (slot >= 0) {
-        setFactors((prev) => {
-          const n = prev.map((f) => [...f]);
-          n[turn][slot] *= actionMode === "x2" ? 2 : 0.5;
-          return n;
-        });
-        consumeAction();
-      }
+    // ×2 / ÷2 — по лунке
+    const d = board.dividers;
+    let slot = -1;
+    for (let i = 0; i < d.length - 1; i++) if (wx >= d[i] && wx < d[i + 1]) { slot = i; break; }
+    if (slot >= 0 && wy > CFG.SLOT_TOP - 40) {
+      setFactors((prev) => {
+        const n = prev.map((f) => [...f]);
+        n[turn][slot] *= actionMode === "x2" ? 2 : 0.5;
+        n[turn][slot] = Math.round(n[turn][slot] * 100) / 100;
+        return n;
+      });
+      consumeAction();
     }
   };
 
   const consumeAction = () => {
+    setActionMode(null);
     setActionsLeft((a) => {
       const left = a - 1;
       if (left <= 0) window.setTimeout(finishActionTurn, 250);
       return left;
     });
-    setActionMode(null);
   };
 
   const finishActionTurn = () => {
     setActionMode(null);
     setActionsLeft(CFG.ACTIONS_PER_TURN);
-    if (turn === 0) {
-      toHandoff(1, "Ваши 2 действия (10 сек)", "actions");
-    } else {
-      // оба отыграли -> вскрытие
-      toHandoff(0, "Вскрытие! Запуск шариков", "reveal");
-    }
+    setPhase((ph) => {
+      if (ph !== "actions") return ph; // защита от двойного вызова
+      if (turn === 0) toHandoff(1, "Ваши 2 действия · 10 секунд", "actions");
+      else toHandoff(0, "Вскрытие — запуск шариков", "reveal");
+      return "handoff";
+    });
   };
 
-  // экран передачи телефона -> продолжить
   const proceedHandoff = () => {
     setTurn(handoff.to);
-    if (handoff.next === "actions") {
-      setActionsLeft(CFG.ACTIONS_PER_TURN);
-      setActionMode(null);
-    }
-    if (handoff.next === "reveal") {
-      startReveal();
-      return;
-    }
+    if (handoff.next === "actions") { setActionsLeft(CFG.ACTIONS_PER_TURN); setActionMode(null); }
+    if (handoff.next === "reveal") { startReveal(); return; }
     setPhase(handoff.next);
   };
 
   /* ------------------------------ ВСКРЫТИЕ -------------------------------- */
   const startReveal = () => {
-    // предрасчёт всех путей по комбинированной доске
     revealData.current = revealOrder.map(({ player, ball }) => {
       const r = simulate(angles[player][ball], board, allWallSegs);
       return { player, path: r.path, slot: r.slot, value: combinedValues[r.slot] };
     });
-    playback.current.landed = [];
-    setScores([0, 0]);
-    setRevealIdx(0);
-    setLastGain(null);
+    particles.current = []; pops.current = [];
+    playback.current = { path: [], i: 0, color: "#fff", player: 0, landed: [], pausing: 0, done: false, trail: [] };
+    setScores([0, 0]); setRevealIdx(0); setLastGain(null);
     setPhase("reveal");
     loadBall(0);
   };
@@ -762,68 +757,75 @@ export const PlinkoPvpGame: React.FC = () => {
   const loadBall = (idx: number) => {
     const d = revealData.current[idx];
     if (!d) return;
-    const step = Math.max(1, Math.round(d.path.length / 110));
     playback.current = {
-      ...playback.current,
-      path: d.path,
-      i: 0,
-      step,
+      path: d.path, i: 0,
       color: PLAYERS[d.player].color,
       player: d.player,
-      pausing: 10,
-      done: false,
+      landed: playback.current.landed,
+      pausing: 12, done: false, trail: [],
     };
   };
 
-  // вызывается из цикла, когда шарик долетел
   const onBallLanded = () => {
     setRevealIdx((idx) => {
       const d = revealData.current[idx];
       if (d) {
         setScores((s) => {
           const ns: [number, number] = [s[0], s[1]];
-          ns[d.player] += d.value;
+          ns[d.player] = Math.round((ns[d.player] + d.value) * 10) / 10;
           return ns;
         });
         setLastGain({ p: d.player, v: d.value });
       }
       const nextIdx = idx + 1;
       if (nextIdx >= revealData.current.length) {
-        window.setTimeout(() => setPhase("result"), 900);
+        window.setTimeout(() => setPhase("result"), 1100);
         return idx;
       }
-      window.setTimeout(() => {
-        setLastGain(null);
-        loadBall(nextIdx);
-      }, 700);
+      window.setTimeout(() => { setLastGain(null); loadBall(nextIdx); }, 850);
       return nextIdx;
     });
   };
 
-  /* ------------------------------- РЕНДЕР --------------------------------- */
+  /* ------------------------------- ПРОИЗВОДНОЕ ---------------------------- */
   const angleDeg = Math.round(liveAngle * CFG.ANGLE_MAX_DEG);
-  const winner =
-    scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
+  const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
+
+  // кастомный ползунок (надёжный для webview): pointer-события
+  const sliderRef = useRef<HTMLDivElement | null>(null);
+  const setAngleFromClientX = (clientX: number) => {
+    const el = sliderRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const ratio = (clientX - rect.left) / rect.width;
+    setLiveAngle(Math.max(-1, Math.min(1, ratio * 2 - 1)));
+  };
+  const sliderDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+    setAngleFromClientX(e.clientX);
+  };
+  const sliderMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.buttons === 0 && e.pressure === 0) return;
+    setAngleFromClientX(e.clientX);
+  };
 
   return (
     <div
       className="relative flex h-full min-h-full w-full flex-col overflow-hidden select-none"
       style={{
-        background:
-          "radial-gradient(120% 90% at 50% -10%, #10193a 0%, #070a18 55%, #04060f 100%)",
+        background: "radial-gradient(120% 80% at 50% -10%, #10193a 0%, #070a18 55%, #04060f 100%)",
         color: "#eaf2ff",
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
       }}
     >
-      {/* ВЕРХНЯЯ ПАНЕЛЬ — аватарки и счёт */}
-      <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+      {/* ВЕРХ: аватарки + счёт */}
+      <div className="flex items-center justify-between gap-2 px-2.5 pt-2.5 pb-1.5">
         {PLAYERS.map((p, i) => {
-          const active =
-            (phase === "angles" || phase === "actions") && turn === i;
+          const active = (phase === "angles" || phase === "actions") && turn === i;
           return (
             <div
               key={i}
-              className="flex flex-1 items-center gap-2 rounded-2xl px-2.5 py-1.5 transition-all"
+              className="flex flex-1 items-center gap-2 rounded-xl px-2 py-1 transition-all"
               style={{
                 background: active ? p.soft : "rgba(255,255,255,0.04)",
                 boxShadow: active ? `0 0 0 1.5px ${p.color}` : "none",
@@ -831,39 +833,25 @@ export const PlinkoPvpGame: React.FC = () => {
               }}
             >
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base"
-                style={{
-                  background: p.color,
-                  boxShadow: active ? `0 0 12px ${p.color}` : "none",
-                  color: "#05070f",
-                }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm"
+                style={{ background: p.color, boxShadow: active ? `0 0 10px ${p.color}` : "none", color: "#05070f" }}
               >
                 {p.emoji}
               </div>
-              <div
-                className="flex flex-col leading-tight"
-                style={{ textAlign: i === 1 ? "right" : "left" }}
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-wide opacity-60">
-                  {p.name}
-                </span>
-                <span className="text-lg font-black" style={{ color: p.color }}>
-                  {fmt(scores[i])}
-                </span>
+              <div className="flex flex-col leading-none" style={{ textAlign: i === 1 ? "right" : "left" }}>
+                <span className="text-[9px] font-semibold uppercase tracking-wide opacity-60">{p.name}</span>
+                <span className="text-base font-black" style={{ color: p.color }}>{fmt(scores[i])}</span>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* статус-строка */}
-      <div className="px-3 pb-1 text-center text-[11px] font-medium opacity-70">
-        {phase === "angles" &&
-          `${PLAYERS[turn].name}: угол шарика ${curBall + 1} из ${CFG.BALLS_PER_PLAYER}`}
-        {phase === "actions" &&
-          `${PLAYERS[turn].name}: осталось действий ${actionsLeft} · ${timeLeft} сек`}
-        {phase === "reveal" &&
-          `Шарик ${Math.min(revealIdx + 1, revealOrder.length)} из ${revealOrder.length}`}
+      {/* статус */}
+      <div className="px-3 pb-1 text-center text-[11px] font-medium opacity-70" style={{ minHeight: 16 }}>
+        {phase === "angles" && `${PLAYERS[turn].name}: угол шарика ${curBall + 1} из ${CFG.BALLS_PER_PLAYER}`}
+        {phase === "actions" && `${PLAYERS[turn].name}: действий ${actionsLeft} · ${timeLeft}с`}
+        {phase === "reveal" && `Шарик ${Math.min(revealIdx + 1, revealOrder.length)} из ${revealOrder.length}`}
         {phase === "result" && "Игра окончена"}
         {phase === "intro" && "PvP · 3 шарика · 2 действия · 10 секунд"}
       </div>
@@ -873,62 +861,79 @@ export const PlinkoPvpGame: React.FC = () => {
         <canvas
           ref={canvasRef}
           onPointerDown={onCanvasPointer}
+          onPointerMove={(e) => { if (phase === "angles" && e.buttons === 1) onCanvasPointer(e); }}
           className="absolute inset-0 h-full w-full"
           style={{ touchAction: "none" }}
         />
-
-        {/* плашка прироста очков */}
         {lastGain && (
           <div
-            className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full px-3 py-1 text-sm font-black"
-            style={{
-              background: PLAYERS[lastGain.p].color,
-              color: "#05070f",
-              boxShadow: `0 0 20px ${PLAYERS[lastGain.p].color}`,
-            }}
+            className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full px-3 py-1 text-sm font-black"
+            style={{ background: PLAYERS[lastGain.p].color, color: "#05070f", boxShadow: `0 0 18px ${PLAYERS[lastGain.p].color}` }}
           >
             {PLAYERS[lastGain.p].emoji} +{fmt(lastGain.v)}
           </div>
         )}
       </div>
 
-      {/* НИЖНЯЯ ПАНЕЛЬ УПРАВЛЕНИЯ */}
-      <div className="px-3 pb-4 pt-2">
+      {/* НИЗ: управление */}
+      <div className="px-3 pb-3 pt-1.5">
         {phase === "angles" && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between text-xs opacity-70">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between text-[11px] opacity-70">
               <span>◀ влево</span>
-              <span className="text-base font-bold" style={{ color: PLAYERS[turn].color }}>
-                {angleDeg > 0 ? "+" : ""}
-                {angleDeg}°
+              <span className="text-sm font-bold" style={{ color: PLAYERS[turn].color }}>
+                {angleDeg > 0 ? "+" : ""}{angleDeg}°
               </span>
               <span>вправо ▶</span>
             </div>
-            <input
-              type="range"
-              min={-100}
-              max={100}
-              value={Math.round(liveAngle * 100)}
-              onChange={(e) => setLiveAngle(Number(e.target.value) / 100)}
-              className="w-full"
-              style={{ accentColor: PLAYERS[turn].color }}
-            />
-            <button
-              onClick={confirmAngle}
-              className="w-full rounded-2xl py-3.5 text-base font-bold active:scale-[0.98]"
-              style={{ background: PLAYERS[turn].color, color: "#05070f" }}
+            {/* кастомный ползунок */}
+            <div
+              ref={sliderRef}
+              onPointerDown={sliderDown}
+              onPointerMove={sliderMove}
+              className="relative h-9 w-full cursor-pointer"
+              style={{ touchAction: "none" }}
             >
-              Задать угол шарика {curBall + 1} →
-            </button>
+              <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full" style={{ background: "rgba(255,255,255,0.12)" }} />
+              <div className="absolute left-1/2 top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2" style={{ background: "rgba(255,255,255,0.3)" }} />
+              <div
+                className="absolute top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{
+                  left: `${((liveAngle + 1) / 2) * 100}%`,
+                  background: PLAYERS[turn].color,
+                  boxShadow: `0 0 12px ${PLAYERS[turn].color}`,
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setLiveAngle((a) => Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000))}
+                className="h-10 w-12 shrink-0 rounded-xl text-lg font-bold active:scale-95"
+                style={{ background: "rgba(255,255,255,0.08)" }}
+              >−</button>
+              <button
+                onClick={confirmAngle}
+                className="h-10 flex-1 rounded-xl text-sm font-bold active:scale-[0.98]"
+                style={{ background: PLAYERS[turn].color, color: "#05070f" }}
+              >
+                Готово · шарик {curBall + 1}/{CFG.BALLS_PER_PLAYER}
+              </button>
+              <button
+                onClick={() => setLiveAngle((a) => Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000))}
+                className="h-10 w-12 shrink-0 rounded-xl text-lg font-bold active:scale-95"
+                style={{ background: "rgba(255,255,255,0.08)" }}
+              >+</button>
+            </div>
+            <div className="text-center text-[10px] opacity-50">Тащите ползунок или прямо по полю · стрелка показывает наклон</div>
           </div>
         )}
 
         {phase === "actions" && (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             <div className="grid grid-cols-3 gap-2">
               {([
-                { m: "x2" as ActionMode, label: "×2 лунку", hint: "удвоить" },
-                { m: "half" as ActionMode, label: "÷2 лунку", hint: "вдвое" },
+                { m: "x2" as ActionMode, label: "×2", hint: "удвоить" },
+                { m: "half" as ActionMode, label: "÷2", hint: "вдвое" },
                 { m: "wall" as ActionMode, label: "Стенка", hint: "перекрыть" },
               ]).map((b) => {
                 const on = actionMode === b.m;
@@ -937,29 +942,29 @@ export const PlinkoPvpGame: React.FC = () => {
                     key={b.m}
                     disabled={actionsLeft <= 0}
                     onClick={() => setActionMode(on ? null : b.m)}
-                    className="flex flex-col items-center rounded-2xl py-2.5 text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
+                    className="flex h-12 flex-col items-center justify-center rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-40"
                     style={{
                       background: on ? PLAYERS[turn].color : "rgba(255,255,255,0.06)",
                       color: on ? "#05070f" : "#dbe6ff",
-                      boxShadow: on ? `0 0 14px ${PLAYERS[turn].color}` : "none",
+                      boxShadow: on ? `0 0 12px ${PLAYERS[turn].color}` : "none",
                     }}
                   >
-                    <span>{b.label}</span>
-                    <span className="text-[9px] font-medium opacity-70">{b.hint}</span>
+                    <span className="leading-none">{b.label}</span>
+                    <span className="mt-0.5 text-[9px] font-medium opacity-70 leading-none">{b.hint}</span>
                   </button>
                 );
               })}
             </div>
-            <div className="text-center text-[11px] font-medium opacity-60">
+            <div className="text-center text-[10px] font-medium opacity-60" style={{ minHeight: 14 }}>
               {actionMode === "wall"
-                ? "Нажмите на точку между пегами (ниже 3-го ряда)"
+                ? "Жмите точку между пегами (ниже 3-го ряда)"
                 : actionMode
-                ? "Нажмите на лунку внизу"
+                ? "Жмите по лунке внизу"
                 : "Выберите действие. Можно повторять одно и то же."}
             </div>
             <button
               onClick={finishActionTurn}
-              className="w-full rounded-2xl py-2.5 text-sm font-semibold opacity-80 active:scale-[0.98]"
+              className="h-9 w-full rounded-xl text-xs font-semibold opacity-80 active:scale-[0.98]"
               style={{ background: "rgba(255,255,255,0.08)" }}
             >
               Завершить ход досрочно
@@ -970,11 +975,8 @@ export const PlinkoPvpGame: React.FC = () => {
         {phase === "intro" && (
           <button
             onClick={startGame}
-            className="w-full rounded-2xl py-4 text-lg font-black active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(90deg,#22e0ff,#ff45d8)",
-              color: "#05070f",
-            }}
+            className="h-14 w-full rounded-2xl text-lg font-black active:scale-[0.98]"
+            style={{ background: "linear-gradient(90deg,#22e0ff,#ff45d8)", color: "#05070f" }}
           >
             Начать игру
           </button>
@@ -983,11 +985,15 @@ export const PlinkoPvpGame: React.FC = () => {
         {phase === "result" && (
           <button
             onClick={startGame}
-            className="w-full rounded-2xl py-4 text-lg font-black active:scale-[0.98]"
+            className="h-14 w-full rounded-2xl text-lg font-black active:scale-[0.98]"
             style={{ background: "linear-gradient(90deg,#22e0ff,#ff45d8)", color: "#05070f" }}
           >
             Играть снова
           </button>
+        )}
+
+        {(phase === "reveal" || phase === "handoff") && (
+          <div className="h-14 w-full" />
         )}
       </div>
 
@@ -995,87 +1001,65 @@ export const PlinkoPvpGame: React.FC = () => {
       {phase === "handoff" && (
         <div
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 px-8 text-center"
-          style={{ background: "rgba(4,6,15,0.94)", backdropFilter: "blur(6px)" }}
+          style={{ background: "rgba(4,6,15,0.95)", backdropFilter: "blur(6px)" }}
         >
-          <div
-            className="flex h-20 w-20 items-center justify-center rounded-full text-4xl"
-            style={{
-              background: PLAYERS[handoff.to].color,
-              boxShadow: `0 0 30px ${PLAYERS[handoff.to].color}`,
-            }}
-          >
-            {PLAYERS[handoff.to].emoji}
-          </div>
+          <div className="text-5xl">{PLAYERS[handoff.to].emoji}</div>
           <div>
-            <div className="text-sm uppercase tracking-widest opacity-60">
-              Передайте телефон
+            <div className="text-xl font-black" style={{ color: PLAYERS[handoff.to].color }}>
+              Передайте телефон: {PLAYERS[handoff.to].name}
             </div>
-            <div
-              className="mt-1 text-2xl font-black"
-              style={{ color: PLAYERS[handoff.to].color }}
-            >
-              {PLAYERS[handoff.to].name}
-            </div>
-            <div className="mt-3 text-sm opacity-75">{handoff.label}</div>
+            <div className="mt-2 text-sm opacity-70">{handoff.label}</div>
           </div>
           <button
             onClick={proceedHandoff}
-            className="rounded-2xl px-10 py-3.5 text-base font-bold active:scale-95"
+            className="rounded-2xl px-8 py-3.5 text-base font-bold active:scale-[0.98]"
             style={{ background: PLAYERS[handoff.to].color, color: "#05070f" }}
           >
-            Я готов
+            Я {PLAYERS[handoff.to].name}, продолжить
           </button>
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ: ИНТРО */}
+      {/* ОВЕРЛЕЙ: INTRO */}
       {phase === "intro" && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-8 text-center">
-          <div
-            className="text-4xl font-black tracking-tight"
-            style={{ textShadow: "0 0 24px rgba(34,224,255,0.5)" }}
-          >
-            PLINKO
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 px-8 text-center"
+          style={{ background: "rgba(4,6,15,0.6)" }}
+        >
+          <div className="text-3xl font-black tracking-tight" style={{ background: "linear-gradient(90deg,#22e0ff,#ff45d8)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
+            PLINKO · PvP
           </div>
-          <div
-            className="text-5xl font-black tracking-tight"
-            style={{
-              background: "linear-gradient(90deg,#22e0ff,#ff45d8)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            PvP
+          <div className="max-w-[300px] text-sm leading-relaxed opacity-75">
+            Двое на одном телефоне. Задайте углы трёх шариков, затем по очереди делайте
+            по 2 действия (×2 / ÷2 лунки или стенка), не подглядывая друг за другом.
+            На вскрытии всё складывается на общей доске — у кого больше очков, тот и выиграл.
           </div>
         </div>
       )}
 
       {/* ОВЕРЛЕЙ: РЕЗУЛЬТАТ */}
       {phase === "result" && (
-        <div className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-8 text-center">
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 px-8 text-center"
+          style={{ background: "rgba(4,6,15,0.78)", backdropFilter: "blur(4px)" }}
+        >
           {winner === -1 ? (
-            <div className="text-3xl font-black opacity-90">Ничья!</div>
+            <div className="text-2xl font-black">Ничья!</div>
           ) : (
             <>
-              <div className="text-sm uppercase tracking-widest opacity-60">Победитель</div>
-              <div
-                className="mt-1 text-4xl font-black"
-                style={{
-                  color: PLAYERS[winner].color,
-                  textShadow: `0 0 26px ${PLAYERS[winner].color}`,
-                }}
-              >
-                {PLAYERS[winner].emoji} {PLAYERS[winner].name}
-              </div>
-              <div className="mt-2 text-lg font-bold opacity-80">
-                {fmt(scores[winner])} : {fmt(scores[1 - winner])}
+              <div className="text-5xl">{PLAYERS[winner].emoji}</div>
+              <div className="text-2xl font-black" style={{ color: PLAYERS[winner].color }}>
+                Победил {PLAYERS[winner].name}
               </div>
             </>
           )}
+          <div className="flex items-center gap-6 text-lg font-bold">
+            <span style={{ color: PLAYERS[0].color }}>{fmt(scores[0])}</span>
+            <span className="opacity-40">:</span>
+            <span style={{ color: PLAYERS[1].color }}>{fmt(scores[1])}</span>
+          </div>
         </div>
       )}
     </div>
   );
-};
-
-export default PlinkoPvpGame;
+}
