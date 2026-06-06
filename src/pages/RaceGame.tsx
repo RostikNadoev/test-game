@@ -79,6 +79,8 @@ interface DriftRaceProps {
   onSnapshot?: (snap: NetSnapshot) => void;
   /** Показывать ли призрак собственного лучшего круга, когда соперника нет. */
   selfGhost?: boolean;
+  /** Сколько пикселей занято над игрой (шапка/тулбар). Высота = 100dvh - это. */
+  topOffset?: number;
 }
 
 /* ============================ НАСТРОЙКИ ================================= */
@@ -133,7 +135,6 @@ function seeded(seed: number) {
   let s = seed >>> 0;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296);
 }
-
 function noise(x: number, y: number) {
   const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return n - Math.floor(n);
@@ -770,7 +771,7 @@ function fmtTime(ms: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
 }
 
-export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapshot, selfGhost = true }, ref) => {
+export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapshot, selfGhost = true, topOffset = 120 }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
@@ -857,6 +858,27 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, [resize]);
+
+  /* ----- жёсткая блокировка скролла на время игры ----- */
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    // глушим прокрутку страницы, пока игра на экране
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'none';
+
+    // и любые touch-жесты прокрутки внутри самой игры
+    const block = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    wrap?.addEventListener('touchmove', block, { passive: false });
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
+      wrap?.removeEventListener('touchmove', block);
+    };
+  }, []);
 
   /* ----- клавиатура ----- */
   useEffect(() => {
@@ -985,18 +1007,28 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
         onSnapshot({ t: now, x: c.x, y: c.y, angle: c.angle, drift: c.driftPower, lap: c.lap });
       }
 
-      /* камера */
+      /* камера — плавная, без рывков.
+         Упреждение считаем по ВЕКТОРУ СКОРОСТИ, а не по углу носа:
+         в заносе нос мотает из стороны в сторону, и привязка к нему как раз
+         и давала дёрганье. Скорость же меняется непрерывно. */
       const c = car.current;
       const speed = Math.hypot(c.vx, c.vy);
       const cm = cam.current;
-      const look = clamp(speed * 0.55, 60, 280);
-      const dtCam = clamp(frameMs / 16.7, 0, 3);
-      cm.x = lerp(cm.x, c.x + Math.cos(c.angle) * look + c.vx * 0.18, 1 - Math.pow(0.88, dtCam));
-      cm.y = lerp(cm.y, c.y + Math.sin(c.angle) * look + c.vy * 0.18, 1 - Math.pow(0.88, dtCam));
-      cm.zoom = lerp(cm.zoom, 1.06 - clamp(speed / TUNE.maxSpeed, 0, 1) * 0.16, 0.05 * dtCam);
-      cm.shake = Math.max(0, cm.shake - 0.05 * dtCam);
-      cm.sx = (Math.random() - 0.5) * cm.shake * 16;
-      cm.sy = (Math.random() - 0.5) * cm.shake * 16;
+      const dtSec = Math.min(frameMs / 1000, 0.05);
+
+      const targetX = c.x + c.vx * 0.28;
+      const targetY = c.y + c.vy * 0.28;
+      // экспоненциальное сглаживание -> не зависит от FPS, постоянная времени ~170мс
+      const kPos = 1 - Math.exp(-dtSec / 0.17);
+      cm.x = lerp(cm.x, targetX, kPos);
+      cm.y = lerp(cm.y, targetY, kPos);
+
+      const targetZoom = 1.06 - clamp(speed / TUNE.maxSpeed, 0, 1) * 0.16;
+      cm.zoom = lerp(cm.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.4));
+
+      cm.shake = Math.max(0, cm.shake - dtSec * 3);
+      cm.sx = (Math.random() - 0.5) * cm.shake * 14;
+      cm.sy = (Math.random() - 0.5) * cm.shake * 14;
 
       /* отрисовка */
       const dt = frameMs / 1000;
@@ -1073,8 +1105,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, v.w, v.h);
 
-      // мини-карта
-      drawMini(ctx, center, c, v.h, ghostBuf.current);
+      // мини-карта (правый верхний угол, чтобы не пересекалась с кнопками)
+      drawMini(ctx, center, c, v.w, v.h, ghostBuf.current);
 
       // HUD-стейт ~раз в кадр (троттлим setState частотой через mod)
       setHud({
@@ -1117,8 +1149,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
   return (
     <div
       ref={wrapRef}
-      className="relative h-[calc(100vh-120px)] min-h-[480px] w-full select-none overflow-hidden bg-[#05070d] font-mono text-white"
-      style={{ touchAction: 'none' }}
+      className="relative min-h-[420px] w-full select-none overflow-hidden overscroll-none bg-[#05070d] font-mono text-white"
+      style={{ height: `calc(100dvh - ${topOffset}px)`, maxHeight: '100dvh', touchAction: 'none' }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
 
@@ -1160,18 +1192,18 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
       )}
 
       {/* мобильные кнопки */}
-      <div className="absolute bottom-6 left-4 flex gap-3">
+      <div className="absolute left-4 flex gap-3" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
         <button {...bind('left')} className="flex h-20 w-20 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-3xl font-black text-white/90 backdrop-blur-md active:bg-white/20">◄</button>
         <button {...bind('right')} className="flex h-20 w-20 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-3xl font-black text-white/90 backdrop-blur-md active:bg-white/20">►</button>
       </div>
-      <div className="absolute bottom-6 right-4 flex items-end gap-3">
+      <div className="absolute right-4 flex items-end gap-3" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
         <button {...bind('brake')} className="flex h-16 w-16 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-[11px] font-black uppercase text-white/80 backdrop-blur-md active:bg-white/20">Тормоз</button>
         <button {...bind('drift')} className="flex h-24 w-24 touch-none select-none items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/20 text-sm font-black uppercase text-amber-200 backdrop-blur-md active:bg-amber-400/40">Дрифт</button>
       </div>
 
       {/* подсказка */}
       {!stickActive && (
-        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/60 backdrop-blur-md">
+        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/60 backdrop-blur-md" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 7.5rem)' }}>
           Газ авто · руль ◄ ► или A/D · <span className="text-amber-300">Пробел = дрифт</span> · R = рестарт
         </div>
       )}
@@ -1179,13 +1211,13 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
   );
 });
 
-RaceGame.displayName = 'DriftRace';
+RaceGame.displayName = 'RaceGame';
 
 /* мини-карта */
-function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, height: number, ghost: GhostBuffer) {
-  const size = 128;
-  const x = 16;
-  const y = height - size - 16;
+function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, _height: number, ghost: GhostBuffer) {
+  const size = 120;
+  const x = width - size - 16;
+  const y = 14;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   center.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
   const pad = 14;
