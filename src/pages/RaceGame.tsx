@@ -303,7 +303,7 @@ function stepCar(car: CarState, input: InputState, center: CenterPt[], total: nu
     if (forward > 0) forward -= input.brake * TUNE.brakePower * STEP;
     else forward -= input.brake * TUNE.brakePower * 0.35 * STEP; // назад слабее
   }
-  forward = clamp(forward, -TUNE.reverseMax, TUNE.maxSpeed * surf.topMul);
+  forward = clamp(forward, 0, TUNE.maxSpeed * surf.topMul); // заднего хода нет
 
   // 4) трение
   forward -= forward * TUNE.rollResist * surf.roll * STEP;
@@ -795,7 +795,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
   const car = useRef<CarState>(makeCar());
   const input = useRef<InputState>({ throttle: 1, brake: 0, steer: 0, drift: false });
   const keys = useRef({ up: false, down: false, left: false, right: false, drift: false });
-  const touch = useRef({ left: false, right: false, drift: false, brake: false });
+  // единственный орган управления — плавающий стик (тач). ix/iy в [-1..1], power [0..1]
+  const stick = useRef({ active: false, id: -1, ix: 0, iy: 0, power: 0 });
+  const stickOrigin = useRef({ x: 0, y: 0 });
   const particles = useRef<Particle[]>([]);
   const skids = useRef<Skid[]>([]);
   const popups = useRef<Popup[]>([]);
@@ -819,7 +821,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
   const bestRec = useRef<typeof selfRec.current | null>(null);
 
   const [hud, setHud] = useState({ speed: 0, lap: 1, drift: 0, combo: 0, banked: 0, lapTime: 0, best: Infinity });
-  const [stickActive, setStickActive] = useState(false);
+  const [stickUi, setStickUi] = useState({ active: false, ox: 0, oy: 0, kx: 0, ky: 0 });
 
   const doReset = useCallback(() => {
     car.current = makeCar();
@@ -920,13 +922,35 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
       const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 50);
       lastT.current = now;
 
-      /* собираем ввод: газ автоматический (как в мобильных гонках),
-         плюс газ с клавиш; руль и ручник с клавиш или тач-кнопок */
+      /* ВВОД. Стик задаёт МИРОВОЕ направление «куда ехать».
+         - тянем туда, куда смотрит нос -> газ;
+         - вбок -> поворот (резко -> подскальзывание);
+         - против хода -> тормоз + разворот заносом (заднего хода нет). */
       const i = input.current;
-      i.throttle = keys.current.up || (!touch.current.brake && !keys.current.down) ? 1 : 0;
-      i.brake = keys.current.down || touch.current.brake ? 1 : 0;
-      i.steer = (keys.current.right || touch.current.right ? 1 : 0) - (keys.current.left || touch.current.left ? 1 : 0);
-      i.drift = keys.current.drift || touch.current.drift;
+      const st = stick.current;
+      if (st.active && st.power > 0.08) {
+        const stickAngle = Math.atan2(st.iy, st.ix);
+        const diff = angleDiff(stickAngle, car.current.angle);
+        const aim = Math.cos(diff);              // 1 = прямо по носу, -1 = строго назад
+        const back = clamp(-aim, 0, 1);
+        i.steer = clamp(diff / (Math.PI / 2), -1, 1) * clamp(st.power * 1.3, 0, 1);
+        if (back > 0.15) {
+          i.throttle = 0;
+          i.brake = clamp(0.35 + back * st.power * 0.65, 0, 1);
+          i.drift = true;
+          i.steer = Math.sign(diff || 1) * clamp(st.power, 0, 1);
+        } else {
+          i.throttle = clamp(st.power * (0.25 + Math.max(0, aim) * 0.85), 0, 1);
+          i.brake = 0;
+          i.drift = Math.abs(diff) > 1.0 && st.power > 0.5;
+        }
+      } else {
+        // десктоп-клавиатура
+        i.throttle = keys.current.up ? 1 : 0;
+        i.steer = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
+        i.brake = keys.current.down ? 1 : 0;
+        i.drift = keys.current.drift || keys.current.down;
+      }
 
       /* ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ */
       acc.current += frameMs / 1000;
@@ -1128,83 +1152,112 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
     };
   }, [center, total, decor, onSnapshot, selfGhost]);
 
-  /* тач-кнопки */
-  const bind = (key: keyof typeof touch.current) => ({
-    onPointerDown: (e: React.PointerEvent) => {
-      e.preventDefault();
-      touch.current[key] = true;
-      setStickActive(true);
-    },
-    onPointerUp: () => {
-      touch.current[key] = false;
-    },
-    onPointerLeave: () => {
-      touch.current[key] = false;
-    },
-    onPointerCancel: () => {
-      touch.current[key] = false;
-    },
-  });
+  /* плавающий джойстик: касание в любом месте поля создаёт центр стика,
+     перетаскивание задаёт направление и силу */
+  const STICK_R = 58;
+  const stickDown = (e: React.PointerEvent) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const r = wrap.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
+    stick.current = { active: true, id: e.pointerId, ix: 0, iy: 0, power: 0 };
+    stickOrigin.current = { x: px, y: py };
+    setStickUi({ active: true, ox: px, oy: py, kx: 0, ky: 0 });
+    if (wrap.setPointerCapture) wrap.setPointerCapture(e.pointerId);
+  };
+  const stickMove = (e: React.PointerEvent) => {
+    const s = stick.current;
+    if (!s.active || s.id !== e.pointerId) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const r = wrap.getBoundingClientRect();
+    const dx = e.clientX - r.left - stickOrigin.current.x;
+    const dy = e.clientY - r.top - stickOrigin.current.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const m = Math.min(d, STICK_R);
+    const kx = (dx / d) * m;
+    const ky = (dy / d) * m;
+    s.ix = kx / STICK_R;
+    s.iy = ky / STICK_R;
+    s.power = clamp(d / STICK_R, 0, 1);
+    setStickUi({ active: true, ox: stickOrigin.current.x, oy: stickOrigin.current.y, kx, ky });
+  };
+  const stickUp = (e: React.PointerEvent) => {
+    if (stick.current.id !== e.pointerId) return;
+    stick.current = { active: false, id: -1, ix: 0, iy: 0, power: 0 };
+    setStickUi((u) => ({ ...u, active: false }));
+  };
 
   return (
     <div
       ref={wrapRef}
       className="relative min-h-[420px] w-full select-none overflow-hidden overscroll-none bg-[#05070d] font-mono text-white"
       style={{ height: `calc(100dvh - ${topOffset}px)`, maxHeight: '100dvh', touchAction: 'none' }}
+      onPointerDown={stickDown}
+      onPointerMove={stickMove}
+      onPointerUp={stickUp}
+      onPointerCancel={stickUp}
+      onPointerLeave={stickUp}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
 
-      {/* верхний HUD */}
-      <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-stretch gap-2">
-        <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-2 text-center backdrop-blur-md">
-          <div className="text-[8px] font-black uppercase tracking-[0.3em] text-white/45">Круг</div>
-          <div className="text-2xl font-black leading-none text-amber-300 tabular-nums">{hud.lap}/{TOTAL_LAPS}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-2 text-center backdrop-blur-md">
-          <div className="text-[8px] font-black uppercase tracking-[0.3em] text-white/45">Время</div>
-          <div className="text-2xl font-black leading-none tabular-nums">{fmtTime(hud.lapTime)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-2 text-center backdrop-blur-md">
-          <div className="text-[8px] font-black uppercase tracking-[0.3em] text-white/45">Лучший</div>
-          <div className="text-xl font-black leading-none text-emerald-300 tabular-nums">{fmtTime(hud.best)}</div>
+      {/* компактная плашка: скорость · круг · время · очки */}
+      <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2">
+        <div className="flex items-center divide-x divide-white/10 overflow-hidden rounded-2xl border border-white/10 bg-black/45 shadow-xl backdrop-blur-md">
+          <div className="px-3 py-1.5 text-center">
+            <div className="text-lg font-black leading-none tabular-nums text-white">
+              {hud.speed}<span className="ml-0.5 align-top text-[8px] font-bold text-white/45">км/ч</span>
+            </div>
+          </div>
+          <div className="px-3 py-1.5 text-center">
+            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">круг</div>
+            <div className="text-sm font-black leading-none tabular-nums text-amber-300">{hud.lap}/{TOTAL_LAPS}</div>
+          </div>
+          <div className="px-3 py-1.5 text-center">
+            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">время</div>
+            <div className="text-sm font-black leading-none tabular-nums text-white">{fmtTime(hud.lapTime)}</div>
+          </div>
+          <div className="px-3 py-1.5 text-center">
+            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">очки</div>
+            <div className="text-sm font-black leading-none tabular-nums text-amber-200">{hud.banked}</div>
+          </div>
         </div>
       </div>
 
-      {/* спидометр */}
-      <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-white/10 bg-black/40 px-4 py-2 backdrop-blur-md">
-        <div className="flex items-end gap-1">
-          <div className="text-4xl font-black tabular-nums text-white">{hud.speed}</div>
-          <div className="mb-1 text-[10px] font-black uppercase tracking-widest text-white/45">км/ч</div>
-        </div>
-        <div className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-300/80">Дрифт-очки: {hud.banked}</div>
-      </div>
-
-      {/* комбо-заноса */}
+      {/* всплеск комбо-заноса (только во время заноса) */}
       {hud.combo > 30 && (
-        <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 text-center">
+        <div className="pointer-events-none absolute left-1/2 top-16 -translate-x-1/2 text-center">
           <div
-            className="text-3xl font-black uppercase tracking-tight text-amber-300 drop-shadow-[0_0_18px_rgba(251,191,36,0.6)]"
-            style={{ transform: `scale(${1 + Math.min(hud.drift, 1) * 0.25})` }}
+            className="text-2xl font-black uppercase tracking-tight text-amber-300 drop-shadow-[0_0_18px_rgba(251,191,36,0.65)]"
+            style={{ transform: `scale(${1 + Math.min(hud.drift, 1) * 0.22})` }}
           >
             ЗАНОС {hud.combo}
           </div>
         </div>
       )}
 
-      {/* мобильные кнопки */}
-      <div className="absolute left-4 flex gap-3" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
-        <button {...bind('left')} className="flex h-20 w-20 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-3xl font-black text-white/90 backdrop-blur-md active:bg-white/20">◄</button>
-        <button {...bind('right')} className="flex h-20 w-20 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-3xl font-black text-white/90 backdrop-blur-md active:bg-white/20">►</button>
-      </div>
-      <div className="absolute right-4 flex items-end gap-3" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
-        <button {...bind('brake')} className="flex h-16 w-16 touch-none select-none items-center justify-center rounded-2xl border border-white/15 bg-black/40 text-[11px] font-black uppercase text-white/80 backdrop-blur-md active:bg-white/20">Тормоз</button>
-        <button {...bind('drift')} className="flex h-24 w-24 touch-none select-none items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/20 text-sm font-black uppercase text-amber-200 backdrop-blur-md active:bg-amber-400/40">Дрифт</button>
-      </div>
+      {/* плавающий джойстик — появляется там, где коснулись */}
+      {stickUi.active && (
+        <div className="pointer-events-none absolute" style={{ left: stickUi.ox, top: stickUi.oy }}>
+          <div
+            className="absolute rounded-full border border-white/15 bg-white/5 backdrop-blur-sm"
+            style={{ width: STICK_R * 2, height: STICK_R * 2, left: -STICK_R, top: -STICK_R }}
+          />
+          <div
+            className="absolute rounded-full border-2 border-black/25 bg-gradient-to-br from-white via-gray-200 to-gray-400 shadow-2xl"
+            style={{ width: 56, height: 56, left: -28 + stickUi.kx, top: -28 + stickUi.ky }}
+          />
+        </div>
+      )}
 
       {/* подсказка */}
-      {!stickActive && (
-        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-2 text-center text-[11px] text-white/60 backdrop-blur-md" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 7.5rem)' }}>
-          Газ авто · руль ◄ ► или A/D · <span className="text-amber-300">Пробел = дрифт</span> · R = рестарт
+      {!stickUi.active && (
+        <div
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/45 px-4 py-2 text-center text-[11px] text-white/65 backdrop-blur-md"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)' }}
+        >
+          Зажми и тяни — машина едет за стиком · <span className="text-amber-300">назад = разворот</span>
         </div>
       )}
     </div>
@@ -1214,10 +1267,10 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsho
 RaceGame.displayName = 'RaceGame';
 
 /* мини-карта */
-function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, _height: number, ghost: GhostBuffer) {
-  const size = 120;
-  const x = width - size - 16;
-  const y = 14;
+function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, _width: number, height: number, ghost: GhostBuffer) {
+  const size = 96;
+  const x = 16;
+  const y = height - size - 16;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   center.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
   const pad = 14;
