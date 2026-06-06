@@ -44,6 +44,15 @@ const games: Game[] = [
     status: 'New',
   },
   {
+    id: 'paperio',
+    name: 'Paper IO',
+    icon: '🟩',
+    description: 'Захватывай территорию и режь след соперника',
+    color: 'from-[#54F2A8]/24 via-[#52FFE5]/12 to-transparent',
+    meta: 'Territory',
+    status: 'New',
+  },
+  {
     id: 'towerstack',
     name: 'Tower Stack',
     icon: '🧱',
@@ -190,6 +199,7 @@ const games: Game[] = [
 ];
 
 const LOCAL_PLAY_IDS = new Set([
+  'paperio',
   'towerstack',
   'crashduel',
   'virusmarket',
@@ -199,7 +209,14 @@ const LOCAL_PLAY_IDS = new Set([
   'neonmatrix',
 ]);
 
-const featuredIds = new Set(['plinko', 'towerstack', 'crashduel', 'virusmarket', 'neonmatrix']);
+const featuredIds = new Set([
+  'plinko',
+  'paperio',
+  'towerstack',
+  'crashduel',
+  'virusmarket',
+  'neonmatrix',
+]);
 
 export const Home = () => {
   const navigate = useNavigate();

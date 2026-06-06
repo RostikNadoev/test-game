@@ -24,12 +24,14 @@ import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
 import { TowerStackGame } from './pages/TowerStackGame';
-import PlinkoPvpGame  from './pages/PlinkoPvpGame';
+import { PaperIoGame } from './pages/PaperIoGame';
+import PlinkoPvpGame from './pages/PlinkoPvpGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
 const GAME_TITLES: Record<string, string> = {
   '/game/plinko/play': 'Plinko PvP',
+  '/game/paperio/play': 'Paper IO',
   '/game/hexfall/play': 'Hex Fall',
   '/game/rps/play': 'RPS Duel',
   '/game/tictactoe/play': 'Tic Tac Toe',
@@ -50,6 +52,7 @@ const GAME_TITLES: Record<string, string> = {
 
 const LOCKED_GAME_ROUTES = new Set([
   '/game/plinko/play',
+  '/game/paperio/play',
   '/game/hexfall/play',
   '/game/rps/play',
   '/game/tictactoe/play',
@@ -115,9 +118,6 @@ function AppShell() {
     tg?.setHeaderColor?.('#050610');
     tg?.setBackgroundColor?.('#050610');
 
-    // Важно:
-    // lockOrientation блокирует текущую ориентацию Mini App.
-    // Если приложение открыто вертикально, оно должно оставаться вертикальным.
     if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
       tg?.lockOrientation?.();
     }
@@ -167,6 +167,7 @@ function AppShell() {
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
             <Route path="/game/plinko/play" element={<PlinkoPvpGame />} />
+            <Route path="/game/paperio/play" element={<PaperIoGame />} />
             <Route path="/game/hexfall/play" element={<HexFallGame />} />
             <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
             <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
