@@ -770,7 +770,7 @@ function fmtTime(ms: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
 }
 
-export const DriftRace = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapshot, selfGhost = true }, ref) => {
+export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapshot, selfGhost = true }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const raf = useRef<number | null>(null);
@@ -1179,7 +1179,7 @@ export const DriftRace = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapsh
   );
 });
 
-DriftRace.displayName = 'DriftRace';
+RaceGame.displayName = 'DriftRace';
 
 /* мини-карта */
 function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, height: number, ghost: GhostBuffer) {
@@ -1239,4 +1239,4 @@ function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarSta
   ctx.restore();
 }
 
-export default DriftRace;
+export default RaceGame;
