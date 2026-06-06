@@ -38,6 +38,13 @@ const CFG = {
   LAUNCH_VY: 20,
   pegFric: 0.06,
   SUBSTEPS_PER_FRAME: 4,
+  // Telegram WebView часто проседает по FPS. Движение шарика теперь считается
+  // от реального времени, а не от количества кадров.
+  REVEAL_SPEED: 1.12,
+  MAX_DPR: 1.45,
+  TRAIL_MAX: 8,
+  MAX_PARTICLES: 90,
+  MAX_POPS: 18,
   VALUES: [9, 6, 3.5, 2, 1.2, 1.1, 1.8, 3.2, 5.5, 8.5] as number[],
   WIND_MAX: 0.16,
   WALL_MIN_ROW: 3,
@@ -310,6 +317,12 @@ type Pop = { x: number; y: number; life: number; max: number; color: string; rad
 export default function PlinkoPvpGame() {
   const board = useMemo(() => buildBoard(), []);
 
+  const gapByKey = useMemo(() => {
+    const map = new Map<string, Gap>();
+    for (const g of board.gaps) map.set(`${g.row}:${g.idx}`, g);
+    return map;
+  }, [board.gaps]);
+
   const [matchValues, setMatchValues] = useState<number[]>(() => makeMatchValues());
   const [matchWind, setMatchWind] = useState(0);
 
@@ -345,12 +358,14 @@ export default function PlinkoPvpGame() {
   const allWallSegs = useMemo<Seg[]>(() => {
     const keys = new Set<string>([...walls[0], ...walls[1]]);
     const segs: Seg[] = [];
+
     keys.forEach((k) => {
-      const g = board.gaps.find((gg) => `${gg.row}:${gg.idx}` === k);
+      const g = gapByKey.get(k);
       if (g) segs.push({ ax: g.ax, ay: g.ay, bx: g.bx, by: g.by });
     });
+
     return segs;
-  }, [walls, board.gaps]);
+  }, [walls, gapByKey]);
 
   const revealOrder = useMemo(() => {
     const order: { player: number; ball: number }[] = [];
@@ -401,6 +416,7 @@ export default function PlinkoPvpGame() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const tf = useRef({ scale: 1, offX: 0, offY: 0, dpr: 1 });
   const raf = useRef(0);
+  const lastFrameTs = useRef(0);
   const particles = useRef<Particle[]>([]);
   const pops = useRef<Pop[]>([]);
   const screenShake = useRef(0);
@@ -424,10 +440,13 @@ export default function PlinkoPvpGame() {
   const resize = useCallback(() => {
     const cv = canvasRef.current, wrap = wrapRef.current;
     if (!cv || !wrap) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, CFG.MAX_DPR);
     const w = wrap.clientWidth, h = wrap.clientHeight;
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(h * dpr);
+    const nextW = Math.round(w * dpr);
+    const nextH = Math.round(h * dpr);
+
+    if (cv.width !== nextW) cv.width = nextW;
+    if (cv.height !== nextH) cv.height = nextH;
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
     let scale = cv.width / CFG.VW;
@@ -473,12 +492,11 @@ export default function PlinkoPvpGame() {
       ctx.lineTo(rx - r, bot);
       ctx.quadraticCurveTo(rx, bot, rx, bot - r);
       ctx.lineTo(rx, top);
-      const grad = ctx.createLinearGradient(0, top, 0, bot);
-      grad.addColorStop(0, "rgba(255,255,255,0.04)");
-      grad.addColorStop(1, col + "88");
-      ctx.fillStyle = grad;
+      // Без createLinearGradient на каждом стакане/кадре — это заметно легче
+      // для Telegram WebView, особенно на Android.
+      ctx.fillStyle = showValues ? col + "22" : "rgba(255,255,255,0.035)";
       ctx.fill();
-      ctx.lineWidth = S(1.5);
+      ctx.lineWidth = S(1.35);
       ctx.strokeStyle = col + "ee";
       ctx.stroke();
 
@@ -507,7 +525,11 @@ export default function PlinkoPvpGame() {
 
     const factorOf = (viewer: number, i: number) => view.current.factors[viewer][i];
 
-    const loop = () => {
+    const loop = (ts: number) => {
+      const deltaMs = lastFrameTs.current ? Math.min(50, ts - lastFrameTs.current) : 16.67;
+      lastFrameTs.current = ts;
+      const frameScale = deltaMs / 16.67;
+
       const v = view.current;
       const isReveal = v.phase === "reveal" || v.phase === "result";
       const viewer = v.turn;
@@ -527,7 +549,7 @@ export default function PlinkoPvpGame() {
       if (screenShake.current > 0) {
         const sh = S(screenShake.current);
         ctx.translate((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
-        screenShake.current = Math.max(0, screenShake.current * 0.86 - 0.05);
+        screenShake.current = Math.max(0, screenShake.current * Math.pow(0.86, frameScale) - 0.05 * frameScale);
       }
 
       // рамка поля
@@ -559,7 +581,7 @@ export default function PlinkoPvpGame() {
         ? new Set<string>([...v.walls[0], ...v.walls[1]])
         : new Set<string>(v.walls[viewer]);
       wallKeys.forEach((k) => {
-        const g = board.gaps.find((gg) => `${gg.row}:${gg.idx}` === k);
+        const g = gapByKey.get(k);
         if (!g) return;
         ctx.beginPath();
         ctx.moveTo(X(g.ax), Y(g.ay));
@@ -632,10 +654,14 @@ export default function PlinkoPvpGame() {
       const pb = playback.current;
       if (v.phase === "reveal") {
         if (pb.pausing > 0) {
-          pb.pausing--;
+          pb.pausing = Math.max(0, pb.pausing - frameScale);
         } else if (!pb.done && pb.path.length) {
           const activeData = revealData.current[v.revealIdx];
-          pb.i = Math.min(pb.i + CFG.SUBSTEPS_PER_FRAME, pb.path.length - 1);
+          const advance = Math.max(
+            1,
+            Math.round(CFG.SUBSTEPS_PER_FRAME * frameScale * CFG.REVEAL_SPEED)
+          );
+          pb.i = Math.min(pb.i + advance, pb.path.length - 1);
 
           const stuckRested = Boolean(activeData?.stuck && isStuckPathResting(pb.path, pb.i));
           const reachedEnd = pb.i >= pb.path.length - 1;
@@ -667,7 +693,7 @@ export default function PlinkoPvpGame() {
       if (v.phase === "reveal" && !pb.done && pb.path.length && pb.pausing <= 0) {
         const [bx, by] = pb.path[pb.i];
         pb.trail.push([bx, by]);
-        if (pb.trail.length > 12) pb.trail.shift();
+        if (pb.trail.length > CFG.TRAIL_MAX) pb.trail.shift();
         for (let i = 0; i < pb.trail.length; i++) {
           const [tx, ty] = pb.trail[i];
           ctx.beginPath();
@@ -690,9 +716,10 @@ export default function PlinkoPvpGame() {
       const ps = particles.current;
       for (let i = ps.length - 1; i >= 0; i--) {
         const p = ps[i];
-        p.life--;
-        p.vy += 0.25;
-        p.x += p.vx; p.y += p.vy;
+        p.life -= frameScale;
+        p.vy += 0.25 * frameScale;
+        p.x += p.vx * frameScale;
+        p.y += p.vy * frameScale;
         if (p.life <= 0) { ps.splice(i, 1); continue; }
         ctx.beginPath();
         ctx.arc(X(p.x), Y(p.y), S(p.r), 0, Math.PI * 2);
@@ -706,7 +733,7 @@ export default function PlinkoPvpGame() {
       const pp = pops.current;
       for (let i = pp.length - 1; i >= 0; i--) {
         const o = pp[i];
-        o.life--;
+        o.life -= frameScale;
         if (o.life <= 0) { pp.splice(i, 1); continue; }
         const k = 1 - o.life / o.max;
         ctx.beginPath();
@@ -723,10 +750,21 @@ export default function PlinkoPvpGame() {
       raf.current = requestAnimationFrame(loop);
     };
 
+    lastFrameTs.current = 0;
     raf.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board]);
+  }, [board, gapByKey]);
+
+  const trimFx = () => {
+    if (particles.current.length > CFG.MAX_PARTICLES) {
+      particles.current.splice(0, particles.current.length - CFG.MAX_PARTICLES);
+    }
+
+    if (pops.current.length > CFG.MAX_POPS) {
+      pops.current.splice(0, pops.current.length - CFG.MAX_POPS);
+    }
+  };
 
   const spawnLanding = (x: number, y: number, color: string, value: number, stuck: boolean) => {
     if (stuck) {
@@ -753,6 +791,7 @@ export default function PlinkoPvpGame() {
         width: 2,
       });
 
+      trimFx();
       return;
     }
 
@@ -764,7 +803,7 @@ export default function PlinkoPvpGame() {
 
     const tcol = tierColor(value);
     const power = Math.max(1, Math.min(10, value));
-    const n = Math.round(14 + power * 8);
+    const n = Math.round(8 + power * 4);
 
     if (value >= 5) hapticImpact("heavy");
     else if (value >= 2) hapticImpact("medium");
@@ -816,6 +855,8 @@ export default function PlinkoPvpGame() {
         });
       }
     }
+
+    trimFx();
   };
 
   /* ----------------------------- ТАЙМЕР ХОДА ------------------------------ */
@@ -1116,7 +1157,7 @@ export default function PlinkoPvpGame() {
           onPointerDown={onCanvasPointer}
           onPointerMove={(e) => { if (phase === "angles" && e.buttons === 1) onCanvasPointer(e); }}
           className="absolute inset-0 h-full w-full"
-          style={{ touchAction: "none" }}
+          style={{ touchAction: "none", transform: "translateZ(0)" }}
         />
         {lastGain && (
           <div
