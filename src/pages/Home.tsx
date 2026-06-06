@@ -53,15 +53,6 @@ const games: Game[] = [
     status: 'New',
   },
   {
-    id: 'towerstack',
-    name: 'Tower Stack',
-    icon: '🧱',
-    description: 'Строй башню выше соперника',
-    color: 'from-[#9D7CFF]/26 via-[#52FFE5]/12 to-transparent',
-    meta: 'Stack',
-    status: 'New',
-  },
-  {
     id: 'crashduel',
     name: 'Crash Duel',
     icon: '🚀',
@@ -139,24 +130,6 @@ const games: Game[] = [
     status: 'Top',
   },
   {
-    id: 'slingclash',
-    name: 'Sling Clash',
-    icon: '🪵',
-    description: 'Рогатка через стену',
-    color: 'from-[#F2C766]/22 via-white/[0.04] to-transparent',
-    meta: 'Physics',
-    status: 'Local',
-  },
-  {
-    id: 'icebump',
-    name: 'Ice Bump',
-    icon: '🐧',
-    description: 'Пингвины на льду',
-    color: 'from-[#52FFE5]/20 via-white/[0.04] to-transparent',
-    meta: 'Party',
-    status: 'Local',
-  },
-  {
     id: 'archer',
     name: 'Neon Duel',
     icon: '🏹',
@@ -181,14 +154,6 @@ const games: Game[] = [
     meta: 'Arcade',
   },
   {
-    id: 'pingpong',
-    name: 'Golf',
-    icon: '🏓',
-    description: 'Мини-гольф',
-    color: 'from-[#F2C766]/22 via-white/[0.04] to-transparent',
-    meta: 'Classic',
-  },
-  {
     id: 'darts',
     name: 'Darts',
     icon: '🎯',
@@ -200,11 +165,8 @@ const games: Game[] = [
 
 const LOCAL_PLAY_IDS = new Set([
   'paperio',
-  'towerstack',
   'crashduel',
   'virusmarket',
-  'slingclash',
-  'icebump',
   'diceduel',
   'neonmatrix',
 ]);
@@ -212,7 +174,6 @@ const LOCAL_PLAY_IDS = new Set([
 const featuredIds = new Set([
   'plinko',
   'paperio',
-  'towerstack',
   'crashduel',
   'virusmarket',
   'neonmatrix',

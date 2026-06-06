@@ -11,19 +11,15 @@ import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { ArcherGame } from './pages/ArcherGame';
-import MiniGolfBeautiful from './pages/MiniGolfGame';
 import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
 import { GridLockGame } from './pages/GridLockGame';
 import { TicTacToeDuelGame } from './pages/TicTacToeDuelGame';
 import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
 import { HexFallGame } from './pages/HexFallGame';
-import { SlingClashGame } from './pages/SlingClashGame';
-import { IceBumpGame } from './pages/IceBumpGame';
 import { DiceDuelGame } from './pages/DiceDuelGame';
 import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
-import { TowerStackGame } from './pages/TowerStackGame';
 import { PaperIoGame } from './pages/PaperIoGame';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
 
@@ -39,15 +35,11 @@ const GAME_TITLES: Record<string, string> = {
   '/game/blackjack/play': 'Blackjack Duel',
   '/game/diceduel/play': 'Dice Duel',
   '/game/neonmatrix/play': 'Neon Matrix',
-  '/game/slingclash/play': 'Sling Clash',
-  '/game/icebump/play': 'Ice Bump',
   '/game/virusmarket/play': 'Virus Market',
   '/game/crashduel/play': 'Crash Duel',
-  '/game/towerstack/play': 'Tower Stack',
   '/game/race/play': 'Street Race',
   '/game/airhockey/play': 'Air Hockey',
   '/game/archer/play': 'Neon Duel',
-  '/game/pingpong/play': 'Golf',
 };
 
 const LOCKED_GAME_ROUTES = new Set([
@@ -60,11 +52,8 @@ const LOCKED_GAME_ROUTES = new Set([
   '/game/blackjack/play',
   '/game/diceduel/play',
   '/game/neonmatrix/play',
-  '/game/slingclash/play',
-  '/game/icebump/play',
   '/game/virusmarket/play',
   '/game/crashduel/play',
-  '/game/towerstack/play',
 ]);
 
 type TelegramWebApp = {
@@ -175,15 +164,11 @@ function AppShell() {
             <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
             <Route path="/game/diceduel/play" element={<DiceDuelGame />} />
             <Route path="/game/neonmatrix/play" element={<NeonMatrixGame />} />
-            <Route path="/game/slingclash/play" element={<SlingClashGame />} />
-            <Route path="/game/icebump/play" element={<IceBumpGame />} />
             <Route path="/game/virusmarket/play" element={<VirusMarketGame />} />
             <Route path="/game/crashduel/play" element={<CrashDuelGame />} />
-            <Route path="/game/towerstack/play" element={<TowerStackGame />} />
             <Route path="/game/race/play" element={<RaceGame />} />
             <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
             <Route path="/game/archer/play" element={<ArcherGame />} />
-            <Route path="/game/pingpong/play" element={<MiniGolfBeautiful />} />
 
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
