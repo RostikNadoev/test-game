@@ -61,6 +61,7 @@ interface Game {
   last: number;
   flash: number; // вспышка при убийстве
   startedAt: number; // когда стартовал матч (performance.now)
+  worldDirty: boolean; // нужно пересобрать офскрин-буфер поля
 }
 
 const idx = (x: number, y: number) => y * GRID + x;
@@ -107,6 +108,7 @@ function seedTerritory(g: Game, p: Player, cx: number, cy: number, r = 1) {
   for (let yy = cy - r; yy <= cy + r; yy++)
     for (let xx = cx - r; xx <= cx + r; xx++)
       if (inBounds(xx, yy)) g.terr[idx(xx, yy)] = p.id;
+  g.worldDirty = true;
 }
 
 function createGame(): Game {
@@ -150,6 +152,7 @@ function createGame(): Game {
     last: 0,
     flash: 0,
     startedAt: 0,
+    worldDirty: true,
   };
   seedTerritory(g, p1, p1.x, p1.y, 1);
   seedTerritory(g, p2, p2.x, p2.y, 1);
@@ -167,6 +170,7 @@ function kill(g: Game, p: Player) {
   p.trailCells = [];
   for (let i = 0; i < N; i++) if (g.terr[i] === p.id) g.terr[i] = 0;
   g.flash = 1;
+  g.worldDirty = true;
   // никто не «проигрывает» — все возрождаются с нуля в пустом месте
   p.respawnAt = performance.now() + RESPAWN_MS;
 }
@@ -251,6 +255,7 @@ function capture(g: Game, p: Player) {
       g.terr[i] = p.id;
     }
   }
+  g.worldDirty = true;
 }
 
 function move(g: Game, p: Player) {
@@ -346,6 +351,102 @@ function tick(g: Game) {
   for (const p of g.players) if (!p.alive && now >= p.respawnAt) respawn(g, p);
   for (const p of g.players) if (p.alive && p.isBot) thinkBot(g, p);
   for (const p of g.players) if (p.alive) move(g, p);
+
+  // лоб в лоб: если две головы в одной клетке или прошли друг сквозь друга — обе гибнут
+  const [a, b] = g.players;
+  if (a.alive && b.alive) {
+    const sameCell = a.x === b.x && a.y === b.y;
+    const swapped = a.x === b.px && a.y === b.py && b.x === a.px && b.y === a.py;
+    if (sameCell || swapped) {
+      kill(g, a);
+      kill(g, b);
+    }
+  }
+}
+
+/* ---------- офскрин-буфер поля: пересобирается только при изменении ---------- */
+function buildWorld(g: Game, store: { canvas: HTMLCanvasElement | null; cs: number }, cs: number) {
+  let wc = store.canvas;
+  if (!wc) {
+    wc = document.createElement("canvas");
+    store.canvas = wc;
+  }
+  const size = GRID * cs;
+  if (wc.width !== size) {
+    wc.width = size;
+    wc.height = size;
+  }
+  const c = wc.getContext("2d")!;
+  c.clearRect(0, 0, size, size);
+
+  // сетка
+  c.strokeStyle = COLORS.grid;
+  c.lineWidth = 1;
+  c.beginPath();
+  for (let i = 0; i <= GRID; i++) {
+    const v = Math.round(i * cs) + 0.5;
+    c.moveTo(v, 0);
+    c.lineTo(v, size);
+    c.moveTo(0, v);
+    c.lineTo(size, v);
+  }
+  c.stroke();
+
+  // заливка территорий
+  for (let y = 0; y < GRID; y++) {
+    for (let x = 0; x < GRID; x++) {
+      const o = g.terr[idx(x, y)];
+      if (!o) continue;
+      c.fillStyle = g.players[o - 1].fill;
+      c.fillRect(x * cs, y * cs, cs + 1, cs + 1);
+    }
+  }
+
+  // обводка территорий со свечением
+  c.lineWidth = Math.max(2, cs * 0.1);
+  c.lineCap = "round";
+  for (const p of g.players) {
+    c.strokeStyle = p.edge;
+    c.shadowColor = p.edge;
+    c.shadowBlur = cs * 0.45;
+    c.beginPath();
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID; x++) {
+        if (g.terr[idx(x, y)] !== p.id) continue;
+        const X = x * cs;
+        const Y = y * cs;
+        if (y === 0 || g.terr[idx(x, y - 1)] !== p.id) {
+          c.moveTo(X, Y);
+          c.lineTo(X + cs, Y);
+        }
+        if (y === GRID - 1 || g.terr[idx(x, y + 1)] !== p.id) {
+          c.moveTo(X, Y + cs);
+          c.lineTo(X + cs, Y + cs);
+        }
+        if (x === 0 || g.terr[idx(x - 1, y)] !== p.id) {
+          c.moveTo(X, Y);
+          c.lineTo(X, Y + cs);
+        }
+        if (x === GRID - 1 || g.terr[idx(x + 1, y)] !== p.id) {
+          c.moveTo(X + cs, Y);
+          c.lineTo(X + cs, Y + cs);
+        }
+      }
+    }
+    c.stroke();
+  }
+  c.shadowBlur = 0;
+
+  // стены мира
+  c.strokeStyle = "rgba(255,255,255,0.22)";
+  c.lineWidth = Math.max(3, cs * 0.16);
+  c.shadowColor = "rgba(120,180,255,0.4)";
+  c.shadowBlur = cs * 0.6;
+  c.strokeRect(c.lineWidth / 2, c.lineWidth / 2, size - c.lineWidth, size - c.lineWidth);
+  c.shadowBlur = 0;
+
+  store.cs = cs;
+  g.worldDirty = false;
 }
 
 /* ============================== COMPONENT ============================== */
@@ -410,7 +511,7 @@ export const PaperIoGame = () => {
       const cv = canvasRef.current;
       if (!el || !cv) return;
       const r = el.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       cv.width = Math.round(r.width * dpr);
       cv.height = Math.round(r.height * dpr);
       cv.style.width = r.width + "px";
@@ -434,6 +535,13 @@ export const PaperIoGame = () => {
   }, []);
 
   /* ----------------------------- RENDER ----------------------------- */
+  const worldRef = useRef<{ canvas: HTMLCanvasElement | null; cs: number }>({ canvas: null, cs: 0 });
+  const vignetteRef = useRef<{ grad: CanvasGradient | null; w: number; h: number }>({
+    grad: null,
+    w: 0,
+    h: 0,
+  });
+
   const render = useCallback((progress: number) => {
     const cv = canvasRef.current;
     if (!cv) return;
@@ -443,147 +551,114 @@ export const PaperIoGame = () => {
     const { dpr, cell } = sizeRef.current;
     const W = cv.width;
     const H = cv.height;
-    const cs = cell * dpr; // размер клетки в device px
+    const cs = Math.round(cell * dpr); // device px на клетку (целое — чётче и стабильнее)
     const time = performance.now();
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const t = g.running ? progress : 1;
 
-    ctx.clearRect(0, 0, W, H);
+    // фон
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, W, H);
 
-    // камера следует за игроком (интерполировано)
+    // камера по игроку (device-пространство)
     const me = g.players[0];
-    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-    const t = g.running ? progress : 1;
     const ix = lerp(me.px, me.x, t);
     const iy = lerp(me.py, me.y, t);
-    const camX = ix - W / dpr / 2 / cell;
-    const camY = iy - H / dpr / 2 / cell;
+    const offX = W / 2 - ix * cs;
+    const offY = H / 2 - iy * cs;
+    const SX = (c: number) => c * cs + offX;
+    const SY = (c: number) => c * cs + offY;
 
-    const sx = (cx: number) => (cx - camX) * cs;
-    const sy = (cy: number) => (cy - camY) * cs;
-
-    // видимый диапазон клеток
-    const x0 = Math.max(0, Math.floor(camX) - 1);
-    const y0 = Math.max(0, Math.floor(camY) - 1);
-    const x1 = Math.min(GRID - 1, Math.ceil(camX + W / cs) + 1);
-    const y1 = Math.min(GRID - 1, Math.ceil(camY + H / cs) + 1);
-
-    // фон вне поля
-    ctx.fillStyle = "rgba(255,255,255,0.015)";
-    // сетка
-    ctx.strokeStyle = COLORS.grid;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = x0; x <= x1 + 1; x++) {
-      const X = Math.round(sx(x)) + 0.5;
-      ctx.moveTo(X, sy(y0));
-      ctx.lineTo(X, sy(y1 + 1));
+    // поле из офскрина (пересборка только если изменилось/сменился масштаб)
+    if (g.worldDirty || worldRef.current.cs !== cs || !worldRef.current.canvas) {
+      buildWorld(g, worldRef.current, cs);
     }
-    for (let y = y0; y <= y1 + 1; y++) {
-      const Y = Math.round(sy(y)) + 0.5;
-      ctx.moveTo(sx(x0), Y);
-      ctx.lineTo(sx(x1 + 1), Y);
-    }
-    ctx.stroke();
+    const wc = worldRef.current.canvas!;
+    ctx.drawImage(wc, offX, offY);
 
-    // территории (заливка)
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const o = g.terr[idx(x, y)];
-        if (!o) continue;
-        const p = g.players[o - 1];
-        ctx.fillStyle = p.fill;
-        ctx.fillRect(sx(x), sy(y), cs + 1, cs + 1);
-      }
-    }
-    // обводка границ территории
-    ctx.lineWidth = Math.max(2, cs * 0.09);
-    for (const p of g.players) {
-      ctx.strokeStyle = p.edge;
-      ctx.beginPath();
-      for (let y = y0; y <= y1; y++) {
-        for (let x = x0; x <= x1; x++) {
-          if (g.terr[idx(x, y)] !== p.id) continue;
-          const X = sx(x);
-          const Y = sy(y);
-          if (y === 0 || g.terr[idx(x, y - 1)] !== p.id) {
-            ctx.moveTo(X, Y);
-            ctx.lineTo(X + cs, Y);
-          }
-          if (y === GRID - 1 || g.terr[idx(x, y + 1)] !== p.id) {
-            ctx.moveTo(X, Y + cs);
-            ctx.lineTo(X + cs, Y + cs);
-          }
-          if (x === 0 || g.terr[idx(x - 1, y)] !== p.id) {
-            ctx.moveTo(X, Y);
-            ctx.lineTo(X, Y + cs);
-          }
-          if (x === GRID - 1 || g.terr[idx(x + 1, y)] !== p.id) {
-            ctx.moveTo(X + cs, Y);
-            ctx.lineTo(X + cs, Y + cs);
-          }
-        }
-      }
-      ctx.stroke();
-    }
-
-    // следы (с лёгким свечением)
+    // следы (плоские, без тяжёлого blur). Пропускаем клетку под головой — иначе
+    // квадрат «выскакивает» вперёд, пока голова до неё доезжает.
+    const pad = Math.max(1, cs * 0.16);
     for (const p of g.players) {
       if (p.trailCells.length === 0) continue;
+      const headCell = idx(p.x, p.y);
       ctx.fillStyle = p.trail;
-      ctx.shadowColor = p.edge;
-      ctx.shadowBlur = cs * 0.5;
-      const pad = cs * 0.16;
       for (const ci of p.trailCells) {
+        if (ci === headCell) continue;
         const x = ci % GRID;
         const y = (ci / GRID) | 0;
-        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-        ctx.fillRect(sx(x) + pad, sy(y) + pad, cs - pad * 2, cs - pad * 2);
+        ctx.fillRect(SX(x) + pad, SY(y) + pad, cs - pad * 2, cs - pad * 2);
       }
-      ctx.shadowBlur = 0;
     }
 
-    // границы мира (стены)
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.lineWidth = Math.max(3, cs * 0.14);
-    ctx.strokeRect(sx(0), sy(0), GRID * cs, GRID * cs);
-
-    // головы
+    // головы — радиальный градиент + свечение + глазки
     for (const p of g.players) {
       if (!p.alive) continue;
       const hx = lerp(p.px, p.x, t);
       const hy = lerp(p.py, p.y, t);
-      const X = sx(hx);
-      const Y = sy(hy);
-      const pulse = 1 + Math.sin(time / 220) * 0.06;
-      const size = cs * 0.92 * pulse;
+      const X = SX(hx);
+      const Y = SY(hy);
+      const pulse = 1 + Math.sin(time / 260) * 0.04;
+      const size = cs * 0.9 * pulse;
       const off = (cs - size) / 2;
+      const cxp = X + cs / 2;
+      const cyp = Y + cs / 2;
+
       ctx.shadowColor = p.head;
-      ctx.shadowBlur = cs * 0.8;
-      ctx.fillStyle = p.head;
-      const rr = size * 0.32;
-      roundRect(ctx, X + off, Y + off, size, size, rr);
+      ctx.shadowBlur = cs * 0.7;
+      const grad = ctx.createRadialGradient(
+        cxp - size * 0.18,
+        cyp - size * 0.22,
+        size * 0.1,
+        cxp,
+        cyp,
+        size * 0.7
+      );
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.35, p.head);
+      grad.addColorStop(1, p.edge);
+      ctx.fillStyle = grad;
+      roundRect(ctx, X + off, Y + off, size, size, size * 0.34);
       ctx.fill();
       ctx.shadowBlur = 0;
+
+      // тонкое кольцо
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = Math.max(1, cs * 0.04);
+      roundRect(ctx, X + off, Y + off, size, size, size * 0.34);
+      ctx.stroke();
+
       // глазки в сторону движения
-      ctx.fillStyle = "rgba(5,6,16,0.9)";
+      ctx.fillStyle = "rgba(5,6,16,0.92)";
       const ex = DX[p.dir] * size * 0.16;
       const ey = DY[p.dir] * size * 0.16;
       const eo = size * 0.2;
       const er = size * 0.1;
       const perpX = DY[p.dir];
       const perpY = -DX[p.dir];
-      const cxp = X + cs / 2 + ex;
-      const cyp = Y + cs / 2 + ey;
-      dot(ctx, cxp + perpX * eo, cyp + perpY * eo, er);
-      dot(ctx, cxp - perpX * eo, cyp - perpY * eo, er);
+      dot(ctx, cxp + ex + perpX * eo, cyp + ey + perpY * eo, er);
+      dot(ctx, cxp + ex - perpX * eo, cyp + ey - perpY * eo, er);
     }
 
-    // лёгкая виньетка
+    // виньетка (кэшируем градиент по размеру)
+    const vg = vignetteRef.current;
+    if (!vg.grad || vg.w !== W || vg.h !== H) {
+      const r = Math.hypot(W, H) / 2;
+      const grad = ctx.createRadialGradient(W / 2, H / 2, r * 0.55, W / 2, H / 2, r);
+      grad.addColorStop(0, "rgba(0,0,0,0)");
+      grad.addColorStop(1, "rgba(0,0,0,0.45)");
+      vg.grad = grad;
+      vg.w = W;
+      vg.h = H;
+    }
+    ctx.fillStyle = vg.grad!;
+    ctx.fillRect(0, 0, W, H);
+
+    // вспышка при убийстве
     if (g.flash > 0.01) {
-      ctx.fillStyle = `rgba(255,255,255,${g.flash * 0.18})`;
+      ctx.fillStyle = `rgba(255,255,255,${g.flash * 0.16})`;
       ctx.fillRect(0, 0, W, H);
-      g.flash *= 0.86;
+      g.flash *= 0.85;
     }
   }, []);
 
