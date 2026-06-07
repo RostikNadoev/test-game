@@ -46,10 +46,10 @@ const SOLVER_ITERS = 6; // collision solver iterations per substep
 
 const GRAVITY = 2100; // px/s^2
 const AIR_DRAG = 0.018; // linear air damping (per second)
-const ANG_AIR_DRAG = 0.22; // angular air damping (lower = spin/tumble persists much longer)
-const ROLL_RES = 0.16; // extra ground damping while in contact (very low = long arcade rolling)
-const RESTITUTION = 0.18; // bounciness; soft arcade impacts without pinball chaos
-const FRICTION = 0.26; // contact friction coefficient; lower = longer rolling/sliding
+const ANG_AIR_DRAG = 0.2; // angular air damping (low = spin/tumble persists, but not chaotic)
+const ROLL_RES = 0.12; // very light rolling resistance; cube keeps rolling arcade-like
+const RESTITUTION = 0.12; // softer landings; less harsh bounce backward on good hits
+const FRICTION = 0.34; // a bit more grip so clean landings are friendlier
 
 /* --- Drag-to-launch (slingshot) tuning --- */
 const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
@@ -77,7 +77,7 @@ const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6); // square plate inertia about
 
 const DPR_CAP = 1.5;
 
-const LEVEL = 23; // vertical height of one staircase "level"; smaller = no deep pits / gentler drops
+const LEVEL = 21; // vertical height of one staircase "level"; gentler climb, no deep pits
 const PX_PER_M = 42; // world px per displayed "meter"
 const WORLD_LEN = 9000; // generate staircase until this world x is covered
 
@@ -85,6 +85,14 @@ const CAM_LERP = 6.5; // camera smoothing (higher = snappier)
 const PARALLAX = 0.1; // background parallax factor
 
 const MAX_PARTICLES = 150;
+
+// Friendly landing assist: only when the cube lands mostly on top/inside a step,
+// not on risky edges. This keeps the "can roll back" drama, but makes clean
+// landings feel fair instead of instantly sliding away.
+const LANDING_EDGE_PAD = CUBE * 0.14;
+const LANDING_ASSIST_LINEAR = 1.55;
+const LANDING_ASSIST_ANGULAR = 2.45;
+const LANDING_ASSIST_VERTICAL = 1.15;
 
 /* ===========================================================================
  * Deterministic RNG + seeded staircase generation
@@ -132,22 +140,22 @@ function generateStairs(seed: number): Stairs {
   let topY = 540;
   const MIN_TOP = -3200; // highest the climb may reach; gentler than before
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 9 + Math.floor(rnd() * 6);
+  let nextSafeIn = 8 + Math.floor(rnd() * 5);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: still mostly cube-sized, but a bit more forgiving than v3.
-    // The common ledge is just wider than the cube, so a clean landing is possible,
-    // while bad edge landings still tumble. Safe zones are rare and modest.
+    // Width: still compact, but friendlier than v4. Most ledges are only a
+    // little wider than the cube, while rare recovery zones give a fair place to
+    // stabilize after a risky climb.
     const wr = rnd();
     let width: number;
     if (platform) width = 132 + rnd() * 22; // only the shared start is wide/stable
-    else if (safeZone) width = CUBE * (1.32 + rnd() * 0.1); // rare small recovery ledge
-    else if (wr < 0.76) width = CUBE * (1.09 + rnd() * 0.07); // common: ~109–116% cube width
-    else if (wr < 0.96) width = CUBE * (1.18 + rnd() * 0.1); // a little forgiving, not huge
-    else width = CUBE * (1.3 + rnd() * 0.12); // tiny chance of a wider breather
+    else if (safeZone) width = CUBE * (1.34 + rnd() * 0.12); // rare recovery ledge, not huge
+    else if (wr < 0.82) width = CUBE * (1.12 + rnd() * 0.07); // common: ~112–119% cube width
+    else if (wr < 0.97) width = CUBE * (1.21 + rnd() * 0.09); // a little forgiving
+    else width = CUBE * (1.34 + rnd() * 0.1); // tiny chance of a wider breather
 
     // Height change. Still a climbing ladder, but NO deep pits. Downward steps are
     // only one gentle level, and 3-level climbs are removed. This keeps the "fall"
@@ -166,7 +174,7 @@ function generateStairs(seed: number): Stairs {
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
     // Crooked tops add danger, but keep safe zones flat enough to be readable.
-    const slope = !platform && !safeZone && rnd() < 0.28 ? (rnd() - 0.5) * 0.08 : 0;
+    const slope = !platform && !safeZone && rnd() < 0.22 ? (rnd() - 0.5) * 0.055 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -191,7 +199,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    if (safeZone) nextSafeIn = 13 + Math.floor(rnd() * 8);
+    if (safeZone) nextSafeIn = 10 + Math.floor(rnd() * 6);
     else nextSafeIn -= 1;
   }
 
@@ -603,6 +611,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       const half = CUBE / 2;
       let contact = false;
       let nearSurface = false;
+      let landingAssist = 0;
       let maxImpact = 0;
       let impactX = 0;
       let impactY = 0;
@@ -633,6 +642,17 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           const ct = terrainContact(g.stairs, pxw, pyw);
           if (!ct) continue;
           contact = true;
+
+          // Landing assist only helps if the cube is mostly over the top face,
+          // away from the dangerous edges. Edge/corner hits stay risky and can
+          // still tumble or roll back down.
+          const topFaceContact = ct.ny < -0.62;
+          const centeredOnStep =
+            cube.x > nearStep.x0 + LANDING_EDGE_PAD &&
+            cube.x < nearStep.x1 - LANDING_EDGE_PAD;
+          if (topFaceContact && centeredOnStep && cube.vy > -180) {
+            landingAssist = Math.max(landingAssist, 1);
+          }
 
           // Relative velocity at the contact point.
           const rvx = cube.vx - cube.av * ry;
@@ -684,10 +704,21 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       if (contact) {
-        // Extremely light rolling resistance: the cube should feel a little soft/arcade,
+        // Extremely light rolling resistance: the cube should feel soft/arcade,
         // able to keep rolling and tumbling instead of snapping to a stop.
         cube.vx -= cube.vx * ROLL_RES * h;
         cube.av -= cube.av * ROLL_RES * h;
+
+        if (landingAssist > 0) {
+          // A clean top-face landing gets a tiny grip/settle bonus. It is not a
+          // magnet: the cube can still roll if it lands fast or near an edge.
+          const linearGrip = Math.min(1, LANDING_ASSIST_LINEAR * h);
+          const angularGrip = Math.min(1, LANDING_ASSIST_ANGULAR * h);
+          const verticalSoft = Math.min(1, LANDING_ASSIST_VERTICAL * h);
+          cube.vx *= 1 - linearGrip * 0.22;
+          cube.av *= 1 - angularGrip * 0.34;
+          if (cube.vy > 0) cube.vy *= 1 - verticalSoft * 0.22;
+        }
       }
 
       // Impact feedback.
