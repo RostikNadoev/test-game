@@ -1,25 +1,15 @@
 /**
  * TowerStackGame
  * --------------------------------------------------------------------------
- * A premium 1v1 "Tower Stack" duel for a Telegram Mini App.
+ * 1v1 Tower Stack duel for Telegram Mini App.
  *
- * This is a REAL stack game: dropping a block slices off the overhang, the
- * remaining overlap becomes the placed block, and the next block inherits the
- * reduced width. Miss the tower entirely and you lose points.
- *
- * Architecture (read before extending):
- *  - The PLAYER side is simulated locally with full block geometry.
- *  - The OPPONENT side is intentionally *blind* — we never render its tower.
- *    It exists only as a stream of `OpponentEvent`s reflected in the HUD
- *    (score + last-move quality). Today those come from `useBotOpponent`.
- *    To go online, write `useSocketOpponent(active, onEvent)` with the SAME
- *    signature emitting the SAME `OpponentEvent` shape from WebSocket
- *    messages, then swap the line marked `// === OPPONENT SOURCE ===`.
- *  - High-frequency motion (the sliding block) is driven by refs + a single
- *    requestAnimationFrame loop writing `transform` straight to the DOM, so it
- *    never re-renders React. State changes only on discrete events.
- *
- * Single exported component: `TowerStackGame`.
+ * Changes:
+ * - Fits inside parent route height, no bottom overflow.
+ * - Removed bottom "TAP TO DROP" control.
+ * - Removed shake animation for smoother mobile performance.
+ * - Added 3-second countdown overlay before the round starts.
+ * - Moved top HUD closer to the top edge.
+ * - Removed text shadows from floating quality labels above blocks.
  */
 
 import {
@@ -28,32 +18,32 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-} from "react";
+  type CSSProperties,
+  type PointerEvent,
+} from 'react';
 
 /* =========================================================================
- * TUNING — everything you'd want to balance lives here.
+ * TUNING
  * ====================================================================== */
-const ROUND_DURATION_MS = 40_000; // round is exactly 40s
+const ROUND_DURATION_MS = 40_000;
 
-const BLOCK_HEIGHT = 28; // px, on-screen height of one stacked block
-const BLOCK_WIDTH_RATIO = 0.44; // starting block width as a fraction of the stage
-const BLOCK_WIDTH_MIN = 96; // px clamp
-const BLOCK_WIDTH_MAX = 170; // px clamp
-const MIN_OVERLAP = 1; // px below which a drop counts as a MISS
-const ACTIVE_LINE_RATIO = 0.32; // where the moving block sits (from top of stage)
-const MAX_RENDERED_BLOCKS = 22; // older blocks scroll off-screen and are pruned
+const BLOCK_HEIGHT = 28;
+const BLOCK_WIDTH_RATIO = 0.44;
+const BLOCK_WIDTH_MIN = 96;
+const BLOCK_WIDTH_MAX = 170;
+const MIN_OVERLAP = 1;
+const ACTIVE_LINE_RATIO = 0.3;
+const MAX_RENDERED_BLOCKS = 22;
 
-const BLOCK_SPEED_START = 235; // px/s horizontal speed of the moving block
-const BLOCK_SPEED_RAMP = 8; // px/s added per placed block (difficulty curve)
-const BLOCK_SPEED_MAX = 480; // px/s cap
+const BLOCK_SPEED_START = 235;
+const BLOCK_SPEED_RAMP = 8;
+const BLOCK_SPEED_MAX = 480;
 
-// Alignment tolerances (px offset between the active block and the one below).
-const PERFECT_THRESHOLD = 6; // within this → no cut, full width kept
-const GREAT_THRESHOLD = 16; // within this → small cut, still builds combo
-const GOOD_THRESHOLD = 34; // beyond this (but landed) → "hard" impact feedback
+const PERFECT_THRESHOLD = 6;
+const GREAT_THRESHOLD = 16;
 
-// Scoring. MISS is negative; the player score is clamped to >= 0.
 const MISS_PENALTY = 40;
+
 const SCORE: Record<BaseQuality, number> = {
   PERFECT: 100,
   GREAT: 60,
@@ -61,27 +51,31 @@ const SCORE: Record<BaseQuality, number> = {
   MISS: -MISS_PENALTY,
 };
 
-const COMBO_THRESHOLD = 3; // consecutive strong moves before COMBO kicks in
-const COMBO_BONUS = 25; // extra points per combo step beyond the threshold
+const COMBO_THRESHOLD = 3;
+const COMBO_BONUS = 25;
 
-// Bot cadence + skill profile (only used by useBotOpponent).
 const BOT_MIN_INTERVAL_MS = 820;
 const BOT_MAX_INTERVAL_MS = 1480;
-const BOT_QUALITY_WEIGHTS = { PERFECT: 0.3, GREAT: 0.36, GOOD: 0.22, MISS: 0.12 };
+const BOT_QUALITY_WEIGHTS = {
+  PERFECT: 0.3,
+  GREAT: 0.36,
+  GOOD: 0.22,
+  MISS: 0.12,
+};
 
 /* =========================================================================
  * TYPES
  * ====================================================================== */
-type BaseQuality = "PERFECT" | "GREAT" | "GOOD" | "MISS";
-type Quality = BaseQuality | "COMBO";
-type Phase = "ready" | "playing" | "result";
-type Outcome = "win" | "lose" | "draw";
+type BaseQuality = 'PERFECT' | 'GREAT' | 'GOOD' | 'MISS';
+type Quality = BaseQuality | 'COMBO';
+type Phase = 'ready' | 'countdown' | 'playing' | 'result';
+type Outcome = 'win' | 'lose' | 'draw';
 
 interface PlacedBlock {
   id: number;
-  level: number; // absolute level (0 = base), drives camera math
-  x: number; // locked left offset within the stage
-  width: number; // actual (possibly sliced) width
+  level: number;
+  x: number;
+  width: number;
 }
 
 interface SlicePiece {
@@ -89,7 +83,7 @@ interface SlicePiece {
   x: number;
   width: number;
   hue: number;
-  drift: number; // horizontal drift direction for the fall (-1 | 1)
+  drift: number;
 }
 
 interface FloatingFx {
@@ -98,7 +92,6 @@ interface FloatingFx {
   points: number;
 }
 
-/** The single contract between the game and any opponent source. */
 export interface OpponentEvent {
   quality: Quality;
   scoreDelta: number;
@@ -107,72 +100,62 @@ export interface OpponentEvent {
   ts: number;
 }
 
-/** Optional props — the component works as `<TowerStackGame />` with no props. */
 export interface TowerStackGameProps {
   onExit?: () => void;
 }
 
 /* =========================================================================
- * PURE HELPERS — shared scoring logic for player and bot.
+ * HELPERS
  * ====================================================================== */
-/**
- * Resolve a base move into a display label + points + new combo count.
- * Strong moves (PERFECT/GREAT) extend the combo; anything weaker resets it.
- * Past the threshold, strong moves read as "COMBO" with escalating bonus.
- * Used identically by the player and the bot so scoring stays consistent.
- */
 function resolveMove(
   base: BaseQuality,
-  prevCombo: number
+  prevCombo: number,
 ): { label: Quality; points: number; combo: number } {
-  const strong = base === "PERFECT" || base === "GREAT";
+  const strong = base === 'PERFECT' || base === 'GREAT';
   const combo = strong ? prevCombo + 1 : 0;
+
   let points = SCORE[base];
   let label: Quality = base;
 
   if (strong && combo >= COMBO_THRESHOLD) {
     points += COMBO_BONUS * (combo - COMBO_THRESHOLD + 1);
-    label = "COMBO";
+    label = 'COMBO';
   }
+
   return { label, points, combo };
 }
 
 function botBaseQuality(): BaseQuality {
   const r = Math.random();
   const w = BOT_QUALITY_WEIGHTS;
-  if (r < w.PERFECT) return "PERFECT";
-  if (r < w.PERFECT + w.GREAT) return "GREAT";
-  if (r < w.PERFECT + w.GREAT + w.GOOD) return "GOOD";
-  return "MISS";
+
+  if (r < w.PERFECT) return 'PERFECT';
+  if (r < w.PERFECT + w.GREAT) return 'GREAT';
+  if (r < w.PERFECT + w.GREAT + w.GOOD) return 'GOOD';
+
+  return 'MISS';
 }
 
 const hueForLevel = (level: number) => (192 + level * 24) % 360;
+
 const randInt = (min: number, max: number) =>
   Math.floor(min + Math.random() * (max - min));
+
 const clampScore = (n: number) => (n < 0 ? 0 : n);
 
 /* =========================================================================
- * OPPONENT SOURCE (BOT) — isolated so it can be replaced by a socket hook.
- *
- * Future online version (drop-in, same signature + event shape):
- *   function useSocketOpponent(active, onEvent) {
- *     useEffect(() => {
- *       if (!active) return;
- *       const ws = new WebSocket(url);
- *       ws.onmessage = (m) => onEvent(JSON.parse(m.data) as OpponentEvent);
- *       return () => ws.close();
- *     }, [active]);
- *   }
+ * BOT OPPONENT
  * ====================================================================== */
 function useBotOpponent(
   active: boolean,
-  onEvent: (event: OpponentEvent) => void
+  onEvent: (event: OpponentEvent) => void,
 ) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
   useEffect(() => {
     if (!active) return;
+
     let timer: ReturnType<typeof setTimeout>;
     let score = 0;
     let combo = 0;
@@ -180,9 +163,12 @@ function useBotOpponent(
 
     const tick = () => {
       if (cancelled) return;
+
       const resolved = resolveMove(botBaseQuality(), combo);
+
       combo = resolved.combo;
       score = clampScore(score + resolved.points);
+
       onEventRef.current({
         quality: resolved.label,
         scoreDelta: resolved.points,
@@ -190,10 +176,12 @@ function useBotOpponent(
         combo,
         ts: Date.now(),
       });
+
       timer = setTimeout(tick, randInt(BOT_MIN_INTERVAL_MS, BOT_MAX_INTERVAL_MS));
     };
 
     timer = setTimeout(tick, randInt(BOT_MIN_INTERVAL_MS, BOT_MAX_INTERVAL_MS));
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -205,22 +193,22 @@ function useBotOpponent(
  * COMPONENT
  * ====================================================================== */
 export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
-  /* ---- React state (low frequency: discrete events only) --------------- */
-  const [phase, setPhase] = useState<Phase>("ready");
+  const [phase, setPhase] = useState<Phase>('ready');
+  const [countdown, setCountdown] = useState(3);
+
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [opponentQuality, setOpponentQuality] = useState<Quality | null>(null);
+
   const [secondsLeft, setSecondsLeft] = useState(ROUND_DURATION_MS / 1000);
   const [placed, setPlaced] = useState<PlacedBlock[]>([]);
   const [slices, setSlices] = useState<SlicePiece[]>([]);
   const [activeWidth, setActiveWidth] = useState(BLOCK_WIDTH_MIN);
   const [activeHue, setActiveHue] = useState(hueForLevel(1));
   const [fx, setFx] = useState<FloatingFx[]>([]);
-  const [shake, setShake] = useState(false);
-  const [flash, setFlash] = useState<"good" | "bad" | null>(null);
+  const [flash, setFlash] = useState<'good' | 'bad' | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
-  /* ---- Refs (high frequency / mutable engine values) ------------------- */
   const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const activeBlockRef = useRef<HTMLDivElement>(null);
@@ -228,15 +216,15 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const stageWidthRef = useRef(0);
   const minXRef = useRef(0);
   const maxXRef = useRef(0);
-  const xRef = useRef(0); // current left offset of the moving block
-  const dirRef = useRef(1); // +1 / -1
+  const xRef = useRef(0);
+  const dirRef = useRef(1);
   const speedRef = useRef(BLOCK_SPEED_START);
 
-  const topXRef = useRef(0); // left offset of the current top block
-  const topWidthRef = useRef(BLOCK_WIDTH_MIN); // width of the current top block
-  const placedCountRef = useRef(1); // next level index to assign
-  const comboRef = useRef(0); // player combo streak
-  const spawnSideRef = useRef(1); // alternate spawn side
+  const topXRef = useRef(0);
+  const topWidthRef = useRef(BLOCK_WIDTH_MIN);
+  const placedCountRef = useRef(1);
+  const comboRef = useRef(0);
+  const spawnSideRef = useRef(1);
 
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef(0);
@@ -244,15 +232,26 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const endAtRef = useRef(0);
   const idRef = useRef(0);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const fxTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const nextId = () => idRef.current++;
 
-  /* ---- Telegram viewport handling (exact fit, no scroll) --------------- */
+  /* ---- fit inside App route, not whole window ------------------------- */
   const applyViewportHeight = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const parentHeight = root.parentElement?.clientHeight ?? 0;
     const tg = (window as unknown as { Telegram?: any })?.Telegram?.WebApp;
-    const h = tg?.viewportStableHeight || window.innerHeight;
-    rootRef.current?.style.setProperty("--tsq-h", `${h}px`);
+    const tgHeight = tg?.viewportStableHeight || tg?.viewportHeight;
+    const fallbackHeight = window.innerHeight;
+
+    const height = Math.floor(
+      parentHeight > 0 ? parentHeight : tgHeight || fallbackHeight,
+    );
+
+    root.style.setProperty('--tsq-h', `${height}px`);
   }, []);
 
   useLayoutEffect(() => {
@@ -261,49 +260,61 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
   useEffect(() => {
     const tg = (window as unknown as { Telegram?: any })?.Telegram?.WebApp;
+
     try {
       tg?.ready?.();
       tg?.expand?.();
     } catch {
-      /* not inside Telegram — ignore */
+      /* ignore outside Telegram */
     }
+
     applyViewportHeight();
-    window.addEventListener("resize", applyViewportHeight);
-    tg?.onEvent?.("viewportChanged", applyViewportHeight);
+
+    window.addEventListener('resize', applyViewportHeight);
+    tg?.onEvent?.('viewportChanged', applyViewportHeight);
+
     return () => {
-      window.removeEventListener("resize", applyViewportHeight);
-      tg?.offEvent?.("viewportChanged", applyViewportHeight);
+      window.removeEventListener('resize', applyViewportHeight);
+      tg?.offEvent?.('viewportChanged', applyViewportHeight);
     };
   }, [applyViewportHeight]);
 
-  /* ---- Geometry helpers ------------------------------------------------ */
+  /* ---- geometry -------------------------------------------------------- */
   const recomputeBounds = useCallback((width: number) => {
     const stageW = stageWidthRef.current;
+
     minXRef.current = 0;
     maxXRef.current = Math.max(0, stageW - width);
-    if (xRef.current > maxXRef.current) xRef.current = maxXRef.current;
+
+    if (xRef.current > maxXRef.current) {
+      xRef.current = maxXRef.current;
+    }
   }, []);
 
   const measure = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return;
+
     stageWidthRef.current = stage.clientWidth;
     recomputeBounds(topWidthRef.current);
   }, [recomputeBounds]);
 
   useLayoutEffect(() => {
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    window.addEventListener('resize', measure);
+
+    return () => window.removeEventListener('resize', measure);
   }, [measure]);
 
-  /* ---- The single rAF loop: moves the active block, no re-renders ------ */
+  /* ---- animation loop -------------------------------------------------- */
   const stepLoop = useCallback((ts: number) => {
     const last = lastTsRef.current || ts;
-    const dt = Math.min(0.05, (ts - last) / 1000); // clamp for backgrounded tabs
+    const dt = Math.min(0.05, (ts - last) / 1000);
+
     lastTsRef.current = ts;
 
     let x = xRef.current + dirRef.current * speedRef.current * dt;
+
     if (x <= minXRef.current) {
       x = minXRef.current;
       dirRef.current = 1;
@@ -311,16 +322,23 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
       x = maxXRef.current;
       dirRef.current = -1;
     }
+
     xRef.current = x;
 
     const el = activeBlockRef.current;
-    if (el) el.style.transform = `translate3d(${x}px,0,0)`;
+    if (el) {
+      el.style.transform = `translate3d(${x}px,0,0)`;
+    }
+
     rafRef.current = requestAnimationFrame(stepLoop);
   }, []);
 
   const startLoop = useCallback(() => {
     lastTsRef.current = 0;
-    if (rafRef.current == null) rafRef.current = requestAnimationFrame(stepLoop);
+
+    if (rafRef.current == null) {
+      rafRef.current = requestAnimationFrame(stepLoop);
+    }
   }, [stepLoop]);
 
   const stopLoop = useCallback(() => {
@@ -330,191 +348,257 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     }
   }, []);
 
-  /* ---- Spawn the next moving block from an alternating side ------------ */
+  /* ---- active block ---------------------------------------------------- */
   const spawnActiveBlock = useCallback(() => {
     const width = topWidthRef.current;
+
     recomputeBounds(width);
+
     const fromLeft = spawnSideRef.current > 0;
     spawnSideRef.current *= -1;
 
     xRef.current = fromLeft ? minXRef.current : maxXRef.current;
     dirRef.current = fromLeft ? 1 : -1;
+
     speedRef.current = Math.min(
       BLOCK_SPEED_MAX,
-      BLOCK_SPEED_START + (placedCountRef.current - 1) * BLOCK_SPEED_RAMP
+      BLOCK_SPEED_START + (placedCountRef.current - 1) * BLOCK_SPEED_RAMP,
     );
 
     setActiveWidth(width);
     setActiveHue(hueForLevel(placedCountRef.current));
+
     const el = activeBlockRef.current;
-    if (el) el.style.transform = `translate3d(${xRef.current}px,0,0)`;
+    if (el) {
+      el.style.transform = `translate3d(${xRef.current}px,0,0)`;
+    }
   }, [recomputeBounds]);
 
-  /* ---- Lightweight feedback (popup + screen pulse), auto-cleaned ------- */
+  /* ---- feedback -------------------------------------------------------- */
   const pushFx = useCallback((label: Quality, points: number) => {
     const id = nextId();
+
     setFx((prev) => [...prev, { id, label, points }]);
-    const t = setTimeout(
-      () => setFx((prev) => prev.filter((f) => f.id !== id)),
-      760
-    );
-    timeoutsRef.current.push(t);
+
+    const timeout = setTimeout(() => {
+      setFx((prev) => prev.filter((item) => item.id !== id));
+    }, 720);
+
+    timeoutsRef.current.push(timeout);
   }, []);
 
-  const pulse = useCallback((kind: "good" | "bad") => {
-    setShake(true);
+  const pulse = useCallback((kind: 'good' | 'bad') => {
     setFlash(kind);
-    if (fxTimeoutRef.current) clearTimeout(fxTimeoutRef.current);
-    fxTimeoutRef.current = setTimeout(() => {
-      setShake(false);
+
+    if (flashTimeoutRef.current) {
+      clearTimeout(flashTimeoutRef.current);
+    }
+
+    flashTimeoutRef.current = setTimeout(() => {
       setFlash(null);
-    }, 280);
+    }, 220);
   }, []);
 
   const spawnSlice = useCallback((x: number, width: number, drift: number) => {
     const id = nextId();
     const hue = hueForLevel(placedCountRef.current);
+
     setSlices((prev) => [...prev, { id, x, width, hue, drift }]);
-    const t = setTimeout(
-      () => setSlices((prev) => prev.filter((s) => s.id !== id)),
-      520
-    );
-    timeoutsRef.current.push(t);
+
+    const timeout = setTimeout(() => {
+      setSlices((prev) => prev.filter((slice) => slice.id !== id));
+    }, 500);
+
+    timeoutsRef.current.push(timeout);
   }, []);
 
-  /* ---- PLAYER MOVE: drop, slice the overhang, score -------------------- */
+  /* ---- player move ----------------------------------------------------- */
   const placeBlock = useCallback(() => {
-    if (phase !== "playing") return;
+    if (phase !== 'playing') return;
 
-    const W = topWidthRef.current;
+    const currentWidth = topWidthRef.current;
     const activeX = xRef.current;
     const prevX = topXRef.current;
     const signedOffset = activeX - prevX;
     const offset = Math.abs(signedOffset);
-    const overlap = W - offset;
+    const overlap = currentWidth - offset;
 
-    /* --- MISS: no overlap. Subtract points, keep tower height, retry. --- */
     if (overlap < MIN_OVERLAP) {
       comboRef.current = 0;
-      const resolved = resolveMove("MISS", 0);
-      setPlayerScore((s) => clampScore(s + resolved.points));
-      pushFx("MISS", resolved.points);
-      pulse("bad");
-      spawnActiveBlock(); // same width, from the other side
+
+      const resolved = resolveMove('MISS', 0);
+
+      setPlayerScore((score) => clampScore(score + resolved.points));
+      pushFx('MISS', resolved.points);
+      pulse('bad');
+      spawnActiveBlock();
+
       return;
     }
 
-    /* --- HIT: classify, cut the overhang, lock the overlap. ------------- */
     let base: BaseQuality;
     let newX: number;
     let newWidth: number;
 
     if (offset <= PERFECT_THRESHOLD) {
-      base = "PERFECT";
-      newX = prevX; // snap clean, no cut
-      newWidth = W;
+      base = 'PERFECT';
+      newX = prevX;
+      newWidth = currentWidth;
     } else {
-      base = offset <= GREAT_THRESHOLD ? "GREAT" : "GOOD";
+      base = offset <= GREAT_THRESHOLD ? 'GREAT' : 'GOOD';
       newX = Math.round(Math.max(activeX, prevX));
       newWidth = Math.round(overlap);
-      // The sliced-off overhang of the active block falls away.
+
       const sliceWidth = Math.round(offset);
       const sliceX =
-        signedOffset > 0 ? Math.round(prevX + W) : Math.round(activeX);
+        signedOffset > 0 ? Math.round(prevX + currentWidth) : Math.round(activeX);
+
       spawnSlice(sliceX, sliceWidth, signedOffset > 0 ? 1 : -1);
     }
 
     const resolved = resolveMove(base, comboRef.current);
+
     comboRef.current = resolved.combo;
 
     const level = placedCountRef.current;
     placedCountRef.current += 1;
+
     topXRef.current = newX;
     topWidthRef.current = newWidth;
 
-    const block: PlacedBlock = { id: nextId(), level, x: newX, width: newWidth };
+    const block: PlacedBlock = {
+      id: nextId(),
+      level,
+      x: newX,
+      width: newWidth,
+    };
+
     setPlaced((prev) => {
       const next = [...prev, block];
+
       return next.length > MAX_RENDERED_BLOCKS
         ? next.slice(next.length - MAX_RENDERED_BLOCKS)
         : next;
     });
 
-    setPlayerScore((s) => clampScore(s + resolved.points));
+    setPlayerScore((score) => clampScore(score + resolved.points));
     pushFx(resolved.label, resolved.points);
-    if (resolved.label === "PERFECT" || resolved.label === "COMBO") pulse("good");
-    else if (offset > GOOD_THRESHOLD) pulse("good"); // hard landing impact
+
+    if (resolved.label === 'PERFECT' || resolved.label === 'COMBO') {
+      pulse('good');
+    }
 
     spawnActiveBlock();
-  }, [phase, pushFx, pulse, spawnSlice, spawnActiveBlock]);
+  }, [phase, pulse, pushFx, spawnActiveBlock, spawnSlice]);
 
-  /* ---- OPPONENT EVENTS: update score + label ONLY (no tower) ----------- */
+  /* ---- opponent -------------------------------------------------------- */
   const handleOpponentEvent = useCallback((event: OpponentEvent) => {
     setOpponentScore(event.totalScore);
     setOpponentQuality(event.quality);
   }, []);
 
-  // === OPPONENT SOURCE === (replace with useSocketOpponent for online play)
-  useBotOpponent(phase === "playing", handleOpponentEvent);
+  useBotOpponent(phase === 'playing', handleOpponentEvent);
 
-  /* ---- ROUND CLOCK + WINNER LOGIC -------------------------------------- */
+  /* ---- countdown ------------------------------------------------------- */
   useEffect(() => {
-    if (phase !== "playing") return;
+    if (phase !== 'countdown') return;
+
+    setCountdown(3);
+
+    const timers = [
+      setTimeout(() => setCountdown(2), 1_000),
+      setTimeout(() => setCountdown(1), 2_000),
+      setTimeout(() => setPhase('playing'), 3_000),
+    ];
+
+    countdownTimersRef.current = timers;
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [phase]);
+
+  /* ---- round clock ----------------------------------------------------- */
+  useEffect(() => {
+    if (phase !== 'playing') return;
+
     endAtRef.current = Date.now() + ROUND_DURATION_MS;
     setSecondsLeft(ROUND_DURATION_MS / 1000);
 
     clockRef.current = setInterval(() => {
       const remaining = endAtRef.current - Date.now();
+
       if (remaining <= 0) {
-        if (clockRef.current) clearInterval(clockRef.current);
+        if (clockRef.current) {
+          clearInterval(clockRef.current);
+        }
+
         setSecondsLeft(0);
-        setPhase("result");
+        setPhase('result');
+
         return;
       }
-      // setState bails out when the integer is unchanged → ~1 render/s.
+
       setSecondsLeft(Math.ceil(remaining / 1000));
     }, 200);
 
     return () => {
-      if (clockRef.current) clearInterval(clockRef.current);
+      if (clockRef.current) {
+        clearInterval(clockRef.current);
+      }
     };
   }, [phase]);
 
-  // Resolve the outcome once when the round ends (reads the final scores).
   useEffect(() => {
-    if (phase !== "result") return;
+    if (phase !== 'result') return;
+
     setOutcome(
       playerScore > opponentScore
-        ? "win"
+        ? 'win'
         : playerScore < opponentScore
-        ? "lose"
-        : "draw"
+          ? 'lose'
+          : 'draw',
     );
   }, [phase, playerScore, opponentScore]);
 
-  /* ---- Drive the animation loop with the play phase -------------------- */
   useEffect(() => {
-    if (phase === "playing") startLoop();
-    else stopLoop();
+    if (phase === 'playing') {
+      startLoop();
+    } else {
+      stopLoop();
+    }
+
     return stopLoop;
   }, [phase, startLoop, stopLoop]);
 
-  /* ---- Global cleanup -------------------------------------------------- */
   useEffect(() => {
     return () => {
       stopLoop();
-      if (clockRef.current) clearInterval(clockRef.current);
-      if (fxTimeoutRef.current) clearTimeout(fxTimeoutRef.current);
+
+      if (clockRef.current) {
+        clearInterval(clockRef.current);
+      }
+
+      if (flashTimeoutRef.current) {
+        clearTimeout(flashTimeoutRef.current);
+      }
+
+      countdownTimersRef.current.forEach(clearTimeout);
       timeoutsRef.current.forEach(clearTimeout);
     };
   }, [stopLoop]);
 
-  /* ---- Lifecycle controls ---------------------------------------------- */
-  const startGame = useCallback(() => {
+  /* ---- start/reset ----------------------------------------------------- */
+  const resetGame = useCallback(() => {
+    applyViewportHeight();
     measure();
+
     const stageW = stageWidthRef.current;
     const baseWidth = Math.round(
-      Math.min(BLOCK_WIDTH_MAX, Math.max(BLOCK_WIDTH_MIN, stageW * BLOCK_WIDTH_RATIO))
+      Math.min(
+        BLOCK_WIDTH_MAX,
+        Math.max(BLOCK_WIDTH_MIN, stageW * BLOCK_WIDTH_RATIO),
+      ),
     );
     const center = Math.round((stageW - baseWidth) / 2);
 
@@ -522,10 +606,13 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     comboRef.current = 0;
     speedRef.current = BLOCK_SPEED_START;
     spawnSideRef.current = 1;
+
     topXRef.current = center;
     topWidthRef.current = baseWidth;
+
     xRef.current = 0;
     dirRef.current = 1;
+
     recomputeBounds(baseWidth);
 
     setPlaced([{ id: nextId(), level: 0, x: center, width: baseWidth }]);
@@ -538,30 +625,36 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     setSecondsLeft(ROUND_DURATION_MS / 1000);
     setActiveWidth(baseWidth);
     setActiveHue(hueForLevel(1));
+    setFlash(null);
+    setCountdown(3);
+  }, [applyViewportHeight, measure, recomputeBounds]);
 
-    setPhase("playing");
-  }, [measure, recomputeBounds]);
+  const startCountdown = useCallback(() => {
+    resetGame();
+    setPhase('countdown');
+  }, [resetGame]);
 
-  /* ---- Input ----------------------------------------------------------- */
+  /* ---- input ----------------------------------------------------------- */
   const onSurfacePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      if (phase === "playing") placeBlock();
+    (event: PointerEvent<HTMLElement>) => {
+      event.preventDefault();
+
+      if (phase === 'playing') {
+        placeBlock();
+      }
     },
-    [phase, placeBlock]
+    [phase, placeBlock],
   );
 
-  /* ---- Derived render values ------------------------------------------- */
+  /* ---- derived --------------------------------------------------------- */
   const topLevel = placed.length ? placed[placed.length - 1].level : 0;
   const activeTop = `calc(var(--tsq-stage-h, 100%) * ${ACTIVE_LINE_RATIO})`;
   const lowTime = secondsLeft <= 10;
 
-  /* ===================================================================== */
   return (
     <div ref={rootRef} className="tsq-root">
       <style>{STYLES}</style>
 
-      {/* ---------------------- TOP HUD ---------------------- */}
       <header className="tsq-hud">
         <div className="tsq-side tsq-side--you">
           <span className="tsq-side__tag">YOU</span>
@@ -569,16 +662,17 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
         </div>
 
         <div className="tsq-clock" aria-label="time remaining">
-          <div className={`tsq-clock__num ${lowTime ? "is-low" : ""}`}>
+          <div className={`tsq-clock__num ${lowTime ? 'is-low' : ''}`}>
             {secondsLeft}
             <span className="tsq-clock__unit">s</span>
           </div>
+
           <div className="tsq-clock__bar">
             <span
-              key={phase === "playing" ? "run" : "idle"}
+              key={phase === 'playing' ? 'run' : 'idle'}
               className={`tsq-clock__fill ${
-                phase === "playing" ? "is-running" : ""
-              } ${lowTime ? "is-low" : ""}`}
+                phase === 'playing' ? 'is-running' : ''
+              } ${lowTime ? 'is-low' : ''}`}
               style={{ animationDuration: `${ROUND_DURATION_MS}ms` }}
             />
           </div>
@@ -588,38 +682,37 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
           <span className="tsq-side__tag">RIVAL</span>
           <span className="tsq-side__score">{opponentScore}</span>
           <span
-            key={`${opponentScore}-${opponentQuality ?? ""}`}
-            className={`tsq-rival-q q-${(opponentQuality ?? "wait").toLowerCase()}`}
+            key={`${opponentScore}-${opponentQuality ?? ''}`}
+            className={`tsq-rival-q q-${(opponentQuality ?? 'wait').toLowerCase()}`}
           >
-            {opponentQuality ?? "—"}
+            {opponentQuality ?? '—'}
           </span>
         </div>
       </header>
 
-      {/* ---------------------- PLAY AREA ---------------------- */}
-      <main
-        className={`tsq-stage-wrap ${shake ? "is-shake" : ""}`}
-        onPointerDown={onSurfacePointerDown}
-      >
+      <main className="tsq-stage-wrap" onPointerDown={onSurfacePointerDown}>
         <div className="tsq-grid" aria-hidden />
+
         {flash && <div className={`tsq-flash is-${flash}`} aria-hidden />}
 
         <div className="tsq-stage" ref={stageRef}>
           <div className="tsq-anchor" style={{ top: activeTop }}>
-            {/* Placed tower — each block reflects its real (sliced) width */}
-            {placed.map((b) => {
-              const depth = topLevel - b.level + 1; // 1 = just below active
+            {placed.map((block) => {
+              const depth = topLevel - block.level + 1;
+
               return (
                 <div
-                  key={b.id}
+                  key={block.id}
                   className="tsq-block tsq-block--placed"
                   style={
                     {
-                      width: b.width,
+                      width: block.width,
                       height: BLOCK_HEIGHT,
-                      transform: `translate3d(${b.x}px, ${depth * BLOCK_HEIGHT}px, 0)`,
-                      ["--h" as any]: hueForLevel(b.level),
-                    } as React.CSSProperties
+                      transform: `translate3d(${block.x}px, ${
+                        depth * BLOCK_HEIGHT
+                      }px, 0)`,
+                      '--h': hueForLevel(block.level),
+                    } as CSSProperties
                   }
                 >
                   <span className="tsq-block__land" />
@@ -627,26 +720,24 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
               );
             })}
 
-            {/* Sliced-off debris falling away */}
-            {slices.map((s) => (
+            {slices.map((slice) => (
               <div
-                key={s.id}
+                key={slice.id}
                 className="tsq-slice"
                 style={
                   {
-                    width: s.width,
+                    width: slice.width,
                     height: BLOCK_HEIGHT,
-                    ["--sx" as any]: `${s.x}px`,
-                    ["--dx" as any]: `${s.drift * 26}px`,
-                    ["--rot" as any]: `${s.drift * 36}deg`,
-                    ["--h" as any]: s.hue,
-                  } as React.CSSProperties
+                    '--sx': `${slice.x}px`,
+                    '--dx': `${slice.drift * 26}px`,
+                    '--rot': `${slice.drift * 36}deg`,
+                    '--h': slice.hue,
+                  } as CSSProperties
                 }
               />
             ))}
 
-            {/* Active moving block */}
-            {phase === "playing" && (
+            {(phase === 'countdown' || phase === 'playing') && (
               <div
                 ref={activeBlockRef}
                 className="tsq-block tsq-block--active"
@@ -654,18 +745,18 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
                   {
                     width: activeWidth,
                     height: BLOCK_HEIGHT,
-                    ["--h" as any]: activeHue,
-                  } as React.CSSProperties
+                    transform: `translate3d(${xRef.current}px,0,0)`,
+                    '--h': activeHue,
+                  } as CSSProperties
                 }
               />
             )}
 
-            {/* Quality popups */}
-            {fx.map((f) => (
-              <div key={f.id} className={`tsq-fx q-${f.label.toLowerCase()}`}>
-                <span className="tsq-fx__label">{f.label}</span>
+            {fx.map((item) => (
+              <div key={item.id} className={`tsq-fx q-${item.label.toLowerCase()}`}>
+                <span className="tsq-fx__label">{item.label}</span>
                 <span className="tsq-fx__pts">
-                  {f.points >= 0 ? `+${f.points}` : f.points}
+                  {item.points >= 0 ? `+${item.points}` : item.points}
                 </span>
               </div>
             ))}
@@ -673,65 +764,65 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
         </div>
       </main>
 
-      {/* ---------------------- BOTTOM CONTROL ---------------------- */}
-      <footer className="tsq-control">
-        <button
-          type="button"
-          className="tsq-tap"
-          disabled={phase !== "playing"}
-          onPointerDown={onSurfacePointerDown}
-        >
-          <span className="tsq-tap__ring" />
-          <span className="tsq-tap__label">TAP TO DROP</span>
-        </button>
-      </footer>
-
-      {/* ---------------------- READY OVERLAY ---------------------- */}
-      {phase === "ready" && (
+      {phase === 'ready' && (
         <div className="tsq-overlay">
           <div className="tsq-panel">
-            <p className="tsq-panel__kicker">BATTLE CLUB · 1v1 DUEL</p>
+            <p className="tsq-panel__kicker">BATTLE CLUB · 1V1 DUEL</p>
             <h1 className="tsq-panel__title">TOWER&nbsp;STACK</h1>
             <p className="tsq-panel__sub">
-              Tap to drop each block. Overhang gets sliced off, so aim for
-              PERFECT hits to keep your width and chain COMBOs. Highest score
-              after 40 seconds wins — a miss costs you {MISS_PENALTY} points.
+              Ставь блоки ровно, режь лишнее и набирай больше очков за 40 секунд.
+              Промах снимает {MISS_PENALTY} очков.
             </p>
-            <button type="button" className="tsq-cta" onPointerDown={startGame}>
+
+            <button type="button" className="tsq-cta" onClick={startCountdown}>
               START DUEL
             </button>
           </div>
         </div>
       )}
 
-      {/* ---------------------- RESULT OVERLAY ---------------------- */}
-      {phase === "result" && outcome && (
+      {phase === 'countdown' && (
+        <div className="tsq-countdown" aria-hidden>
+          <div key={countdown} className="tsq-countdown__num">
+            {countdown}
+          </div>
+          <div className="tsq-countdown__label">GET READY</div>
+        </div>
+      )}
+
+      {phase === 'result' && outcome && (
         <div className="tsq-overlay">
           <div className={`tsq-panel tsq-panel--${outcome}`}>
             <p className="tsq-panel__kicker">ROUND COMPLETE</p>
+
             <h1 className="tsq-panel__title tsq-result-title">
-              {outcome === "win"
-                ? "VICTORY"
-                : outcome === "lose"
-                ? "DEFEAT"
-                : "DRAW"}
+              {outcome === 'win'
+                ? 'VICTORY'
+                : outcome === 'lose'
+                  ? 'DEFEAT'
+                  : 'DRAW'}
             </h1>
+
             <div className="tsq-result-scores">
               <div className="tsq-result-scores__col">
                 <span>YOU</span>
                 <strong>{playerScore}</strong>
               </div>
+
               <div className="tsq-result-scores__vs">VS</div>
+
               <div className="tsq-result-scores__col">
                 <span>RIVAL</span>
                 <strong>{opponentScore}</strong>
               </div>
             </div>
-            <button type="button" className="tsq-cta" onPointerDown={startGame}>
+
+            <button type="button" className="tsq-cta" onClick={startCountdown}>
               PLAY AGAIN
             </button>
+
             {onExit && (
-              <button type="button" className="tsq-ghost" onPointerDown={onExit}>
+              <button type="button" className="tsq-ghost" onClick={onExit}>
                 Leave
               </button>
             )}
@@ -745,205 +836,709 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 export default TowerStackGame;
 
 /* =========================================================================
- * STYLES — scoped under .tsq-root, injected once. Dark neon arcade theme.
- * Strict viewport-height layout; all animation is transform/opacity only.
+ * STYLES
  * ====================================================================== */
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;600;700&display=swap');
 
 .tsq-root{
-  --tsq-h: 100dvh;
-  --bg-0:#070912; --bg-1:#0d1226;
-  --ink:#eaf0ff; --muted:#8a93b8;
-  --you:#33e6c0; --rival:#ff5d8f; --accent:#6c8cff;
-  --glass: rgba(255,255,255,.06);
-  --glass-line: rgba(255,255,255,.10);
-  position:relative; width:100%;
-  height:var(--tsq-h); max-height:var(--tsq-h);
-  padding-top:env(safe-area-inset-top);
-  padding-bottom:env(safe-area-inset-bottom);
-  box-sizing:border-box;
-  display:flex; flex-direction:column; overflow:hidden;
+  --tsq-h: 100%;
+  --bg-0:#070912;
+  --bg-1:#0d1226;
+  --ink:#eaf0ff;
+  --muted:#8a93b8;
+  --you:#33e6c0;
+  --rival:#ff5d8f;
+  --accent:#6c8cff;
+  --glass:rgba(255,255,255,.06);
+  --glass-line:rgba(255,255,255,.10);
+
+  position:relative;
+  width:100%;
+  height:var(--tsq-h);
+  max-height:var(--tsq-h);
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
   background:
     radial-gradient(120% 80% at 50% -10%, rgba(108,140,255,.20), transparent 60%),
     radial-gradient(90% 60% at 100% 110%, rgba(255,93,143,.16), transparent 60%),
     linear-gradient(180deg, var(--bg-1), var(--bg-0));
   color:var(--ink);
   font-family:'Rajdhani', system-ui, -apple-system, sans-serif;
-  -webkit-tap-highlight-color:transparent; user-select:none; touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+  touch-action:manipulation;
 }
-.tsq-root *{ box-sizing:border-box; }
+
+.tsq-root *{
+  box-sizing:border-box;
+}
 
 /* ---------------- HUD ---------------- */
-.tsq-hud{ flex:0 0 auto; display:grid; grid-template-columns:1fr auto 1fr;
-  align-items:start; gap:10px; padding:12px 12px 8px; }
-.tsq-side{ display:flex; flex-direction:column; gap:1px; padding:8px 12px;
-  border-radius:15px; background:var(--glass); border:1px solid var(--glass-line);
-  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); min-width:0; }
-.tsq-side--rival{ align-items:flex-end; text-align:right; }
-.tsq-side__tag{ font-size:10px; letter-spacing:.22em; font-weight:700; color:var(--muted); }
-.tsq-side--you .tsq-side__tag{ color:var(--you); }
-.tsq-side--rival .tsq-side__tag{ color:var(--rival); }
-.tsq-side__score{ font-family:'Orbitron',monospace; font-weight:800; font-size:25px; line-height:1.05;
-  font-variant-numeric:tabular-nums; }
-.tsq-side--you .tsq-side__score{ text-shadow:0 0 18px rgba(51,230,192,.45); }
-.tsq-side--rival .tsq-side__score{ text-shadow:0 0 18px rgba(255,93,143,.45); }
-.tsq-rival-q{ margin-top:3px; font-size:11px; font-weight:700; letter-spacing:.14em;
-  padding:2px 8px; border-radius:999px; animation:tsq-pop .3s ease; }
-.q-perfect{ color:#aeffe9; background:rgba(51,230,192,.16); }
-.q-great{ color:#bfe0ff; background:rgba(108,140,255,.16); }
-.q-good{ color:#ffe6b3; background:rgba(255,196,84,.14); }
-.q-miss{ color:#ffb0c4; background:rgba(255,93,143,.16); }
-.q-combo{ color:#fff; background:linear-gradient(90deg,rgba(108,140,255,.42),rgba(255,93,143,.42)); }
-.q-wait{ color:var(--muted); background:transparent; }
+.tsq-hud{
+  flex:0 0 auto;
+  display:grid;
+  grid-template-columns:1fr auto 1fr;
+  align-items:start;
+  gap:8px;
+  padding:4px 10px 6px;
+}
 
-.tsq-clock{ display:flex; flex-direction:column; align-items:center; gap:5px; padding-top:1px; }
-.tsq-clock__num{ font-family:'Orbitron',monospace; font-weight:800; font-size:28px; line-height:1;
-  font-variant-numeric:tabular-nums; transition:color .3s; }
-.tsq-clock__num.is-low{ color:#ff6b8b; text-shadow:0 0 20px rgba(255,93,143,.6); animation:tsq-pulse 1s infinite; }
-.tsq-clock__unit{ font-size:12px; color:var(--muted); margin-left:1px; }
-.tsq-clock__bar{ width:92px; height:5px; border-radius:99px; overflow:hidden; background:rgba(255,255,255,.10); }
-.tsq-clock__fill{ display:block; height:100%; width:100%; transform-origin:left center; border-radius:99px;
-  background:linear-gradient(90deg,var(--you),var(--accent)); }
-.tsq-clock__fill.is-running{ animation-name:tsq-drain; animation-timing-function:linear; animation-fill-mode:forwards; }
-.tsq-clock__fill.is-low{ background:linear-gradient(90deg,#ff8a5c,var(--rival)); }
+.tsq-side{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  min-width:0;
+  padding:6px 10px;
+  border-radius:13px;
+  background:var(--glass);
+  border:1px solid var(--glass-line);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+
+.tsq-side--rival{
+  align-items:flex-end;
+  text-align:right;
+}
+
+.tsq-side__tag{
+  font-size:9px;
+  line-height:1;
+  letter-spacing:.2em;
+  font-weight:700;
+  color:var(--muted);
+}
+
+.tsq-side--you .tsq-side__tag{
+  color:var(--you);
+}
+
+.tsq-side--rival .tsq-side__tag{
+  color:var(--rival);
+}
+
+.tsq-side__score{
+  margin-top:3px;
+  font-family:'Orbitron', monospace;
+  font-weight:800;
+  font-size:22px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+
+.tsq-side--you .tsq-side__score{
+  text-shadow:0 0 14px rgba(51,230,192,.4);
+}
+
+.tsq-side--rival .tsq-side__score{
+  text-shadow:0 0 14px rgba(255,93,143,.4);
+}
+
+.tsq-rival-q{
+  margin-top:3px;
+  min-height:16px;
+  padding:2px 7px;
+  border-radius:999px;
+  font-size:10px;
+  line-height:1.1;
+  font-weight:700;
+  letter-spacing:.12em;
+  animation:tsq-pop .26s ease;
+}
+
+.q-perfect{
+  color:#aeffe9;
+  background:rgba(51,230,192,.16);
+}
+
+.q-great{
+  color:#bfe0ff;
+  background:rgba(108,140,255,.16);
+}
+
+.q-good{
+  color:#ffe6b3;
+  background:rgba(255,196,84,.14);
+}
+
+.q-miss{
+  color:#ffb0c4;
+  background:rgba(255,93,143,.16);
+}
+
+.q-combo{
+  color:#fff;
+  background:linear-gradient(90deg,rgba(108,140,255,.42),rgba(255,93,143,.42));
+}
+
+.q-wait{
+  color:var(--muted);
+  background:transparent;
+}
+
+.tsq-clock{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  padding-top:0;
+}
+
+.tsq-clock__num{
+  font-family:'Orbitron', monospace;
+  font-weight:800;
+  font-size:25px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+  transition:color .25s;
+}
+
+.tsq-clock__num.is-low{
+  color:#ff6b8b;
+  text-shadow:0 0 18px rgba(255,93,143,.58);
+  animation:tsq-pulse 1s infinite;
+}
+
+.tsq-clock__unit{
+  margin-left:1px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.tsq-clock__bar{
+  width:84px;
+  height:4px;
+  overflow:hidden;
+  border-radius:99px;
+  background:rgba(255,255,255,.10);
+}
+
+.tsq-clock__fill{
+  display:block;
+  width:100%;
+  height:100%;
+  border-radius:99px;
+  transform-origin:left center;
+  background:linear-gradient(90deg,var(--you),var(--accent));
+}
+
+.tsq-clock__fill.is-running{
+  animation-name:tsq-drain;
+  animation-timing-function:linear;
+  animation-fill-mode:forwards;
+}
+
+.tsq-clock__fill.is-low{
+  background:linear-gradient(90deg,#ff8a5c,var(--rival));
+}
 
 /* ---------------- STAGE ---------------- */
-.tsq-stage-wrap{ position:relative; flex:1 1 auto; min-height:0; overflow:hidden;
-  margin:2px 12px 0; border-radius:22px; border:1px solid var(--glass-line);
-  background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.012));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 24px 60px -30px rgba(0,0,0,.9); }
-.tsq-stage-wrap.is-shake{ animation:tsq-shake .26s ease; }
-.tsq-grid{ position:absolute; inset:0; opacity:.5; pointer-events:none;
+.tsq-stage-wrap{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+  margin:0 10px 8px;
+  border-radius:21px;
+  border:1px solid var(--glass-line);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(108,140,255,.12), transparent 38%),
+    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.012));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 20px 52px -30px rgba(0,0,0,.9);
+}
+
+.tsq-grid{
+  position:absolute;
+  inset:0;
+  opacity:.48;
+  pointer-events:none;
   background-image:
     linear-gradient(rgba(108,140,255,.07) 1px, transparent 1px),
     linear-gradient(90deg, rgba(108,140,255,.07) 1px, transparent 1px);
   background-size:30px 30px;
   -webkit-mask-image:radial-gradient(120% 90% at 50% 28%, #000 40%, transparent 82%);
-          mask-image:radial-gradient(120% 90% at 50% 28%, #000 40%, transparent 82%); }
-.tsq-flash{ position:absolute; inset:0; border-radius:22px; pointer-events:none; z-index:6; opacity:0; }
-.tsq-flash.is-good{ box-shadow:inset 0 0 60px rgba(51,230,192,.45); animation:tsq-flash .28s ease; }
-.tsq-flash.is-bad{ box-shadow:inset 0 0 64px rgba(255,93,143,.5); animation:tsq-flash .3s ease; }
-.tsq-stage{ position:absolute; inset:0; --tsq-stage-h:100%; }
-.tsq-anchor{ position:absolute; left:0; right:0; height:0; }
+  mask-image:radial-gradient(120% 90% at 50% 28%, #000 40%, transparent 82%);
+}
 
-/* ---------------- BLOCKS (premium 3D neon) ---------------- */
-.tsq-block{ position:absolute; top:0; left:0; border-radius:7px; will-change:transform;
-  background:linear-gradient(177deg,
-    hsl(var(--h) 95% 68%) 0%,
-    hsl(var(--h) 88% 54%) 48%,
-    hsl(var(--h) 82% 44%) 100%);
+.tsq-flash{
+  position:absolute;
+  inset:0;
+  z-index:6;
+  border-radius:21px;
+  pointer-events:none;
+  opacity:0;
+}
+
+.tsq-flash.is-good{
+  box-shadow:inset 0 0 54px rgba(51,230,192,.36);
+  animation:tsq-flash .22s ease;
+}
+
+.tsq-flash.is-bad{
+  box-shadow:inset 0 0 56px rgba(255,93,143,.42);
+  animation:tsq-flash .24s ease;
+}
+
+.tsq-stage{
+  position:absolute;
+  inset:0;
+  --tsq-stage-h:100%;
+}
+
+.tsq-anchor{
+  position:absolute;
+  left:0;
+  right:0;
+  height:0;
+}
+
+/* ---------------- BLOCKS ---------------- */
+.tsq-block{
+  position:absolute;
+  top:0;
+  left:0;
+  border-radius:7px;
+  will-change:transform;
+  background:
+    linear-gradient(177deg,
+      hsl(var(--h) 95% 68%) 0%,
+      hsl(var(--h) 88% 54%) 48%,
+      hsl(var(--h) 82% 44%) 100%);
   box-shadow:
-    0 0 16px hsla(var(--h),95%,60%,.45),                 /* neon rim glow */
-    0 6px 12px -6px rgba(0,0,0,.7),                       /* soft ground shadow */
-    inset 0 1.5px 0 rgba(255,255,255,.6),                 /* top light edge */
-    inset 0 0 0 1px hsla(var(--h),90%,78%,.35),           /* crisp rim */
-    inset 0 -6px 10px hsla(var(--h),75%,26%,.6); }        /* bottom depth */
-/* glossy top highlight */
-.tsq-block::before{ content:""; position:absolute; left:7%; right:7%; top:2px; height:38%;
-  border-radius:6px 6px 9px 9px; pointer-events:none;
-  background:linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,0)); }
-.tsq-block--placed{ transition:transform .17s cubic-bezier(.22,1,.36,1); }
-/* impact pulse when a block lands */
-.tsq-block__land{ position:absolute; inset:-2px; border-radius:9px; pointer-events:none;
-  background:radial-gradient(circle, hsla(var(--h),95%,75%,.55), transparent 70%);
-  opacity:0; animation:tsq-land .34s ease-out; }
-.tsq-block--active{ z-index:3;
+    0 0 16px hsla(var(--h),95%,60%,.45),
+    0 6px 12px -6px rgba(0,0,0,.7),
+    inset 0 1.5px 0 rgba(255,255,255,.6),
+    inset 0 0 0 1px hsla(var(--h),90%,78%,.35),
+    inset 0 -6px 10px hsla(var(--h),75%,26%,.6);
+}
+
+.tsq-block::before{
+  content:"";
+  position:absolute;
+  left:7%;
+  right:7%;
+  top:2px;
+  height:38%;
+  border-radius:6px 6px 9px 9px;
+  pointer-events:none;
+  background:linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,0));
+}
+
+.tsq-block--placed{
+  transition:transform .16s cubic-bezier(.22,1,.36,1);
+}
+
+.tsq-block__land{
+  position:absolute;
+  inset:-2px;
+  border-radius:9px;
+  pointer-events:none;
+  opacity:0;
+  background:radial-gradient(circle, hsla(var(--h),95%,75%,.48), transparent 70%);
+  animation:tsq-land .3s ease-out;
+}
+
+.tsq-block--active{
+  z-index:3;
   box-shadow:
-    0 0 26px hsla(var(--h),95%,62%,.72),
+    0 0 24px hsla(var(--h),95%,62%,.65),
     0 8px 16px -6px rgba(0,0,0,.7),
     inset 0 1.5px 0 rgba(255,255,255,.66),
     inset 0 0 0 1px hsla(var(--h),90%,80%,.45),
     inset 0 -6px 10px hsla(var(--h),75%,26%,.6);
-  animation:tsq-breathe 1.5s ease-in-out infinite; }
+  animation:tsq-breathe 1.5s ease-in-out infinite;
+}
 
-/* sliced-off debris */
-.tsq-slice{ position:absolute; top:0; left:0; border-radius:6px; z-index:2; pointer-events:none;
+.tsq-slice{
+  position:absolute;
+  top:0;
+  left:0;
+  z-index:2;
+  border-radius:6px;
+  pointer-events:none;
   background:linear-gradient(177deg, hsl(var(--h) 92% 64%), hsl(var(--h) 82% 46%));
-  box-shadow:0 0 12px hsla(var(--h),95%,60%,.4), inset 0 1px 0 rgba(255,255,255,.4);
-  transform:translate3d(var(--sx),0,0); animation:tsq-slice-fall .5s cubic-bezier(.4,0,.7,1) forwards; }
+  box-shadow:
+    0 0 12px hsla(var(--h),95%,60%,.35),
+    inset 0 1px 0 rgba(255,255,255,.4);
+  transform:translate3d(var(--sx),0,0);
+  animation:tsq-slice-fall .48s cubic-bezier(.4,0,.7,1) forwards;
+}
 
-/* ---------------- FEEDBACK POPUP ---------------- */
-.tsq-fx{ position:absolute; top:-34px; left:50%; z-index:7; pointer-events:none;
-  display:flex; flex-direction:column; align-items:center; gap:1px;
-  transform:translateX(-50%); animation:tsq-rise .76s ease-out forwards; }
-.tsq-fx__label{ font-family:'Orbitron',monospace; font-weight:800; font-size:22px; letter-spacing:.05em; }
-.tsq-fx__pts{ font-size:13px; font-weight:700; color:var(--muted); }
-.tsq-fx.q-perfect .tsq-fx__label{ color:#5ffbe0; text-shadow:0 0 18px rgba(51,230,192,.8); }
-.tsq-fx.q-great .tsq-fx__label{ color:#9cc0ff; text-shadow:0 0 16px rgba(108,140,255,.7); }
-.tsq-fx.q-good .tsq-fx__label{ color:#ffd98a; text-shadow:0 0 14px rgba(255,196,84,.6); }
-.tsq-fx.q-miss .tsq-fx__label{ color:#ff7a99; text-shadow:0 0 14px rgba(255,93,143,.6); }
-.tsq-fx.q-miss .tsq-fx__pts{ color:#ff8aa6; }
-.tsq-fx.q-combo .tsq-fx__label{ color:#fff;
-  background:linear-gradient(90deg,#6c8cff,#ff5d8f); -webkit-background-clip:text; background-clip:text;
-  -webkit-text-fill-color:transparent; filter:drop-shadow(0 0 14px rgba(255,93,143,.7)); }
+/* ---------------- FLOATING LABELS WITHOUT SHADOW ---------------- */
+.tsq-fx{
+  position:absolute;
+  top:-32px;
+  left:50%;
+  z-index:7;
+  pointer-events:none;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:0;
+  transform:translateX(-50%);
+  animation:tsq-rise .72s ease-out forwards;
+}
 
-/* ---------------- BOTTOM CONTROL ---------------- */
-.tsq-control{ flex:0 0 auto; display:flex; justify-content:center; padding:14px 12px 12px; }
-.tsq-tap{ position:relative; width:100%; max-width:440px; height:60px; border:none; cursor:pointer;
-  border-radius:18px; color:#04121a; font-family:'Orbitron',monospace; font-weight:800;
-  font-size:15px; letter-spacing:.14em; overflow:hidden;
-  background:linear-gradient(135deg, var(--you), var(--accent));
-  box-shadow:0 14px 36px -12px rgba(51,230,192,.7), inset 0 1px 0 rgba(255,255,255,.5);
-  transition:transform .08s ease, filter .2s ease; }
-.tsq-tap:active{ transform:translateY(2px) scale(.985); }
-.tsq-tap:disabled{ filter:grayscale(.7) brightness(.7); cursor:default; box-shadow:none; }
-.tsq-tap__label{ position:relative; z-index:1; }
-.tsq-tap__ring{ position:absolute; inset:0; border-radius:18px; pointer-events:none;
-  background:radial-gradient(60% 120% at 50% 0%, rgba(255,255,255,.45), transparent 70%); }
+.tsq-fx__label{
+  font-family:'Orbitron', monospace;
+  font-weight:800;
+  font-size:21px;
+  line-height:1;
+  letter-spacing:.05em;
+  text-shadow:none !important;
+  filter:none !important;
+}
+
+.tsq-fx__pts{
+  margin-top:2px;
+  font-size:12px;
+  line-height:1;
+  font-weight:700;
+  color:rgba(234,240,255,.78);
+  text-shadow:none !important;
+  filter:none !important;
+}
+
+.tsq-fx.q-perfect .tsq-fx__label{
+  color:#5ffbe0;
+}
+
+.tsq-fx.q-great .tsq-fx__label{
+  color:#9cc0ff;
+}
+
+.tsq-fx.q-good .tsq-fx__label{
+  color:#ffd98a;
+}
+
+.tsq-fx.q-miss .tsq-fx__label{
+  color:#ff7a99;
+}
+
+.tsq-fx.q-miss .tsq-fx__pts{
+  color:#ff8aa6;
+}
+
+.tsq-fx.q-combo .tsq-fx__label{
+  color:#ffffff;
+  background:linear-gradient(90deg,#6c8cff,#ff5d8f);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+/* ---------------- COUNTDOWN ---------------- */
+.tsq-countdown{
+  position:absolute;
+  inset:0;
+  z-index:18;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  pointer-events:none;
+  background:radial-gradient(circle at 50% 50%, rgba(108,140,255,.16), rgba(5,7,16,.22) 44%, rgba(5,7,16,.52));
+}
+
+.tsq-countdown__num{
+  width:136px;
+  height:136px;
+  display:grid;
+  place-items:center;
+  border-radius:42px;
+  border:1px solid rgba(255,255,255,.14);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,255,255,.16), transparent 58%),
+    linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035));
+  box-shadow:
+    0 0 60px rgba(108,140,255,.38),
+    inset 0 1px 0 rgba(255,255,255,.16);
+  font-family:'Orbitron', monospace;
+  font-size:72px;
+  line-height:1;
+  font-weight:800;
+  color:#fff;
+  animation:tsq-count .88s cubic-bezier(.22,1,.36,1);
+}
+
+.tsq-countdown__label{
+  margin-top:16px;
+  padding:7px 13px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.11);
+  background:rgba(255,255,255,.06);
+  color:rgba(234,240,255,.68);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.22em;
+}
 
 /* ---------------- OVERLAYS ---------------- */
-.tsq-overlay{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
-  padding:24px; background:rgba(5,7,16,.72); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-  animation:tsq-fade .25s ease; }
-.tsq-panel{ width:100%; max-width:370px; text-align:center; padding:28px 24px 24px;
-  border-radius:24px; border:1px solid var(--glass-line);
+.tsq-overlay{
+  position:absolute;
+  inset:0;
+  z-index:20;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:rgba(5,7,16,.72);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  animation:tsq-fade .22s ease;
+}
+
+.tsq-panel{
+  width:100%;
+  max-width:360px;
+  text-align:center;
+  padding:26px 22px 22px;
+  border-radius:24px;
+  border:1px solid var(--glass-line);
   background:linear-gradient(180deg, rgba(28,36,68,.85), rgba(12,16,34,.92));
-  box-shadow:0 40px 90px -30px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.12);
-  animation:tsq-rise-in .35s cubic-bezier(.22,1,.36,1); }
-.tsq-panel__kicker{ margin:0 0 10px; font-size:11px; letter-spacing:.28em; font-weight:700; color:var(--accent); }
-.tsq-panel__title{ margin:0; font-family:'Orbitron',monospace; font-weight:800; font-size:38px; line-height:1;
-  background:linear-gradient(180deg,#fff,#9fb4ff); -webkit-background-clip:text; background-clip:text;
-  -webkit-text-fill-color:transparent; filter:drop-shadow(0 6px 24px rgba(108,140,255,.5)); }
-.tsq-panel__sub{ margin:14px 2px 22px; color:var(--muted); font-size:14.5px; line-height:1.5; font-weight:500; }
-.tsq-result-title{ font-size:44px; }
-.tsq-panel--win .tsq-result-title{ background:linear-gradient(180deg,#a9ffe9,#33e6c0); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; filter:drop-shadow(0 6px 24px rgba(51,230,192,.6)); }
-.tsq-panel--lose .tsq-result-title{ background:linear-gradient(180deg,#ffc2d2,#ff5d8f); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; filter:drop-shadow(0 6px 24px rgba(255,93,143,.55)); }
-.tsq-panel--draw .tsq-result-title{ background:linear-gradient(180deg,#fff,#cdd6ff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-.tsq-result-scores{ display:flex; align-items:center; justify-content:center; gap:18px; margin:6px 0 24px; }
-.tsq-result-scores__col{ display:flex; flex-direction:column; gap:4px; min-width:76px; }
-.tsq-result-scores__col span{ font-size:11px; letter-spacing:.2em; color:var(--muted); font-weight:700; }
-.tsq-result-scores__col strong{ font-family:'Orbitron',monospace; font-size:33px; }
-.tsq-result-scores__col:first-child strong{ color:var(--you); }
-.tsq-result-scores__col:last-child strong{ color:var(--rival); }
-.tsq-result-scores__vs{ font-family:'Orbitron',monospace; font-size:13px; color:var(--muted); }
-.tsq-cta{ width:100%; height:56px; border:none; cursor:pointer; border-radius:17px;
-  font-family:'Orbitron',monospace; font-weight:800; font-size:15px; letter-spacing:.14em; color:#04121a;
+  box-shadow:
+    0 36px 82px -30px rgba(0,0,0,.9),
+    inset 0 1px 0 rgba(255,255,255,.12);
+  animation:tsq-rise-in .32s cubic-bezier(.22,1,.36,1);
+}
+
+.tsq-panel__kicker{
+  margin:0 0 10px;
+  font-size:10px;
+  letter-spacing:.26em;
+  font-weight:700;
+  color:var(--accent);
+}
+
+.tsq-panel__title{
+  margin:0;
+  font-family:'Orbitron', monospace;
+  font-weight:800;
+  font-size:36px;
+  line-height:1;
+  background:linear-gradient(180deg,#fff,#9fb4ff);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 6px 24px rgba(108,140,255,.5));
+}
+
+.tsq-panel__sub{
+  margin:14px 2px 20px;
+  color:var(--muted);
+  font-size:14px;
+  line-height:1.45;
+  font-weight:500;
+}
+
+.tsq-result-title{
+  font-size:42px;
+}
+
+.tsq-panel--win .tsq-result-title{
+  background:linear-gradient(180deg,#a9ffe9,#33e6c0);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+.tsq-panel--lose .tsq-result-title{
+  background:linear-gradient(180deg,#ffc2d2,#ff5d8f);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+.tsq-panel--draw .tsq-result-title{
+  background:linear-gradient(180deg,#fff,#cdd6ff);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+.tsq-result-scores{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:16px;
+  margin:8px 0 22px;
+}
+
+.tsq-result-scores__col{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  min-width:74px;
+}
+
+.tsq-result-scores__col span{
+  font-size:10px;
+  letter-spacing:.2em;
+  color:var(--muted);
+  font-weight:700;
+}
+
+.tsq-result-scores__col strong{
+  font-family:'Orbitron', monospace;
+  font-size:31px;
+}
+
+.tsq-result-scores__col:first-child strong{
+  color:var(--you);
+}
+
+.tsq-result-scores__col:last-child strong{
+  color:var(--rival);
+}
+
+.tsq-result-scores__vs{
+  font-family:'Orbitron', monospace;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.tsq-cta{
+  width:100%;
+  height:54px;
+  border:none;
+  cursor:pointer;
+  border-radius:17px;
+  color:#04121a;
+  font-family:'Orbitron', monospace;
+  font-weight:800;
+  font-size:14px;
+  letter-spacing:.13em;
   background:linear-gradient(135deg, var(--you), var(--accent));
-  box-shadow:0 16px 40px -14px rgba(51,230,192,.7), inset 0 1px 0 rgba(255,255,255,.5);
-  transition:transform .08s ease; }
-.tsq-cta:active{ transform:translateY(2px) scale(.985); }
-.tsq-ghost{ margin-top:12px; width:100%; height:42px; border:1px solid var(--glass-line);
-  background:transparent; color:var(--muted); border-radius:13px; cursor:pointer;
-  font-family:'Rajdhani',sans-serif; font-weight:600; letter-spacing:.1em; font-size:13px; }
+  box-shadow:
+    0 16px 40px -14px rgba(51,230,192,.7),
+    inset 0 1px 0 rgba(255,255,255,.5);
+  transition:transform .08s ease;
+}
+
+.tsq-cta:active{
+  transform:translateY(2px) scale(.985);
+}
+
+.tsq-ghost{
+  margin-top:12px;
+  width:100%;
+  height:40px;
+  border:1px solid var(--glass-line);
+  background:transparent;
+  color:var(--muted);
+  border-radius:13px;
+  cursor:pointer;
+  font-family:'Rajdhani', sans-serif;
+  font-weight:600;
+  letter-spacing:.1em;
+  font-size:13px;
+}
 
 /* ---------------- KEYFRAMES ---------------- */
-@keyframes tsq-drain{ from{ transform:scaleX(1);} to{ transform:scaleX(0);} }
-@keyframes tsq-breathe{ 0%,100%{ filter:brightness(1);} 50%{ filter:brightness(1.14);} }
-@keyframes tsq-land{ 0%{ opacity:.85; transform:scale(1.03);} 100%{ opacity:0; transform:scale(1.22);} }
+@keyframes tsq-drain{
+  from{ transform:scaleX(1); }
+  to{ transform:scaleX(0); }
+}
+
+@keyframes tsq-breathe{
+  0%,100%{ filter:brightness(1); }
+  50%{ filter:brightness(1.12); }
+}
+
+@keyframes tsq-land{
+  0%{ opacity:.78; transform:scale(1.03); }
+  100%{ opacity:0; transform:scale(1.2); }
+}
+
 @keyframes tsq-slice-fall{
-  0%{ opacity:1; transform:translate3d(var(--sx),0,0) rotate(0);}
-  100%{ opacity:0; transform:translate3d(calc(var(--sx) + var(--dx)),120px,0) rotate(var(--rot));} }
-@keyframes tsq-rise{ 0%{ opacity:0; transform:translate(-50%,6px) scale(.85);} 18%{ opacity:1; transform:translate(-50%,0) scale(1);} 100%{ opacity:0; transform:translate(-50%,-42px) scale(1.04);} }
-@keyframes tsq-shake{ 0%,100%{ transform:translateX(0);} 25%{ transform:translateX(-4px);} 50%{ transform:translateX(4px);} 75%{ transform:translateX(-2px);} }
-@keyframes tsq-flash{ 0%{ opacity:0;} 30%{ opacity:1;} 100%{ opacity:0;} }
-@keyframes tsq-pop{ 0%{ transform:scale(.6); opacity:0;} 100%{ transform:scale(1); opacity:1;} }
-@keyframes tsq-pulse{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.12);} }
-@keyframes tsq-fade{ from{opacity:0;} to{opacity:1;} }
-@keyframes tsq-rise-in{ from{ opacity:0; transform:translateY(20px) scale(.96);} to{ opacity:1; transform:translateY(0) scale(1);} }
+  0%{
+    opacity:1;
+    transform:translate3d(var(--sx),0,0) rotate(0);
+  }
+  100%{
+    opacity:0;
+    transform:translate3d(calc(var(--sx) + var(--dx)),112px,0) rotate(var(--rot));
+  }
+}
+
+@keyframes tsq-rise{
+  0%{
+    opacity:0;
+    transform:translate(-50%,6px) scale(.86);
+  }
+  18%{
+    opacity:1;
+    transform:translate(-50%,0) scale(1);
+  }
+  100%{
+    opacity:0;
+    transform:translate(-50%,-38px) scale(1.03);
+  }
+}
+
+@keyframes tsq-flash{
+  0%{ opacity:0; }
+  32%{ opacity:1; }
+  100%{ opacity:0; }
+}
+
+@keyframes tsq-pop{
+  0%{
+    transform:scale(.7);
+    opacity:0;
+  }
+  100%{
+    transform:scale(1);
+    opacity:1;
+  }
+}
+
+@keyframes tsq-pulse{
+  0%,100%{ transform:scale(1); }
+  50%{ transform:scale(1.1); }
+}
+
+@keyframes tsq-fade{
+  from{ opacity:0; }
+  to{ opacity:1; }
+}
+
+@keyframes tsq-rise-in{
+  from{
+    opacity:0;
+    transform:translateY(18px) scale(.96);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+@keyframes tsq-count{
+  0%{
+    opacity:0;
+    transform:scale(.68) rotate(-5deg);
+  }
+  22%{
+    opacity:1;
+    transform:scale(1.06) rotate(0);
+  }
+  100%{
+    opacity:.96;
+    transform:scale(1);
+  }
+}
 
 @media (prefers-reduced-motion: reduce){
-  .tsq-block--active{ animation:none !important; }
-  .tsq-clock__num.is-low{ animation:none !important; }
+  .tsq-block--active,
+  .tsq-clock__num.is-low,
+  .tsq-countdown__num{
+    animation:none !important;
+  }
 }
 `;
