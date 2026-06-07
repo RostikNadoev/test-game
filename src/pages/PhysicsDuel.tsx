@@ -38,7 +38,7 @@ import upback from '../assets/upback.png';
 
 const TOTAL_TURNS = 15;
 const PREP_TIME = 5; // seconds of preparation per turn
-const MAX_RESOLVE = 8.5; // safety cap: force-settle a turn after this many seconds
+const MAX_RESOLVE = 10.5; // safety cap: force-settle a turn after this many seconds
 
 const FIXED_DT = 1 / 120; // physics step
 const MAX_SUBSTEPS = 6; // cap substeps per frame to avoid spiral-of-death
@@ -46,10 +46,10 @@ const SOLVER_ITERS = 6; // collision solver iterations per substep
 
 const GRAVITY = 2100; // px/s^2
 const AIR_DRAG = 0.018; // linear air damping (per second)
-const ANG_AIR_DRAG = 0.48; // angular air damping (lower = spin/tumble persists in flight)
-const ROLL_RES = 0.42; // extra ground damping while in contact (lower = slides/rolls farther)
-const RESTITUTION = 0.2; // bounciness; softer arcade impacts
-const FRICTION = 0.42; // contact friction coefficient; lower = longer rolling/sliding
+const ANG_AIR_DRAG = 0.22; // angular air damping (lower = spin/tumble persists much longer)
+const ROLL_RES = 0.16; // extra ground damping while in contact (very low = long arcade rolling)
+const RESTITUTION = 0.18; // bounciness; soft arcade impacts without pinball chaos
+const FRICTION = 0.26; // contact friction coefficient; lower = longer rolling/sliding
 
 /* --- Drag-to-launch (slingshot) tuning --- */
 const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
@@ -59,14 +59,16 @@ const MIN_PULL = 12; // px; pulls shorter than this are ignored (accidental taps
 const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
 const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
 const DEFAULT_ANGLE = (52 * Math.PI) / 180; // safe fallback angle if the player does nothing
-const DEFAULT_SPEED = 470; // gentle forward hop for the fallback launch
+const DEFAULT_SPEED = 500; // gentle forward hop for the fallback launch
+const MIN_LAUNCH_SPIN = 1.65; // every launch must visibly rotate the cube
+const LAUNCH_SPIN_POWER = 0.026; // harder launches get more spin
 
 const SLOP = 0.5; // penetration allowance
 const CORR = 0.6; // positional correction factor
 
-const SPEED_EPS = 18; // px/s linear "stopped" threshold; avoids visual standing while HUD says motion
-const ANG_EPS = 0.62; // rad/s angular "stopped" threshold; avoids long fake motion waits
-const STILL_TIME = 0.34; // s of stillness required to latch "stopped"
+const SPEED_EPS = 12; // px/s linear "stopped" threshold; lower = cube keeps rolling longer
+const ANG_EPS = 0.34; // rad/s angular "stopped" threshold; lower = visible spin must calm down first
+const STILL_TIME = 0.46; // s of stillness required to latch "stopped"
 
 const CUBE = 26; // cube side length (px)
 const CUBE_MASS = 1;
@@ -130,22 +132,23 @@ function generateStairs(seed: number): Stairs {
   let topY = 540;
   const MIN_TOP = -4400; // highest the climb may reach
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 8 + Math.floor(rnd() * 5);
+  let nextSafeIn = 12 + Math.floor(rnd() * 7);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: the usual step is close to the cube size. Wide/safe ledges are now
-    // rarer and smaller, so every landing feels meaningful instead of free.
+    // Width: 90% of the ladder is now basically cube-width. The whole point
+    // is the scary question: will the cube land cleanly on a tiny ledge, or touch
+    // an edge and start tumbling back down?  Recovery/safe ledges still exist,
+    // but they are rare and not huge.
     const wr = rnd();
     let width: number;
-    if (platform) width = 138 + rnd() * 24; // only the shared start is wide/stable
-    else if (safeZone) width = 58 + rnd() * 22; // rare recovery ledge, not a giant platform
-    else if (wr < 0.34) width = 27 + rnd() * 7; // almost exactly cube-sized risky ledge
-    else if (wr < 0.82) width = 33 + rnd() * 16; // average ledge: compact, skill-based
-    else if (wr < 0.94) width = 50 + rnd() * 12; // slightly forgiving, but not huge
-    else width = 23 + rnd() * 6; // tiny danger ledge
+    if (platform) width = 132 + rnd() * 22; // only the shared start is wide/stable
+    else if (safeZone) width = CUBE * (1.28 + rnd() * 0.12); // rare small recovery ledge
+    else if (wr < 0.9) width = CUBE * (1.01 + rnd() * 0.025); // ~90%: almost exactly cube width
+    else if (wr < 0.985) width = CUBE * (1.18 + rnd() * 0.08); // ~120%: slightly forgiving
+    else width = CUBE * (1.36 + rnd() * 0.14); // tiny chance of a wider breather
 
     // Height change. Stronger upward rhythm: more 2-level climbs, rare 3-level
     // climbs, and only occasional down steps so a fall feels dramatic.
@@ -190,7 +193,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    if (safeZone) nextSafeIn = 9 + Math.floor(rnd() * 6);
+    if (safeZone) nextSafeIn = 13 + Math.floor(rnd() * 8);
     else nextSafeIn -= 1;
   }
 
@@ -672,8 +675,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       if (contact) {
-        // Very light rolling resistance: enough to avoid endless micro-sliding, but
-        // not enough to kill the fun tumble/roll moments too abruptly.
+        // Extremely light rolling resistance: the cube should feel a little soft/arcade,
+        // able to keep rolling and tumbling instead of snapping to a stop.
         cube.vx -= cube.vx * ROLL_RES * h;
         cube.av -= cube.av * ROLL_RES * h;
       }
@@ -719,8 +722,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     const fire = (cube: Cube, mv: LaunchMove) => {
       cube.vx = mv.vx;
       cube.vy = mv.vy;
-      // A touch of launch spin scaled by power, so harder shots tumble more readily.
-      cube.av = (Math.random() - 0.5) * (0.9 + mv.power * 0.012);
+      // Every throw must visibly rotate.  Random near-zero spin felt broken, so
+      // give each launch a guaranteed angular kick, with harder shots spinning more.
+      const spinDirection = Math.random() < 0.5 ? -1 : 1;
+      cube.av = spinDirection * (MIN_LAUNCH_SPIN + mv.power * LAUNCH_SPIN_POWER);
       cube.stopped = false;
       cube.stillTimer = 0;
       cube.startX = cube.x;
