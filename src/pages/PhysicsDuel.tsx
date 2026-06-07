@@ -54,7 +54,7 @@ const FRICTION = 0.26; // contact friction coefficient; lower = longer rolling/s
 /* --- Drag-to-launch (slingshot) tuning --- */
 const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
 const MIN_LAUNCH = 255; // min launch speed (px/s)
-const MAX_LAUNCH = 1160; // max launch speed (px/s) — stronger but still mobile-safe
+const MAX_LAUNCH = 1120; // max launch speed (px/s) — strong but controllable for shorter, safer gaps
 const MIN_PULL = 12; // px; pulls shorter than this are ignored (accidental taps)
 const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
 const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
@@ -77,7 +77,7 @@ const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6); // square plate inertia about
 
 const DPR_CAP = 1.5;
 
-const LEVEL = 30; // vertical height of one staircase "level"
+const LEVEL = 23; // vertical height of one staircase "level"; smaller = no deep pits / gentler drops
 const PX_PER_M = 42; // world px per displayed "meter"
 const WORLD_LEN = 9000; // generate staircase until this world x is covered
 
@@ -130,45 +130,43 @@ function generateStairs(seed: number): Stairs {
   // and occasional small safe zones where a good landing can settle instead of
   // instantly rolling back down.
   let topY = 540;
-  const MIN_TOP = -4400; // highest the climb may reach
+  const MIN_TOP = -3200; // highest the climb may reach; gentler than before
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 12 + Math.floor(rnd() * 7);
+  let nextSafeIn = 9 + Math.floor(rnd() * 6);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: 90% of the ladder is now basically cube-width. The whole point
-    // is the scary question: will the cube land cleanly on a tiny ledge, or touch
-    // an edge and start tumbling back down?  Recovery/safe ledges still exist,
-    // but they are rare and not huge.
+    // Width: still mostly cube-sized, but a bit more forgiving than v3.
+    // The common ledge is just wider than the cube, so a clean landing is possible,
+    // while bad edge landings still tumble. Safe zones are rare and modest.
     const wr = rnd();
     let width: number;
     if (platform) width = 132 + rnd() * 22; // only the shared start is wide/stable
-    else if (safeZone) width = CUBE * (1.28 + rnd() * 0.12); // rare small recovery ledge
-    else if (wr < 0.9) width = CUBE * (1.01 + rnd() * 0.025); // ~90%: almost exactly cube width
-    else if (wr < 0.985) width = CUBE * (1.18 + rnd() * 0.08); // ~120%: slightly forgiving
-    else width = CUBE * (1.36 + rnd() * 0.14); // tiny chance of a wider breather
+    else if (safeZone) width = CUBE * (1.32 + rnd() * 0.1); // rare small recovery ledge
+    else if (wr < 0.76) width = CUBE * (1.09 + rnd() * 0.07); // common: ~109–116% cube width
+    else if (wr < 0.96) width = CUBE * (1.18 + rnd() * 0.1); // a little forgiving, not huge
+    else width = CUBE * (1.3 + rnd() * 0.12); // tiny chance of a wider breather
 
-    // Height change. Stronger upward rhythm: more 2-level climbs, rare 3-level
-    // climbs, and only occasional down steps so a fall feels dramatic.
+    // Height change. Still a climbing ladder, but NO deep pits. Downward steps are
+    // only one gentle level, and 3-level climbs are removed. This keeps the "fall"
+    // drama without creating giant holes two cubes deep.
     const hr = rnd();
     let delta: number;
     if (platform) delta = 0; // flat launch pad
-    else if (safeZone) delta = rnd() < 0.78 ? -1 : 0; // recovery ledges are usually fair
-    else if (hr < 0.48) delta = -1; // up one level
-    else if (hr < 0.82) delta = -2; // up two levels, main challenge
-    else if (hr < 0.9) delta = -3; // rare steep climb
-    else if (hr < 0.955) delta = 0; // short breather
-    else if (hr < 0.99) delta = 1; // rare down one
-    else delta = 2; // very rare down two
+    else if (safeZone) delta = rnd() < 0.82 ? -1 : 0; // recovery ledges are usually fair
+    else if (hr < 0.64) delta = -1; // up one level, main rhythm
+    else if (hr < 0.86) delta = -2; // up two levels, still challenging but gentler with LEVEL=23
+    else if (hr < 0.96) delta = 0; // short breather
+    else delta = 1; // rare one-level down step only; no deep pits
 
     topY += delta * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
     // Crooked tops add danger, but keep safe zones flat enough to be readable.
-    const slope = !platform && !safeZone && rnd() < 0.36 ? (rnd() - 0.5) * 0.13 : 0;
+    const slope = !platform && !safeZone && rnd() < 0.28 ? (rnd() - 0.5) * 0.08 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -347,16 +345,27 @@ function moveFromAngleSpeed(angle: number, speed: number): LaunchMove {
 const DEFAULT_MOVE = (): LaunchMove => moveFromAngleSpeed(DEFAULT_ANGLE, DEFAULT_SPEED);
 
 /**
- * Turn a raw forward/up velocity request into a legal launch:
- * forward-only, up-only, angle-clamped, speed-clamped. Shared by the player's
- * drag input and the bot so neither can produce a broken shot.
+ * Turn a raw horizontal/up velocity request into a legal launch.
+ * Unlike the bot helper, player drag is allowed to shoot LEFT or RIGHT:
+ * pulling right means the cube flies left, pulling left means it flies right.
+ * Vertical downward launches are still blocked, and angle/speed are clamped.
  */
 function clampLaunch(vxRaw: number, vyUpRaw: number): LaunchMove {
-  const vx = Math.max(0, vxRaw); // never launch backward
+  const dir = vxRaw < 0 ? -1 : 1;
+  const vxAbs = Math.abs(vxRaw);
   const vyUp = Math.max(0, vyUpRaw); // never launch downward
-  const speed = Math.hypot(vx, vyUp);
+  const speed = Math.hypot(vxAbs, vyUp);
   if (speed < 1) return DEFAULT_MOVE();
-  return moveFromAngleSpeed(Math.atan2(vyUp, vx), speed);
+
+  const angle = clampN(Math.atan2(vyUp, Math.max(1, vxAbs)), LAUNCH_ANGLE_MIN, LAUNCH_ANGLE_MAX);
+  const s = clampN(speed, MIN_LAUNCH, MAX_LAUNCH);
+  const power = Math.round(clampN((s - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH), 0, 1) * 100);
+
+  return {
+    vx: dir * Math.cos(angle) * s,
+    vy: -Math.sin(angle) * s,
+    power,
+  };
 }
 
 /** Solve a launch speed that, at the given angle, passes through (dx, dyDown). */
@@ -389,7 +398,7 @@ function createBotProvider(): MoveProvider {
         if (range > 560) break; // beyond plausible reach
         farthest = s;
 
-        const widthScore = (s.x1 - s.x0) / 48; // prefer safer landings, tuned for cube-sized steps
+        const widthScore = (s.x1 - s.x0) / 42; // prefer safer landings, tuned for forgiving cube-sized steps
         const climb = (here.topY - s.topY) / LEVEL; // + means target is higher
         const climbPenalty = climb > 0 ? climb * 0.45 : Math.abs(climb) * 0.18;
         const reachBonus = range / 150; // reward forward progress
@@ -1200,11 +1209,11 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
         ctx.restore();
       }
 
-      // Dotted gravity arc following the actual launch velocity.
+      // Dotted gravity arc following only ~40% of the actual launch path.
       const onlyDefault = !d.move; // dim the arc when it's just the idle default
       ctx.fillStyle = 'rgba(236,238,242,0.55)';
       const startSY = g.player.y - CUBE / 2;
-      for (let s = 1; s <= 24; s++) {
+      for (let s = 1; s <= 10; s++) {
         const t = s * 0.045;
         const wx = g.player.x + mv.vx * t;
         const wy = startSY + mv.vy * t + 0.5 * GRAVITY * t * t;
