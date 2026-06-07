@@ -38,7 +38,7 @@ import upback from '../assets/upback.png';
 
 const TOTAL_TURNS = 15;
 const PREP_TIME = 5; // seconds of preparation per turn
-const MAX_RESOLVE = 11; // safety cap: force-settle a turn after this many seconds
+const MAX_RESOLVE = 8.5; // safety cap: force-settle a turn after this many seconds
 
 const FIXED_DT = 1 / 120; // physics step
 const MAX_SUBSTEPS = 6; // cap substeps per frame to avoid spiral-of-death
@@ -46,10 +46,10 @@ const SOLVER_ITERS = 6; // collision solver iterations per substep
 
 const GRAVITY = 2100; // px/s^2
 const AIR_DRAG = 0.018; // linear air damping (per second)
-const ANG_AIR_DRAG = 0.85; // angular air damping (lower = spin/tumble persists in flight)
-const ROLL_RES = 1.3; // extra ground damping while in contact (lower = slides/rolls farther)
-const RESTITUTION = 0.24; // bounciness
-const FRICTION = 0.58; // contact friction coefficient
+const ANG_AIR_DRAG = 0.48; // angular air damping (lower = spin/tumble persists in flight)
+const ROLL_RES = 0.42; // extra ground damping while in contact (lower = slides/rolls farther)
+const RESTITUTION = 0.2; // bounciness; softer arcade impacts
+const FRICTION = 0.42; // contact friction coefficient; lower = longer rolling/sliding
 
 /* --- Drag-to-launch (slingshot) tuning --- */
 const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
@@ -64,9 +64,9 @@ const DEFAULT_SPEED = 470; // gentle forward hop for the fallback launch
 const SLOP = 0.5; // penetration allowance
 const CORR = 0.6; // positional correction factor
 
-const SPEED_EPS = 10; // px/s linear "stopped" threshold
-const ANG_EPS = 0.3; // rad/s angular "stopped" threshold
-const STILL_TIME = 0.5; // s of stillness required to latch "stopped"
+const SPEED_EPS = 18; // px/s linear "stopped" threshold; avoids visual standing while HUD says motion
+const ANG_EPS = 0.62; // rad/s angular "stopped" threshold; avoids long fake motion waits
+const STILL_TIME = 0.34; // s of stillness required to latch "stopped"
 
 const CUBE = 26; // cube side length (px)
 const CUBE_MASS = 1;
@@ -130,22 +130,22 @@ function generateStairs(seed: number): Stairs {
   let topY = 540;
   const MIN_TOP = -4400; // highest the climb may reach
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 5 + Math.floor(rnd() * 4);
+  let nextSafeIn = 8 + Math.floor(rnd() * 5);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: the usual step is around the cube size. Safe zones are still not huge,
-    // but wide enough to reward a clean shot and stop a bad losing streak.
+    // Width: the usual step is close to the cube size. Wide/safe ledges are now
+    // rarer and smaller, so every landing feels meaningful instead of free.
     const wr = rnd();
     let width: number;
-    if (platform) width = 150 + rnd() * 30; // wide, stable starting platform
-    else if (safeZone) width = 72 + rnd() * 34; // small safe zone / recovery ledge
-    else if (wr < 0.24) width = 28 + rnd() * 8; // almost cube-sized risky ledge
-    else if (wr < 0.72) width = 34 + rnd() * 18; // average ledge: ~1.3-2 cubes
-    else if (wr < 0.9) width = 54 + rnd() * 18; // slightly forgiving
-    else width = 24 + rnd() * 6; // tiny danger ledge
+    if (platform) width = 138 + rnd() * 24; // only the shared start is wide/stable
+    else if (safeZone) width = 58 + rnd() * 22; // rare recovery ledge, not a giant platform
+    else if (wr < 0.34) width = 27 + rnd() * 7; // almost exactly cube-sized risky ledge
+    else if (wr < 0.82) width = 33 + rnd() * 16; // average ledge: compact, skill-based
+    else if (wr < 0.94) width = 50 + rnd() * 12; // slightly forgiving, but not huge
+    else width = 23 + rnd() * 6; // tiny danger ledge
 
     // Height change. Stronger upward rhythm: more 2-level climbs, rare 3-level
     // climbs, and only occasional down steps so a fall feels dramatic.
@@ -190,7 +190,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    if (safeZone) nextSafeIn = 6 + Math.floor(rnd() * 5);
+    if (safeZone) nextSafeIn = 9 + Math.floor(rnd() * 6);
     else nextSafeIn -= 1;
   }
 
@@ -590,6 +590,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
       const half = CUBE / 2;
       let contact = false;
+      let nearSurface = false;
       let maxImpact = 0;
       let impactX = 0;
       let impactY = 0;
@@ -610,6 +611,12 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           const ry = lx * sa + ly * ca;
           const pxw = cube.x + rx;
           const pyw = cube.y + ry;
+
+          const nearStep = g.stairs.steps[stepIndexAt(g.stairs.steps, pxw)];
+          const nearSy = surfaceYAt(nearStep, pxw);
+          if (pyw >= nearSy - 2.5 && pyw <= nearSy + 8) {
+            nearSurface = true;
+          }
 
           const ct = terrainContact(g.stairs, pxw, pyw);
           if (!ct) continue;
@@ -665,7 +672,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       if (contact) {
-        // Ground rolling resistance helps cubes settle naturally.
+        // Very light rolling resistance: enough to avoid endless micro-sliding, but
+        // not enough to kill the fun tumble/roll moments too abruptly.
         cube.vx -= cube.vx * ROLL_RES * h;
         cube.av -= cube.av * ROLL_RES * h;
       }
@@ -678,16 +686,25 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       // Stop detection.
+      // The previous version required a strict contact on the exact current frame;
+      // visually the cube could already be standing still, but a tiny solver gap
+      // reset the still timer and kept the HUD stuck on “IN MOTION…”.  We accept
+      // a near-surface state too, and once the cube is visually calm we latch the
+      // stop quickly.  Faster rolls still keep going because speed/angle are above
+      // the thresholds.
       const speed = Math.hypot(cube.vx, cube.vy);
       const angsp = Math.abs(cube.av);
-      if (contact && speed < SPEED_EPS && angsp < ANG_EPS) {
+      const restingCandidate = (contact || nearSurface) && speed < SPEED_EPS && angsp < ANG_EPS;
+
+      if (restingCandidate) {
         cube.stillTimer += h;
         if (cube.stillTimer >= STILL_TIME) {
           cube.stopped = true;
           cube.vx = 0;
           cube.vy = 0;
           cube.av = 0;
-          // Snap to a tidy resting orientation.
+          // Snap to a tidy resting orientation only at the very end, so rolling
+          // still feels soft/arcade while the cube is actually moving.
           cube.angle = Math.round(cube.angle / (Math.PI / 2)) * (Math.PI / 2);
         }
       } else {
