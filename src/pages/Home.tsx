@@ -41,6 +41,15 @@ const games: Game[] = [
     status: 'New',
   },
   {
+    id: 'physicsduel',
+    name: 'Descent Duel',
+    icon: '◼️',
+    description: 'Кубы, лестница и физика на дистанцию',
+    color: 'from-white/18 via-[#8A8A8A]/10 to-transparent',
+    meta: 'Physics',
+    status: 'New',
+  },
+  {
     id: 'paperio',
     name: 'Paper IO',
     icon: '🟩',
@@ -170,6 +179,7 @@ const games: Game[] = [
 ];
 
 const LOCAL_PLAY_IDS = new Set([
+  'physicsduel',
   'paperio',
   'towerstack',
   'crashduel',
@@ -180,6 +190,7 @@ const LOCAL_PLAY_IDS = new Set([
 
 const featuredIds = new Set([
   'plinko',
+  'physicsduel',
   'paperio',
   'towerstack',
   'crashduel',

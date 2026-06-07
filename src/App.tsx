@@ -22,12 +22,14 @@ import { VirusMarketGame } from './pages/VirusMarketGame';
 import { CrashDuelGame } from './pages/CrashDuelGame';
 import { PaperIoGame } from './pages/PaperIoGame';
 import { TowerStackGame } from './pages/TowerStackGame';
+import { PhysicsDuel } from './pages/PhysicsDuel';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
 const GAME_TITLES: Record<string, string> = {
   '/game/plinko/play': 'Plinko PvP',
+  '/game/physicsduel/play': 'Descent Duel',
   '/game/paperio/play': 'Paper IO',
   '/game/towerstack/play': 'Tower Stack',
   '/game/hexfall/play': 'Hex Fall',
@@ -46,6 +48,7 @@ const GAME_TITLES: Record<string, string> = {
 
 const LOCKED_GAME_ROUTES = new Set([
   '/game/plinko/play',
+  '/game/physicsduel/play',
   '/game/paperio/play',
   '/game/towerstack/play',
   '/game/hexfall/play',
@@ -159,6 +162,7 @@ function AppShell() {
             <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
             <Route path="/game/plinko/play" element={<PlinkoPvpGame />} />
+            <Route path="/game/physicsduel/play" element={<PhysicsDuel />} />
             <Route path="/game/paperio/play" element={<PaperIoGame />} />
             <Route path="/game/towerstack/play" element={<TowerStackGame />} />
             <Route path="/game/hexfall/play" element={<HexFallGame />} />
