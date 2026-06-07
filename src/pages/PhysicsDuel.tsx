@@ -52,14 +52,14 @@ const RESTITUTION = 0.24; // bounciness
 const FRICTION = 0.58; // contact friction coefficient
 
 /* --- Drag-to-launch (slingshot) tuning --- */
-const DRAG_SCALE = 3.6; // launch speed (px/s) gained per px of finger pull
-const MIN_LAUNCH = 235; // min launch speed (px/s)
-const MAX_LAUNCH = 980; // max launch speed (px/s) — clamped so the apex stays on-screen
-const MIN_PULL = 16; // px; pulls shorter than this are ignored (accidental taps)
+const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
+const MIN_LAUNCH = 255; // min launch speed (px/s)
+const MAX_LAUNCH = 1160; // max launch speed (px/s) — stronger but still mobile-safe
+const MIN_PULL = 12; // px; pulls shorter than this are ignored (accidental taps)
 const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
 const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
 const DEFAULT_ANGLE = (52 * Math.PI) / 180; // safe fallback angle if the player does nothing
-const DEFAULT_SPEED = 430; // gentle forward hop for the fallback launch
+const DEFAULT_SPEED = 470; // gentle forward hop for the fallback launch
 
 const SLOP = 0.5; // penetration allowance
 const CORR = 0.6; // positional correction factor
@@ -123,41 +123,49 @@ function generateStairs(seed: number): Stairs {
   const rnd = mulberry32(seed);
   const steps: Step[] = [];
   let x = 0;
-  // Y grows downward, so SMALLER topY = HIGHER up. The ladder mostly CLIMBS from
-  // left to right, meaning topY mostly DECREASES. Start low on screen and allow a
-  // tall climb; the wide MIN_TOP keeps the trend from being clamped into a flat top.
+  // Y grows downward, so SMALLER topY = HIGHER up. The ladder now feels much
+  // closer to the reference: compact cube-sized ledges, a clearly steeper climb,
+  // and occasional small safe zones where a good landing can settle instead of
+  // instantly rolling back down.
   let topY = 540;
-  const MIN_TOP = -3600; // highest the climb may reach
-  const MAX_TOP = 600; // lowest point (start area / after the rare down steps)
+  const MIN_TOP = -4400; // highest the climb may reach
+  const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
+  let nextSafeIn = 5 + Math.floor(rnd() * 4);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
+    const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: mostly medium, occasionally narrow or wide. The start is wide & even.
+    // Width: the usual step is around the cube size. Safe zones are still not huge,
+    // but wide enough to reward a clean shot and stop a bad losing streak.
     const wr = rnd();
     let width: number;
     if (platform) width = 150 + rnd() * 30; // wide, stable starting platform
-    else if (wr < 0.2) width = 40 + rnd() * 16; // narrow (risky landing)
-    else if (wr > 0.8) width = 104 + rnd() * 40; // wide
-    else width = 62 + rnd() * 36; // medium
+    else if (safeZone) width = 72 + rnd() * 34; // small safe zone / recovery ledge
+    else if (wr < 0.24) width = 28 + rnd() * 8; // almost cube-sized risky ledge
+    else if (wr < 0.72) width = 34 + rnd() * 18; // average ledge: ~1.3-2 cubes
+    else if (wr < 0.9) width = 54 + rnd() * 18; // slightly forgiving
+    else width = 24 + rnd() * 6; // tiny danger ledge
 
-    // Height change. The ladder mostly climbs: ~87% upward, a little flat, rare down.
-    // (negative delta = UP / smaller Y; positive = DOWN / larger Y)
+    // Height change. Stronger upward rhythm: more 2-level climbs, rare 3-level
+    // climbs, and only occasional down steps so a fall feels dramatic.
     const hr = rnd();
     let delta: number;
     if (platform) delta = 0; // flat launch pad
-    else if (hr < 0.74) delta = -1; // up one level   (~74%)
-    else if (hr < 0.87) delta = -2; // up two levels  (~13%, the hard climbs)
-    else if (hr < 0.94) delta = 0; // flat           (~7%)
-    else if (hr < 0.985) delta = 1; // down one       (~4.5%)
-    else delta = 2; // down two       (~1.5%)
+    else if (safeZone) delta = rnd() < 0.78 ? -1 : 0; // recovery ledges are usually fair
+    else if (hr < 0.48) delta = -1; // up one level
+    else if (hr < 0.82) delta = -2; // up two levels, main challenge
+    else if (hr < 0.9) delta = -3; // rare steep climb
+    else if (hr < 0.955) delta = 0; // short breather
+    else if (hr < 0.99) delta = 1; // rare down one
+    else delta = 2; // very rare down two
 
     topY += delta * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Some steps are slightly crooked (never the launch pad).
-    const slope = !platform && rnd() < 0.3 ? (rnd() - 0.5) * 0.1 : 0;
+    // Crooked tops add danger, but keep safe zones flat enough to be readable.
+    const slope = !platform && !safeZone && rnd() < 0.36 ? (rnd() - 0.5) * 0.13 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -182,6 +190,8 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
+    if (safeZone) nextSafeIn = 6 + Math.floor(rnd() * 5);
+    else nextSafeIn -= 1;
   }
 
   // Compute exposed risers (a face is exposed only where one step is higher).
@@ -373,13 +383,13 @@ function createBotProvider(): MoveProvider {
         const s = steps[i];
         if (s.mid <= cube.x + 12) continue;
         const range = s.mid - cube.x;
-        if (range > 460) break; // beyond plausible reach
+        if (range > 560) break; // beyond plausible reach
         farthest = s;
 
-        const widthScore = (s.x1 - s.x0) / 70; // prefer wider, safer landings
+        const widthScore = (s.x1 - s.x0) / 48; // prefer safer landings, tuned for cube-sized steps
         const climb = (here.topY - s.topY) / LEVEL; // + means target is higher
         const climbPenalty = climb > 0 ? climb * 0.45 : Math.abs(climb) * 0.18;
-        const reachBonus = range / 170; // reward forward progress
+        const reachBonus = range / 150; // reward forward progress
         const jitter = (rnd() - 0.5) * 0.6;
         const score = widthScore + reachBonus - climbPenalty + jitter;
         if (!best || score > best.score) best = { score, step: s };
@@ -393,8 +403,8 @@ function createBotProvider(): MoveProvider {
 
       // Personality: sometimes greedy (reach farther), sometimes cautious.
       const mood = rnd();
-      if (mood > 0.8) dx *= 1.15; // risky overshoot
-      else if (mood < 0.22) dx *= 0.88; // play safe / short
+      if (mood > 0.8) dx *= 1.18; // risky overshoot
+      else if (mood < 0.22) dx *= 0.86; // play safe / short
 
       // Pick an aim angle, steepening if a shallow shot can't clear the climb.
       let angle = (48 + (rnd() - 0.5) * 14) * (Math.PI / 180);
