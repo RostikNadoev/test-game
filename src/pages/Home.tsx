@@ -50,6 +50,15 @@ const games: Game[] = [
     status: 'New',
   },
   {
+    id: 'towerstack',
+    name: 'Tower Stack',
+    icon: '🧱',
+    description: 'Строй башню выше соперника',
+    color: 'from-[#9D7CFF]/26 via-[#52FFE5]/12 to-transparent',
+    meta: 'Stack',
+    status: 'New',
+  },
+  {
     id: 'crashduel',
     name: 'Crash Duel',
     icon: '🚀',
@@ -162,6 +171,7 @@ const games: Game[] = [
 
 const LOCAL_PLAY_IDS = new Set([
   'paperio',
+  'towerstack',
   'crashduel',
   'virusmarket',
   'diceduel',
@@ -171,6 +181,7 @@ const LOCAL_PLAY_IDS = new Set([
 const featuredIds = new Set([
   'plinko',
   'paperio',
+  'towerstack',
   'crashduel',
   'virusmarket',
   'neonmatrix',
