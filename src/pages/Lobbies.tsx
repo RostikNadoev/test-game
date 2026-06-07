@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { motion } from 'framer-motion';
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -123,7 +122,9 @@ export const Lobbies = () => {
   const joinLobby = useStore((state) => state.joinLobby);
 
   const lobbies = useMemo(() => {
-    return allLobbies.filter((l) => l.gameId === gameId && l.status === 'waiting');
+    return allLobbies.filter(
+      (l) => l.gameId === gameId && l.status === 'waiting',
+    );
   }, [allLobbies, gameId]);
 
   const gameName = gameNames[gameId || ''] || 'Игра';
@@ -132,7 +133,6 @@ export const Lobbies = () => {
 
   const handleJoinAndPlay = (lobbyId: string) => {
     joinLobby(lobbyId);
-
     if (gameRoutes[gameId || '']) {
       navigate(gameRoutes[gameId || '']);
     } else {
@@ -141,151 +141,130 @@ export const Lobbies = () => {
   };
 
   return (
-    <main className="app-scroll relative min-h-full w-full min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-32 pt-1 text-white">
-      <div className="pointer-events-none absolute inset-0 premium-grid opacity-[0.22]" />
-      <div className="pointer-events-none absolute -left-28 top-8 h-72 w-72 rounded-full bg-[#F2C766]/12 blur-[95px]" />
-      <div className="pointer-events-none absolute -right-28 top-44 h-80 w-80 rounded-full bg-[#52FFE5]/10 blur-[110px]" />
+    <main className="app-scroll relative min-h-full w-full min-w-0 overflow-y-auto overflow-x-hidden px-3 pb-28 pt-1 text-white">
+      <div className="pointer-events-none absolute inset-0 grid-fade opacity-60" />
 
-      <div className="relative mb-4 flex items-center justify-between gap-3">
+      {/* top bar */}
+      <div className="relative mb-3 flex items-center justify-between gap-2">
         <button
           onClick={() => navigate(-1)}
-          className="inline-flex h-12 items-center gap-2 rounded-[20px] border border-white/[0.08] bg-white/[0.055] px-3.5 text-xs font-black text-white/58 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl transition hover:bg-white/[0.08] active:scale-95"
+          className="press inline-flex h-10 items-center gap-1.5 rounded-[14px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/58"
         >
-          <ChevronLeft size={17} />
+          <ChevronLeft size={16} />
           Назад
         </button>
 
         {!isLocalTest && (
-          <motion.button
-            whileTap={{ scale: 0.94 }}
+          <button
             onClick={() => navigate(`/game/${gameId}/create`)}
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-[20px] bg-white text-[#08080C] shadow-[0_16px_34px_rgba(255,255,255,0.14)]"
+            className="press grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-white text-[#08080C]"
             aria-label="Создать лобби"
           >
-            <Plus size={23} />
-          </motion.button>
+            <Plus size={20} />
+          </button>
         )}
       </div>
 
-      <motion.section
-        initial={{ opacity: 0, y: 18, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.42, ease: 'easeOut' }}
-        className="relative overflow-hidden rounded-[38px] border border-white/[0.09] bg-[#08080C]/84 p-5 shadow-[0_26px_90px_rgba(0,0,0,0.48)] backdrop-blur-2xl"
-      >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(242,199,102,0.18),transparent_34%),radial-gradient(circle_at_95%_24%,rgba(82,255,229,0.13),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.09),transparent_46%)]" />
-        <div className="pointer-events-none absolute -right-10 top-8 h-40 w-40 rounded-full border border-white/10" />
-        <div className="pointer-events-none absolute -right-2 top-24 h-20 w-20 rounded-full border border-white/10" />
-        <div className="pointer-events-none absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+      {/* hero */}
+      <section className="reveal top-hairline relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-4">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(242,199,102,0.16),transparent_40%),radial-gradient(circle_at_100%_28%,rgba(82,255,229,0.12),transparent_42%)]" />
 
-        <div className="relative grid grid-cols-[1fr_auto] items-start gap-4">
+        <div className="relative grid grid-cols-[1fr_auto] items-start gap-3">
           <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/24 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.24em] text-white/48">
-              <Sparkles size={12} className="text-[#F2C766]" />
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/30 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-white/45">
+              <Sparkles size={11} className="text-[#F2C766]" />
               {isLocalTest ? 'Offline arena' : 'Online lobby'}
             </div>
 
-            <h1 className="mt-4 truncate text-[38px] font-black leading-[0.88] tracking-[-0.09em] text-white">
+            <h1 className="mt-3 truncate text-[28px] font-black leading-[0.9] tracking-[-0.07em]">
               {gameName}
             </h1>
 
-            <p className="mt-3 max-w-[265px] text-[13px] font-medium leading-relaxed text-white/48">
+            <p className="mt-2 max-w-[250px] text-[12px] font-medium leading-snug text-white/48">
               {isLocalTest
                 ? 'Тестовый режим без ожидания соперника. Запускай арену сразу.'
-                : 'Выбери комнату, зайди в дуэль или создай свой приватный стол.'}
+                : 'Выбери комнату, зайди в дуэль или создай свой стол.'}
             </p>
           </div>
 
-          <div className="relative grid h-[92px] w-[76px] place-items-center rounded-[28px] border border-white/[0.1] bg-white/[0.07] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <div className="absolute -right-3 -top-3 h-9 w-9 rounded-full border border-white/10" />
+          <div className="grid h-[64px] w-[64px] place-items-center rounded-[22px] border border-white/[0.1] bg-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
             {isLocalTest ? (
-              <Gamepad2 size={32} className="text-[#52FFE5]" />
+              <Gamepad2 size={28} className="text-[#52FFE5]" />
             ) : (
-              <Users size={32} className="text-[#F2C766]" />
+              <Users size={28} className="text-[#F2C766]" />
             )}
           </div>
         </div>
-      </motion.section>
+      </section>
 
+      {/* local card */}
       {localConfig && (
-        <motion.section
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.08, ease: 'easeOut' }}
-          className="relative mt-4 overflow-hidden rounded-[38px] border border-white/[0.09] bg-[#08080C]/82 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-2xl"
+        <section
+          className="reveal top-hairline relative mt-3 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-4"
+          style={{ animationDelay: '60ms' }}
         >
-          <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${localConfig.card}`} />
-          <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-white/10 blur-3xl" />
-          <div className="pointer-events-none absolute inset-x-14 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-
+          <div
+            className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${localConfig.card}`}
+          />
           <div className="relative">
-            <div className="mb-7 flex items-start justify-between gap-4">
-              <div className="grid h-20 w-20 place-items-center rounded-[30px] border border-white/[0.1] bg-black/20 text-5xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div className="grid h-16 w-16 place-items-center rounded-[22px] border border-white/[0.1] bg-black/25 text-4xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                 {localConfig.icon}
               </div>
-
-              <span className="rounded-full border border-white/[0.1] bg-white/[0.08] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/55">
+              <span className="rounded-full border border-white/[0.1] bg-white/[0.08] px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-white/55">
                 Local
               </span>
             </div>
 
             <p
-              className="text-[10px] font-black uppercase tracking-[0.24em]"
+              className="text-[9px] font-black uppercase tracking-[0.2em]"
               style={{ color: localConfig.accent }}
             >
               {localConfig.meta}
             </p>
-
-            <h2 className="mt-2 text-[32px] font-black leading-none tracking-[-0.08em] text-white">
+            <h2 className="mt-1.5 text-[26px] font-black leading-none tracking-[-0.07em]">
               {localConfig.title}
             </h2>
-
-            <p className="mt-3 text-sm font-medium leading-relaxed text-white/48">
+            <p className="mt-2 text-[12px] font-medium leading-snug text-white/48">
               {localConfig.description}
             </p>
 
             <button
               onClick={() => navigate(gameRoutes[gameId || ''])}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-[24px] bg-white py-4 text-sm font-black uppercase tracking-[0.14em] text-[#08080C] shadow-[0_18px_38px_rgba(255,255,255,0.16)] transition active:scale-[0.97]"
+              className="press mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] bg-white py-3.5 text-[13px] font-black uppercase tracking-[0.12em] text-[#08080C]"
             >
               {localConfig.cta}
-              <ArrowUpRight size={18} />
+              <ArrowUpRight size={16} />
             </button>
           </div>
-        </motion.section>
+        </section>
       )}
 
-      <section className="relative mt-5 space-y-3">
-        <div className="flex items-end justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-white/32">
-              <BadgeCheck size={13} />
-              {isLocalTest ? 'Online status' : 'Available rooms'}
-            </div>
-
-            <h2 className="mt-1 text-[24px] font-black tracking-[-0.07em] text-white">
-              {isLocalTest ? 'Лобби' : 'Комнаты'}
-            </h2>
+      {/* rooms */}
+      <section className="relative mt-4 space-y-2">
+        <div>
+          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-white/32">
+            <BadgeCheck size={12} />
+            {isLocalTest ? 'Online status' : 'Available rooms'}
           </div>
+          <h2 className="mt-0.5 text-[20px] font-black tracking-[-0.06em]">
+            {isLocalTest ? 'Лобби' : 'Комнаты'}
+          </h2>
         </div>
 
         {lobbies.length === 0 ? (
-          <div className="relative overflow-hidden rounded-[36px] border border-white/[0.09] bg-white/[0.045] px-5 py-12 text-center shadow-[0_18px_60px_rgba(0,0,0,0.3)] backdrop-blur-xl">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(82,255,229,0.11),transparent_34%)]" />
-
-            <div className="relative mx-auto mb-5 grid h-18 w-18 place-items-center rounded-[28px] border border-white/[0.08] bg-white/[0.06]">
+          <div className="relative overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.035] px-5 py-9 text-center">
+            <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-[20px] border border-white/[0.07] bg-white/[0.05]">
               {isLocalTest ? (
-                <Gamepad2 size={32} className="text-[#52FFE5]/75" />
+                <Gamepad2 size={26} className="text-[#52FFE5]/75" />
               ) : (
-                <Users size={32} className="text-[#F2C766]/75" />
+                <Users size={26} className="text-[#F2C766]/75" />
               )}
             </div>
-
-            <p className="relative text-lg font-black tracking-[-0.04em] text-white">
+            <p className="text-[15px] font-black tracking-[-0.03em]">
               {isLocalTest ? 'Онлайн-лобби пока отключены' : 'Нет активных комнат'}
             </p>
-
-            <p className="relative mx-auto mt-2 max-w-[280px] text-sm font-medium leading-relaxed text-white/42">
+            <p className="mx-auto mt-1.5 max-w-[260px] text-[12px] font-medium leading-snug text-white/42">
               {isLocalTest
                 ? 'Запусти локальный режим и протестируй игру прямо сейчас.'
                 : 'Создай первый стол и дождись соперника для дуэли.'}
@@ -293,40 +272,30 @@ export const Lobbies = () => {
           </div>
         ) : (
           lobbies.map((lobby, index) => (
-            <motion.div
+            <div
               key={lobby.id}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.32,
-                delay: Math.min(index * 0.035, 0.22),
-                ease: 'easeOut',
-              }}
-              className="group relative overflow-hidden rounded-[32px] border border-white/[0.08] bg-white/[0.045] p-3 shadow-[0_16px_45px_rgba(0,0,0,0.24)] backdrop-blur-xl"
+              className="reveal group relative overflow-hidden rounded-[22px] border border-white/[0.07] bg-white/[0.04] p-2.5"
+              style={{ animationDelay: `${Math.min(index * 35, 200)}ms` }}
             >
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#52FFE5]/10 via-transparent to-[#F2C766]/10" />
-
-              <div className="relative flex items-center gap-3">
-                <div className="grid h-[68px] w-[68px] shrink-0 place-items-center rounded-[24px] border border-white/[0.09] bg-black/22">
-                  <Users size={27} className="text-[#52FFE5]" />
+              <div className="relative flex items-center gap-2.5">
+                <div className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-[17px] border border-white/[0.08] bg-black/25">
+                  <Users size={24} className="text-[#52FFE5]" />
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/58">
+                  <p className="text-[8px] font-black uppercase tracking-[0.16em] text-[#F2C766]/58">
                     Waiting room
                   </p>
-
-                  <h3 className="mt-1 truncate text-[17px] font-black tracking-[-0.045em] text-white">
+                  <h3 className="mt-0.5 truncate text-[15px] font-black tracking-[-0.04em]">
                     {lobby.name}
                   </h3>
-
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] px-2.5 py-1 text-xs font-black text-white/58">
-                      <Coins size={13} className="text-[#F2C766]" />
-                      {lobby.betAmount}
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-2 py-0.5 text-[11px] font-black text-white/60">
+                      <Coins size={12} className="text-[#F2C766]" />
+                      <span className="tabular-nums">{lobby.betAmount}</span>
                     </span>
-
-                    <span className="rounded-full bg-black/20 px-2.5 py-1 text-xs font-black text-white/38">
+                    <span className="rounded-full bg-black/25 px-2 py-0.5 text-[11px] font-black tabular-nums text-white/38">
                       {lobby.players.length}/2
                     </span>
                   </div>
@@ -334,13 +303,13 @@ export const Lobbies = () => {
 
                 <button
                   onClick={() => handleJoinAndPlay(lobby.id)}
-                  className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-[#08080C] shadow-[0_16px_34px_rgba(255,255,255,0.12)] transition group-hover:rotate-12 active:scale-95"
+                  className="press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#08080C]"
                   aria-label="Войти в лобби"
                 >
-                  <ArrowUpRight size={19} />
+                  <ArrowUpRight size={18} />
                 </button>
               </div>
-            </motion.div>
+            </div>
           ))
         )}
       </section>

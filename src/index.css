@@ -5,21 +5,31 @@
 :root {
   --telegram-top-offset: 100px;
 
-  --dark: #050507;
-  --card: #08080c;
-  --card-soft: rgba(255, 255, 255, 0.05);
+  /* surfaces */
+  --bg: #050507;
+  --card: #0c0c12;
+  --card-2: rgba(255, 255, 255, 0.045);
 
+  /* brand */
   --gold: #f2c766;
   --mint: #52ffe5;
   --violet: #9d7cff;
   --rose: #ff7a90;
 
-  --border: rgba(255, 255, 255, 0.09);
+  /* lines + text */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.05);
   --text-h: #ffffff;
-  --text-m: rgba(255, 255, 255, 0.58);
-  --text-l: rgba(255, 255, 255, 0.36);
+  --text-m: rgba(255, 255, 255, 0.56);
+  --text-l: rgba(255, 255, 255, 0.34);
 
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+  /* radii — компактнее, чем раньше */
+  --r-lg: 26px;
+  --r-md: 20px;
+  --r-sm: 15px;
+
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 10px 26px rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -43,24 +53,20 @@ html {
 body {
   position: fixed;
   overflow: hidden;
+  /* статичные градиенты вместо blur-фильтров — рисуются один раз, не грузят GPU */
   background:
-    radial-gradient(circle at 18% -8%, rgba(242, 199, 102, 0.12), transparent 32%),
-    radial-gradient(circle at 100% 18%, rgba(82, 255, 229, 0.085), transparent 30%),
-    radial-gradient(circle at 50% 100%, rgba(157, 124, 255, 0.08), transparent 36%),
+    radial-gradient(circle at 16% -6%, rgba(242, 199, 102, 0.1), transparent 30%),
+    radial-gradient(circle at 100% 16%, rgba(82, 255, 229, 0.075), transparent 28%),
+    radial-gradient(circle at 50% 102%, rgba(157, 124, 255, 0.07), transparent 34%),
     linear-gradient(180deg, #030305 0%, #07070b 48%, #030305 100%);
-  color: white;
+  color: #fff;
   font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv01", "tnum";
   touch-action: manipulation;
   user-select: none;
   -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
 }
 
 button,
@@ -76,82 +82,108 @@ button {
 
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid rgba(242, 199, 102, 0.75);
-  outline-offset: 3px;
+  outline: 2px solid rgba(242, 199, 102, 0.7);
+  outline-offset: 2px;
 }
 
 #root {
   position: relative;
   display: flex;
+  flex-direction: column;
   width: 100%;
-  max-width: 480px;
+  max-width: 460px;
   height: 100%;
   margin: 0 auto;
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 0%, rgba(242, 199, 102, 0.13), transparent 31%),
-    radial-gradient(circle at 100% 22%, rgba(82, 255, 229, 0.09), transparent 29%),
-    radial-gradient(circle at 0% 84%, rgba(157, 124, 255, 0.08), transparent 33%),
+    radial-gradient(circle at 16% 0%, rgba(242, 199, 102, 0.11), transparent 30%),
+    radial-gradient(circle at 100% 20%, rgba(82, 255, 229, 0.08), transparent 28%),
+    radial-gradient(circle at 0% 86%, rgba(157, 124, 255, 0.07), transparent 32%),
     linear-gradient(180deg, #050507 0%, #09090e 48%, #050507 100%);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.045),
-    0 0 75px rgba(0, 0, 0, 0.82);
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 70px rgba(0, 0, 0, 0.8);
 }
 
 @layer utilities {
-  .bg-card {
-    background-color: var(--card);
-  }
-
-  .bg-dark {
-    background-color: var(--dark);
-  }
-
-  .text-accent {
-    color: var(--gold);
-  }
-
   .text-gold {
     color: var(--gold);
   }
-
   .fill-gold {
     fill: var(--gold);
   }
-
   .border-app {
     border-color: var(--border);
-  }
-
-  .no-scrollbar {
-    scrollbar-width: none;
-  }
-
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
   }
 
   .app-scroll {
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
-
   .app-scroll::-webkit-scrollbar {
     display: none;
   }
 
-  .premium-grid {
+  /* тонкая премиальная сетка (без дорогих mask-стэков) */
+  .grid-fade {
     background-image:
-      linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
-    background-size: 42px 42px;
-    mask-image:
-      radial-gradient(circle at 50% 0%, black 0%, transparent 72%),
-      linear-gradient(to bottom, black 0%, transparent 86%);
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
+    mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
+  }
+
+  /* верхняя «блик»-линия на карточках */
+  .top-hairline {
+    position: relative;
+  }
+  .top-hairline::before {
+    content: "";
+    position: absolute;
+    inset: 0 22% auto 22%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.35),
+      transparent
+    );
+  }
+
+  /* лёгкая CSS-анимация появления (без framer-motion) */
+  .reveal {
+    opacity: 0;
+    animation: reveal 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .press {
+    transition: transform 0.12s ease;
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+    opacity: 1;
   }
 }
 
 ::selection {
-  background: rgba(242, 199, 102, 0.38);
-  color: white;
+  background: rgba(242, 199, 102, 0.35);
+  color: #fff;
 }
