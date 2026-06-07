@@ -38,7 +38,7 @@ import upback from '../assets/upback.png';
 
 const TOTAL_TURNS = 15;
 const PREP_TIME = 5; // seconds of preparation per turn
-const MAX_RESOLVE = 9; // safety cap: force-settle a turn after this many seconds
+const MAX_RESOLVE = 11; // safety cap: force-settle a turn after this many seconds
 
 const FIXED_DT = 1 / 120; // physics step
 const MAX_SUBSTEPS = 6; // cap substeps per frame to avoid spiral-of-death
@@ -46,20 +46,27 @@ const SOLVER_ITERS = 6; // collision solver iterations per substep
 
 const GRAVITY = 2100; // px/s^2
 const AIR_DRAG = 0.018; // linear air damping (per second)
-const ANG_AIR_DRAG = 1.1; // angular air damping (per second)
-const ROLL_RES = 2.4; // extra ground damping while in contact
-const RESTITUTION = 0.2; // bounciness
-const FRICTION = 0.62; // contact friction coefficient
+const ANG_AIR_DRAG = 0.85; // angular air damping (lower = spin/tumble persists in flight)
+const ROLL_RES = 1.3; // extra ground damping while in contact (lower = slides/rolls farther)
+const RESTITUTION = 0.24; // bounciness
+const FRICTION = 0.58; // contact friction coefficient
 
-const LAUNCH_ANGLE_DEG = 54; // fixed launch angle (up-right); power sets distance
-const powerToSpeed = (p: number) => 215 + p * 6.0; // power 0..100 -> 215..815 px/s
+/* --- Drag-to-launch (slingshot) tuning --- */
+const DRAG_SCALE = 3.6; // launch speed (px/s) gained per px of finger pull
+const MIN_LAUNCH = 235; // min launch speed (px/s)
+const MAX_LAUNCH = 980; // max launch speed (px/s) — clamped so the apex stays on-screen
+const MIN_PULL = 16; // px; pulls shorter than this are ignored (accidental taps)
+const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
+const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
+const DEFAULT_ANGLE = (52 * Math.PI) / 180; // safe fallback angle if the player does nothing
+const DEFAULT_SPEED = 430; // gentle forward hop for the fallback launch
 
 const SLOP = 0.5; // penetration allowance
 const CORR = 0.6; // positional correction factor
 
-const SPEED_EPS = 9; // px/s linear "stopped" threshold
-const ANG_EPS = 0.26; // rad/s angular "stopped" threshold
-const STILL_TIME = 0.55; // s of stillness required to latch "stopped"
+const SPEED_EPS = 10; // px/s linear "stopped" threshold
+const ANG_EPS = 0.3; // rad/s angular "stopped" threshold
+const STILL_TIME = 0.5; // s of stillness required to latch "stopped"
 
 const CUBE = 26; // cube side length (px)
 const CUBE_MASS = 1;
@@ -116,33 +123,41 @@ function generateStairs(seed: number): Stairs {
   const rnd = mulberry32(seed);
   const steps: Step[] = [];
   let x = 0;
-  let topY = 360;
-  const MIN_TOP = 140;
-  const MAX_TOP = 540;
+  // Y grows downward, so SMALLER topY = HIGHER up. The ladder mostly CLIMBS from
+  // left to right, meaning topY mostly DECREASES. Start low on screen and allow a
+  // tall climb; the wide MIN_TOP keeps the trend from being clamped into a flat top.
+  let topY = 540;
+  const MIN_TOP = -3600; // highest the climb may reach
+  const MAX_TOP = 600; // lowest point (start area / after the rare down steps)
 
   while (x < WORLD_LEN) {
-    // Width: mostly medium, occasionally narrow or wide.
+    const platform = steps.length < 2; // first couple of steps: calm shared launch pad
+
+    // Width: mostly medium, occasionally narrow or wide. The start is wide & even.
     const wr = rnd();
     let width: number;
-    if (wr < 0.18) width = 42 + rnd() * 16; // narrow
+    if (platform) width = 150 + rnd() * 30; // wide, stable starting platform
+    else if (wr < 0.2) width = 40 + rnd() * 16; // narrow (risky landing)
     else if (wr > 0.8) width = 104 + rnd() * 40; // wide
-    else width = 64 + rnd() * 34; // medium
+    else width = 62 + rnd() * 36; // medium
 
-    // Height change: up 1, up 2, flat, or down. Capped so it's always playable.
+    // Height change. The ladder mostly climbs: ~87% upward, a little flat, rare down.
+    // (negative delta = UP / smaller Y; positive = DOWN / larger Y)
     const hr = rnd();
-    let delta: number; // in levels; negative = up (lower Y), positive = down (higher Y)
-    if (hr < 0.34) delta = -1; // up one level
-    else if (hr < 0.46) delta = -2; // up two levels (harder)
-    else if (hr < 0.64) delta = 0; // flat
-    else if (hr < 0.86) delta = 1; // down one
-    else delta = 2; // down two
+    let delta: number;
+    if (platform) delta = 0; // flat launch pad
+    else if (hr < 0.74) delta = -1; // up one level   (~74%)
+    else if (hr < 0.87) delta = -2; // up two levels  (~13%, the hard climbs)
+    else if (hr < 0.94) delta = 0; // flat           (~7%)
+    else if (hr < 0.985) delta = 1; // down one       (~4.5%)
+    else delta = 2; // down two       (~1.5%)
 
     topY += delta * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Some steps are slightly crooked.
-    const slope = rnd() < 0.28 ? (rnd() - 0.5) * 0.1 : 0;
+    // Some steps are slightly crooked (never the launch pad).
+    const slope = !platform && rnd() < 0.3 ? (rnd() - 0.5) * 0.1 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -289,7 +304,9 @@ function terrainContact(stairs: Stairs, px: number, py: number): TerrainContact 
  * ========================================================================= */
 
 interface LaunchMove {
-  power: number; // 0..100
+  vx: number; // launch velocity x (px/s); forward (right) is positive
+  vy: number; // launch velocity y (px/s); up is negative (screen coords)
+  power: number; // 0..100 normalized magnitude, for the HUD / preview only
 }
 
 interface MoveContext {
@@ -304,12 +321,42 @@ interface MoveProvider {
   requestMove(ctx: MoveContext, rnd: () => number): LaunchMove;
 }
 
-const SIN2 = Math.sin((2 * LAUNCH_ANGLE_DEG * Math.PI) / 180);
-const MAX_RANGE = (powerToSpeed(100) * powerToSpeed(100) * SIN2) / GRAVITY;
+const clampN = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
-function powerForRange(range: number): number {
-  const v = Math.sqrt((Math.max(0, range) * GRAVITY) / SIN2);
-  return Math.max(0, Math.min(100, (v - 215) / 6.0));
+/** Build a sanitized launch from an angle (above horizontal) + speed. */
+function moveFromAngleSpeed(angle: number, speed: number): LaunchMove {
+  const a = clampN(angle, LAUNCH_ANGLE_MIN, LAUNCH_ANGLE_MAX);
+  const s = clampN(speed, MIN_LAUNCH, MAX_LAUNCH);
+  const power = Math.round(clampN((s - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH), 0, 1) * 100);
+  return { vx: Math.cos(a) * s, vy: -Math.sin(a) * s, power };
+}
+
+const DEFAULT_MOVE = (): LaunchMove => moveFromAngleSpeed(DEFAULT_ANGLE, DEFAULT_SPEED);
+
+/**
+ * Turn a raw forward/up velocity request into a legal launch:
+ * forward-only, up-only, angle-clamped, speed-clamped. Shared by the player's
+ * drag input and the bot so neither can produce a broken shot.
+ */
+function clampLaunch(vxRaw: number, vyUpRaw: number): LaunchMove {
+  const vx = Math.max(0, vxRaw); // never launch backward
+  const vyUp = Math.max(0, vyUpRaw); // never launch downward
+  const speed = Math.hypot(vx, vyUp);
+  if (speed < 1) return DEFAULT_MOVE();
+  return moveFromAngleSpeed(Math.atan2(vyUp, vx), speed);
+}
+
+/** Solve a launch speed that, at the given angle, passes through (dx, dyDown). */
+function speedForTarget(dx: number, dyDown: number, angle: number): number | null {
+  if (dx <= 0) return null;
+  const c = Math.cos(angle);
+  const t = Math.tan(angle);
+  // dyDown = -dx*tan + (g*dx^2)/(2 s^2 c^2)  ->  solve for s
+  const denom = 2 * c * c * (dyDown + dx * t);
+  if (denom <= 0) return null; // can't reach with this angle (need steeper)
+  const s2 = (GRAVITY * dx * dx) / denom;
+  if (s2 <= 0) return null;
+  return Math.sqrt(s2);
 }
 
 function createBotProvider(): MoveProvider {
@@ -319,39 +366,50 @@ function createBotProvider(): MoveProvider {
       const steps = stairs.steps;
       const here = steps[stepIndexAt(steps, cube.x)];
 
-      // Look at forward steps within reach and score landing spots.
-      let best: { score: number; range: number } | null = null;
-      const farthest: { range: number } = { range: 60 };
-
+      // Score forward steps and pick a target to aim at.
+      let best: { score: number; step: Step } | null = null;
+      let farthest: Step | null = null;
       for (let i = 0; i < steps.length; i++) {
         const s = steps[i];
         if (s.mid <= cube.x + 12) continue;
         const range = s.mid - cube.x;
-        if (range > MAX_RANGE * 0.98) break;
-        farthest.range = range;
+        if (range > 460) break; // beyond plausible reach
+        farthest = s;
 
         const widthScore = (s.x1 - s.x0) / 70; // prefer wider, safer landings
         const climb = (here.topY - s.topY) / LEVEL; // + means target is higher
-        const climbPenalty = climb > 0 ? climb * 0.55 : climb * 0.12; // climbing costs
-        const reachBonus = range / 160; // reward making forward progress
-        const jitter = (rnd() - 0.5) * 0.5;
+        const climbPenalty = climb > 0 ? climb * 0.45 : Math.abs(climb) * 0.18;
+        const reachBonus = range / 170; // reward forward progress
+        const jitter = (rnd() - 0.5) * 0.6;
         const score = widthScore + reachBonus - climbPenalty + jitter;
-
-        if (!best || score > best.score) best = { score, range };
+        if (!best || score > best.score) best = { score, step: s };
       }
 
-      let range = best ? best.range : farthest.range;
+      const target = best ? best.step : farthest;
+      if (!target) return DEFAULT_MOVE();
 
-      // Personality: sometimes risky (overshoot for distance), sometimes safe.
+      let dx = target.mid - cube.x;
+      const dyDown = target.topY - CUBE / 2 - cube.y; // + means target is below
+
+      // Personality: sometimes greedy (reach farther), sometimes cautious.
       const mood = rnd();
-      if (mood > 0.78) range *= 1.16; // greedy / risky
-      else if (mood < 0.2) range *= 0.86; // cautious
+      if (mood > 0.8) dx *= 1.15; // risky overshoot
+      else if (mood < 0.22) dx *= 0.88; // play safe / short
 
-      let power = powerForRange(range);
-      // Imperfect aim.
-      power += (rnd() - 0.5) * 11;
-      power = Math.max(6, Math.min(100, power));
-      return { power };
+      // Pick an aim angle, steepening if a shallow shot can't clear the climb.
+      let angle = (48 + (rnd() - 0.5) * 14) * (Math.PI / 180);
+      let speed = speedForTarget(dx, dyDown, angle);
+      for (let tries = 0; tries < 4 && speed == null; tries++) {
+        angle = Math.min(LAUNCH_ANGLE_MAX, angle + 8 * (Math.PI / 180));
+        speed = speedForTarget(dx, dyDown, angle);
+      }
+      if (speed == null) speed = MAX_LAUNCH;
+
+      // Imperfect aim: never quite exact, so the bot can fall short and tumble too.
+      speed *= 1 + (rnd() - 0.5) * 0.16;
+      angle += (rnd() - 0.5) * (7 * (Math.PI / 180));
+
+      return moveFromAngleSpeed(angle, speed);
     },
   };
 }
@@ -418,11 +476,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const [playerM, setPlayerM] = useState(0);
   const [botM, setBotM] = useState(0);
   const [outcome, setOutcome] = useState<Outcome>(null);
-  const [power, setPower] = useState(58); // player's chosen power (slider)
+  const [power, setPower] = useState(0); // live launch power 0..100 (from drag), HUD only
 
   // Mutable engine state.
   const gameRef = useRef<GameState | null>(null);
-  const powerRef = useRef(power);
   const botRef = useRef<MoveProvider>(createBotProvider());
   const rafRef = useRef<number | null>(null);
   const viewRef = useRef({ w: 360, h: 640, dpr: 1 });
@@ -431,10 +488,18 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const vignetteRef = useRef<HTMLCanvasElement | null>(null);
   const lastTimeRef = useRef(0);
   const uiAccumRef = useRef(0);
-  const draggingRef = useRef(false);
-  const sliderElRef = useRef<HTMLDivElement | null>(null);
 
-  powerRef.current = power;
+  // Drag-to-launch (slingshot) state. Lives in a ref so the high-frequency render
+  // loop reads it without triggering React re-renders.
+  const dragRef = useRef<{
+    active: boolean; // finger currently down
+    locked: boolean; // released with a valid pull this prep phase
+    startX: number;
+    startY: number;
+    curX: number;
+    curY: number;
+    move: LaunchMove | null; // current legal move (live while dragging / when locked)
+  }>({ active: false, locked: false, startX: 0, startY: 0, curX: 0, curY: 0, move: null });
 
   /* ----- build a fresh match ----- */
   const buildGame = useCallback((matchSeed: number): GameState => {
@@ -449,8 +514,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       stairs,
       player,
       bot,
-      pendingPlayer: { power: powerRef.current },
-      pendingBot: { power: 50 },
+      pendingPlayer: DEFAULT_MOVE(),
+      pendingBot: DEFAULT_MOVE(),
       cam: { x: 0, y: 0 },
       particles: [],
       outcome: null,
@@ -472,6 +537,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     setOutcome((o) => (o !== g.outcome ? g.outcome : o));
     const tl = Math.max(0, Math.ceil(g.prepLeft));
     setTimeLeft((v) => (v !== tl ? tl : v));
+    // Mirror the live launch power (from the current drag) onto the HUD meter.
+    const d = dragRef.current;
+    const pw = g.phase === 'prep' && d.move ? d.move.power : 0;
+    setPower((v) => (v !== pw ? pw : v));
   }, []);
 
   /* ----- particles ----- */
@@ -620,12 +689,11 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
   /* ----- launch both cubes simultaneously ----- */
   const launch = useCallback((g: GameState) => {
-    const rad = (LAUNCH_ANGLE_DEG * Math.PI) / 180;
     const fire = (cube: Cube, mv: LaunchMove) => {
-      const v = powerToSpeed(mv.power);
-      cube.vx = Math.cos(rad) * v;
-      cube.vy = -Math.sin(rad) * v;
-      cube.av = (Math.random() - 0.5) * 1.2; // small launch spin for life
+      cube.vx = mv.vx;
+      cube.vy = mv.vy;
+      // A touch of launch spin scaled by power, so harder shots tumble more readily.
+      cube.av = (Math.random() - 0.5) * (0.9 + mv.power * 0.012);
       cube.stopped = false;
       cube.stillTimer = 0;
       cube.startX = cube.x;
@@ -639,6 +707,12 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const enterPrep = useCallback((g: GameState) => {
     g.phase = 'prep';
     g.prepLeft = PREP_TIME;
+    // Reset the player's aim for the new turn (defaults to a small safe hop).
+    const d = dragRef.current;
+    d.active = false;
+    d.locked = false;
+    d.move = null;
+    g.pendingPlayer = DEFAULT_MOVE();
     // Bot decides its (secret) move now; this is where a network move would be requested.
     const rnd = mulberry32((g.rndSeed + g.turn * 977) >>> 0);
     g.pendingBot = botRef.current.requestMove(
@@ -673,21 +747,30 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     const sep = Math.abs(p.x - b.x);
     const midX = (p.x + b.x) / 2;
 
+    // --- Horizontal: frame both when close, otherwise follow the player (~42% in). ---
     let targetX: number;
     if (sep < v.w * 0.62) {
       targetX = midX - v.w / 2; // frame both
     } else {
       targetX = p.x - v.w * 0.42; // follow the player
     }
-    const midY = (p.y + b.y) / 2;
-    let targetY = midY - v.h * 0.58;
-
-    // Clamp vertical so the staircase stays nicely on screen.
-    const minY = g.stairs.minTopY - v.h * 0.85;
-    const maxY = g.stairs.maxTopY - v.h * 0.28;
-    if (targetY < minY) targetY = minY;
-    if (targetY > maxY) targetY = maxY;
     if (targetX < -v.w * 0.2) targetX = -v.w * 0.2;
+
+    // --- Vertical: anchor the GROUND beneath the player to the lower part of the
+    // screen, NOT the cube itself. This keeps the staircase in the lower ~third and
+    // leaves the upper portion for the parallax background, fog and atmosphere.
+    // When the cube launches, it arcs up into that background space and stays
+    // visible, while the ground line holds steady. ---
+    const steps = g.stairs.steps;
+    const sUnder = steps[stepIndexAt(steps, p.x)];
+    const groundY = surfaceYAt(sUnder, p.x);
+    // Player rests at groundY - CUBE/2; place that around 67% of screen height.
+    let targetY = groundY - CUBE / 2 - v.h * 0.67;
+
+    // Safety: if a big launch carries the cube near the top edge, ease the camera up
+    // just enough to keep it on-screen (rare, thanks to the launch-speed clamp).
+    const playerScreenY = p.y - targetY;
+    if (playerScreenY < v.h * 0.1) targetY = p.y - v.h * 0.1;
 
     const k = Math.min(1, h * CAM_LERP);
     g.cam.x += (targetX - g.cam.x) * k;
@@ -700,7 +783,12 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       if (g.phase === 'prep') {
         g.prepLeft -= dt;
         if (g.prepLeft <= 0) {
-          g.pendingPlayer = { power: powerRef.current };
+          // Lock in the player's move: a released drag, else the drag still held at
+          // expiry, else a small safe default if the player did nothing.
+          const d = dragRef.current;
+          g.pendingPlayer = d.move ?? DEFAULT_MOVE();
+          d.active = false;
+          d.locked = true;
           launch(g);
           g.phase = 'resolve';
           g.resolveElapsed = 0;
@@ -1051,36 +1139,54 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.fill();
     }
 
-    // --- Trajectory preview (player, during prep) ---
+    // --- Aim preview (player, during prep) ---
+    // Uses the actual chosen launch velocity (drag, or the safe default) and draws
+    // a dotted gravity arc plus, while dragging, an elastic slingshot band.
     if (g.phase === 'prep') {
-      const rad = (LAUNCH_ANGLE_DEG * Math.PI) / 180;
-      const vmag = powerToSpeed(powerRef.current);
-      const vx = Math.cos(rad) * vmag;
-      const vy = -Math.sin(rad) * vmag;
+      const d = dragRef.current;
+      const mv = d.move ?? DEFAULT_MOVE();
+      const cubeSX = g.player.x - g.cam.x;
+      const cubeSY = g.player.y - g.cam.y;
+
+      // Elastic band: a line from the cube to a pulled-back handle behind it.
+      if (d.active) {
+        const hx = cubeSX + (d.curX - d.startX);
+        const hy = cubeSY + (d.curY - d.startY);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(236,238,242,0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(cubeSX, cubeSY);
+        ctx.lineTo(hx, hy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(236,238,242,0.8)';
+        ctx.beginPath();
+        ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Dotted gravity arc following the actual launch velocity.
+      const onlyDefault = !d.move; // dim the arc when it's just the idle default
       ctx.fillStyle = 'rgba(236,238,242,0.55)';
-      const startSX = g.player.x - g.cam.x;
-      const startSY = g.player.y - g.cam.y - CUBE / 2;
-      let prevpx = startSX;
-      let prevpy = startSY;
-      for (let s = 1; s <= 22; s++) {
+      const startSY = g.player.y - CUBE / 2;
+      for (let s = 1; s <= 24; s++) {
         const t = s * 0.045;
-        const wx = g.player.x + vx * t;
-        const wy = g.player.y - CUBE / 2 + vy * t + 0.5 * GRAVITY * t * t;
+        const wx = g.player.x + mv.vx * t;
+        const wy = startSY + mv.vy * t + 0.5 * GRAVITY * t * t;
         const psx = wx - g.cam.x;
         const psy = wy - g.cam.y;
         if (s % 2 === 0) {
-          ctx.globalAlpha = Math.max(0, 0.6 - s * 0.025);
+          ctx.globalAlpha = Math.max(0, (onlyDefault ? 0.32 : 0.62) - s * 0.022);
           ctx.beginPath();
           ctx.arc(psx, psy, 2, 0, Math.PI * 2);
           ctx.fill();
         }
-        prevpx = psx;
-        prevpy = psy;
         if (psy > h + 40) break;
       }
       ctx.globalAlpha = 1;
-      void prevpx;
-      void prevpy;
     }
 
     // --- Offscreen opponent arrow (and player if needed) ---
@@ -1205,39 +1311,75 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     };
   }, [frame, buildTextures]);
 
-  /* ----- controls ----- */
-  const setPowerFromClientX = useCallback((clientX: number) => {
-    const el = sliderElRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    setPower(Math.round(t * 100));
+  /* ----- controls: drag-to-launch (slingshot) ----- */
+  // Compute the legal move from the current drag (or null if the pull is too small).
+  const computeDragMove = useCallback((): LaunchMove | null => {
+    const d = dragRef.current;
+    const pullX = d.startX - d.curX; // pull LEFT (back) => launch RIGHT (forward)
+    const pullY = d.startY - d.curY; // pull DOWN (back) => launch UP
+    if (Math.hypot(pullX, pullY) < MIN_PULL) return null;
+    // pull down => curY > startY => pullY < 0 => upward magnitude = -pullY
+    return clampLaunch(pullX * DRAG_SCALE, -pullY * DRAG_SCALE);
   }, []);
 
-  const onSliderDown = useCallback(
+  const localXY = useCallback((e: React.PointerEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    return {
+      x: e.clientX - (rect?.left ?? 0),
+      y: e.clientY - (rect?.top ?? 0),
+    };
+  }, []);
+
+  const onAreaDown = useCallback(
     (e: React.PointerEvent) => {
       if (gameRef.current?.phase !== 'prep') return;
-      draggingRef.current = true;
-      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-      setPowerFromClientX(e.clientX);
+      const { x, y } = localXY(e);
+      const d = dragRef.current;
+      d.active = true;
+      d.locked = false;
+      d.startX = x;
+      d.startY = y;
+      d.curX = x;
+      d.curY = y;
+      d.move = null;
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     },
-    [setPowerFromClientX],
+    [localXY],
   );
-  const onSliderMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!draggingRef.current) return;
-      setPowerFromClientX(e.clientX);
-    },
-    [setPowerFromClientX],
-  );
-  const onSliderUp = useCallback(() => {
-    draggingRef.current = false;
-  }, []);
 
-  const nudge = useCallback((d: number) => {
-    if (gameRef.current?.phase !== 'prep') return;
-    setPower((p) => Math.max(0, Math.min(100, p + d)));
-  }, []);
+  const onAreaMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      if (!d.active || gameRef.current?.phase !== 'prep') return;
+      const { x, y } = localXY(e);
+      d.curX = x;
+      d.curY = y;
+      d.move = computeDragMove();
+    },
+    [localXY, computeDragMove],
+  );
+
+  const onAreaUp = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      if (!d.active) return;
+      const { x, y } = localXY(e);
+      d.curX = x;
+      d.curY = y;
+      const mv = computeDragMove();
+      d.active = false;
+      if (mv) {
+        // Released with a real pull: lock this move in for the rest of prep.
+        d.move = mv;
+        d.locked = true;
+      } else {
+        // Tiny pull: treat as no shot so the player can try again.
+        d.move = null;
+        d.locked = false;
+      }
+    },
+    [localXY, computeDragMove],
+  );
 
   const startMatch = useCallback(() => {
     const g = gameRef.current!;
@@ -1285,6 +1427,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   return (
     <div
       ref={containerRef}
+      onPointerDown={onAreaDown}
+      onPointerMove={onAreaMove}
+      onPointerUp={onAreaUp}
+      onPointerCancel={onAreaUp}
       style={{
         position: 'relative',
         width: '100%',
@@ -1389,7 +1535,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
         </div>
       )}
 
-      {/* ---------- Power control (bottom) ---------- */}
+      {/* ---------- Launch readout (bottom, non-interactive: drags pass through) ---------- */}
       {(phase === 'prep' || phase === 'resolve') && (
         <div
           style={{
@@ -1400,7 +1546,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
             padding: '12px 16px 18px',
             background: 'linear-gradient(0deg, rgba(6,6,8,0.82) 0%, rgba(6,6,8,0) 100%)',
             opacity: phase === 'prep' ? 1 : 0.4,
-            pointerEvents: phase === 'prep' ? 'auto' : 'none',
+            pointerEvents: 'none',
             transition: 'opacity 0.2s',
           }}
         >
@@ -1414,53 +1560,31 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
               marginBottom: 6,
             }}
           >
-            <span>POWER</span>
-            <span>{power}</span>
+            <span>{power > 0 ? 'POWER' : 'PULL BACK TO AIM'}</span>
+            <span>{power > 0 ? power : 'RELEASE TO LOCK'}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <HoldButton label="–" onClick={() => nudge(-2)} mono={mono} />
+          <div
+            style={{
+              position: 'relative',
+              height: 8,
+              borderRadius: 5,
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              overflow: 'hidden',
+            }}
+          >
             <div
-              ref={sliderElRef}
-              onPointerDown={onSliderDown}
-              onPointerMove={onSliderMove}
-              onPointerUp={onSliderUp}
-              onPointerCancel={onSliderUp}
               style={{
-                position: 'relative',
-                flex: 1,
-                height: 30,
-                borderRadius: 6,
-                background: 'rgba(255,255,255,0.07)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                overflow: 'hidden',
-                cursor: 'pointer',
-                touchAction: 'none',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                bottom: 0,
+                width: `${power}%`,
+                background:
+                  'linear-gradient(90deg, rgba(120,123,128,0.45), rgba(236,238,242,0.7))',
+                transition: 'width 0.06s linear',
               }}
-            >
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  bottom: 0,
-                  width: `${power}%`,
-                  background:
-                    'linear-gradient(90deg, rgba(120,123,128,0.35), rgba(236,238,242,0.55))',
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: -2,
-                  bottom: -2,
-                  left: `calc(${power}% - 2px)`,
-                  width: 4,
-                  background: '#eceef2',
-                  boxShadow: '0 0 8px rgba(255,255,255,0.5)',
-                }}
-              />
-            </div>
-            <HoldButton label="+" onClick={() => nudge(2)} mono={mono} />
+            />
           </div>
         </div>
       )}
@@ -1481,8 +1605,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
               margin: '0 auto 22px',
             }}
           >
-            {TOTAL_TURNS} turns. {PREP_TIME}s to set your launch. Both cubes fire at once. Furthest
-            right wins.
+            {TOTAL_TURNS} turns. Each turn you have {PREP_TIME}s — pull back to aim, release to
+            launch. Climb as far up the ladder as you can. Both cubes fire at once; furthest wins.
           </div>
           <PrimaryButton label="BEGIN" onClick={startMatch} mono={mono} />
         </Overlay>
@@ -1627,31 +1751,6 @@ const GhostButton: React.FC<{ label: string; onClick: () => void; mono: string }
       borderRadius: 8,
       padding: '12px 22px',
       cursor: 'pointer',
-    }}
-  >
-    {label}
-  </button>
-);
-
-const HoldButton: React.FC<{ label: string; onClick: () => void; mono: string }> = ({
-  label,
-  onClick,
-  mono,
-}) => (
-  <button
-    onClick={onClick}
-    style={{
-      fontFamily: mono,
-      width: 38,
-      height: 30,
-      fontSize: 18,
-      fontWeight: 700,
-      color: '#e9ebef',
-      background: 'rgba(255,255,255,0.07)',
-      border: '1px solid rgba(255,255,255,0.14)',
-      borderRadius: 6,
-      cursor: 'pointer',
-      touchAction: 'none',
     }}
   >
     {label}
