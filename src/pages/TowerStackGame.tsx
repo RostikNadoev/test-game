@@ -3,13 +3,13 @@
  * --------------------------------------------------------------------------
  * 1v1 Tower Stack duel for Telegram Mini App.
  *
- * Changes:
  * - Fits inside parent route height, no bottom overflow.
- * - Removed bottom "TAP TO DROP" control.
- * - Removed shake animation for smoother mobile performance.
- * - Added 3-second countdown overlay before the round starts.
- * - Moved top HUD closer to the top edge.
- * - Removed text shadows from floating quality labels above blocks.
+ * - No bottom "TAP TO DROP" control.
+ * - No shake animation.
+ * - 3-second countdown overlay before the round starts.
+ * - Countdown has no frame/card, only dark overlay + clean number.
+ * - Floating GOOD/PERFECT/MISS/COMBO labels are pure text: no frames, no shadows.
+ * - Telegram HapticFeedback + navigator.vibrate fallback.
  */
 
 import {
@@ -70,6 +70,7 @@ type BaseQuality = 'PERFECT' | 'GREAT' | 'GOOD' | 'MISS';
 type Quality = BaseQuality | 'COMBO';
 type Phase = 'ready' | 'countdown' | 'playing' | 'result';
 type Outcome = 'win' | 'lose' | 'draw';
+type HapticKind = 'tap' | 'success' | 'error' | 'start';
 
 interface PlacedBlock {
   id: number;
@@ -142,6 +143,50 @@ const randInt = (min: number, max: number) =>
   Math.floor(min + Math.random() * (max - min));
 
 const clampScore = (n: number) => (n < 0 ? 0 : n);
+
+function triggerHaptic(kind: HapticKind = 'tap') {
+  const tg = (
+    window as unknown as {
+      Telegram?: {
+        WebApp?: {
+          HapticFeedback?: {
+            impactOccurred?: (
+              style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft',
+            ) => void;
+            notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
+            selectionChanged?: () => void;
+          };
+        };
+      };
+    }
+  ).Telegram?.WebApp;
+
+  try {
+    if (kind === 'success') {
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+      navigator.vibrate?.(22);
+      return;
+    }
+
+    if (kind === 'error') {
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+      navigator.vibrate?.([28, 24, 28]);
+      return;
+    }
+
+    if (kind === 'start') {
+      tg?.HapticFeedback?.impactOccurred?.('medium');
+      navigator.vibrate?.(24);
+      return;
+    }
+
+    tg?.HapticFeedback?.selectionChanged?.();
+    tg?.HapticFeedback?.impactOccurred?.('light');
+    navigator.vibrate?.(12);
+  } catch {
+    // Haptics are optional.
+  }
+}
 
 /* =========================================================================
  * BOT OPPONENT
@@ -265,7 +310,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
       tg?.ready?.();
       tg?.expand?.();
     } catch {
-      /* ignore outside Telegram */
+      // Ignore outside Telegram.
     }
 
     applyViewportHeight();
@@ -382,7 +427,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
     const timeout = setTimeout(() => {
       setFx((prev) => prev.filter((item) => item.id !== id));
-    }, 720);
+    }, 680);
 
     timeoutsRef.current.push(timeout);
   }, []);
@@ -430,6 +475,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
       setPlayerScore((score) => clampScore(score + resolved.points));
       pushFx('MISS', resolved.points);
+      triggerHaptic('error');
       pulse('bad');
       spawnActiveBlock();
 
@@ -485,7 +531,10 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     pushFx(resolved.label, resolved.points);
 
     if (resolved.label === 'PERFECT' || resolved.label === 'COMBO') {
+      triggerHaptic('success');
       pulse('good');
+    } else {
+      triggerHaptic('tap');
     }
 
     spawnActiveBlock();
@@ -504,11 +553,21 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     if (phase !== 'countdown') return;
 
     setCountdown(3);
+    triggerHaptic('start');
 
     const timers = [
-      setTimeout(() => setCountdown(2), 1_000),
-      setTimeout(() => setCountdown(1), 2_000),
-      setTimeout(() => setPhase('playing'), 3_000),
+      setTimeout(() => {
+        setCountdown(2);
+        triggerHaptic('tap');
+      }, 1_000),
+      setTimeout(() => {
+        setCountdown(1);
+        triggerHaptic('tap');
+      }, 2_000),
+      setTimeout(() => {
+        triggerHaptic('success');
+        setPhase('playing');
+      }, 3_000),
     ];
 
     countdownTimersRef.current = timers;
@@ -1169,7 +1228,7 @@ const STYLES = `
   animation:tsq-slice-fall .48s cubic-bezier(.4,0,.7,1) forwards;
 }
 
-/* ---------------- FLOATING LABELS WITHOUT SHADOW ---------------- */
+/* ---------------- FLOATING LABELS: PURE TEXT ONLY ---------------- */
 .tsq-fx{
   position:absolute;
   top:-32px;
@@ -1180,28 +1239,56 @@ const STYLES = `
   flex-direction:column;
   align-items:center;
   gap:0;
+  padding:0 !important;
+  margin:0;
+  border:none !important;
+  outline:none !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  filter:none !important;
   transform:translateX(-50%);
-  animation:tsq-rise .72s ease-out forwards;
+  animation:tsq-rise .68s ease-out forwards;
+}
+
+.tsq-fx.q-perfect,
+.tsq-fx.q-great,
+.tsq-fx.q-good,
+.tsq-fx.q-miss,
+.tsq-fx.q-combo{
+  border:none !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  filter:none !important;
 }
 
 .tsq-fx__label{
+  padding:0;
+  margin:0;
+  border:none !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  filter:none !important;
+  text-shadow:none !important;
   font-family:'Orbitron', monospace;
   font-weight:800;
   font-size:21px;
   line-height:1;
   letter-spacing:.05em;
-  text-shadow:none !important;
-  filter:none !important;
 }
 
 .tsq-fx__pts{
   margin-top:2px;
+  padding:0;
+  border:none !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  filter:none !important;
+  text-shadow:none !important;
   font-size:12px;
   line-height:1;
   font-weight:700;
   color:rgba(234,240,255,.78);
-  text-shadow:none !important;
-  filter:none !important;
 }
 
 .tsq-fx.q-perfect .tsq-fx__label{
@@ -1226,13 +1313,13 @@ const STYLES = `
 
 .tsq-fx.q-combo .tsq-fx__label{
   color:#ffffff;
-  background:linear-gradient(90deg,#6c8cff,#ff5d8f);
-  -webkit-background-clip:text;
-  background-clip:text;
+  background:linear-gradient(90deg,#6c8cff,#ff5d8f) !important;
+  -webkit-background-clip:text !important;
+  background-clip:text !important;
   -webkit-text-fill-color:transparent;
 }
 
-/* ---------------- COUNTDOWN ---------------- */
+/* ---------------- COUNTDOWN: NO FRAME, DARKENS GAME ---------------- */
 .tsq-countdown{
   position:absolute;
   inset:0;
@@ -1242,40 +1329,48 @@ const STYLES = `
   align-items:center;
   justify-content:center;
   pointer-events:none;
-  background:radial-gradient(circle at 50% 50%, rgba(108,140,255,.16), rgba(5,7,16,.22) 44%, rgba(5,7,16,.52));
+  background:
+    radial-gradient(circle at 50% 43%, rgba(108,140,255,.18), transparent 26%),
+    radial-gradient(circle at 50% 58%, rgba(51,230,192,.10), transparent 32%),
+    rgba(2,3,10,.78);
+  backdrop-filter:blur(3px) saturate(1.08);
+  -webkit-backdrop-filter:blur(3px) saturate(1.08);
 }
 
 .tsq-countdown__num{
-  width:136px;
-  height:136px;
-  display:grid;
-  place-items:center;
-  border-radius:42px;
-  border:1px solid rgba(255,255,255,.14);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255,255,255,.16), transparent 58%),
-    linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035));
-  box-shadow:
-    0 0 60px rgba(108,140,255,.38),
-    inset 0 1px 0 rgba(255,255,255,.16);
+  width:auto;
+  height:auto;
+  display:block;
+  border:none !important;
+  outline:none !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
   font-family:'Orbitron', monospace;
-  font-size:72px;
-  line-height:1;
+  font-size:104px;
+  line-height:.9;
   font-weight:800;
   color:#fff;
+  letter-spacing:-.08em;
+  text-shadow:
+    0 0 24px rgba(108,140,255,.72),
+    0 0 52px rgba(51,230,192,.34);
   animation:tsq-count .88s cubic-bezier(.22,1,.36,1);
 }
 
 .tsq-countdown__label{
-  margin-top:16px;
-  padding:7px 13px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,.11);
-  background:rgba(255,255,255,.06);
-  color:rgba(234,240,255,.68);
+  margin-top:18px;
+  padding:0;
+  border:none !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  color:rgba(234,240,255,.62);
   font-size:11px;
+  line-height:1;
   font-weight:800;
-  letter-spacing:.22em;
+  letter-spacing:.24em;
+  text-shadow:none;
 }
 
 /* ---------------- OVERLAYS ---------------- */
@@ -1522,15 +1617,15 @@ const STYLES = `
 @keyframes tsq-count{
   0%{
     opacity:0;
-    transform:scale(.68) rotate(-5deg);
+    transform:scale(.62) translateY(14px);
   }
-  22%{
+  26%{
     opacity:1;
-    transform:scale(1.06) rotate(0);
+    transform:scale(1.08) translateY(0);
   }
   100%{
     opacity:.96;
-    transform:scale(1);
+    transform:scale(1) translateY(0);
   }
 }
 
