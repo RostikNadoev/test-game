@@ -1,17 +1,14 @@
 /* ============================================================================
- *  DriftRace.tsx — аркадный дрифт-рейсер (top-down)
+ *  RaceGame.tsx — top-down neon drift racer (Telegram Mini App edition)
  *  ---------------------------------------------------------------------------
- *  Цель: «приятная физика из детства» — машина легко срывается в занос,
- *  зад скользит, на отпускании газа/руля сцепление возвращается и машину
- *  плавно подхватывает. Всё аркадно и прощающе.
- *
- *  Архитектура заточена под сетевую игру 1-на-1 «тень/призрак»:
- *    • симуляция идёт ФИКСИРОВАННЫМ шагом (1/60) через аккумулятор —
- *      это даёт детерминизм и стабильность независимо от FPS;
- *    • состояние машины (NetSnapshot) маленькое и сериализуемое —
- *      его можно слать по WebSocket as-is;
- *    • есть готовый рендер «призрака» + буфер интерполяции соперника.
- *  Где подключать сокет — смотри секцию «=== NETWORK ===» ниже.
+ *  • Light arcade physics: auto-throttle, joystick steers, sharp turns slide
+ *    into a controlled drift, releasing the stick stabilizes the car.
+ *  • Fits the visible Mini App viewport: 100dvh - topOffset, ResizeObserver,
+ *    safe-area insets, no internal scrolling, touchAction: none.
+ *  • Visuals match the app shell: #050610 background, glass HUD cards,
+ *    neon #52FFE5 / gold #F2C766 / purple #9D7CFF accents.
+ *  • Network-ready (1v1 ghost): NetSnapshot, onSnapshot (~20 Hz),
+ *    pushRemoteSnapshot + interpolation buffer, reset(). Same public API.
  * ========================================================================== */
 
 import React, {
@@ -24,104 +21,119 @@ import React, {
   useState,
 } from 'react';
 
-/* ============================== ТИПЫ ===================================== */
+/* ================================ TYPES ================================== */
 
 type Vec = { x: number; y: number };
-type Surface = 'asphalt' | 'curb' | 'grass';
-type DecorKind = 'tree' | 'pine' | 'rock' | 'cone' | 'stand' | 'tires' | 'flag';
-type ParticleKind = 'smoke' | 'dirt' | 'spark';
+type Surface = 'asphalt' | 'edge' | 'off';
+type ParticleKind = 'smoke' | 'spark' | 'dust';
 
 type CarState = {
   x: number;
   y: number;
-  angle: number;   // куда смотрит нос, рад
-  vx: number;      // скорость в мировых координатах, px/сек
+  angle: number;      // heading, rad
+  vx: number;         // world velocity, px/s
   vy: number;
-  steer: number;   // сглаженный руль -1..1
-  driftPower: number; // 0..1 насколько активно скользим (для эффектов)
-  // прогресс/круги
-  progress: number;
+  steer: number;      // smoothed steering -1..1
+  driftPower: number; // 0..1, for FX + net snapshot
+  progress: number;   // 0..1 along the lap
   lap: number;
-  armed: boolean;
+  armed: boolean;     // anti-cheat half-lap flag for lap counting
 };
 
 type InputState = {
   throttle: number; // 0..1
   brake: number;    // 0..1
-  steer: number;    // -1..1 (цель руля)
-  drift: boolean;   // ручник
+  steer: number;    // -1..1
+  drift: boolean;   // handbrake
 };
 
-type Decor = { x: number; y: number; kind: DecorKind; size: number; angle: number; seed: number };
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; kind: ParticleKind; rot: number };
-type Skid = { x1: number; y1: number; x2: number; y2: number; life: number; w: number };
+type Particle = {
+  x: number; y: number; vx: number; vy: number;
+  life: number; max: number; size: number; kind: ParticleKind;
+};
+type Skid = { x1: number; y1: number; x2: number; y2: number; life: number };
 type Popup = { x: number; y: number; life: number; text: string; big: boolean };
+type SidePost = { x: number; y: number; hue: 'cyan' | 'purple' };
 
-/* Снимок состояния для сети — ровно это летит по WebSocket. */
+/* Snapshot that travels over the WebSocket — keep it tiny. */
 export type NetSnapshot = {
-  t: number;     // время на стороне отправителя, мс
+  t: number;     // sender clock, ms
   x: number;
   y: number;
   angle: number;
-  drift: number; // 0..1, чтобы у призрака тоже дымил занос
+  drift: number; // 0..1 so the remote ghost smokes too
   lap: number;
 };
 
 export interface DriftRaceHandle {
-  /** Скормить снимок соперника, пришедший по сети. */
+  /** Feed an opponent snapshot received from the network. */
   pushRemoteSnapshot: (snap: NetSnapshot) => void;
-  /** Сброс гонки. */
+  /** Restart the race. */
   reset: () => void;
 }
 
 interface DriftRaceProps {
-  /** Зовётся ~20 раз/сек с локальным снимком — отсюда шлём в сокет. */
+  /** Called ~20×/s with the local snapshot — pipe it into WebSocket.send(). */
   onSnapshot?: (snap: NetSnapshot) => void;
-  /** Показывать ли призрак собственного лучшего круга, когда соперника нет. */
+  /** Replay your own best lap as a ghost when no opponent is connected. */
   selfGhost?: boolean;
-  /** Сколько пикселей занято над игрой (шапка/тулбар). Высота = 100dvh - это. */
+  /** Pixels occupied above the game (app header). Height = 100dvh - this. */
   topOffset?: number;
 }
 
-/* ============================ НАСТРОЙКИ ================================= */
-/* Это «ручки ощущения». Их и крутим, чтобы поймать кайф заноса.          */
+/* =============================== PALETTE ================================= */
 
-const STEP = 1 / 60;          // фиксированный шаг физики, сек
+const C = {
+  bg: '#050610',
+  asphalt: '#12141f',
+  asphaltCore: '#161a28',
+  neon: '#52FFE5',
+  neonDim: 'rgba(82,255,229,0.55)',
+  neonGlow: 'rgba(82,255,229,0.07)',
+  gold: '#F2C766',
+  purple: '#9D7CFF',
+} as const;
+
+/* =============================== TUNING ================================== */
+
+const STEP = 1 / 60;
 const TOTAL_LAPS = 5;
 
-const ROAD_HALF = 86;         // половина ширины асфальта, px
-const CURB = 16;              // ширина поребрика
-const RUNOFF = 78;            // трава за поребриком (по ней можно ехать, но скользко и медленно)
-const WALL = ROAD_HALF + CURB + RUNOFF; // дальше — отбойник
+const ROAD_HALF = 82;                 // half asphalt width
+const EDGE = 8;                       // neon rim band
+const RUNOFF = 64;                    // dark runoff, slow + slippery
+const WALL = ROAD_HALF + EDGE + RUNOFF;
 
 const TUNE = {
-  enginePower: 1050,     // ускорение от газа, px/с²
-  maxSpeed: 500,         // макс. скорость на асфальте, px/с
-  reverseMax: 130,       // макс. скорость заднего хода
-  brakePower: 1500,      // торможение, px/с²
-  rollResist: 1.15,      // линейное трение качения
-  airDrag: 0.0011,       // квадратичное сопротивление воздуха
+  enginePower: 1500,   // px/s² — quick to top speed
+  maxSpeed: 430,
+  brakePower: 1500,
+  rollResist: 1.0,
+  airDrag: 0.0011,
 
-  turnRate: 3.1,         // базовая скорость поворота, рад/с
-  driftYaw: 2.4,         // доп. вращение в заносе (зад вылетает наружу)
-  steerLerp: 11,         // насколько быстро руль доходит до цели
+  turnRate: 2.9,       // rad/s base steering
+  steerLerp: 14,       // stick → wheel responsiveness
+  driftYaw: 1.7,       // extra rotation while sliding
 
-  // Сцепление = сколько боковой скорости ОСТАЁТСЯ за шаг.
-  //   меньше -> цепко (занос гасится мгновенно)
-  //   больше -> скользко (машину несёт)
-  gripGrab: 0.82,        // обычная езда: бок гаснет быстро -> точный руль
-  gripDrift: 0.975,      // ручник: бок живёт долго -> длинный красивый занос
-  gripSpeedLoosen: 0.06, // на скорости сцепление чуть слабее (естественный снос)
+  // Lateral velocity retained per 1/60 frame:
+  //   low = grippy & precise, high = slidey.
+  gripBase: 0.72,      // normal driving — car goes where you point it
+  gripDrift: 0.905,    // sliding — long, readable drift
+  gripSpeedLoosen: 0.05,
+
+  driftSpeedDrop: 0.5, // fraction/s of forward speed bled while drifting
+  alignRate: 3.2,      // how fast the nose re-aligns to velocity on release
+  driftEnterSteer: 0.6,  // |steer| above this at speed → light drift
+  driftEnterSpeed: 0.5,  // fraction of maxSpeed
 } as const;
 
 const SURFACE: Record<Surface, { roll: number; topMul: number; gripAdd: number }> = {
-  // roll — множитель трения, topMul — потолок скорости, gripAdd — добавка к «скользко»
-  asphalt: { roll: 1, topMul: 1, gripAdd: 0 },
-  curb:    { roll: 1.4, topMul: 0.94, gripAdd: 0.05 },
-  grass:   { roll: 4.2, topMul: 0.5, gripAdd: 0.1 },
+  asphalt: { roll: 1.0, topMul: 1.0, gripAdd: 0 },
+  edge:    { roll: 1.3, topMul: 0.95, gripAdd: 0.04 },
+  off:     { roll: 3.4, topMul: 0.55, gripAdd: 0.08 },
 };
 
-/* ============================ МАТЕМАТИКА =============================== */
+/* ================================ MATH =================================== */
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -130,34 +142,29 @@ const smooth = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 };
-
 function seeded(seed: number) {
   let s = seed >>> 0;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296);
 }
-function noise(x: number, y: number) {
-  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return n - Math.floor(n);
-}
 
-/* ============================ ТРАССА =================================== */
-/* Контрольные точки замкнутой петли -> сглаживаем Catmull-Rom -> густая
-   ломаная по центру. Коллизия = расстояние до ближайшего сегмента.        */
+/* ================================ TRACK ================================== */
+/* Closed loop of control nodes → Catmull-Rom → dense centerline polyline.
+   Collision / surface / progress = distance to nearest segment.            */
 
 const NODES: Vec[] = [
-  { x: -1450, y: -260 },
-  { x: -1150, y: -1000 },
-  { x: -300, y: -1280 },
-  { x: 560, y: -1180 },
-  { x: 1320, y: -1360 },
-  { x: 1880, y: -640 },
-  { x: 1640, y: 220 },
-  { x: 1980, y: 860 },
-  { x: 1360, y: 1380 },
-  { x: 420, y: 1240 },
-  { x: -220, y: 1500 },
-  { x: -960, y: 1240 },
-  { x: -1560, y: 720 },
+  { x: -1300, y: -240 },
+  { x: -1040, y: -900 },
+  { x: -280, y: -1150 },
+  { x: 500, y: -1060 },
+  { x: 1190, y: -1220 },
+  { x: 1690, y: -580 },
+  { x: 1470, y: 200 },
+  { x: 1780, y: 780 },
+  { x: 1220, y: 1240 },
+  { x: 380, y: 1120 },
+  { x: -200, y: 1350 },
+  { x: -860, y: 1120 },
+  { x: -1400, y: 650 },
 ];
 
 type CenterPt = Vec & { tx: number; ty: number; dist: number };
@@ -165,7 +172,7 @@ type CenterPt = Vec & { tx: number; ty: number; dist: number };
 function buildCenterline(): { pts: CenterPt[]; length: number } {
   const raw: Vec[] = [];
   const N = NODES.length;
-  const SEG = 26; // точек на участок между узлами
+  const SEG = 22;
   for (let i = 0; i < N; i += 1) {
     const p0 = NODES[(i - 1 + N) % N];
     const p1 = NODES[i];
@@ -195,10 +202,10 @@ function buildCenterline(): { pts: CenterPt[]; length: number } {
   return { pts, length };
 }
 
-type Hit = { d: number; cx: number; cy: number; nx: number; ny: number; seg: number; progress: number; surface: Surface };
+type Hit = { d: number; nx: number; ny: number; progress: number; surface: Surface };
 
 function queryTrack(center: CenterPt[], total: number, x: number, y: number): Hit {
-  let best: Hit = { d: Infinity, cx: x, cy: y, nx: 1, ny: 0, seg: 0, progress: 0, surface: 'grass' };
+  let best: Hit = { d: Infinity, nx: 1, ny: 0, progress: 0, surface: 'off' };
   for (let i = 0; i < center.length; i += 1) {
     const a = center[i];
     const b = center[(i + 1) % center.length];
@@ -213,80 +220,50 @@ function queryTrack(center: CenterPt[], total: number, x: number, y: number): Hi
       const inv = d || 1;
       best = {
         d,
-        cx,
-        cy,
         nx: (x - cx) / inv,
         ny: (y - cy) / inv,
-        seg: i,
         progress: (a.dist + Math.hypot(dx, dy) * t) / total,
-        surface: 'asphalt',
+        surface: 'off',
       };
     }
   }
   if (best.d <= ROAD_HALF) best.surface = 'asphalt';
-  else if (best.d <= ROAD_HALF + CURB) best.surface = 'curb';
-  else best.surface = 'grass';
+  else if (best.d <= ROAD_HALF + EDGE) best.surface = 'edge';
   return best;
 }
 
-/* ============================ МИР / ДЕКОР ============================== */
-
-function buildWorld(center: CenterPt[], total: number): Decor[] {
-  const decor: Decor[] = [];
-  const wr = seeded(1337);
-  const farEnough = (x: number, y: number, m: number) => queryTrack(center, total, x, y).d > m;
-
-  // Конусы вдоль кромки трассы — сразу читается «гоночность».
-  for (let i = 0; i < center.length; i += 6) {
+/* Tiny ambient decor: a few neon side posts. Nothing else — the night is the décor. */
+function buildPosts(center: CenterPt[]): SidePost[] {
+  const posts: SidePost[] = [];
+  const rnd = seeded(42);
+  for (let i = 0; i < center.length; i += 14) {
     const p = center[i];
-    const off = ROAD_HALF + CURB + 12;
-    decor.push({ x: p.x - p.ty * off, y: p.y + p.tx * off, kind: 'cone', size: 12, angle: 0, seed: wr() });
-    decor.push({ x: p.x + p.ty * off, y: p.y - p.tx * off, kind: 'cone', size: 12, angle: 0, seed: wr() });
+    const side = (i / 14) % 2 === 0 ? 1 : -1;
+    const off = ROAD_HALF + EDGE + 22;
+    posts.push({
+      x: p.x - p.ty * off * side,
+      y: p.y + p.tx * off * side,
+      hue: rnd() > 0.6 ? 'purple' : 'cyan',
+    });
   }
-
-  // Трибуны, стопки шин и флаги — пореже, для атмосферы.
-  for (let i = 0; i < center.length; i += 1) {
-    const p = center[i];
-    const side = i % 2 === 0 ? 1 : -1;
-    if (i % 40 === 0) {
-      const x = p.x + p.ty * side * 175;
-      const y = p.y - p.tx * side * 175;
-      if (farEnough(x, y, WALL + 60)) decor.push({ x, y, kind: 'stand', size: 120, angle: Math.atan2(p.ty, p.tx), seed: wr() });
-    }
-    if (i % 22 === 0) {
-      const x = p.x + p.ty * side * 130;
-      const y = p.y - p.tx * side * 130;
-      if (farEnough(x, y, WALL + 18)) decor.push({ x, y, kind: 'tires', size: 26, angle: 0, seed: wr() });
-    }
-    if (i % 18 === 9) {
-      const x = p.x - p.ty * side * 120;
-      const y = p.y + p.tx * side * 120;
-      if (farEnough(x, y, WALL + 10)) decor.push({ x, y, kind: 'flag', size: 34, angle: 0, seed: wr() });
-    }
-  }
-
-  // Зелёнка вокруг — деревья и камни.
-  for (let i = 0; i < 260; i += 1) {
-    const x = -2600 + wr() * 5200;
-    const y = -2500 + wr() * 4600;
-    if (!farEnough(x, y, WALL + 90)) continue;
-    const r = wr();
-    const kind: DecorKind = r > 0.78 ? 'rock' : r > 0.5 ? 'pine' : 'tree';
-    decor.push({ x, y, kind, size: 26 + wr() * 48, angle: wr() * Math.PI * 2, seed: wr() });
-  }
-  return decor;
+  return posts;
 }
 
-/* ============================ ФИЗИКА ================================== */
-/* Чистый фиксированный шаг. Тут живёт всё «ощущение».                    */
+/* ================================ PHYSICS ================================ */
+/* Fixed 1/60 step. Arcade rules:
+   1. Auto-throttle: once started, the car drives itself; the stick steers.
+   2. Sharp steering at speed → light drift (grip loosens, slight speed bleed).
+   3. Handbrake (stick pulled down / Space) → big drift.
+   4. Stick released → nose re-aligns to velocity, grip snaps back, car settles.
+   5. Lateral velocity is hard-capped → no soap, no spin-outs.               */
 
 type StepResult = { speed: number; slip: number; surface: Surface; crossedFinish: boolean; hardHit: boolean };
 
 function stepCar(car: CarState, input: InputState, center: CenterPt[], total: number): StepResult {
-  // 1) сглаживаем руль к цели
+  // 1) smooth the wheel toward the stick
   car.steer = lerp(car.steer, clamp(input.steer, -1, 1), clamp(TUNE.steerLerp * STEP, 0, 1));
 
-  // 2) раскладываем скорость на «вдоль носа» и «вбок»
+  // 2) split velocity into forward / lateral
   const cos = Math.cos(car.angle);
   const sin = Math.sin(car.angle);
   let forward = car.vx * cos + car.vy * sin;
@@ -297,45 +274,54 @@ function stepCar(car: CarState, input: InputState, center: CenterPt[], total: nu
   const speedPre = Math.hypot(car.vx, car.vy);
   const speed01 = clamp(speedPre / TUNE.maxSpeed, 0, 1);
 
-  // 3) газ / тормоз (тормоз ниже нуля = медленный задний ход)
+  // 3) throttle / brake (no reverse)
   forward += input.throttle * TUNE.enginePower * STEP;
-  if (input.brake > 0) {
-    if (forward > 0) forward -= input.brake * TUNE.brakePower * STEP;
-    else forward -= input.brake * TUNE.brakePower * 0.35 * STEP; // назад слабее
-  }
-  forward = clamp(forward, 0, TUNE.maxSpeed * surf.topMul); // заднего хода нет
+  if (input.brake > 0) forward -= input.brake * TUNE.brakePower * STEP;
+  forward = clamp(forward, 0, TUNE.maxSpeed * surf.topMul);
 
-  // 4) трение
+  // 4) friction
   forward -= forward * TUNE.rollResist * surf.roll * STEP;
   forward -= forward * Math.abs(forward) * TUNE.airDrag * STEP;
 
-  // 5) поворот носа. На скорости рулится лучше; задний ход инвертирует руль.
-  const steerAuthority = 0.25 + 0.75 * clamp(Math.abs(forward) / 200, 0, 1);
-  const reverseSign = forward < 0 ? -1 : 1;
-  let dAngle = car.steer * TUNE.turnRate * steerAuthority * reverseSign * STEP;
-  if (input.drift && Math.abs(forward) > 60) {
-    // ручник: зад срывается, нос доворачивается сильнее в сторону руля
-    dAngle += car.steer * TUNE.driftYaw * clamp(Math.abs(forward) / 240, 0, 1) * STEP;
-  }
+  // 5) drifting? (handbrake, or hard steering at speed)
+  const hardTurn = Math.abs(car.steer) > TUNE.driftEnterSteer && speed01 > TUNE.driftEnterSpeed;
+  const drifting = (input.drift && forward > 80) || hardTurn;
+
+  // 6) turn the nose — better authority at speed
+  const authority = 0.3 + 0.7 * clamp(forward / 180, 0, 1);
+  let dAngle = car.steer * TUNE.turnRate * authority * STEP;
+  if (drifting) dAngle += car.steer * TUNE.driftYaw * speed01 * STEP;
   car.angle += dAngle;
 
-  // 6) СЦЕПЛЕНИЕ — сердце дрифта. Сколько боковой скорости останется.
-  let retain: number = input.drift ? TUNE.gripDrift : TUNE.gripGrab;
-  retain += speed01 * TUNE.gripSpeedLoosen + surf.gripAdd;
-  retain = clamp(retain, 0, 0.995);
-  lateral *= Math.pow(retain, STEP * 60); // нормируем под фикс. шаг
+  // 7) auto-stabilize: stick released → nose drifts back to the velocity vector
+  if (Math.abs(input.steer) < 0.12 && !input.drift && forward > 40) {
+    const moveA = Math.atan2(car.vy, car.vx);
+    car.angle += angleDiff(moveA, car.angle) * clamp(TUNE.alignRate * STEP, 0, 1);
+  }
 
-  // 7) собираем скорость обратно
+  // 8) GRIP — the heart of the feel: how much lateral velocity survives
+  let retain: number = drifting ? TUNE.gripDrift : TUNE.gripBase;
+  retain += speed01 * TUNE.gripSpeedLoosen + surf.gripAdd;
+  retain = clamp(retain, 0, 0.97);
+  lateral *= Math.pow(retain, STEP * 60);
+
+  // anti-spin clamp: the side can never overpower the forward motion
+  const latCap = Math.max(50, forward * 0.85);
+  lateral = clamp(lateral, -latCap, latCap);
+
+  // drifting bleeds a bit of speed — feels right, rewards clean lines
+  if (drifting) forward -= forward * TUNE.driftSpeedDrop * STEP;
+
+  // 9) recompose + integrate
   const c2 = Math.cos(car.angle);
   const s2 = Math.sin(car.angle);
   car.vx = c2 * forward - s2 * lateral;
   car.vy = s2 * forward + c2 * lateral;
 
-  // 8) интеграция позиции
   let nx = car.x + car.vx * STEP;
   let ny = car.y + car.vy * STEP;
 
-  // 9) столкновение с отбойником: выталкиваем и гасим нормальную составляющую
+  // 10) wall: push back, kill the normal component, soft bounce
   let hardHit = false;
   const next = queryTrack(center, total, nx, ny);
   if (next.d > WALL) {
@@ -344,23 +330,23 @@ function stepCar(car: CarState, input: InputState, center: CenterPt[], total: nu
     ny -= next.ny * pen;
     const vn = car.vx * next.nx + car.vy * next.ny;
     if (vn > 0) {
-      car.vx -= next.nx * vn * 1.3; // лёгкий отскок
-      car.vy -= next.ny * vn * 1.3;
+      car.vx -= next.nx * vn * 1.25;
+      car.vy -= next.ny * vn * 1.25;
     }
-    car.vx *= 0.75;
-    car.vy *= 0.75;
-    if (speedPre > 160) hardHit = true;
+    car.vx *= 0.78;
+    car.vy *= 0.78;
+    if (speedPre > 170) hardHit = true;
   }
   car.x = nx;
   car.y = ny;
 
-  // 10) занос для эффектов/очков: угол между движением и носом
+  // 11) slip for FX/score
   const speed = Math.hypot(car.vx, car.vy);
   const moveAngle = Math.atan2(car.vy, car.vx);
   const slip = forward > 60 ? Math.abs(angleDiff(moveAngle, car.angle)) : 0;
-  car.driftPower = lerp(car.driftPower, clamp(slip / 0.7, 0, 1) * smooth(80, 200, speed), 0.2);
+  car.driftPower = lerp(car.driftPower, clamp(slip / 0.6, 0, 1) * smooth(70, 180, speed), 0.2);
 
-  // 11) круги: «вооружаемся» на середине трассы, считаем при пересечении старта
+  // 12) lap counting: arm mid-track, count on start-line crossing
   let crossedFinish = false;
   if (car.progress > 0.45 && car.progress < 0.75) car.armed = true;
   const prev = car.progress;
@@ -374,29 +360,28 @@ function stepCar(car: CarState, input: InputState, center: CenterPt[], total: nu
   return { speed, slip, surface: here.surface, crossedFinish, hardHit };
 }
 
-/* ============================ ЧАСТИЦЫ ================================= */
+/* =============================== PARTICLES =============================== */
 
 function spawn(list: Particle[], x: number, y: number, kind: ParticleKind, n: number, angle: number, power: number) {
-  if (list.length > 320) list.splice(0, list.length - 260);
+  if (list.length > 140) list.splice(0, list.length - 120); // hard cap — phones
   for (let i = 0; i < n; i += 1) {
-    const a = angle + Math.PI + (Math.random() - 0.5) * 1.7;
-    const sp = (20 + Math.random() * 130) * power;
-    const max = kind === 'spark' ? 0.22 + Math.random() * 0.2 : 0.5 + Math.random() * 0.7;
+    const a = angle + Math.PI + (Math.random() - 0.5) * 1.6;
+    const sp = (18 + Math.random() * 90) * power;
+    const max = kind === 'spark' ? 0.2 + Math.random() * 0.15 : 0.45 + Math.random() * 0.5;
     list.push({
-      x: x + (Math.random() - 0.5) * 16,
-      y: y + (Math.random() - 0.5) * 12,
+      x: x + (Math.random() - 0.5) * 14,
+      y: y + (Math.random() - 0.5) * 10,
       vx: Math.cos(a) * sp,
       vy: Math.sin(a) * sp,
       life: max,
       max,
-      size: 2 + Math.random() * (kind === 'smoke' ? 9 : 4),
+      size: 2 + Math.random() * (kind === 'smoke' ? 7 : 3),
       kind,
-      rot: Math.random() * Math.PI * 2,
     });
   }
 }
 
-/* ============================ РЕНДЕР =================================== */
+/* ================================ RENDER ================================= */
 
 function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const k = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
@@ -409,7 +394,7 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
   ctx.closePath();
 }
 
-function strokeCenterline(ctx: CanvasRenderingContext2D, center: CenterPt[], width: number, color: string, dash?: number[]) {
+function strokeLoop(ctx: CanvasRenderingContext2D, center: CenterPt[], width: number, color: string, dash?: number[]) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.lineJoin = 'round';
@@ -422,55 +407,36 @@ function strokeCenterline(ctx: CanvasRenderingContext2D, center: CenterPt[], wid
   if (dash) ctx.setLineDash([]);
 }
 
-function drawCurbs(ctx: CanvasRenderingContext2D, center: CenterPt[], side: number) {
-  const off = (ROAD_HALF + CURB / 2) * side;
-  for (let i = 0; i < center.length; i += 1) {
-    const p = center[i];
-    const q = center[(i + 1) % center.length];
-    ctx.strokeStyle = i % 2 === 0 ? '#fef2f2' : '#dc2626';
-    ctx.lineWidth = CURB;
-    ctx.lineCap = 'butt';
-    ctx.beginPath();
-    ctx.moveTo(p.x - p.ty * off, p.y + p.tx * off);
-    ctx.lineTo(q.x - q.ty * off, q.y + q.tx * off);
-    ctx.stroke();
+/* Background: flat app color + a faint blueprint grid. The night IS the design. */
+function drawGround(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, zoom: number) {
+  const halfW = w / zoom / 2 + 200;
+  const halfH = h / zoom / 2 + 200;
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
+
+  const step = 180;
+  ctx.strokeStyle = 'rgba(157,124,255,0.045)';
+  ctx.lineWidth = 1 / zoom;
+  ctx.beginPath();
+  for (let x = Math.floor((cx - halfW) / step) * step; x < cx + halfW; x += step) {
+    ctx.moveTo(x, cy - halfH);
+    ctx.lineTo(x, cy + halfH);
   }
+  for (let y = Math.floor((cy - halfH) / step) * step; y < cy + halfH; y += step) {
+    ctx.moveTo(cx - halfW, y);
+    ctx.lineTo(cx + halfW, y);
+  }
+  ctx.stroke();
 }
 
-function drawGround(ctx: CanvasRenderingContext2D, cx: number, cy: number) {
-  const size = 9000;
-  const g = ctx.createLinearGradient(cx - 1400, cy - 1400, cx + 1400, cy + 1400);
-  g.addColorStop(0, '#1d4d2b');
-  g.addColorStop(0.5, '#2f7d3f');
-  g.addColorStop(1, '#173d22');
-  ctx.fillStyle = g;
-  ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
-
-  ctx.save();
-  ctx.globalAlpha = 0.1;
-  const step = 170;
-  for (let x = Math.floor((cx - 1600) / step) * step; x < cx + 1600; x += step) {
-    for (let y = Math.floor((cy - 1100) / step) * step; y < cy + 1100; y += step) {
-      const h = noise(x, y);
-      if (h > 0.5) {
-        ctx.fillStyle = h > 0.78 ? '#86efac' : '#14532d';
-        ctx.beginPath();
-        ctx.ellipse(x + h * 80, y + noise(y, x) * 80, 14 + h * 16, 5 + h * 6, h * 6.28, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-  ctx.restore();
-}
-
+/* Track: dark asphalt, neon rims. Trick: stroke a slightly wider neon band,
+   then overdraw asphalt → crisp 4px glowing edge on both sides, cheap. */
 function drawTrack(ctx: CanvasRenderingContext2D, center: CenterPt[]) {
-  strokeCenterline(ctx, center, (ROAD_HALF + CURB) * 2 + 30, 'rgba(0,0,0,0.22)');
-  drawCurbs(ctx, center, 1);
-  drawCurbs(ctx, center, -1);
-  strokeCenterline(ctx, center, ROAD_HALF * 2 + 6, '#0c1016');
-  strokeCenterline(ctx, center, ROAD_HALF * 2, '#23272f');
-  strokeCenterline(ctx, center, ROAD_HALF * 2 - 22, '#282d36');
-  strokeCenterline(ctx, center, 4, 'rgba(255,255,255,0.16)', [44, 56]);
+  strokeLoop(ctx, center, (ROAD_HALF + EDGE) * 2 + 44, C.neonGlow);          // soft outer glow
+  strokeLoop(ctx, center, ROAD_HALF * 2 + EDGE * 2, C.neonDim);             // neon rim band
+  strokeLoop(ctx, center, ROAD_HALF * 2, C.asphalt);                        // asphalt
+  strokeLoop(ctx, center, ROAD_HALF * 2 - 26, C.asphaltCore);               // subtle core tint
+  strokeLoop(ctx, center, 3, 'rgba(255,255,255,0.07)', [36, 52]);           // center dashes
 }
 
 function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
@@ -478,256 +444,154 @@ function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(Math.atan2(p.ty, p.tx));
-  const cell = 15;
-  for (let i = -1; i <= 1; i += 1) {
+  const cell = 14;
+  for (let i = -1; i <= 0; i += 1) {
     for (let j = -Math.floor(ROAD_HALF / cell); j < Math.floor(ROAD_HALF / cell); j += 1) {
-      ctx.fillStyle = (i + j) % 2 === 0 ? '#f8fafc' : '#0b1220';
-      ctx.fillRect(i * cell - cell / 2, j * cell, cell, cell);
+      ctx.fillStyle = (i + j) % 2 === 0 ? 'rgba(248,250,252,0.85)' : 'rgba(5,6,16,0.9)';
+      ctx.fillRect(i * cell, j * cell, cell, cell);
     }
   }
-  ctx.fillStyle = `rgba(250,204,21,${0.5 + Math.sin(now * 0.005) * 0.2})`;
-  ctx.fillRect(-ROAD_HALF, -42, 6, 84);
-  ctx.fillRect(ROAD_HALF - 6, -42, 6, 84);
+  const pulse = 0.55 + Math.sin(now * 0.004) * 0.25;
+  ctx.fillStyle = `rgba(242,199,102,${pulse})`;
+  ctx.fillRect(-ROAD_HALF - EDGE, -3, EDGE + 4, 6);
+  ctx.fillRect(ROAD_HALF - 4, -3, EDGE + 4, 6);
   ctx.restore();
 }
 
-function drawDecor(ctx: CanvasRenderingContext2D, d: Decor, now: number, car: CarState) {
-  if (Math.hypot(d.x - car.x, d.y - car.y) > 1600) return;
-  ctx.save();
-  ctx.translate(d.x, d.y);
-  ctx.rotate(d.angle);
-
-  const shadow = (w: number, h: number, a = 0.18) => {
-    ctx.save();
-    ctx.rotate(-d.angle + 0.6);
-    ctx.fillStyle = `rgba(0,0,0,${a})`;
-    ctx.beginPath();
-    ctx.ellipse(w * 0.25, h * 0.25, w, h, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  };
-
-  if (d.kind === 'tree' || d.kind === 'pine') {
-    shadow(d.size * 0.7, d.size * 0.3);
-    ctx.fillStyle = '#4a2d16';
-    rr(ctx, -d.size * 0.08, -d.size * 0.05, d.size * 0.16, d.size * 0.5, 4);
-    ctx.fill();
-    if (d.kind === 'pine') {
-      for (let i = 0; i < 3; i += 1) {
-        ctx.fillStyle = ['#065f46', '#047857', '#059669'][i];
-        ctx.beginPath();
-        ctx.moveTo(0, -d.size * (0.75 - i * 0.22));
-        ctx.lineTo(-d.size * (0.42 + i * 0.06), d.size * (0.05 + i * 0.12));
-        ctx.lineTo(d.size * (0.42 + i * 0.06), d.size * (0.05 + i * 0.12));
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else {
-      const g = ctx.createRadialGradient(-d.size * 0.2, -d.size * 0.3, 3, 0, -d.size * 0.2, d.size);
-      g.addColorStop(0, '#7ddf64');
-      g.addColorStop(0.5, '#16a34a');
-      g.addColorStop(1, '#14532d');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, -d.size * 0.28, d.size * 0.56, 0, Math.PI * 2);
-      ctx.arc(-d.size * 0.3, -d.size * 0.02, d.size * 0.4, 0, Math.PI * 2);
-      ctx.arc(d.size * 0.3, 0, d.size * 0.44, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (d.kind === 'rock') {
-    shadow(d.size * 0.45, d.size * 0.2, 0.14);
-    ctx.fillStyle = '#6b7280';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, d.size * 0.5, d.size * 0.34, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.ellipse(-d.size * 0.12, -d.size * 0.1, d.size * 0.22, d.size * 0.14, 0, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (d.kind === 'cone') {
-    ctx.fillStyle = '#f97316';
-    ctx.beginPath();
-    ctx.arc(0, 0, d.size * 0.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fed7aa';
-    ctx.beginPath();
-    ctx.arc(0, 0, d.size * 0.24, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (d.kind === 'tires') {
-    for (let i = 0; i < 4; i += 1) {
-      ctx.fillStyle = i % 2 === 0 ? '#0f172a' : '#1e293b';
-      ctx.beginPath();
-      ctx.arc((i - 1.5) * d.size * 0.5, 0, d.size * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (d.kind === 'stand') {
-    shadow(d.size * 0.9, d.size * 0.3, 0.25);
-    const w = d.size * 1.5;
-    const h = d.size * 0.6;
-    ctx.fillStyle = '#1e293b';
-    rr(ctx, -w / 2, -h / 2, w, h, 10);
-    ctx.fill();
-    for (let r = 0; r < 3; r += 1) {
-      for (let i = 0; i < 12; i += 1) {
-        ctx.fillStyle = `hsl(${(i * 33 + r * 60 + Math.floor(now / 120)) % 360}, 65%, 58%)`;
-        ctx.fillRect(-w * 0.42 + i * w * 0.07, -h * 0.18 + r * h * 0.2, 5, 5);
-      }
-    }
-  } else if (d.kind === 'flag') {
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, d.size * 0.5);
-    ctx.lineTo(0, -d.size * 0.7);
-    ctx.stroke();
-    ctx.fillStyle = d.seed > 0.5 ? '#f43f5e' : '#facc15';
-    ctx.beginPath();
-    ctx.moveTo(0, -d.size * 0.7);
-    ctx.quadraticCurveTo(d.size * 0.5, -d.size * 0.62 + Math.sin(now * 0.006 + d.seed * 6) * 4, d.size * 0.66, -d.size * 0.4);
-    ctx.quadraticCurveTo(d.size * 0.36, -d.size * 0.3, 0, -d.size * 0.36);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.restore();
+function drawPost(ctx: CanvasRenderingContext2D, p: SidePost) {
+  const col = p.hue === 'cyan' ? C.neon : C.purple;
+  ctx.fillStyle = p.hue === 'cyan' ? 'rgba(82,255,229,0.10)' : 'rgba(157,124,255,0.10)';
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawParticles(ctx: CanvasRenderingContext2D, list: Particle[], dt: number) {
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const p = list[i];
     const k = clamp(p.life / p.max, 0, 1);
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(p.rot);
     if (p.kind === 'smoke') {
-      ctx.fillStyle = `rgba(226,232,240,${0.16 * k})`;
+      ctx.fillStyle = `rgba(140,170,180,${0.10 * k})`;
       ctx.beginPath();
-      ctx.arc(0, 0, p.size * (1.7 - k * 0.5), 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.size * (1.6 - k * 0.5), 0, Math.PI * 2);
       ctx.fill();
     } else if (p.kind === 'spark') {
-      ctx.strokeStyle = `rgba(253,186,116,${0.85 * k})`;
+      ctx.strokeStyle = `rgba(242,199,102,${0.8 * k})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-p.vx * 0.05, -p.vy * 0.05);
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04);
       ctx.stroke();
     } else {
-      ctx.fillStyle = `rgba(120,90,50,${0.3 * k})`;
+      ctx.fillStyle = `rgba(60,70,100,${0.18 * k})`;
       ctx.beginPath();
-      ctx.ellipse(0, 0, p.size * 1.2, p.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.restore();
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.vx *= Math.pow(0.05, dt);
     p.vy *= Math.pow(0.05, dt);
-    p.rot += 2 * dt;
     p.life -= dt;
     if (p.life <= 0) list.splice(i, 1);
   }
 }
 
 function drawSkids(ctx: CanvasRenderingContext2D, list: Skid[], dt: number) {
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 5;
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const m = list[i];
-    ctx.strokeStyle = `rgba(15,15,18,${0.3 * m.life})`;
-    ctx.lineWidth = m.w;
-    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(0,0,0,${0.35 * m.life})`;
     ctx.beginPath();
     ctx.moveTo(m.x1, m.y1);
     ctx.lineTo(m.x2, m.y2);
     ctx.stroke();
-    m.life -= 0.12 * dt;
+    m.life -= 0.14 * dt;
     if (m.life <= 0) list.splice(i, 1);
   }
-  if (list.length > 400) list.splice(0, list.length - 400);
+  if (list.length > 240) list.splice(0, list.length - 240);
 }
 
-function drawCar(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, opt: { ghost?: boolean; steer?: number; brake?: number; throttle?: number; speed?: number; now?: number }) {
+function drawCar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  opt: { ghost?: boolean; steer?: number; brake?: number; drift?: number },
+) {
   const ghost = !!opt.ghost;
+  const accent = ghost ? C.purple : C.neon;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
-  if (ghost) ctx.globalAlpha = 0.45;
+  if (ghost) ctx.globalAlpha = 0.42;
 
-  // тень
-  if (!ghost) {
-    ctx.save();
-    ctx.rotate(-angle + 0.6);
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.beginPath();
-    ctx.ellipse(6, 10, 32, 16, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
+  // underglow — stronger while drifting
+  const glow = ghost ? 0.10 : 0.10 + (opt.drift || 0) * 0.22;
+  ctx.fillStyle = ghost ? `rgba(157,124,255,${glow})` : `rgba(82,255,229,${glow})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 36, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  // колёса
+  // wheels
   const wheel = (wx: number, wy: number, front: boolean) => {
     ctx.save();
     ctx.translate(wx, wy);
-    if (front && opt.steer) ctx.rotate(opt.steer * 0.4);
-    ctx.fillStyle = '#0b1120';
-    rr(ctx, -8, -6, 16, 12, 4);
+    if (front && opt.steer) ctx.rotate(opt.steer * 0.38);
+    ctx.fillStyle = '#070a14';
+    rr(ctx, -7, -5, 14, 10, 3);
     ctx.fill();
     ctx.restore();
   };
-  wheel(-15, -13, false);
-  wheel(-15, 13, false);
-  wheel(17, -13, true);
-  wheel(17, 13, true);
+  wheel(-14, -12, false);
+  wheel(-14, 12, false);
+  wheel(16, -12, true);
+  wheel(16, 12, true);
 
-  // корпус
-  const body = ctx.createLinearGradient(-26, -13, 30, 16);
-  if (ghost) {
-    body.addColorStop(0, '#1e40af');
-    body.addColorStop(1, '#60a5fa');
-  } else {
-    body.addColorStop(0, '#b45309');
-    body.addColorStop(0.45, '#f59e0b');
-    body.addColorStop(1, '#f97316');
-  }
-  ctx.fillStyle = body;
-  rr(ctx, -28, -14, 58, 28, 11);
+  // body — dark with a neon trim, readable silhouette
+  ctx.fillStyle = ghost ? '#171231' : '#0b0e1a';
+  rr(ctx, -26, -13, 54, 26, 10);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 2;
-  rr(ctx, -25, -11, 52, 22, 9);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.6;
+  rr(ctx, -26, -13, 54, 26, 10);
   ctx.stroke();
 
-  // кабина
-  ctx.fillStyle = '#0f172a';
-  rr(ctx, -2, -10, 18, 20, 6);
-  ctx.fill();
-  const glass = ctx.createLinearGradient(0, -9, 14, 9);
-  glass.addColorStop(0, ghost ? '#dbeafe' : '#bae6fd');
-  glass.addColorStop(1, '#0369a1');
-  ctx.fillStyle = glass;
-  rr(ctx, 0, -8, 13, 16, 4);
+  // cabin
+  ctx.fillStyle = ghost ? 'rgba(157,124,255,0.35)' : 'rgba(82,255,229,0.28)';
+  rr(ctx, -3, -8, 15, 16, 5);
   ctx.fill();
 
-  // фары / стопы
+  // light bar across the hood
+  ctx.fillStyle = accent;
+  ctx.fillRect(20, -10, 3, 20);
+
   if (!ghost) {
-    ctx.fillStyle = '#fff7ed';
-    ctx.fillRect(26, -9, 4, 6);
-    ctx.fillRect(26, 3, 4, 6);
+    // headlights
+    ctx.fillStyle = '#eafffb';
+    ctx.fillRect(26, -9, 3, 5);
+    ctx.fillRect(26, 4, 3, 5);
+    // taillights — gold, brighter under braking
     const braking = (opt.brake || 0) > 0.05;
-    ctx.fillStyle = braking ? '#ef4444' : 'rgba(220,38,38,0.5)';
-    ctx.shadowColor = braking ? '#ef4444' : 'transparent';
-    ctx.shadowBlur = braking ? 14 : 0;
-    ctx.fillRect(-30, -9, 4, 6);
-    ctx.fillRect(-30, 3, 4, 6);
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = braking ? C.gold : 'rgba(242,199,102,0.45)';
+    ctx.fillRect(-28, -9, 3, 5);
+    ctx.fillRect(-28, 4, 3, 5);
   }
   ctx.restore();
 }
 
-/* ===================== ИНТЕРПОЛЯТОР ПРИЗРАКА (СЕТЬ) ===================== */
-/* Соперник приходит снимками. Рендерим его с задержкой ~100мс и плавной
-   интерполяцией между снимками — классика для онлайна без дёрганья.       */
+/* ====================== GHOST INTERPOLATION (NETWORK) ==================== */
+/* Remote opponent arrives as snapshots. Render ~100 ms in the past with
+   linear interpolation between snapshots — the standard jitter-free trick. */
 
 class GhostBuffer {
   private buf: NetSnapshot[] = [];
-  private offset = 0; // оценка сдвига часов peer -> local
+  private offset = 0; // peer-clock → local-clock estimate
   private delay = 100;
 
   push(s: NetSnapshot) {
@@ -761,7 +625,7 @@ class GhostBuffer {
   clear() { this.buf = []; }
 }
 
-/* =============================== UI ===================================== */
+/* ================================== UI =================================== */
 
 function fmtTime(ms: number) {
   if (ms <= 0 || !isFinite(ms)) return '--:--';
@@ -771,509 +635,594 @@ function fmtTime(ms: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
 }
 
-export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(({ onSnapshot, selfGhost = true, topOffset = 120 }, ref) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const raf = useRef<number | null>(null);
+const STICK_R = 52;   // travel radius
+const STICK_ZONE = 148; // hit area square
 
-  const { center, total } = useMemo(() => {
-    const t = buildCenterline();
-    return { center: t.pts, total: t.length };
-  }, []);
-  const decor = useMemo(() => buildWorld(center, total), [center, total]);
+export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
+  ({ onSnapshot, selfGhost = true, topOffset = 120 }, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const wrapRef = useRef<HTMLDivElement>(null);
+    const knobRef = useRef<HTMLDivElement>(null);
+    const raf = useRef<number | null>(null);
 
-  const startPose = useMemo(() => {
-    const p = center[0];
-    return { x: p.x, y: p.y, angle: Math.atan2(p.ty, p.tx) };
-  }, [center]);
+    const { center, total } = useMemo(() => {
+      const t = buildCenterline();
+      return { center: t.pts, length: t.length, total: t.length };
+    }, []);
+    const posts = useMemo(() => buildPosts(center), [center]);
 
-  const makeCar = useCallback((): CarState => ({
-    x: startPose.x, y: startPose.y, angle: startPose.angle,
-    vx: 0, vy: 0, steer: 0, driftPower: 0, progress: 0, lap: 1, armed: false,
-  }), [startPose]);
+    const startPose = useMemo(() => {
+      const p = center[0];
+      return { x: p.x, y: p.y, angle: Math.atan2(p.ty, p.tx) };
+    }, [center]);
 
-  const car = useRef<CarState>(makeCar());
-  const input = useRef<InputState>({ throttle: 1, brake: 0, steer: 0, drift: false });
-  const keys = useRef({ up: false, down: false, left: false, right: false, drift: false });
-  // единственный орган управления — плавающий стик (тач). ix/iy в [-1..1], power [0..1]
-  const stick = useRef({ active: false, id: -1, ix: 0, iy: 0, power: 0 });
-  const stickOrigin = useRef({ x: 0, y: 0 });
-  const particles = useRef<Particle[]>([]);
-  const skids = useRef<Skid[]>([]);
-  const popups = useRef<Popup[]>([]);
-  const cam = useRef({ x: startPose.x, y: startPose.y, zoom: 1, sx: 0, sy: 0, shake: 0 });
-  const vp = useRef({ w: 0, h: 0, dpr: 1 });
-  const acc = useRef(0);
-  const lastT = useRef(0);
-  const netT = useRef(0);
+    const makeCar = useCallback((): CarState => ({
+      x: startPose.x, y: startPose.y, angle: startPose.angle,
+      vx: 0, vy: 0, steer: 0, driftPower: 0, progress: 0, lap: 1, armed: false,
+    }), [startPose]);
 
-  // тайминг кругов
-  const raceStart = useRef(performance.now());
-  const lapStart = useRef(performance.now());
-  const bestLap = useRef<number>(Infinity);
+    const car = useRef<CarState>(makeCar());
+    const input = useRef<InputState>({ throttle: 0, brake: 0, steer: 0, drift: false });
+    const keys = useRef({ up: false, down: false, left: false, right: false, drift: false });
+    const stick = useRef({ active: false, id: -1, ix: 0, iy: 0, power: 0 });
+    const startedRef = useRef(false);
 
-  // комбо-очки заноса
-  const combo = useRef({ score: 0, ms: 0, idle: 0, banked: 0 });
+    const particles = useRef<Particle[]>([]);
+    const skids = useRef<Skid[]>([]);
+    const popups = useRef<Popup[]>([]);
+    const cam = useRef({ x: startPose.x, y: startPose.y, zoom: 1, sx: 0, sy: 0, shake: 0 });
+    const vp = useRef({ w: 0, h: 0, dpr: 1 });
+    const acc = useRef(0);
+    const lastT = useRef(0);
+    const netT = useRef(0);
+    const hudT = useRef(0);
 
-  // призраки
-  const ghostBuf = useRef(new GhostBuffer());          // сетевой соперник
-  const selfRec = useRef<{ t: number; x: number; y: number; angle: number; drift: number }[]>([]);
-  const bestRec = useRef<typeof selfRec.current | null>(null);
+    const lapStart = useRef(performance.now());
+    const bestLap = useRef<number>(Infinity);
+    const combo = useRef({ score: 0, ms: 0, idle: 0, banked: 0 });
 
-  const [hud, setHud] = useState({ speed: 0, lap: 1, drift: 0, combo: 0, banked: 0, lapTime: 0, best: Infinity });
-  const [stickUi, setStickUi] = useState({ active: false, ox: 0, oy: 0, kx: 0, ky: 0 });
+    const ghostBuf = useRef(new GhostBuffer());
+    const selfRec = useRef<{ t: number; x: number; y: number; angle: number }[]>([]);
+    const bestRec = useRef<typeof selfRec.current | null>(null);
 
-  const doReset = useCallback(() => {
-    car.current = makeCar();
-    particles.current = [];
-    skids.current = [];
-    popups.current = [];
-    cam.current = { x: startPose.x, y: startPose.y, zoom: 1, sx: 0, sy: 0, shake: 0 };
-    combo.current = { score: 0, ms: 0, idle: 0, banked: 0 };
-    selfRec.current = [];
-    raceStart.current = performance.now();
-    lapStart.current = performance.now();
-  }, [makeCar, startPose]);
+    const [hud, setHud] = useState({ speed: 0, lap: 1, drift: 0, combo: 0, banked: 0, lapTime: 0, best: Infinity });
+    const [started, setStarted] = useState(false);
+    const [stickActive, setStickActive] = useState(false);
 
-  useImperativeHandle(ref, () => ({
-    pushRemoteSnapshot: (s: NetSnapshot) => ghostBuf.current.push(s),
-    reset: () => doReset(),
-  }));
+    const doReset = useCallback(() => {
+      car.current = makeCar();
+      particles.current = [];
+      skids.current = [];
+      popups.current = [];
+      cam.current = { x: startPose.x, y: startPose.y, zoom: 1, sx: 0, sy: 0, shake: 0 };
+      combo.current = { score: 0, ms: 0, idle: 0, banked: 0 };
+      selfRec.current = [];
+      lapStart.current = performance.now();
+      startedRef.current = false;
+      setStarted(false);
+    }, [makeCar, startPose]);
 
-  /* ----- размеры/DPR ----- */
-  const resize = useCallback(() => {
-    const cv = canvasRef.current;
-    const wr = wrapRef.current;
-    if (!cv || !wr) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = wr.clientWidth;
-    const h = wr.clientHeight;
-    vp.current = { w, h, dpr };
-    cv.width = Math.floor(w * dpr);
-    cv.height = Math.floor(h * dpr);
-    cv.style.width = `${w}px`;
-    cv.style.height = `${h}px`;
-  }, []);
+    useImperativeHandle(ref, () => ({
+      pushRemoteSnapshot: (s: NetSnapshot) => ghostBuf.current.push(s),
+      reset: () => doReset(),
+    }));
 
-  useEffect(() => {
-    resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
-  }, [resize]);
+    /* ----- viewport: ResizeObserver drives the canvas, never the page ----- */
+    useEffect(() => {
+      const cv = canvasRef.current;
+      const wr = wrapRef.current;
+      if (!cv || !wr) return;
+      const apply = () => {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = wr.clientWidth;
+        const h = wr.clientHeight;
+        vp.current = { w, h, dpr };
+        cv.width = Math.floor(w * dpr);
+        cv.height = Math.floor(h * dpr);
+        cv.style.width = `${w}px`;
+        cv.style.height = `${h}px`;
+      };
+      apply();
+      const ro = new ResizeObserver(apply);
+      ro.observe(wr);
+      window.addEventListener('resize', apply);
+      return () => {
+        ro.disconnect();
+        window.removeEventListener('resize', apply);
+      };
+    }, []);
 
-  /* ----- жёсткая блокировка скролла на время игры ----- */
-  useEffect(() => {
-    const wrap = wrapRef.current;
-    // глушим прокрутку страницы, пока игра на экране
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overscrollBehavior = 'none';
+    /* ----- Telegram Mini App: expand + kill the vertical swipe-to-close ----- */
+    useEffect(() => {
+      try {
+        const tg = (window as unknown as { Telegram?: { WebApp?: { expand?: () => void; disableVerticalSwipes?: () => void } } })
+          .Telegram?.WebApp;
+        tg?.expand?.();
+        tg?.disableVerticalSwipes?.();
+      } catch {
+        /* not inside Telegram — fine */
+      }
+    }, []);
 
-    // и любые touch-жесты прокрутки внутри самой игры
-    const block = (e: TouchEvent) => {
-      if (e.cancelable) e.preventDefault();
-    };
-    wrap?.addEventListener('touchmove', block, { passive: false });
-    return () => {
-      document.body.style.overflow = prevBodyOverflow;
-      document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
-      wrap?.removeEventListener('touchmove', block);
-    };
-  }, []);
+    /* ----- hard scroll lock while the game is mounted ----- */
+    useEffect(() => {
+      const wrap = wrapRef.current;
+      const prevBodyOverflow = document.body.style.overflow;
+      const prevHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overscrollBehavior = 'none';
+      const block = (e: TouchEvent) => {
+        if (e.cancelable) e.preventDefault();
+      };
+      wrap?.addEventListener('touchmove', block, { passive: false });
+      return () => {
+        document.body.style.overflow = prevBodyOverflow;
+        document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
+        wrap?.removeEventListener('touchmove', block);
+      };
+    }, []);
 
-  /* ----- клавиатура ----- */
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'r'].includes(k)) e.preventDefault();
-      if (k === 'arrowup' || k === 'w') keys.current.up = true;
-      if (k === 'arrowdown' || k === 's') keys.current.down = true;
-      if (k === 'arrowleft' || k === 'a') keys.current.left = true;
-      if (k === 'arrowright' || k === 'd') keys.current.right = true;
-      if (k === ' ') keys.current.drift = true;
-      if (k === 'r') doReset();
-    };
-    const up = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if (k === 'arrowup' || k === 'w') keys.current.up = false;
-      if (k === 'arrowdown' || k === 's') keys.current.down = false;
-      if (k === 'arrowleft' || k === 'a') keys.current.left = false;
-      if (k === 'arrowright' || k === 'd') keys.current.right = false;
-      if (k === ' ') keys.current.drift = false;
-    };
-    window.addEventListener('keydown', down, { passive: false });
-    window.addEventListener('keyup', up);
-    return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-    };
-  }, [doReset]);
+    /* ----- keyboard (desktop testing) ----- */
+    useEffect(() => {
+      const down = (e: KeyboardEvent) => {
+        const k = e.key.toLowerCase();
+        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'r'].includes(k)) e.preventDefault();
+        if (k === 'arrowup' || k === 'w') keys.current.up = true;
+        if (k === 'arrowdown' || k === 's') keys.current.down = true;
+        if (k === 'arrowleft' || k === 'a') keys.current.left = true;
+        if (k === 'arrowright' || k === 'd') keys.current.right = true;
+        if (k === ' ') keys.current.drift = true;
+        if (k === 'r') doReset();
+        if (!startedRef.current && (k === 'arrowup' || k === 'w' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+          startedRef.current = true;
+          setStarted(true);
+        }
+      };
+      const up = (e: KeyboardEvent) => {
+        const k = e.key.toLowerCase();
+        if (k === 'arrowup' || k === 'w') keys.current.up = false;
+        if (k === 'arrowdown' || k === 's') keys.current.down = false;
+        if (k === 'arrowleft' || k === 'a') keys.current.left = false;
+        if (k === 'arrowright' || k === 'd') keys.current.right = false;
+        if (k === ' ') keys.current.drift = false;
+      };
+      window.addEventListener('keydown', down, { passive: false });
+      window.addEventListener('keyup', up);
+      return () => {
+        window.removeEventListener('keydown', down);
+        window.removeEventListener('keyup', up);
+      };
+    }, [doReset]);
 
-  /* ----- главный цикл ----- */
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv) return;
-    const ctx = cv.getContext('2d', { alpha: false });
-    if (!ctx) return;
+    /* ----- main loop ----- */
+    useEffect(() => {
+      const cv = canvasRef.current;
+      if (!cv) return;
+      const ctx = cv.getContext('2d', { alpha: false });
+      if (!ctx) return;
 
-    const loop = (now: number) => {
-      const v = vp.current;
-      const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 50);
-      lastT.current = now;
+      const loop = (now: number) => {
+        const v = vp.current;
+        const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 50);
+        lastT.current = now;
 
-      /* ВВОД. Стик задаёт МИРОВОЕ направление «куда ехать».
-         - тянем туда, куда смотрит нос -> газ;
-         - вбок -> поворот (резко -> подскальзывание);
-         - против хода -> тормоз + разворот заносом (заднего хода нет). */
-      const i = input.current;
-      const st = stick.current;
-      if (st.active && st.power > 0.08) {
-        const stickAngle = Math.atan2(st.iy, st.ix);
-        const diff = angleDiff(stickAngle, car.current.angle);
-        const aim = Math.cos(diff);              // 1 = прямо по носу, -1 = строго назад
-        const back = clamp(-aim, 0, 1);
-        i.steer = clamp(diff / (Math.PI / 2), -1, 1) * clamp(st.power * 1.3, 0, 1);
-        if (back > 0.15) {
-          i.throttle = 0;
-          i.brake = clamp(0.35 + back * st.power * 0.65, 0, 1);
-          i.drift = true;
-          i.steer = Math.sign(diff || 1) * clamp(st.power, 0, 1);
+        /* INPUT.
+           Touch: auto-throttle once started. Stick X = steering.
+           Stick pulled DOWN = handbrake → manual big drift + brake.
+           Keyboard overrides everything when pressed. */
+        const i = input.current;
+        const st = stick.current;
+        const anyKey = keys.current.up || keys.current.down || keys.current.left || keys.current.right || keys.current.drift;
+
+        if (anyKey) {
+          i.throttle = keys.current.up || (!keys.current.down && startedRef.current) ? 1 : 0;
+          i.steer = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
+          i.brake = keys.current.down ? 1 : 0;
+          i.drift = keys.current.drift;
+        } else if (st.active && st.power > 0.06) {
+          i.steer = clamp(st.ix * 1.25, -1, 1);
+          const pullDown = clamp((st.iy - 0.45) / 0.55, 0, 1); // stick pulled toward you
+          if (pullDown > 0) {
+            i.brake = pullDown * 0.9;
+            i.drift = pullDown > 0.25;
+            i.throttle = 1 - pullDown;
+          } else {
+            i.brake = 0;
+            i.drift = false;
+            i.throttle = 1; // auto-throttle: just steer
+          }
         } else {
-          i.throttle = clamp(st.power * (0.25 + Math.max(0, aim) * 0.85), 0, 1);
+          // released: coast with auto-throttle, wheels straighten, car settles
+          i.steer = 0;
           i.brake = 0;
-          i.drift = Math.abs(diff) > 1.0 && st.power > 0.5;
+          i.drift = false;
+          i.throttle = startedRef.current ? 1 : 0;
         }
-      } else {
-        // десктоп-клавиатура
-        i.throttle = keys.current.up ? 1 : 0;
-        i.steer = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
-        i.brake = keys.current.down ? 1 : 0;
-        i.drift = keys.current.drift || keys.current.down;
-      }
 
-      /* ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ */
-      acc.current += frameMs / 1000;
-      let guard = 0;
-      let lastStep: StepResult | null = null;
-      while (acc.current >= STEP && guard < 5) {
-        lastStep = stepCar(car.current, i, center, total);
-        acc.current -= STEP;
-        guard += 1;
+        /* FIXED-STEP PHYSICS */
+        acc.current += frameMs / 1000;
+        let guard = 0;
+        while (acc.current >= STEP && guard < 5) {
+          const res = stepCar(car.current, i, center, total);
+          acc.current -= STEP;
+          guard += 1;
 
+          const c = car.current;
+          // skids + light smoke while sliding
+          if (res.slip > 0.2 && res.speed > 90) {
+            const rx = -Math.sin(c.angle);
+            const ry = Math.cos(c.angle);
+            const bx = c.x - Math.cos(c.angle) * 20;
+            const by = c.y - Math.sin(c.angle) * 20;
+            skids.current.push(
+              { x1: bx - rx * 10, y1: by - ry * 10, x2: bx - rx * 10 - c.vx * 0.03, y2: by - ry * 10 - c.vy * 0.03, life: 1 },
+              { x1: bx + rx * 10, y1: by + ry * 10, x2: bx + rx * 10 - c.vx * 0.03, y2: by + ry * 10 - c.vy * 0.03, life: 1 },
+            );
+            if (Math.random() > 0.55) spawn(particles.current, bx, by, 'smoke', 1, c.angle, 0.5 + c.driftPower * 0.6);
+          }
+          if (res.surface === 'off' && res.speed > 70 && Math.random() > 0.6)
+            spawn(particles.current, c.x - Math.cos(c.angle) * 18, c.y - Math.sin(c.angle) * 18, 'dust', 1, c.angle, 0.7);
+
+          if (res.hardHit) {
+            cam.current.shake = Math.max(cam.current.shake, 0.7);
+            spawn(particles.current, c.x, c.y, 'spark', 3, c.angle, 1.2);
+            combo.current.score = 0; // a hit resets the combo
+          }
+
+          // drift combo → banked points
+          const cm = combo.current;
+          if (res.slip > 0.22 && res.speed > 110) {
+            cm.ms += STEP * 1000;
+            cm.score += res.speed * res.slip * STEP * 0.6;
+            cm.idle = 0;
+          } else {
+            cm.idle += STEP * 1000;
+            if (cm.idle > 450 && cm.score > 30) {
+              const mult = 1 + Math.floor(cm.ms / 1500);
+              const gained = Math.round(cm.score * mult);
+              cm.banked += gained;
+              popups.current.push({ x: c.x, y: c.y - 30, life: 1.1, text: `+${gained}${mult > 1 ? ` ×${mult}` : ''}`, big: mult > 1 });
+              cm.score = 0;
+              cm.ms = 0;
+            }
+          }
+
+          // record this lap for the self-ghost
+          const recT = now - lapStart.current;
+          const rec = selfRec.current;
+          if (rec.length === 0 || recT - rec[rec.length - 1].t > 40) {
+            rec.push({ t: recT, x: c.x, y: c.y, angle: c.angle });
+          }
+
+          if (res.crossedFinish) {
+            const lapMs = now - lapStart.current;
+            if (lapMs < bestLap.current) {
+              bestLap.current = lapMs;
+              bestRec.current = selfRec.current.slice();
+            }
+            lapStart.current = now;
+            selfRec.current = [];
+          }
+        }
+
+        /* === NETWORK: emit local snapshot ~20 Hz — wire to WebSocket.send() === */
+        if (onSnapshot && now - netT.current > 50) {
+          netT.current = now;
+          const c = car.current;
+          onSnapshot({ t: now, x: c.x, y: c.y, angle: c.angle, drift: c.driftPower, lap: c.lap });
+        }
+
+        /* CAMERA — exp smoothing keyed to the VELOCITY vector, not the nose:
+           the nose whips around in a drift, velocity changes continuously. */
         const c = car.current;
-        // скид-марки и дым в заносе
-        if (lastStep.slip > 0.18 && lastStep.speed > 90) {
-          const rx = -Math.sin(c.angle);
-          const ry = Math.cos(c.angle);
-          const bx = c.x - Math.cos(c.angle) * 22;
-          const by = c.y - Math.sin(c.angle) * 22;
-          skids.current.push(
-            { x1: bx - rx * 11, y1: by - ry * 11, x2: bx - rx * 11 - c.vx * 0.03, y2: by - ry * 11 - c.vy * 0.03, life: 1, w: 5 },
-            { x1: bx + rx * 11, y1: by + ry * 11, x2: bx + rx * 11 - c.vx * 0.03, y2: by + ry * 11 - c.vy * 0.03, life: 1, w: 5 },
-          );
-          if (Math.random() > 0.4) spawn(particles.current, bx, by, 'smoke', 1, c.angle, 0.6 + c.driftPower);
-        }
-        // грязь/искры по поверхности
-        if (lastStep.surface === 'grass' && lastStep.speed > 70 && Math.random() > 0.5)
-          spawn(particles.current, c.x - Math.cos(c.angle) * 20, c.y - Math.sin(c.angle) * 20, 'dirt', 1, c.angle, 0.8);
-        if (lastStep.surface === 'curb' && lastStep.speed > 200 && Math.random() > 0.7)
-          spawn(particles.current, c.x - Math.cos(c.angle) * 18, c.y - Math.sin(c.angle) * 18, 'spark', 1, c.angle, 1.2);
+        const speed = Math.hypot(c.vx, c.vy);
+        const cmr = cam.current;
+        const dtSec = Math.min(frameMs / 1000, 0.05);
 
-        if (lastStep.hardHit) {
-          cam.current.shake = Math.max(cam.current.shake, 0.9);
-          spawn(particles.current, c.x, c.y, 'spark', 4, c.angle, 1.4);
-          combo.current.score = 0; // удар обнуляет комбо
-        }
+        const kPos = 1 - Math.exp(-dtSec / 0.16);
+        cmr.x = lerp(cmr.x, c.x + c.vx * 0.25, kPos);
+        cmr.y = lerp(cmr.y, c.y + c.vy * 0.25, kPos);
 
-        // комбо заноса
-        const cm = combo.current;
-        if (lastStep.slip > 0.22 && lastStep.speed > 110) {
-          cm.ms += STEP * 1000;
-          cm.score += lastStep.speed * lastStep.slip * STEP * 0.6;
-          cm.idle = 0;
-        } else {
-          cm.idle += STEP * 1000;
-          if (cm.idle > 450 && cm.score > 30) {
-            const mult = 1 + Math.floor(cm.ms / 1500);
-            const gained = Math.round(cm.score * mult);
-            cm.banked += gained;
-            popups.current.push({ x: c.x, y: c.y - 30, life: 1.2, text: `+${gained}${mult > 1 ? ` x${mult}` : ''}`, big: mult > 1 });
-            cm.score = 0;
-            cm.ms = 0;
-          }
-        }
+        const targetZoom = 1.04 - clamp(speed / TUNE.maxSpeed, 0, 1) * 0.12; // subtle
+        cmr.zoom = lerp(cmr.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.45));
 
-        // запись своего заезда для self-ghost
-        const recT = now - lapStart.current;
-        const rec = selfRec.current;
-        if (rec.length === 0 || recT - rec[rec.length - 1].t > 30) {
-          rec.push({ t: recT, x: c.x, y: c.y, angle: c.angle, drift: c.driftPower });
-        }
+        cmr.shake = Math.max(0, cmr.shake - dtSec * 3);
+        cmr.sx = (Math.random() - 0.5) * cmr.shake * 10;
+        cmr.sy = (Math.random() - 0.5) * cmr.shake * 10;
 
-        // пересекли финиш -> зафиксировать круг
-        if (lastStep.crossedFinish) {
-          const lapMs = now - lapStart.current;
-          if (lapMs < bestLap.current) {
-            bestLap.current = lapMs;
-            bestRec.current = selfRec.current.slice();
-          }
-          lapStart.current = now;
-          selfRec.current = [];
-        }
-      }
+        /* DRAW */
+        const dt = frameMs / 1000;
+        ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+        ctx.fillStyle = C.bg;
+        ctx.fillRect(0, 0, v.w, v.h);
 
-      /* === NETWORK: отправка локального снимка ~20Гц ===
-         Здесь дёргаем onSnapshot — наружу это уходит в WebSocket.send(). */
-      if (onSnapshot && now - netT.current > 50) {
-        netT.current = now;
-        const c = car.current;
-        onSnapshot({ t: now, x: c.x, y: c.y, angle: c.angle, drift: c.driftPower, lap: c.lap });
-      }
-
-      /* камера — плавная, без рывков.
-         Упреждение считаем по ВЕКТОРУ СКОРОСТИ, а не по углу носа:
-         в заносе нос мотает из стороны в сторону, и привязка к нему как раз
-         и давала дёрганье. Скорость же меняется непрерывно. */
-      const c = car.current;
-      const speed = Math.hypot(c.vx, c.vy);
-      const cm = cam.current;
-      const dtSec = Math.min(frameMs / 1000, 0.05);
-
-      const targetX = c.x + c.vx * 0.28;
-      const targetY = c.y + c.vy * 0.28;
-      // экспоненциальное сглаживание -> не зависит от FPS, постоянная времени ~170мс
-      const kPos = 1 - Math.exp(-dtSec / 0.17);
-      cm.x = lerp(cm.x, targetX, kPos);
-      cm.y = lerp(cm.y, targetY, kPos);
-
-      const targetZoom = 1.06 - clamp(speed / TUNE.maxSpeed, 0, 1) * 0.16;
-      cm.zoom = lerp(cm.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.4));
-
-      cm.shake = Math.max(0, cm.shake - dtSec * 3);
-      cm.sx = (Math.random() - 0.5) * cm.shake * 14;
-      cm.sy = (Math.random() - 0.5) * cm.shake * 14;
-
-      /* отрисовка */
-      const dt = frameMs / 1000;
-      ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
-      ctx.fillStyle = '#05070d';
-      ctx.fillRect(0, 0, v.w, v.h);
-
-      ctx.save();
-      ctx.translate(v.w / 2 + cm.sx, v.h / 2 + cm.sy);
-      ctx.scale(cm.zoom, cm.zoom);
-      ctx.translate(-cm.x, -cm.y);
-
-      drawGround(ctx, c.x, c.y);
-      drawTrack(ctx, center);
-      drawSkids(ctx, skids.current, dt);
-      drawFinish(ctx, center, now);
-      decor.forEach((d) => drawDecor(ctx, d, now, c));
-      drawParticles(ctx, particles.current, dt);
-
-      // призрак: приоритет — сетевой соперник, иначе свой лучший круг
-      if (ghostBuf.current.active) {
-        const g = ghostBuf.current.sample(now);
-        if (g) {
-          drawCar(ctx, g.x, g.y, g.angle, { ghost: true });
-          if (g.drift > 0.3 && Math.random() > 0.6) spawn(particles.current, g.x, g.y, 'smoke', 1, g.angle, 0.5);
-        }
-      } else if (selfGhost && bestRec.current && bestRec.current.length > 1) {
-        const rec = bestRec.current;
-        const tt = now - lapStart.current;
-        if (tt <= rec[rec.length - 1].t) {
-          let lo = 0;
-          let hi = rec.length - 1;
-          while (lo < hi - 1) {
-            const mid = (lo + hi) >> 1;
-            if (rec[mid].t < tt) lo = mid; else hi = mid;
-          }
-          const a = rec[lo];
-          const b = rec[hi];
-          const k = (tt - a.t) / (b.t - a.t || 1);
-          drawCar(ctx, lerp(a.x, b.x, k), lerp(a.y, b.y, k), a.angle + angleDiff(b.angle, a.angle) * k, { ghost: true });
-        }
-      }
-
-      // главная машина
-      drawCar(ctx, c.x, c.y, c.angle, {
-        steer: c.steer,
-        brake: input.current.brake,
-        throttle: input.current.throttle,
-        speed,
-        now,
-      });
-
-      // всплывающие очки заноса
-      for (let p = popups.current.length - 1; p >= 0; p -= 1) {
-        const pop = popups.current[p];
         ctx.save();
-        ctx.globalAlpha = clamp(pop.life, 0, 1);
-        ctx.fillStyle = pop.big ? '#fde047' : '#fb923c';
-        ctx.font = `900 ${pop.big ? 30 : 22}px ui-monospace, monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText(pop.text, pop.x, pop.y);
+        ctx.translate(v.w / 2 + cmr.sx, v.h / 2 + cmr.sy);
+        ctx.scale(cmr.zoom, cmr.zoom);
+        ctx.translate(-cmr.x, -cmr.y);
+
+        drawGround(ctx, cmr.x, cmr.y, v.w, v.h, cmr.zoom);
+        drawTrack(ctx, center);
+        drawSkids(ctx, skids.current, dt);
+        drawFinish(ctx, center, now);
+        for (const p of posts) {
+          if (Math.abs(p.x - cmr.x) < 800 && Math.abs(p.y - cmr.y) < 800) drawPost(ctx, p);
+        }
+        drawParticles(ctx, particles.current, dt);
+
+        // ghost: network opponent first, otherwise own best lap
+        if (ghostBuf.current.active) {
+          const g = ghostBuf.current.sample(now);
+          if (g) {
+            drawCar(ctx, g.x, g.y, g.angle, { ghost: true });
+            if (g.drift > 0.35 && Math.random() > 0.7) spawn(particles.current, g.x, g.y, 'smoke', 1, g.angle, 0.4);
+          }
+        } else if (selfGhost && bestRec.current && bestRec.current.length > 1) {
+          const rec = bestRec.current;
+          const tt = now - lapStart.current;
+          if (tt <= rec[rec.length - 1].t) {
+            let lo = 0;
+            let hi = rec.length - 1;
+            while (lo < hi - 1) {
+              const mid = (lo + hi) >> 1;
+              if (rec[mid].t < tt) lo = mid; else hi = mid;
+            }
+            const a = rec[lo];
+            const b = rec[hi];
+            const k = (tt - a.t) / (b.t - a.t || 1);
+            drawCar(ctx, lerp(a.x, b.x, k), lerp(a.y, b.y, k), a.angle + angleDiff(b.angle, a.angle) * k, { ghost: true });
+          }
+        }
+
+        // player
+        drawCar(ctx, c.x, c.y, c.angle, { steer: c.steer, brake: i.brake, drift: c.driftPower });
+
+        // drift score popups
+        for (let p = popups.current.length - 1; p >= 0; p -= 1) {
+          const pop = popups.current[p];
+          ctx.save();
+          ctx.globalAlpha = clamp(pop.life, 0, 1);
+          ctx.fillStyle = pop.big ? C.gold : 'rgba(242,199,102,0.85)';
+          ctx.font = `800 ${pop.big ? 26 : 19}px ui-monospace, monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(pop.text, pop.x, pop.y);
+          ctx.restore();
+          pop.y -= 36 * dt;
+          pop.life -= dt;
+          if (pop.life <= 0) popups.current.splice(p, 1);
+        }
+
         ctx.restore();
-        pop.y -= 40 * dt;
-        pop.life -= dt;
-        if (pop.life <= 0) popups.current.splice(p, 1);
-      }
 
-      ctx.restore();
+        // soft vignette to blend into the app shell
+        const vg = ctx.createRadialGradient(v.w / 2, v.h / 2, Math.min(v.w, v.h) * 0.3, v.w / 2, v.h / 2, Math.max(v.w, v.h) * 0.75);
+        vg.addColorStop(0, 'rgba(5,6,16,0)');
+        vg.addColorStop(1, 'rgba(5,6,16,0.45)');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, v.w, v.h);
 
-      // виньетка
-      const vg = ctx.createRadialGradient(v.w / 2, v.h / 2, Math.min(v.w, v.h) * 0.25, v.w / 2, v.h / 2, Math.max(v.w, v.h) * 0.7);
-      vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(0,0,0,0.4)');
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, v.w, v.h);
+        drawMini(ctx, center, c, v.w, ghostBuf.current);
 
-      // мини-карта (правый верхний угол, чтобы не пересекалась с кнопками)
-      drawMini(ctx, center, c, v.w, v.h, ghostBuf.current);
+        /* HUD state — throttled to ~10 Hz, never every frame */
+        if (now - hudT.current > 100) {
+          hudT.current = now;
+          setHud({
+            speed: Math.round(speed * 0.45),
+            lap: c.lap,
+            drift: c.driftPower,
+            combo: Math.round(combo.current.score * (1 + Math.floor(combo.current.ms / 1500))),
+            banked: combo.current.banked,
+            lapTime: now - lapStart.current,
+            best: bestLap.current,
+          });
+        }
 
-      // HUD-стейт ~раз в кадр (троттлим setState частотой через mod)
-      setHud({
-        speed: Math.round(speed * 0.45),
-        lap: c.lap,
-        drift: c.driftPower,
-        combo: Math.round(combo.current.score * (1 + Math.floor(combo.current.ms / 1500))),
-        banked: combo.current.banked,
-        lapTime: now - lapStart.current,
-        best: bestLap.current,
-      });
+        raf.current = requestAnimationFrame(loop);
+      };
 
       raf.current = requestAnimationFrame(loop);
+      return () => {
+        if (raf.current) cancelAnimationFrame(raf.current);
+      };
+    }, [center, total, posts, onSnapshot, selfGhost]);
+
+    /* ----- fixed joystick, bottom-left. Pointer events + capture. -----
+       Knob position is written straight to the DOM (no setState per move). */
+    const setKnob = (kx: number, ky: number) => {
+      if (knobRef.current) knobRef.current.style.transform = `translate(${kx}px, ${ky}px)`;
     };
 
-    raf.current = requestAnimationFrame(loop);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
+    const updateStickFromPointer = (e: React.PointerEvent, zone: HTMLDivElement) => {
+      const r = zone.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      const d = Math.hypot(dx, dy) || 1;
+      const m = Math.min(d, STICK_R);
+      const kx = (dx / d) * m;
+      const ky = (dy / d) * m;
+      stick.current.ix = kx / STICK_R;
+      stick.current.iy = ky / STICK_R;
+      stick.current.power = clamp(d / STICK_R, 0, 1);
+      setKnob(kx, ky);
     };
-  }, [center, total, decor, onSnapshot, selfGhost]);
 
-  /* плавающий джойстик: касание в любом месте поля создаёт центр стика,
-     перетаскивание задаёт направление и силу */
-  const STICK_R = 58;
-  const stickDown = (e: React.PointerEvent) => {
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-    const r = wrap.getBoundingClientRect();
-    const px = e.clientX - r.left;
-    const py = e.clientY - r.top;
-    stick.current = { active: true, id: e.pointerId, ix: 0, iy: 0, power: 0 };
-    stickOrigin.current = { x: px, y: py };
-    setStickUi({ active: true, ox: px, oy: py, kx: 0, ky: 0 });
-    if (wrap.setPointerCapture) wrap.setPointerCapture(e.pointerId);
-  };
-  const stickMove = (e: React.PointerEvent) => {
-    const s = stick.current;
-    if (!s.active || s.id !== e.pointerId) return;
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-    const r = wrap.getBoundingClientRect();
-    const dx = e.clientX - r.left - stickOrigin.current.x;
-    const dy = e.clientY - r.top - stickOrigin.current.y;
-    const d = Math.hypot(dx, dy) || 1;
-    const m = Math.min(d, STICK_R);
-    const kx = (dx / d) * m;
-    const ky = (dy / d) * m;
-    s.ix = kx / STICK_R;
-    s.iy = ky / STICK_R;
-    s.power = clamp(d / STICK_R, 0, 1);
-    setStickUi({ active: true, ox: stickOrigin.current.x, oy: stickOrigin.current.y, kx, ky });
-  };
-  const stickUp = (e: React.PointerEvent) => {
-    if (stick.current.id !== e.pointerId) return;
-    stick.current = { active: false, id: -1, ix: 0, iy: 0, power: 0 };
-    setStickUi((u) => ({ ...u, active: false }));
-  };
+    const stickDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const zone = e.currentTarget;
+      stick.current.active = true;
+      stick.current.id = e.pointerId;
+      try {
+        zone.setPointerCapture(e.pointerId);
+      } catch {
+        /* some webviews throw — capture is best-effort */
+      }
+      if (!startedRef.current) {
+        startedRef.current = true;
+        setStarted(true);
+      }
+      setStickActive(true);
+      updateStickFromPointer(e, zone);
+    };
+    const stickMove = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!stick.current.active || stick.current.id !== e.pointerId) return;
+      e.preventDefault();
+      updateStickFromPointer(e, e.currentTarget);
+    };
+    const stickUp = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (stick.current.id !== e.pointerId) return;
+      stick.current = { active: false, id: -1, ix: 0, iy: 0, power: 0 };
+      setKnob(0, 0);
+      setStickActive(false);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    };
 
-  return (
-    <div
-      ref={wrapRef}
-      className="relative min-h-[420px] w-full select-none overflow-hidden overscroll-none bg-[#05070d] font-mono text-white"
-      style={{ height: `calc(100dvh - ${topOffset}px)`, maxHeight: '100dvh', touchAction: 'none' }}
-      onPointerDown={stickDown}
-      onPointerMove={stickMove}
-      onPointerUp={stickUp}
-      onPointerCancel={stickUp}
-      onPointerLeave={stickUp}
-    >
-      <canvas ref={canvasRef} className="block h-full w-full" />
+    return (
+      <div
+        ref={wrapRef}
+        className="relative w-full select-none overflow-hidden overscroll-none bg-[#050610] font-mono text-white"
+        style={{
+          height: `calc(100dvh - ${topOffset}px)`,
+          maxHeight: '100dvh',
+          minHeight: 320,
+          touchAction: 'none',
+          WebkitUserSelect: 'none',
+        }}
+      >
+        <canvas ref={canvasRef} className="block h-full w-full" style={{ touchAction: 'none' }} />
 
-      {/* компактная плашка: скорость · круг · время · очки */}
-      <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2">
-        <div className="flex items-center divide-x divide-white/10 overflow-hidden rounded-2xl border border-white/10 bg-black/45 shadow-xl backdrop-blur-md">
-          <div className="px-3 py-1.5 text-center">
-            <div className="text-lg font-black leading-none tabular-nums text-white">
-              {hud.speed}<span className="ml-0.5 align-top text-[8px] font-bold text-white/45">км/ч</span>
+        {/* HUD — one compact glass strip: speed · lap · time · points */}
+        <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2">
+          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#050610]/60 shadow-lg backdrop-blur-md">
+            <div className="px-3 py-1.5 text-center">
+              <div className="text-lg font-extrabold leading-none tabular-nums text-white">
+                {hud.speed}
+                <span className="ml-0.5 align-top text-[8px] font-semibold text-white/40">км/ч</span>
+              </div>
+            </div>
+            <div className="px-3 py-1.5 text-center">
+              <div className="text-[7px] font-semibold uppercase tracking-[0.22em] text-white/35">круг</div>
+              <div className="text-sm font-extrabold leading-none tabular-nums text-[#52FFE5]">{hud.lap}/{TOTAL_LAPS}</div>
+            </div>
+            <div className="px-3 py-1.5 text-center">
+              <div className="text-[7px] font-semibold uppercase tracking-[0.22em] text-white/35">время</div>
+              <div className="text-sm font-extrabold leading-none tabular-nums text-white">{fmtTime(hud.lapTime)}</div>
+            </div>
+            <div className="px-3 py-1.5 text-center">
+              <div className="text-[7px] font-semibold uppercase tracking-[0.22em] text-white/35">очки</div>
+              <div className="text-sm font-extrabold leading-none tabular-nums text-[#F2C766]">{hud.banked}</div>
             </div>
           </div>
-          <div className="px-3 py-1.5 text-center">
-            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">круг</div>
-            <div className="text-sm font-black leading-none tabular-nums text-amber-300">{hud.lap}/{TOTAL_LAPS}</div>
-          </div>
-          <div className="px-3 py-1.5 text-center">
-            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">время</div>
-            <div className="text-sm font-black leading-none tabular-nums text-white">{fmtTime(hud.lapTime)}</div>
-          </div>
-          <div className="px-3 py-1.5 text-center">
-            <div className="text-[7px] font-bold uppercase tracking-[0.25em] text-white/40">очки</div>
-            <div className="text-sm font-black leading-none tabular-nums text-amber-200">{hud.banked}</div>
-          </div>
         </div>
-      </div>
 
-      {/* всплеск комбо-заноса (только во время заноса) */}
-      {hud.combo > 30 && (
-        <div className="pointer-events-none absolute left-1/2 top-16 -translate-x-1/2 text-center">
-          <div
-            className="text-2xl font-black uppercase tracking-tight text-amber-300 drop-shadow-[0_0_18px_rgba(251,191,36,0.65)]"
-            style={{ transform: `scale(${1 + Math.min(hud.drift, 1) * 0.22})` }}
-          >
-            ЗАНОС {hud.combo}
+        {/* best lap chip */}
+        {isFinite(hud.best) && (
+          <div className="pointer-events-none absolute left-1/2 top-[52px] -translate-x-1/2 rounded-full border border-white/[0.07] bg-[#050610]/55 px-3 py-0.5 text-[10px] tabular-nums text-[#9D7CFF] backdrop-blur-md">
+            лучший {fmtTime(hud.best)}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* плавающий джойстик — появляется там, где коснулись */}
-      {stickUi.active && (
-        <div className="pointer-events-none absolute" style={{ left: stickUi.ox, top: stickUi.oy }}>
-          <div
-            className="absolute rounded-full border border-white/15 bg-white/5 backdrop-blur-sm"
-            style={{ width: STICK_R * 2, height: STICK_R * 2, left: -STICK_R, top: -STICK_R }}
-          />
-          <div
-            className="absolute rounded-full border-2 border-black/25 bg-gradient-to-br from-white via-gray-200 to-gray-400 shadow-2xl"
-            style={{ width: 56, height: 56, left: -28 + stickUi.kx, top: -28 + stickUi.ky }}
-          />
-        </div>
-      )}
+        {/* live drift combo */}
+        {hud.combo > 30 && (
+          <div className="pointer-events-none absolute left-1/2 top-[84px] -translate-x-1/2 text-center">
+            <div
+              className="text-xl font-extrabold uppercase tracking-tight text-[#F2C766] drop-shadow-[0_0_14px_rgba(242,199,102,0.55)]"
+              style={{ transform: `scale(${1 + Math.min(hud.drift, 1) * 0.18})` }}
+            >
+              занос {hud.combo}
+            </div>
+          </div>
+        )}
 
-      {/* подсказка */}
-      {!stickUi.active && (
-        <div
-          className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/45 px-4 py-2 text-center text-[11px] text-white/65 backdrop-blur-md"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)' }}
+        {/* reset — small glass button, bottom-right, above the safe area */}
+        <button
+          type="button"
+          onClick={doReset}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute z-10 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050610]/60 text-lg text-white/70 backdrop-blur-md active:scale-95 active:text-[#52FFE5]"
+          style={{ right: 16, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}
+          aria-label="Заново"
         >
-          Зажми и тяни — машина едет за стиком · <span className="text-amber-300">назад = разворот</span>
+          ↻
+        </button>
+
+        {/* joystick — fixed bottom-left, steering only (down = handbrake) */}
+        <div
+          className="absolute z-10"
+          style={{
+            left: 14,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
+            width: STICK_ZONE,
+            height: STICK_ZONE,
+            touchAction: 'none',
+          }}
+          onPointerDown={stickDown}
+          onPointerMove={stickMove}
+          onPointerUp={stickUp}
+          onPointerCancel={stickUp}
+        >
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+              className={`relative rounded-full border bg-white/[0.04] backdrop-blur-sm transition-colors ${
+                stickActive ? 'border-[#52FFE5]/40' : 'border-white/[0.10]'
+              }`}
+              style={{ width: STICK_R * 2 + 16, height: STICK_R * 2 + 16 }}
+            >
+              {/* drift hint at the bottom of the base */}
+              <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-white/25">
+                занос ↓
+              </div>
+              <div
+                ref={knobRef}
+                className={`absolute left-1/2 top-1/2 rounded-full border shadow-xl transition-colors ${
+                  stickActive
+                    ? 'border-[#52FFE5]/60 bg-gradient-to-br from-[#52FFE5]/90 to-[#1f8f80]'
+                    : 'border-white/20 bg-gradient-to-br from-white/80 to-white/40'
+                }`}
+                style={{ width: 48, height: 48, margin: -24, willChange: 'transform' }}
+              />
+            </div>
+          </div>
         </div>
-      )}
-    </div>
-  );
-});
+
+        {/* one-time hint before the first touch */}
+        {!started && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="mx-6 rounded-[22px] border border-white/[0.07] bg-[#050610]/70 px-5 py-4 text-center backdrop-blur-md">
+              <div className="text-sm font-bold text-white">Коснись стика — поехали</div>
+              <div className="mt-1 text-[11px] leading-relaxed text-white/50">
+                Газ автоматический. Стик влево-вправо — руль,{' '}
+                <span className="text-[#52FFE5]">резкий поворот — занос</span>,{' '}
+                <span className="text-[#F2C766]">вниз — ручник</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  },
+);
 
 RaceGame.displayName = 'RaceGame';
 
-/* мини-карта */
-function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, _width: number, height: number, ghost: GhostBuffer) {
-  const size = 96;
-  const x = 16;
-  const y = height - size - 16;
+/* compact glass minimap — top-right so it never meets the joystick or HUD */
+function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, ghost: GhostBuffer) {
+  const size = 78;
+  const x = width - size - 12;
+  const y = 64;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  center.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
-  const pad = 14;
+  for (const p of center) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const pad = 12;
   const scale = Math.min((size - pad * 2) / (maxX - minX), (size - pad * 2) / (maxY - minY));
   const ox = x + size / 2 - ((minX + maxX) / 2) * scale;
   const oy = y + size / 2 - ((minY + maxY) / 2) * scale;
@@ -1281,46 +1230,35 @@ function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarSta
   const my = (wy: number) => oy + wy * scale;
 
   ctx.save();
-  ctx.fillStyle = 'rgba(5,7,13,0.55)';
+  ctx.fillStyle = 'rgba(5,6,16,0.55)';
   rr(ctx, x, y, size, size, 18);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(82,255,229,0.5)';
+  ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
   center.forEach((p, i) => (i === 0 ? ctx.moveTo(mx(p.x), my(p.y)) : ctx.lineTo(mx(p.x), my(p.y))));
   ctx.closePath();
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(251,191,36,0.6)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
 
   if (ghost.active) {
     const g = ghost.sample(performance.now());
     if (g) {
-      ctx.fillStyle = '#60a5fa';
+      ctx.fillStyle = '#9D7CFF';
       ctx.beginPath();
-      ctx.arc(mx(g.x), my(g.y), 3, 0, Math.PI * 2);
+      ctx.arc(mx(g.x), my(g.y), 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  ctx.save();
-  ctx.translate(mx(car.x), my(car.y));
-  ctx.rotate(car.angle);
-  ctx.fillStyle = '#fde047';
+  ctx.fillStyle = '#F2C766';
   ctx.beginPath();
-  ctx.moveTo(7, 0);
-  ctx.lineTo(-5, -4);
-  ctx.lineTo(-3, 0);
-  ctx.lineTo(-5, 4);
-  ctx.closePath();
+  ctx.arc(mx(car.x), my(car.y), 3, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
   ctx.restore();
 }
 
