@@ -1,21 +1,17 @@
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { AuthProvider } from './auth/AuthProvider';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
 import { GameIntroOverlay } from './components/GameIntroOverlay';
 import { Home } from './pages/Home';
-import { Lobbies } from './pages/Lobbies';
-import { CreateLobby } from './pages/CreateLobby';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
-import { ArcherGame } from './pages/ArcherGame';
 import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
 import { GridLockGame } from './pages/GridLockGame';
-import { TicTacToeDuelGame } from './pages/TicTacToeDuelGame';
 import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
-import { HexFallGame } from './pages/HexFallGame';
 import { DiceDuelGame } from './pages/DiceDuelGame';
 import { NeonMatrixGame } from './pages/NeonMatrixGame';
 import { VirusMarketGame } from './pages/VirusMarketGame';
@@ -24,43 +20,9 @@ import { PaperIoGame } from './pages/PaperIoGame';
 import { TowerStackGame } from './pages/TowerStackGame';
 import { PhysicsDuel } from './pages/PhysicsDuel';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
+import { GAME_TITLE_BY_PLAY_PATH, LOCKED_GAME_ROUTES } from './data/games';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
-
-const GAME_TITLES: Record<string, string> = {
-  '/game/plinko/play': 'Plinko PvP',
-  '/game/physicsduel/play': 'Descent Duel',
-  '/game/paperio/play': 'Paper IO',
-  '/game/towerstack/play': 'Tower Stack',
-  '/game/hexfall/play': 'Hex Fall',
-  '/game/rps/play': 'RPS Duel',
-  '/game/tictactoe/play': 'Tic Tac Toe',
-  '/game/gridlock/play': 'Grid Lock',
-  '/game/blackjack/play': 'Blackjack Duel',
-  '/game/diceduel/play': 'Dice Duel',
-  '/game/neonmatrix/play': 'Neon Matrix',
-  '/game/virusmarket/play': 'Virus Market',
-  '/game/crashduel/play': 'Crash Duel',
-  '/game/race/play': 'Street Race',
-  '/game/airhockey/play': 'Air Hockey',
-  '/game/archer/play': 'Neon Duel',
-};
-
-const LOCKED_GAME_ROUTES = new Set([
-  '/game/plinko/play',
-  '/game/physicsduel/play',
-  '/game/paperio/play',
-  '/game/towerstack/play',
-  '/game/hexfall/play',
-  '/game/rps/play',
-  '/game/tictactoe/play',
-  '/game/gridlock/play',
-  '/game/blackjack/play',
-  '/game/diceduel/play',
-  '/game/neonmatrix/play',
-  '/game/virusmarket/play',
-  '/game/crashduel/play',
-]);
 
 type TelegramWebApp = {
   ready?: () => void;
@@ -93,7 +55,7 @@ function AppShell() {
 
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
-  const gameIntroTitle = GAME_TITLES[location.pathname] || null;
+  const gameIntroTitle = GAME_TITLE_BY_PLAY_PATH[location.pathname] || null;
 
   const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
   const shouldMountRoutes = !shouldShowGameIntro;
@@ -158,28 +120,24 @@ function AppShell() {
         {shouldMountRoutes ? (
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
-            <Route path="/game/:gameId/create" element={<CreateLobby />} />
 
-            <Route path="/game/plinko/play" element={<PlinkoPvpGame />} />
-            <Route path="/game/physicsduel/play" element={<PhysicsDuel />} />
-            <Route path="/game/paperio/play" element={<PaperIoGame />} />
-            <Route path="/game/towerstack/play" element={<TowerStackGame />} />
-            <Route path="/game/hexfall/play" element={<HexFallGame />} />
-            <Route path="/game/rps/play" element={<RockPaperScissorsDuelGame />} />
-            <Route path="/game/tictactoe/play" element={<TicTacToeDuelGame />} />
-            <Route path="/game/gridlock/play" element={<GridLockGame />} />
-            <Route path="/game/blackjack/play" element={<BlackjackDuelGame />} />
-            <Route path="/game/diceduel/play" element={<DiceDuelGame />} />
-            <Route path="/game/neonmatrix/play" element={<NeonMatrixGame />} />
-            <Route path="/game/virusmarket/play" element={<VirusMarketGame />} />
-            <Route path="/game/crashduel/play" element={<CrashDuelGame />} />
-            <Route path="/game/race/play" element={<RaceGame />} />
-            <Route path="/game/airhockey/play" element={<AirHockeyGame />} />
-            <Route path="/game/archer/play" element={<ArcherGame />} />
+            <Route path="/game/plinko_pvp/play" element={<PlinkoPvpGame />} />
+            <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
+            <Route path="/game/paper_io/play" element={<PaperIoGame />} />
+            <Route path="/game/tower_stack/play" element={<TowerStackGame />} />
+            <Route path="/game/crash_duel/play" element={<CrashDuelGame />} />
+            <Route path="/game/virus_market/play" element={<VirusMarketGame />} />
+            <Route path="/game/rps_duel/play" element={<RockPaperScissorsDuelGame />} />
+            <Route path="/game/grid_lock/play" element={<GridLockGame />} />
+            <Route path="/game/blackjack_duel/play" element={<BlackjackDuelGame />} />
+            <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
+            <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
+            <Route path="/game/street_race/play" element={<RaceGame />} />
+            <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
 
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         ) : (
           <div className="h-full w-full bg-[#050610]" />
@@ -202,7 +160,9 @@ function AppShell() {
 function App() {
   return (
     <BrowserRouter>
-      <AppShell />
+      <AuthProvider>
+        <AppShell />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
