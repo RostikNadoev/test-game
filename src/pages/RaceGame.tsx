@@ -1,14 +1,3 @@
-/* ============================================================================
- *  RaceGame.tsx — arcade neon drift racer for Telegram Mini App
- *  ---------------------------------------------------------------------------
- *  • Physics rewritten: always-drifting arcade feel, auto-throttle, easy turns,
- *    soft speed loss in drift, no annoying spin-outs.
- *  • Fits Mini App viewport: parent-sized canvas, no scroll, safe-area controls.
- *  • Visuals: dark app palette, neon track, arrows, side beacons, speed trail.
- *  • Network-ready public API preserved: NetSnapshot, onSnapshot, ghost buffer,
- *    pushRemoteSnapshot(), reset().
- * ========================================================================== */
-
 import React, {
   forwardRef,
   useCallback,
@@ -19,31 +8,65 @@ import React, {
   useState,
 } from 'react';
 
-/* ================================ TYPES ================================== */
+/* ============================================================================
+ * RaceGame.tsx — TwinGames arcade drift racer
+ * ----------------------------------------------------------------------------
+ * Physics now follows the reference feel:
+ * - joystick points where the car wants to go;
+ * - car compares joystick angle with current heading;
+ * - sharp direction changes reduce speed;
+ * - actual velocity lags behind heading via driftFactor;
+ * - result: constant smooth arcade drift, easy and pleasant.
+ *
+ * Public API preserved for future online mode:
+ * - NetSnapshot
+ * - DriftRaceHandle
+ * - onSnapshot
+ * - pushRemoteSnapshot
+ * - reset
+ * ========================================================================== */
 
 type Vec = { x: number; y: number };
-type Surface = 'asphalt' | 'edge' | 'off';
-type ParticleKind = 'smoke' | 'spark' | 'dust' | 'glow';
 
-type CarState = {
+type Surface = 'road' | 'curb' | 'off';
+
+type CenterPt = Vec & {
+  tx: number;
+  ty: number;
+  dist: number;
+};
+
+type TrackHit = {
+  d: number;
+  nx: number;
+  ny: number;
+  progress: number;
+  surface: Surface;
+};
+
+type DecorType =
+  | 'tree'
+  | 'bush'
+  | 'stand'
+  | 'light'
+  | 'tent'
+  | 'ads'
+  | 'bench'
+  | 'yacht'
+  | 'tires'
+  | 'cone'
+  | 'gate';
+
+type Decor = {
   x: number;
   y: number;
+  type: DecorType;
+  size: number;
   angle: number;
-  vx: number;
-  vy: number;
-  steer: number;
-  driftPower: number;
-  progress: number;
-  lap: number;
-  armed: boolean;
+  detail: number;
 };
 
-type InputState = {
-  throttle: number;
-  brake: number;
-  steer: number;
-  drift: boolean;
-};
+type ParticleKind = 'smoke' | 'spark' | 'dust' | 'glow';
 
 type Particle = {
   x: number;
@@ -62,22 +85,7 @@ type Skid = {
   x2: number;
   y2: number;
   life: number;
-  w: number;
-};
-
-type Popup = {
-  x: number;
-  y: number;
-  life: number;
-  text: string;
-  big: boolean;
-};
-
-type SideBeacon = {
-  x: number;
-  y: number;
-  hue: 'cyan' | 'purple' | 'gold';
-  phase: number;
+  width: number;
 };
 
 type Trail = {
@@ -88,7 +96,35 @@ type Trail = {
   drift: number;
 };
 
-/** Tiny snapshot for future 1v1 WebSocket mode. */
+type Popup = {
+  x: number;
+  y: number;
+  life: number;
+  text: string;
+  big: boolean;
+};
+
+type CarState = {
+  x: number;
+  y: number;
+  angle: number;
+  speed: number;
+  vx: number;
+  vy: number;
+  driftPower: number;
+  progress: number;
+  lap: number;
+  armed: boolean;
+};
+
+type InputState = {
+  active: boolean;
+  aimX: number;
+  aimY: number;
+  brake: number;
+  drift: boolean;
+};
+
 export type NetSnapshot = {
   t: number;
   x: number;
@@ -109,72 +145,75 @@ interface DriftRaceProps {
   topOffset?: number;
 }
 
-/* =============================== PALETTE ================================= */
-
-const C = {
+const COLORS = {
   bg: '#050610',
-  panel: 'rgba(5,6,16,0.68)',
-  asphalt: '#111522',
-  asphaltCore: '#171d2d',
-  asphaltHot: '#20263a',
-  neon: '#52FFE5',
-  neonDim: 'rgba(82,255,229,0.55)',
-  neonSoft: 'rgba(82,255,229,0.12)',
+  road: '#121521',
+  road2: '#191f31',
+  road3: '#20283c',
+  cyan: '#52FFE5',
+  cyanSoft: 'rgba(82,255,229,0.14)',
+  cyanDim: 'rgba(82,255,229,0.55)',
   gold: '#F2C766',
   purple: '#9D7CFF',
   red: '#FF6B8A',
+  grass: '#08130e',
+  grass2: '#0d2118',
+  water: '#061a2b',
 } as const;
-
-/* =============================== TUNING ================================== */
 
 const STEP = 1 / 60;
 const TOTAL_LAPS = 5;
 
-const ROAD_HALF = 84;
-const EDGE = 9;
-const RUNOFF = 62;
-const WALL = ROAD_HALF + EDGE + RUNOFF;
+const ROAD_WIDTH = 155;
+const ROAD_HALF = ROAD_WIDTH / 2;
+const CURB_WIDTH = 16;
+const RUNOFF = 70;
+const WALL = ROAD_HALF + CURB_WIDTH + RUNOFF;
 
-/**
- * Arcade drift model:
- * - velocity direction follows car nose with lag;
- * - steering rotates the nose fast, velocity follows slower => constant drift;
- * - high steer / handbrake increases lag and bleeds speed;
- * - release stick => nose smoothly aligns to motion.
- */
-const TUNE = {
-  maxSpeed: 455,
-  minCruiseSpeed: 185,
-  startBoost: 1350,
-  accel: 720,
-  brakePower: 1180,
-
-  turnRate: 3.45,
-  turnAtLowSpeed: 0.42,
-  steerLerp: 15.5,
-
-  baseVelFollow: 4.2,
-  driftVelFollow: 1.35,
-  releaseAlign: 4.6,
-
-  alwaysDrift: 0.22,
-  steerDrift: 0.68,
-  handbrakeDrift: 0.42,
-
-  driftSpeedLoss: 0.34,
-  hardDriftSpeedLoss: 0.28,
-
-  wallBounce: 1.18,
-  wallSpeedLoss: 0.68,
-} as const;
-
-const SURFACE: Record<Surface, { topMul: number; accelMul: number; driftAdd: number; roll: number }> = {
-  asphalt: { topMul: 1, accelMul: 1, driftAdd: 0, roll: 1 },
-  edge: { topMul: 0.92, accelMul: 0.9, driftAdd: 0.08, roll: 1.25 },
-  off: { topMul: 0.52, accelMul: 0.42, driftAdd: 0.18, roll: 2.6 },
+const PHYSICS = {
+  maxSpeed: 540,
+  accel: 820,
+  idleAccel: 300,
+  friction: 0.985,
+  driftFactor: 0.958,
+  driftFactorHard: 0.972,
+  turnSpeed: 0.085,
+  wallFriction: 0.45,
+  turnResistance: 0.95,
+  brakePower: 760,
+  offroadDrag: 0.72,
+  curbDrag: 0.9,
 };
 
-/* ================================ MATH =================================== */
+const VISUAL = {
+  curbLen: 28,
+  joystickRadius: 54,
+  joystickZone: 154,
+};
+
+const TRACK_NODES: Vec[] = [
+  { x: 400, y: 800 },
+  { x: 1800, y: 800 },
+  { x: 2400, y: 1400 },
+  { x: 3400, y: 1400 },
+  { x: 3800, y: 1900 },
+  { x: 3200, y: 2400 },
+  { x: 4200, y: 2800 },
+  { x: 5500, y: 2200 },
+  { x: 6000, y: 800 },
+  { x: 6200, y: 0 },
+  { x: 5500, y: -600 },
+  { x: 6500, y: -1000 },
+  { x: 5000, y: -2000 },
+  { x: 3500, y: -1800 },
+  { x: 2500, y: -2500 },
+  { x: 1000, y: -2000 },
+  { x: 200, y: -1000 },
+  { x: -800, y: -1500 },
+  { x: -1500, y: -500 },
+  { x: -800, y: 800 },
+  { x: 0, y: 800 },
+];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -190,65 +229,49 @@ function seeded(seed: number) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296);
 }
 
-/* ================================ TRACK ================================== */
+function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const k = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + k, y);
+  ctx.arcTo(x + w, y, x + w, y + h, k);
+  ctx.arcTo(x + w, y + h, x, y + h, k);
+  ctx.arcTo(x, y + h, x, y, k);
+  ctx.arcTo(x, y, x + w, y, k);
+  ctx.closePath();
+}
 
-const NODES: Vec[] = [
-  { x: -1280, y: -220 },
-  { x: -1020, y: -860 },
-  { x: -280, y: -1110 },
-  { x: 480, y: -1020 },
-  { x: 1180, y: -1190 },
-  { x: 1670, y: -560 },
-  { x: 1460, y: 180 },
-  { x: 1760, y: 760 },
-  { x: 1210, y: 1220 },
-  { x: 380, y: 1100 },
-  { x: -190, y: 1320 },
-  { x: -850, y: 1100 },
-  { x: -1380, y: 620 },
-];
+function chaikin(nodes: Vec[], passes = 3): Vec[] {
+  let pts = [...nodes];
 
-type CenterPt = Vec & {
-  tx: number;
-  ty: number;
-  dist: number;
-};
+  for (let pass = 0; pass < passes; pass += 1) {
+    const next: Vec[] = [];
 
-function buildCenterline(): { pts: CenterPt[]; length: number } {
-  const raw: Vec[] = [];
-  const n = NODES.length;
-  const seg = 24;
+    for (let i = 0; i < pts.length; i += 1) {
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % pts.length];
 
-  for (let i = 0; i < n; i += 1) {
-    const p0 = NODES[(i - 1 + n) % n];
-    const p1 = NODES[i];
-    const p2 = NODES[(i + 1) % n];
-    const p3 = NODES[(i + 2) % n];
-
-    for (let j = 0; j < seg; j += 1) {
-      const t = j / seg;
-      const t2 = t * t;
-      const t3 = t2 * t;
-
-      raw.push({
-        x:
-          0.5 *
-          (2 * p1.x +
-            (-p0.x + p2.x) * t +
-            (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-            (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-        y:
-          0.5 *
-          (2 * p1.y +
-            (-p0.y + p2.y) * t +
-            (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-            (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
-      });
+      next.push(
+        {
+          x: p1.x * 0.75 + p2.x * 0.25,
+          y: p1.y * 0.75 + p2.y * 0.25,
+        },
+        {
+          x: p1.x * 0.25 + p2.x * 0.75,
+          y: p1.y * 0.25 + p2.y * 0.75,
+        },
+      );
     }
+
+    pts = next;
   }
 
-  const pts: CenterPt[] = [];
-  let length = 0;
+  return pts;
+}
+
+function buildTrack(): { center: CenterPt[]; total: number } {
+  const raw = chaikin(TRACK_NODES, 3);
+  const center: CenterPt[] = [];
+  let total = 0;
 
   for (let i = 0; i < raw.length; i += 1) {
     const a = raw[i];
@@ -257,30 +280,22 @@ function buildCenterline(): { pts: CenterPt[]; length: number } {
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
 
-    pts.push({
+    center.push({
       x: a.x,
       y: a.y,
       tx: dx / len,
       ty: dy / len,
-      dist: length,
+      dist: total,
     });
 
-    length += len;
+    total += len;
   }
 
-  return { pts, length };
+  return { center, total };
 }
 
-type Hit = {
-  d: number;
-  nx: number;
-  ny: number;
-  progress: number;
-  surface: Surface;
-};
-
-function queryTrack(center: CenterPt[], total: number, x: number, y: number): Hit {
-  let best: Hit = {
+function queryTrack(center: CenterPt[], total: number, x: number, y: number): TrackHit {
+  let best: TrackHit = {
     d: Infinity,
     nx: 1,
     ny: 0,
@@ -295,8 +310,8 @@ function queryTrack(center: CenterPt[], total: number, x: number, y: number): Hi
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len2 = dx * dx + dy * dy || 1;
-
     const t = clamp(((x - a.x) * dx + (y - a.y) * dy) / len2, 0, 1);
+
     const cx = a.x + dx * t;
     const cy = a.y + dy * t;
     const d = Math.hypot(x - cx, y - cy);
@@ -313,210 +328,232 @@ function queryTrack(center: CenterPt[], total: number, x: number, y: number): Hi
     }
   }
 
-  if (best.d <= ROAD_HALF) best.surface = 'asphalt';
-  else if (best.d <= ROAD_HALF + EDGE) best.surface = 'edge';
+  if (best.d < ROAD_HALF) best.surface = 'road';
+  else if (best.d < ROAD_HALF + CURB_WIDTH) best.surface = 'curb';
 
   return best;
 }
 
-function buildBeacons(center: CenterPt[]): SideBeacon[] {
-  const rnd = seeded(777);
-  const beacons: SideBeacon[] = [];
+function buildDecor(center: CenterPt[], total: number): Decor[] {
+  const rnd = seeded(202607);
+  const items: Decor[] = [];
 
-  for (let i = 0; i < center.length; i += 12) {
-    const p = center[i];
-    const side = (i / 12) % 2 === 0 ? 1 : -1;
-    const off = ROAD_HALF + EDGE + 24;
-    const roll = rnd();
+  const isTooCloseToTrack = (x: number, y: number, safe: number) => {
+    return queryTrack(center, total, x, y).d < safe;
+  };
 
-    beacons.push({
-      x: p.x - p.ty * off * side,
-      y: p.y + p.tx * off * side,
-      hue: roll > 0.78 ? 'gold' : roll > 0.48 ? 'purple' : 'cyan',
-      phase: rnd() * Math.PI * 2,
-    });
-  }
+  const isColliding = (x: number, y: number, minSpace: number) => {
+    return items.some((item) => Math.hypot(item.x - x, item.y - y) < minSpace);
+  };
 
-  return beacons;
-}
+  const addDecor = (
+    x: number,
+    y: number,
+    type: DecorType,
+    size: number,
+    angle = 0,
+    minSpace = 55,
+    safe = ROAD_HALF + 28,
+  ) => {
+    if (!isTooCloseToTrack(x, y, safe) && !isColliding(x, y, minSpace)) {
+      items.push({
+        x,
+        y,
+        type,
+        size,
+        angle,
+        detail: rnd(),
+      });
+    }
+  };
 
-/* ================================ PHYSICS ================================ */
+  center.forEach((p, i) => {
+    if (i % 2 !== 0) return;
 
-type StepResult = {
-  speed: number;
-  slip: number;
-  surface: Surface;
-  crossedFinish: boolean;
-  hardHit: boolean;
-};
+    const side = i % 4 === 0 ? 1 : -1;
+    const nx = -p.ty;
+    const ny = p.tx;
 
-function stepCar(car: CarState, input: InputState, center: CenterPt[], total: number): StepResult {
-  const here = queryTrack(center, total, car.x, car.y);
-  const surf = SURFACE[here.surface];
-
-  const speedBefore = Math.hypot(car.vx, car.vy);
-  const speed01 = clamp(speedBefore / TUNE.maxSpeed, 0, 1);
-
-  car.steer = lerp(car.steer, clamp(input.steer, -1, 1), clamp(TUNE.steerLerp * STEP, 0, 1));
-
-  let moveAngle = speedBefore > 8 ? Math.atan2(car.vy, car.vx) : car.angle;
-  let speed = speedBefore;
-
-  const steerAbs = Math.abs(car.steer);
-  const handbrake = input.drift ? 1 : 0;
-
-  const driftTarget = clamp(
-    TUNE.alwaysDrift +
-      steerAbs * TUNE.steerDrift * smooth(0.16, 0.92, speed01) +
-      handbrake * TUNE.handbrakeDrift +
-      surf.driftAdd,
-    0,
-    1,
-  );
-
-  const turnAuthority = TUNE.turnAtLowSpeed + (1 - TUNE.turnAtLowSpeed) * smooth(55, 215, speed);
-  const turnBoost = 1 + driftTarget * 0.28;
-
-  car.angle += car.steer * TUNE.turnRate * turnAuthority * turnBoost * STEP;
-
-  const followRate = lerp(TUNE.baseVelFollow, TUNE.driftVelFollow, driftTarget);
-  moveAngle += angleDiff(car.angle, moveAngle) * clamp(followRate * STEP, 0, 1);
-
-  if (steerAbs < 0.08 && !input.drift && speed > 40) {
-    car.angle += angleDiff(moveAngle, car.angle) * clamp(TUNE.releaseAlign * STEP, 0, 1);
-  }
-
-  const targetSpeed =
-    (TUNE.minCruiseSpeed + (TUNE.maxSpeed - TUNE.minCruiseSpeed) * input.throttle) *
-    surf.topMul *
-    (1 - steerAbs * 0.08 - driftTarget * 0.16);
-
-  const accelRate = speed < targetSpeed ? TUNE.startBoost : TUNE.accel;
-  speed += clamp(targetSpeed - speed, -accelRate * STEP, accelRate * surf.accelMul * STEP);
-
-  if (input.brake > 0) {
-    speed -= input.brake * TUNE.brakePower * STEP;
-  }
-
-  speed -= speed * (0.12 * surf.roll) * STEP;
-  speed -= speed * driftTarget * TUNE.driftSpeedLoss * STEP;
-
-  if (input.drift) {
-    speed -= speed * TUNE.hardDriftSpeedLoss * STEP;
-  }
-
-  speed = clamp(speed, 0, TUNE.maxSpeed * surf.topMul);
-
-  car.vx = Math.cos(moveAngle) * speed;
-  car.vy = Math.sin(moveAngle) * speed;
-
-  let nx = car.x + car.vx * STEP;
-  let ny = car.y + car.vy * STEP;
-
-  let hardHit = false;
-  const next = queryTrack(center, total, nx, ny);
-
-  if (next.d > WALL) {
-    const pen = next.d - WALL;
-
-    nx -= next.nx * pen;
-    ny -= next.ny * pen;
-
-    const vn = car.vx * next.nx + car.vy * next.ny;
-
-    if (vn > 0) {
-      car.vx -= next.nx * vn * TUNE.wallBounce;
-      car.vy -= next.ny * vn * TUNE.wallBounce;
+    if (i % 4 === 0) {
+      addDecor(
+        p.x + nx * side * (ROAD_HALF + 20),
+        p.y + ny * side * (ROAD_HALF + 20),
+        'cone',
+        11,
+        0,
+        34,
+        ROAD_HALF + 8,
+      );
     }
 
-    car.vx *= TUNE.wallSpeedLoss;
-    car.vy *= TUNE.wallSpeedLoss;
+    if (i % 8 === 0) {
+      addDecor(
+        p.x + nx * side * 105,
+        p.y + ny * side * 105,
+        'light',
+        12,
+        0,
+        80,
+        ROAD_HALF + 22,
+      );
+    }
 
-    car.angle += angleDiff(Math.atan2(car.vy, car.vx), car.angle) * 0.12;
+    if (i % 10 === 0) {
+      addDecor(
+        p.x + nx * side * 118,
+        p.y + ny * side * 118,
+        'ads',
+        70,
+        Math.atan2(p.ty, p.tx) + Math.PI / 2,
+        105,
+      );
+    }
 
-    if (speedBefore > 165) hardHit = true;
+    if (i % 14 === 0) {
+      addDecor(
+        p.x - nx * side * 132,
+        p.y - ny * side * 132,
+        'bench',
+        28,
+        Math.atan2(p.ty, p.tx) + Math.PI / 2,
+        64,
+      );
+    }
+
+    if (i % 18 === 0) {
+      addDecor(
+        p.x + nx * side * 165,
+        p.y + ny * side * 165,
+        'tent',
+        44,
+        Math.atan2(p.ty, p.tx),
+        130,
+      );
+    }
+
+    if (i % 22 === 0) {
+      addDecor(
+        p.x - nx * side * 150,
+        p.y - ny * side * 150,
+        'stand',
+        100,
+        Math.atan2(p.ty, p.tx) + (side > 0 ? 0 : Math.PI),
+        170,
+      );
+    }
+
+    if (i % 16 === 0) {
+      addDecor(
+        p.x + nx * side * 118,
+        p.y + ny * side * 118,
+        'tires',
+        32,
+        Math.atan2(p.ty, p.tx),
+        72,
+      );
+    }
+
+    if (i % 26 === 0) {
+      addDecor(
+        p.x + nx * side * (ROAD_HALF + 18),
+        p.y + ny * side * (ROAD_HALF + 18),
+        'gate',
+        70,
+        Math.atan2(p.ty, p.tx),
+        180,
+        ROAD_HALF + 12,
+      );
+    }
+
+    for (let j = 0; j < 3; j += 1) {
+      const dist = 190 + rnd() * 340;
+      const s = rnd() > 0.5 ? 1 : -1;
+      const ox = p.x + nx * dist * s + (rnd() - 0.5) * 80;
+      const oy = p.y + ny * dist * s + (rnd() - 0.5) * 80;
+      const type: DecorType = rnd() > 0.42 ? 'tree' : 'bush';
+
+      addDecor(ox, oy, type, 24 + rnd() * 40, rnd() * Math.PI * 2, 55, ROAD_HALF + 95);
+    }
+  });
+
+  for (let k = 0; k < 13; k += 1) {
+    addDecor(
+      2780 + rnd() * 420,
+      1500 + k * 210,
+      'yacht',
+      64 + rnd() * 18,
+      -0.15 + rnd() * 0.35,
+      150,
+      0,
+    );
   }
 
-  car.x = nx;
-  car.y = ny;
-
-  const speedAfter = Math.hypot(car.vx, car.vy);
-  const actualMoveAngle = speedAfter > 8 ? Math.atan2(car.vy, car.vx) : car.angle;
-  const slip = speedAfter > 50 ? Math.abs(angleDiff(actualMoveAngle, car.angle)) : 0;
-
-  const visualDrift = clamp(driftTarget * 0.72 + clamp(slip / 0.75, 0, 1) * 0.48, 0, 1);
-  car.driftPower = lerp(car.driftPower, visualDrift * smooth(50, 190, speedAfter), 0.22);
-
-  let crossedFinish = false;
-
-  if (car.progress > 0.45 && car.progress < 0.75) car.armed = true;
-
-  const prevProgress = car.progress;
-  car.progress = here.progress;
-
-  if (car.armed && prevProgress > 0.9 && car.progress < 0.1) {
-    car.armed = false;
-    car.lap = Math.min(car.lap + 1, TOTAL_LAPS);
-    crossedFinish = true;
-  }
-
-  return {
-    speed: speedAfter,
-    slip,
-    surface: here.surface,
-    crossedFinish,
-    hardHit,
-  };
+  return items;
 }
 
-/* =============================== PARTICLES =============================== */
-
-function spawn(
-  list: Particle[],
-  x: number,
-  y: number,
-  kind: ParticleKind,
-  n: number,
-  angle: number,
-  power: number,
+function drawGround(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  width: number,
+  height: number,
+  zoom: number,
+  now: number,
 ) {
-  if (list.length > 170) list.splice(0, list.length - 140);
+  const halfW = width / zoom / 2 + 500;
+  const halfH = height / zoom / 2 + 500;
 
-  for (let i = 0; i < n; i += 1) {
-    const a = angle + Math.PI + (Math.random() - 0.5) * 1.6;
-    const sp = (16 + Math.random() * 95) * power;
-    const max =
-      kind === 'spark'
-        ? 0.18 + Math.random() * 0.16
-        : kind === 'glow'
-          ? 0.28 + Math.random() * 0.28
-          : 0.42 + Math.random() * 0.55;
+  ctx.fillStyle = COLORS.grass;
+  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
 
-    list.push({
-      x: x + (Math.random() - 0.5) * 14,
-      y: y + (Math.random() - 0.5) * 10,
-      vx: Math.cos(a) * sp,
-      vy: Math.sin(a) * sp,
-      life: max,
-      max,
-      size: 2 + Math.random() * (kind === 'smoke' ? 8 : kind === 'glow' ? 6 : 3),
-      kind,
-    });
-  }
-}
+  const grassGlow = ctx.createRadialGradient(cx - 500, cy - 400, 0, cx - 500, cy - 400, 1400);
+  grassGlow.addColorStop(0, 'rgba(82,255,229,0.035)');
+  grassGlow.addColorStop(1, 'rgba(82,255,229,0)');
+  ctx.fillStyle = grassGlow;
+  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
 
-/* ================================ RENDER ================================= */
-
-function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const k = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
-
+  const gridStep = 260;
+  ctx.strokeStyle = `rgba(157,124,255,${0.028 + Math.sin(now * 0.0016) * 0.01})`;
+  ctx.lineWidth = 1 / zoom;
   ctx.beginPath();
-  ctx.moveTo(x + k, y);
-  ctx.arcTo(x + w, y, x + w, y + h, k);
-  ctx.arcTo(x + w, y + h, x, y + h, k);
-  ctx.arcTo(x, y + h, x, y, k);
-  ctx.arcTo(x, y, x + w, y, k);
-  ctx.closePath();
+
+  for (let x = Math.floor((cx - halfW) / gridStep) * gridStep; x < cx + halfW; x += gridStep) {
+    ctx.moveTo(x, cy - halfH);
+    ctx.lineTo(x, cy + halfH);
+  }
+
+  for (let y = Math.floor((cy - halfH) / gridStep) * gridStep; y < cy + halfH; y += gridStep) {
+    ctx.moveTo(cx - halfW, y);
+    ctx.lineTo(cx + halfW, y);
+  }
+
+  ctx.stroke();
+
+  ctx.fillStyle = '#16120b';
+  ctx.fillRect(2450, -3100, 760, 8500);
+
+  const waterGrad = ctx.createLinearGradient(2550, -3000, 3150, 3000);
+  waterGrad.addColorStop(0, '#061222');
+  waterGrad.addColorStop(0.5, COLORS.water);
+  waterGrad.addColorStop(1, '#082437');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(2550, -3100, 620, 8500);
+
+  ctx.strokeStyle = 'rgba(82,255,229,0.10)';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(2550, -3100);
+  ctx.lineTo(2550, 5400);
+  ctx.stroke();
+
+  ctx.fillStyle = '#182130';
+  ctx.fillRect(2280, 1300, 920, 190);
+
+  ctx.fillStyle = 'rgba(242,199,102,0.07)';
+  for (let i = 0; i < 20; i += 1) {
+    const y = -2600 + i * 360 + Math.sin(now * 0.001 + i) * 12;
+    ctx.fillRect(2600, y, 420, 2);
+  }
 }
 
 function strokeLoop(
@@ -546,101 +583,89 @@ function strokeLoop(
   if (dash) ctx.setLineDash([]);
 }
 
-function drawGround(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  w: number,
-  h: number,
-  zoom: number,
-  now: number,
-) {
-  const halfW = w / zoom / 2 + 260;
-  const halfH = h / zoom / 2 + 260;
+function drawCurbs(ctx: CanvasRenderingContext2D, center: CenterPt[], side: 1 | -1, now: number) {
+  let dash = 0;
 
-  ctx.fillStyle = C.bg;
-  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
+  for (let i = 0; i < center.length; i += 1) {
+    const p1 = center[i];
+    const p2 = center[(i + 1) % center.length];
 
-  const pulse = 0.04 + Math.sin(now * 0.0015) * 0.015;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy) || 1;
 
-  ctx.strokeStyle = `rgba(157,124,255,${pulse})`;
-  ctx.lineWidth = 1 / zoom;
+    const nx = (-dy / len) * side * (ROAD_HALF + CURB_WIDTH / 2);
+    const ny = (dx / len) * side * (ROAD_HALF + CURB_WIDTH / 2);
 
-  const step = 180;
-  ctx.beginPath();
+    ctx.lineWidth = CURB_WIDTH;
+    ctx.lineCap = 'butt';
 
-  for (let x = Math.floor((cx - halfW) / step) * step; x < cx + halfW; x += step) {
-    ctx.moveTo(x, cy - halfH);
-    ctx.lineTo(x, cy + halfH);
+    for (let l = 0; l < len; l += VISUAL.curbLen) {
+      const k1 = l / len;
+      const k2 = Math.min(l + VISUAL.curbLen, len) / len;
+
+      const odd = dash % 2 === 0;
+      const pulse = 0.42 + Math.sin(now * 0.004 + dash * 0.2) * 0.08;
+
+      ctx.strokeStyle = odd ? `rgba(82,255,229,${pulse})` : `rgba(157,124,255,${pulse})`;
+
+      ctx.beginPath();
+      ctx.moveTo(p1.x + dx * k1 + nx, p1.y + dy * k1 + ny);
+      ctx.lineTo(p1.x + dx * k2 + nx, p1.y + dy * k2 + ny);
+      ctx.stroke();
+
+      dash += 1;
+    }
   }
-
-  for (let y = Math.floor((cy - halfH) / step) * step; y < cy + halfH; y += step) {
-    ctx.moveTo(cx - halfW, y);
-    ctx.lineTo(cx + halfW, y);
-  }
-
-  ctx.stroke();
-
-  const g1 = ctx.createRadialGradient(cx - 450, cy - 320, 0, cx - 450, cy - 320, 820);
-  g1.addColorStop(0, 'rgba(82,255,229,0.055)');
-  g1.addColorStop(1, 'rgba(82,255,229,0)');
-  ctx.fillStyle = g1;
-  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
-
-  const g2 = ctx.createRadialGradient(cx + 500, cy + 280, 0, cx + 500, cy + 280, 900);
-  g2.addColorStop(0, 'rgba(157,124,255,0.06)');
-  g2.addColorStop(1, 'rgba(157,124,255,0)');
-  ctx.fillStyle = g2;
-  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
 }
 
 function drawTrack(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
-  strokeLoop(ctx, center, (ROAD_HALF + EDGE) * 2 + 54, 'rgba(82,255,229,0.055)');
-  strokeLoop(ctx, center, (ROAD_HALF + EDGE) * 2 + 24, 'rgba(157,124,255,0.035)');
-  strokeLoop(ctx, center, ROAD_HALF * 2 + EDGE * 2, C.neonDim);
-  strokeLoop(ctx, center, ROAD_HALF * 2 + 2, C.asphalt);
-  strokeLoop(ctx, center, ROAD_HALF * 2 - 28, C.asphaltCore);
-  strokeLoop(ctx, center, 3, 'rgba(255,255,255,0.07)', [36, 54]);
+  strokeLoop(ctx, center, ROAD_WIDTH + CURB_WIDTH * 2 + 52, 'rgba(82,255,229,0.045)');
+  strokeLoop(ctx, center, ROAD_WIDTH + CURB_WIDTH * 2 + 30, 'rgba(157,124,255,0.035)');
 
-  const glow = 0.2 + Math.sin(now * 0.002) * 0.06;
-  strokeLoop(ctx, center, 1.5, `rgba(82,255,229,${glow})`, [18, 72]);
+  drawCurbs(ctx, center, 1, now);
+  drawCurbs(ctx, center, -1, now);
+
+  strokeLoop(ctx, center, ROAD_WIDTH + 4, '#070910');
+  strokeLoop(ctx, center, ROAD_WIDTH, COLORS.road);
+  strokeLoop(ctx, center, ROAD_WIDTH - 26, COLORS.road2);
+  strokeLoop(ctx, center, ROAD_WIDTH - 54, COLORS.road3);
+
+  strokeLoop(ctx, center, 4, 'rgba(255,255,255,0.08)', [40, 54]);
+  strokeLoop(ctx, center, 2, 'rgba(82,255,229,0.20)', [16, 90]);
 }
 
 function drawDirectionArrows(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
-  ctx.save();
-
-  for (let i = 10; i < center.length; i += 20) {
+  for (let i = 8; i < center.length; i += 18) {
     const p = center[i];
     const a = Math.atan2(p.ty, p.tx);
-    const pulse = 0.32 + Math.sin(now * 0.004 + i * 0.2) * 0.12;
+    const alpha = 0.27 + Math.sin(now * 0.004 + i * 0.2) * 0.1;
 
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(a);
 
-    ctx.strokeStyle = `rgba(82,255,229,${pulse})`;
+    ctx.strokeStyle = `rgba(82,255,229,${alpha})`;
     ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
     ctx.beginPath();
     ctx.moveTo(-18, -18);
-    ctx.lineTo(8, 0);
+    ctx.lineTo(10, 0);
     ctx.lineTo(-18, 18);
     ctx.stroke();
 
-    ctx.strokeStyle = `rgba(242,199,102,${pulse * 0.45})`;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(242,199,102,${alpha * 0.42})`;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(-34, -16);
-    ctx.lineTo(-10, 0);
-    ctx.lineTo(-34, 16);
+    ctx.moveTo(-36, -15);
+    ctx.lineTo(-12, 0);
+    ctx.lineTo(-36, 15);
     ctx.stroke();
 
     ctx.restore();
   }
-
-  ctx.restore();
 }
 
 function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
@@ -650,57 +675,240 @@ function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
   ctx.translate(p.x, p.y);
   ctx.rotate(Math.atan2(p.ty, p.tx));
 
-  const cell = 14;
+  const cell = 15;
 
-  for (let i = -1; i <= 0; i += 1) {
-    for (let j = -Math.floor(ROAD_HALF / cell); j < Math.floor(ROAD_HALF / cell); j += 1) {
-      ctx.fillStyle = (i + j) % 2 === 0 ? 'rgba(248,250,252,0.86)' : 'rgba(5,6,16,0.92)';
-      ctx.fillRect(i * cell, j * cell, cell, cell);
+  for (let r = 0; r < 2; r += 1) {
+    for (let col = -5; col < 6; col += 1) {
+      ctx.fillStyle = (r + col) % 2 === 0 ? 'rgba(255,255,255,0.86)' : 'rgba(5,6,16,0.95)';
+      ctx.fillRect(r * cell - cell, col * cell, cell, cell);
     }
   }
 
-  const pulse = 0.5 + Math.sin(now * 0.005) * 0.24;
-
+  const pulse = 0.45 + Math.sin(now * 0.005) * 0.18;
   ctx.fillStyle = `rgba(242,199,102,${pulse})`;
-  ctx.fillRect(-ROAD_HALF - EDGE, -4, EDGE + 6, 8);
-  ctx.fillRect(ROAD_HALF - 4, -4, EDGE + 6, 8);
+  ctx.fillRect(-ROAD_HALF - CURB_WIDTH, -4, 22, 8);
+  ctx.fillRect(ROAD_HALF - 6, -4, 22, 8);
 
   ctx.restore();
 }
 
-function drawBeacon(ctx: CanvasRenderingContext2D, b: SideBeacon, now: number) {
-  const base =
-    b.hue === 'cyan' ? C.neon : b.hue === 'purple' ? C.purple : C.gold;
+function drawDecor(ctx: CanvasRenderingContext2D, decor: Decor, car: CarState, now: number) {
+  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 1450) return;
 
-  const alpha = 0.14 + Math.sin(now * 0.004 + b.phase) * 0.055;
+  ctx.save();
+  ctx.translate(decor.x, decor.y);
+  ctx.rotate(decor.angle);
 
-  ctx.fillStyle =
-    b.hue === 'cyan'
-      ? `rgba(82,255,229,${alpha})`
-      : b.hue === 'purple'
-        ? `rgba(157,124,255,${alpha})`
-        : `rgba(242,199,102,${alpha})`;
+  if (decor.type === 'tree') {
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(8, 10, decor.size * 0.72, decor.size * 0.28, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, 13, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = '#3a2414';
+    rr(ctx, -decor.size * 0.08, -decor.size * 0.04, decor.size * 0.16, decor.size * 0.42, 4);
+    ctx.fill();
 
-  ctx.fillStyle = base;
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, 3.2, 0, Math.PI * 2);
-  ctx.fill();
+    const g = ctx.createRadialGradient(-decor.size * 0.15, -decor.size * 0.28, 2, 0, -decor.size * 0.18, decor.size);
+    g.addColorStop(0, '#276b3b');
+    g.addColorStop(0.55, '#144d2d');
+    g.addColorStop(1, '#0a2418');
 
-  ctx.strokeStyle =
-    b.hue === 'cyan'
-      ? 'rgba(82,255,229,0.22)'
-      : b.hue === 'purple'
-        ? 'rgba(157,124,255,0.2)'
-        : 'rgba(242,199,102,0.2)';
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, -decor.size * 0.24, decor.size * 0.56, 0, Math.PI * 2);
+    ctx.arc(-decor.size * 0.3, -decor.size * 0.02, decor.size * 0.36, 0, Math.PI * 2);
+    ctx.arc(decor.size * 0.28, 0, decor.size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, 22 + Math.sin(now * 0.004 + b.phase) * 2, 0, Math.PI * 2);
-  ctx.stroke();
+  if (decor.type === 'bush') {
+    ctx.fillStyle = 'rgba(82,255,229,0.08)';
+    ctx.beginPath();
+    ctx.arc(0, 0, decor.size * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#123822';
+    ctx.beginPath();
+    ctx.arc(0, 0, decor.size * 0.48, 0, Math.PI * 2);
+    ctx.arc(-decor.size * 0.24, decor.size * 0.1, decor.size * 0.34, 0, Math.PI * 2);
+    ctx.arc(decor.size * 0.25, decor.size * 0.1, decor.size * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (decor.type === 'stand') {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    rr(ctx, -70, -31, 140, 62, 12);
+    ctx.fill();
+
+    ctx.fillStyle = '#172033';
+    rr(ctx, -64, -28, 128, 56, 10);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(82,255,229,0.22)';
+    ctx.lineWidth = 2;
+    rr(ctx, -64, -28, 128, 56, 10);
+    ctx.stroke();
+
+    for (let r = 0; r < 3; r += 1) {
+      for (let i = 0; i < 12; i += 1) {
+        const hue = (i * 35 + r * 80 + now * 0.02) % 360;
+        ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.75)`;
+        ctx.fillRect(-52 + i * 9, -17 + r * 13 + Math.sin(now / 150 + i) * 2, 5, 5);
+      }
+    }
+  }
+
+  if (decor.type === 'light') {
+    const col = decor.detail > 0.45 ? COLORS.cyan : COLORS.gold;
+
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 78);
+    g.addColorStop(0, decor.detail > 0.45 ? 'rgba(82,255,229,0.20)' : 'rgba(242,199,102,0.16)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, 78, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -44);
+    ctx.stroke();
+
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(0, -46, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (decor.type === 'ads') {
+    ctx.fillStyle = '#090d18';
+    rr(ctx, -48, -12, 96, 24, 6);
+    ctx.fill();
+
+    ctx.strokeStyle = decor.detail > 0.5 ? COLORS.cyan : COLORS.purple;
+    ctx.lineWidth = 2;
+    rr(ctx, -48, -12, 96, 24, 6);
+    ctx.stroke();
+
+    ctx.fillStyle = decor.detail > 0.5 ? COLORS.cyan : COLORS.gold;
+    ctx.font = '900 10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(decor.detail > 0.5 ? 'TWIN RACE' : 'NEON CUP', 0, 4);
+  }
+
+  if (decor.type === 'tent') {
+    const col = decor.detail > 0.5 ? COLORS.purple : COLORS.gold;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(3, 14, 34, 11, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = decor.detail > 0.5 ? '#261b42' : '#3b2a12';
+    ctx.beginPath();
+    ctx.moveTo(-28, 22);
+    ctx.lineTo(0, -24);
+    ctx.lineTo(28, 22);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  if (decor.type === 'bench') {
+    ctx.fillStyle = '#273244';
+    rr(ctx, -18, -7, 36, 14, 4);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-15, 0);
+    ctx.lineTo(15, 0);
+    ctx.stroke();
+  }
+
+  if (decor.type === 'yacht') {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(0, 14, decor.size * 0.85, decor.size * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.beginPath();
+    ctx.moveTo(-decor.size, 0);
+    ctx.lineTo(decor.size * 0.78, -decor.size * 0.32);
+    ctx.lineTo(decor.size, 0);
+    ctx.lineTo(decor.size * 0.78, decor.size * 0.32);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#1d8fd0';
+    rr(ctx, decor.size * 0.12, -decor.size * 0.14, decor.size * 0.42, decor.size * 0.28, 5);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(82,255,229,0.18)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-decor.size * 0.8, decor.size * 0.45);
+    ctx.lineTo(decor.size * 0.9, decor.size * 0.45);
+    ctx.stroke();
+  }
+
+  if (decor.type === 'tires') {
+    for (let i = 0; i < 4; i += 1) {
+      ctx.fillStyle = i % 2 === 0 ? '#070a12' : '#141a26';
+      ctx.beginPath();
+      ctx.arc((i - 1.5) * decor.size * 0.36, 0, decor.size * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  if (decor.type === 'cone') {
+    ctx.fillStyle = 'rgba(242,199,102,0.10)';
+    ctx.beginPath();
+    ctx.arc(0, 0, decor.size * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.gold;
+    ctx.beginPath();
+    ctx.arc(0, 0, decor.size * 0.48, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.bg;
+    ctx.beginPath();
+    ctx.arc(0, 0, decor.size * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (decor.type === 'gate') {
+    ctx.strokeStyle = decor.detail > 0.5 ? 'rgba(82,255,229,0.45)' : 'rgba(157,124,255,0.42)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-decor.size * 0.55, -28);
+    ctx.lineTo(-decor.size * 0.55, 28);
+    ctx.moveTo(decor.size * 0.55, -28);
+    ctx.lineTo(decor.size * 0.55, 28);
+    ctx.stroke();
+
+    ctx.fillStyle = decor.detail > 0.5 ? COLORS.cyan : COLORS.purple;
+    ctx.beginPath();
+    ctx.arc(-decor.size * 0.55, -30, 5, 0, Math.PI * 2);
+    ctx.arc(decor.size * 0.55, -30, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
 }
 
 function drawParticles(ctx: CanvasRenderingContext2D, list: Particle[], dt: number) {
@@ -709,26 +917,32 @@ function drawParticles(ctx: CanvasRenderingContext2D, list: Particle[], dt: numb
     const k = clamp(p.life / p.max, 0, 1);
 
     if (p.kind === 'smoke') {
-      ctx.fillStyle = `rgba(130,160,175,${0.09 * k})`;
+      ctx.fillStyle = `rgba(170,190,205,${0.12 * k})`;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * (1.7 - k * 0.45), 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, p.size * (1.7 - k * 0.42), 0, Math.PI * 2);
       ctx.fill();
-    } else if (p.kind === 'spark') {
-      ctx.strokeStyle = `rgba(242,199,102,${0.78 * k})`;
+    }
+
+    if (p.kind === 'spark') {
+      ctx.strokeStyle = `rgba(242,199,102,${0.85 * k})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(p.x - p.vx * 0.045, p.y - p.vy * 0.045);
       ctx.stroke();
-    } else if (p.kind === 'glow') {
-      ctx.fillStyle = `rgba(82,255,229,${0.12 * k})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * (1.3 + (1 - k) * 1.2), 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = `rgba(90,96,130,${0.16 * k})`;
+    }
+
+    if (p.kind === 'dust') {
+      ctx.fillStyle = `rgba(90,100,130,${0.18 * k})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (p.kind === 'glow') {
+      ctx.fillStyle = `rgba(82,255,229,${0.12 * k})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * (1.2 + (1 - k)), 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -742,49 +956,85 @@ function drawParticles(ctx: CanvasRenderingContext2D, list: Particle[], dt: numb
   }
 }
 
+function spawnParticle(
+  list: Particle[],
+  x: number,
+  y: number,
+  kind: ParticleKind,
+  count: number,
+  angle: number,
+  power: number,
+) {
+  if (list.length > 180) list.splice(0, list.length - 150);
+
+  for (let i = 0; i < count; i += 1) {
+    const a = angle + Math.PI + (Math.random() - 0.5) * 1.8;
+    const sp = (20 + Math.random() * 90) * power;
+    const max =
+      kind === 'spark'
+        ? 0.18 + Math.random() * 0.16
+        : kind === 'glow'
+          ? 0.25 + Math.random() * 0.25
+          : 0.44 + Math.random() * 0.5;
+
+    list.push({
+      x: x + (Math.random() - 0.5) * 12,
+      y: y + (Math.random() - 0.5) * 10,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: max,
+      max,
+      size: 2 + Math.random() * (kind === 'smoke' ? 8 : 4),
+      kind,
+    });
+  }
+}
+
 function drawSkids(ctx: CanvasRenderingContext2D, list: Skid[], dt: number) {
   ctx.lineCap = 'round';
 
   for (let i = list.length - 1; i >= 0; i -= 1) {
-    const m = list[i];
+    const skid = list[i];
 
-    ctx.strokeStyle = `rgba(0,0,0,${0.27 * m.life})`;
-    ctx.lineWidth = m.w;
+    ctx.strokeStyle = `rgba(0,0,0,${0.28 * skid.life})`;
+    ctx.lineWidth = skid.width;
 
     ctx.beginPath();
-    ctx.moveTo(m.x1, m.y1);
-    ctx.lineTo(m.x2, m.y2);
+    ctx.moveTo(skid.x1, skid.y1);
+    ctx.lineTo(skid.x2, skid.y2);
     ctx.stroke();
 
-    m.life -= 0.16 * dt;
+    skid.life -= dt * 0.18;
 
-    if (m.life <= 0) list.splice(i, 1);
+    if (skid.life <= 0) list.splice(i, 1);
   }
 
-  if (list.length > 250) list.splice(0, list.length - 250);
+  if (list.length > 280) list.splice(0, list.length - 280);
 }
 
-function drawTrail(ctx: CanvasRenderingContext2D, trail: Trail[], dt: number) {
-  for (let i = trail.length - 1; i >= 0; i -= 1) {
-    const t = trail[i];
+function drawTrail(ctx: CanvasRenderingContext2D, list: Trail[], dt: number) {
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const tr = list[i];
 
     ctx.save();
-    ctx.globalAlpha = t.life * (0.18 + t.drift * 0.24);
-    ctx.translate(t.x, t.y);
-    ctx.rotate(t.angle);
+    ctx.translate(tr.x, tr.y);
+    ctx.rotate(tr.angle);
 
-    ctx.fillStyle = t.drift > 0.55 ? 'rgba(82,255,229,0.22)' : 'rgba(157,124,255,0.14)';
+    ctx.globalAlpha = tr.life * (0.14 + tr.drift * 0.22);
+    ctx.fillStyle = tr.drift > 0.55 ? 'rgba(82,255,229,0.24)' : 'rgba(157,124,255,0.16)';
+
     ctx.beginPath();
-    ctx.ellipse(-9, 0, 34, 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(-10, 0, 36, 15, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
 
-    t.life -= dt * 2.2;
-    if (t.life <= 0) trail.splice(i, 1);
+    tr.life -= dt * 2.25;
+
+    if (tr.life <= 0) list.splice(i, 1);
   }
 
-  if (trail.length > 18) trail.splice(0, trail.length - 18);
+  if (list.length > 20) list.splice(0, list.length - 20);
 }
 
 function drawCar(
@@ -794,85 +1044,81 @@ function drawCar(
   angle: number,
   opt: {
     ghost?: boolean;
-    steer?: number;
-    brake?: number;
     drift?: number;
-    speed?: number;
+    brake?: number;
   },
 ) {
-  const ghost = !!opt.ghost;
+  const ghost = Boolean(opt.ghost);
   const drift = opt.drift || 0;
-  const accent = ghost ? C.purple : C.neon;
+  const accent = ghost ? COLORS.purple : COLORS.cyan;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
 
-  if (ghost) ctx.globalAlpha = 0.4;
+  if (ghost) ctx.globalAlpha = 0.42;
 
-  const underGlow = ghost ? 0.12 : 0.12 + drift * 0.3;
-  ctx.fillStyle = ghost ? `rgba(157,124,255,${underGlow})` : `rgba(82,255,229,${underGlow})`;
+  ctx.fillStyle = ghost
+    ? `rgba(157,124,255,${0.1 + drift * 0.18})`
+    : `rgba(82,255,229,${0.12 + drift * 0.28})`;
   ctx.beginPath();
-  ctx.ellipse(-3, 0, 40 + drift * 8, 22 + drift * 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(-4, 0, 42 + drift * 8, 22 + drift * 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const wheel = (wx: number, wy: number, front: boolean) => {
-    ctx.save();
-    ctx.translate(wx, wy);
-    if (front && opt.steer) ctx.rotate(opt.steer * 0.42);
+  const wheel = (wx: number, wy: number) => {
     ctx.fillStyle = '#050811';
-    rr(ctx, -7, -5.5, 14, 11, 3.5);
+    rr(ctx, wx - 7, wy - 5, 14, 10, 3);
     ctx.fill();
-    ctx.restore();
   };
 
-  wheel(-15, -12.5, false);
-  wheel(-15, 12.5, false);
-  wheel(17, -12.5, true);
-  wheel(17, 12.5, true);
+  wheel(-15, -13);
+  wheel(-15, 13);
+  wheel(17, -13);
+  wheel(17, 13);
 
   ctx.fillStyle = ghost ? '#17112e' : '#090d1a';
-  rr(ctx, -27, -13.5, 56, 27, 10);
+  rr(ctx, -28, -14, 58, 28, 10);
   ctx.fill();
 
-  const sideGlow = ctx.createLinearGradient(-25, -13, 28, 13);
-  sideGlow.addColorStop(0, ghost ? 'rgba(157,124,255,0.18)' : 'rgba(82,255,229,0.18)');
-  sideGlow.addColorStop(0.5, 'rgba(255,255,255,0.035)');
-  sideGlow.addColorStop(1, ghost ? 'rgba(157,124,255,0.38)' : 'rgba(82,255,229,0.36)');
-  ctx.fillStyle = sideGlow;
-  rr(ctx, -25, -11.5, 52, 23, 8.5);
+  const body = ctx.createLinearGradient(-28, -14, 30, 14);
+  body.addColorStop(0, ghost ? 'rgba(157,124,255,0.20)' : 'rgba(82,255,229,0.20)');
+  body.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+  body.addColorStop(1, ghost ? 'rgba(157,124,255,0.42)' : 'rgba(82,255,229,0.40)');
+
+  ctx.fillStyle = body;
+  rr(ctx, -25, -12, 53, 24, 9);
   ctx.fill();
 
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.6;
-  rr(ctx, -27, -13.5, 56, 27, 10);
+  ctx.lineWidth = 1.7;
+  rr(ctx, -28, -14, 58, 28, 10);
   ctx.stroke();
 
-  ctx.fillStyle = ghost ? 'rgba(157,124,255,0.35)' : 'rgba(82,255,229,0.28)';
-  rr(ctx, -4, -8, 16, 16, 5);
+  ctx.fillStyle = ghost ? 'rgba(157,124,255,0.35)' : 'rgba(82,255,229,0.30)';
+  rr(ctx, -3, -8, 16, 16, 5);
   ctx.fill();
 
   ctx.fillStyle = accent;
-  ctx.fillRect(20, -10, 3.5, 20);
+  ctx.fillRect(21, -10, 3.5, 20);
 
   if (!ghost) {
     ctx.fillStyle = '#eafffb';
-    ctx.fillRect(27, -9, 3.5, 5);
-    ctx.fillRect(27, 4, 3.5, 5);
+    ctx.fillRect(27, -9, 4, 5);
+    ctx.fillRect(27, 4, 4, 5);
 
     const braking = (opt.brake || 0) > 0.05;
-    ctx.fillStyle = braking ? C.red : 'rgba(242,199,102,0.56)';
-    ctx.fillRect(-29, -9, 3.5, 5);
-    ctx.fillRect(-29, 4, 3.5, 5);
+    ctx.fillStyle = braking ? COLORS.red : 'rgba(242,199,102,0.56)';
+    ctx.fillRect(-30, -9, 4, 5);
+    ctx.fillRect(-30, 4, 4, 5);
 
     if (drift > 0.5) {
-      ctx.strokeStyle = `rgba(82,255,229,${0.18 + drift * 0.18})`;
+      ctx.strokeStyle = `rgba(82,255,229,${0.14 + drift * 0.22})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(-31, -12);
-      ctx.lineTo(-44 - drift * 12, -17);
+      ctx.lineTo(-45 - drift * 14, -17);
       ctx.moveTo(-31, 12);
-      ctx.lineTo(-44 - drift * 12, 17);
+      ctx.lineTo(-45 - drift * 14, 17);
       ctx.stroke();
     }
   }
@@ -880,23 +1126,29 @@ function drawCar(
   ctx.restore();
 }
 
-/* ====================== GHOST INTERPOLATION ============================== */
-
 class GhostBuffer {
   private buf: NetSnapshot[] = [];
   private offset = 0;
   private delay = 100;
 
-  push(s: NetSnapshot) {
+  push(snapshot: NetSnapshot) {
     const localNow = performance.now();
-    if (this.buf.length === 0) this.offset = localNow - s.t;
 
-    this.buf.push(s);
-    if (this.buf.length > 40) this.buf.shift();
+    if (this.buf.length === 0) {
+      this.offset = localNow - snapshot.t;
+    }
+
+    this.buf.push(snapshot);
+
+    if (this.buf.length > 40) {
+      this.buf.shift();
+    }
   }
 
   sample(localNow: number): { x: number; y: number; angle: number; drift: number } | null {
-    if (this.buf.length < 2) return this.buf[0] ? { ...this.buf[0] } : null;
+    if (this.buf.length < 2) {
+      return this.buf[0] ? { ...this.buf[0] } : null;
+    }
 
     const renderT = localNow - this.offset - this.delay;
 
@@ -929,10 +1181,8 @@ class GhostBuffer {
   }
 }
 
-/* ================================== UI =================================== */
-
 function fmtTime(ms: number) {
-  if (ms <= 0 || !isFinite(ms)) return '--:--';
+  if (ms <= 0 || !Number.isFinite(ms)) return '--:--';
 
   const m = Math.floor(ms / 60000);
   const s = Math.floor((ms % 60000) / 1000);
@@ -941,24 +1191,210 @@ function fmtTime(ms: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
 }
 
-const STICK_R = 54;
-const STICK_ZONE = 154;
+function stepCar(
+  car: CarState,
+  input: InputState,
+  center: CenterPt[],
+  total: number,
+): {
+  speed: number;
+  drift: number;
+  surface: Surface;
+  hardHit: boolean;
+  crossedFinish: boolean;
+} {
+  const beforeHit = queryTrack(center, total, car.x, car.y);
+  const surface = beforeHit.surface;
+
+  const prevProgress = car.progress;
+
+  if (input.active) {
+    const stickAngle = Math.atan2(input.aimY, input.aimX);
+    const diff = angleDiff(stickAngle, car.angle);
+    const absDiff = Math.abs(diff);
+
+    const turnPenalty = clamp(1 - absDiff * (1 - PHYSICS.turnResistance), 0.76, 1);
+    car.speed *= Math.pow(turnPenalty, STEP * 60);
+
+    if (absDiff < Math.PI / 1.45) {
+      const push = PHYSICS.accel * (1 - absDiff * 0.18);
+      car.speed += push * STEP;
+    } else {
+      car.speed *= Math.pow(0.945, STEP * 60);
+    }
+
+    if (input.drift) {
+      car.speed *= Math.pow(0.965, STEP * 60);
+    }
+
+    car.speed -= input.brake * PHYSICS.brakePower * STEP;
+
+    const speedAuthority = Math.min(Math.abs(car.speed) / 155, 1);
+    const turnBoost = input.drift ? 1.22 : 1;
+
+    car.angle += diff * PHYSICS.turnSpeed * speedAuthority * turnBoost * STEP * 60;
+  } else {
+    car.speed += PHYSICS.idleAccel * STEP * 0.3;
+  }
+
+  if (surface === 'curb') {
+    car.speed *= Math.pow(PHYSICS.curbDrag, STEP * 60);
+  }
+
+  if (surface === 'off') {
+    car.speed *= Math.pow(PHYSICS.offroadDrag, STEP * 60);
+  }
+
+  car.speed *= Math.pow(PHYSICS.friction, STEP * 60);
+  car.speed = clamp(car.speed, 0, PHYSICS.maxSpeed);
+
+  const targetVX = Math.cos(car.angle) * car.speed;
+  const targetVY = Math.sin(car.angle) * car.speed;
+
+  const turnLoad = input.active ? Math.abs(angleDiff(Math.atan2(input.aimY, input.aimX), car.angle)) : 0;
+  const driftFactor = input.drift || turnLoad > 0.55 ? PHYSICS.driftFactorHard : PHYSICS.driftFactor;
+  const factor = Math.pow(driftFactor, STEP * 60);
+
+  car.vx = car.vx * factor + targetVX * (1 - factor);
+  car.vy = car.vy * factor + targetVY * (1 - factor);
+
+  let nx = car.x + car.vx * STEP;
+  let ny = car.y + car.vy * STEP;
+
+  let hardHit = false;
+  const nextHit = queryTrack(center, total, nx, ny);
+
+  if (nextHit.d > WALL) {
+    const pen = nextHit.d - WALL;
+
+    nx -= nextHit.nx * pen;
+    ny -= nextHit.ny * pen;
+
+    car.vx *= PHYSICS.wallFriction;
+    car.vy *= PHYSICS.wallFriction;
+    car.speed *= PHYSICS.wallFriction;
+
+    if (Math.hypot(car.vx, car.vy) > 120) {
+      hardHit = true;
+    }
+  }
+
+  car.x = nx;
+  car.y = ny;
+
+  const speed = Math.hypot(car.vx, car.vy);
+  const moveAngle = speed > 8 ? Math.atan2(car.vy, car.vx) : car.angle;
+  const slip = speed > 35 ? Math.abs(angleDiff(moveAngle, car.angle)) : 0;
+
+  const driftVisual = clamp(slip / 0.65 + (input.drift ? 0.22 : 0), 0, 1);
+  car.driftPower = lerp(car.driftPower, driftVisual * smooth(60, 230, speed), 0.18);
+
+  const afterHit = queryTrack(center, total, car.x, car.y);
+  car.progress = afterHit.progress;
+
+  let crossedFinish = false;
+
+  if (car.progress > 0.45 && car.progress < 0.75) {
+    car.armed = true;
+  }
+
+  if (car.armed && prevProgress > 0.9 && car.progress < 0.1) {
+    car.armed = false;
+    car.lap = Math.min(car.lap + 1, TOTAL_LAPS);
+    crossedFinish = true;
+  }
+
+  return {
+    speed,
+    drift: car.driftPower,
+    surface,
+    hardHit,
+    crossedFinish,
+  };
+}
+
+function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, ghost: GhostBuffer) {
+  const size = 78;
+  const x = width - size - 12;
+  const y = 64;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const p of center) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  const pad = 12;
+  const scale = Math.min((size - pad * 2) / (maxX - minX), (size - pad * 2) / (maxY - minY));
+
+  const ox = x + size / 2 - ((minX + maxX) / 2) * scale;
+  const oy = y + size / 2 - ((minY + maxY) / 2) * scale;
+
+  const mx = (wx: number) => ox + wx * scale;
+  const my = (wy: number) => oy + wy * scale;
+
+  ctx.save();
+
+  ctx.fillStyle = 'rgba(5,6,16,0.58)';
+  rr(ctx, x, y, size, size, 18);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(82,255,229,0.52)';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  center.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(mx(p.x), my(p.y));
+    else ctx.lineTo(mx(p.x), my(p.y));
+  });
+
+  ctx.closePath();
+  ctx.stroke();
+
+  if (ghost.active) {
+    const g = ghost.sample(performance.now());
+
+    if (g) {
+      ctx.fillStyle = COLORS.purple;
+      ctx.beginPath();
+      ctx.arc(mx(g.x), my(g.y), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.fillStyle = COLORS.gold;
+  ctx.beginPath();
+  ctx.arc(mx(car.x), my(car.y), 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
 
 export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
   ({ onSnapshot, selfGhost = true, topOffset = 120 }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
     const knobRef = useRef<HTMLDivElement>(null);
+
     const raf = useRef<number | null>(null);
 
-    const track = useMemo(() => buildCenterline(), []);
-    const center = track.pts;
-    const total = track.length;
-
-    const beacons = useMemo(() => buildBeacons(center), [center]);
+    const { center, total } = useMemo(() => buildTrack(), []);
+    const decor = useMemo(() => buildDecor(center, total), [center, total]);
 
     const startPose = useMemo(() => {
       const p = center[0];
+
       return {
         x: p.x,
         y: p.y,
@@ -971,9 +1407,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         x: startPose.x,
         y: startPose.y,
         angle: startPose.angle,
+        speed: 0,
         vx: 0,
         vy: 0,
-        steer: 0,
         driftPower: 0,
         progress: 0,
         lap: 1,
@@ -983,11 +1419,22 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     );
 
     const car = useRef<CarState>(makeCar());
+
     const input = useRef<InputState>({
-      throttle: 0,
+      active: false,
+      aimX: 1,
+      aimY: 0,
       brake: 0,
-      steer: 0,
       drift: false,
+    });
+
+    const joystick = useRef({
+      active: false,
+      id: -1,
+      inputX: 0,
+      inputY: 0,
+      visualX: 0,
+      visualY: 0,
     });
 
     const keys = useRef({
@@ -998,53 +1445,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       drift: false,
     });
 
-    const stick = useRef({
-      active: false,
-      id: -1,
-      ix: 0,
-      iy: 0,
-      power: 0,
-    });
-
-    const startedRef = useRef(false);
-
     const particles = useRef<Particle[]>([]);
     const skids = useRef<Skid[]>([]);
-    const popups = useRef<Popup[]>([]);
     const trail = useRef<Trail[]>([]);
+    const popups = useRef<Popup[]>([]);
 
-    const cam = useRef({
-      x: startPose.x,
-      y: startPose.y,
-      zoom: 1,
-      sx: 0,
-      sy: 0,
-      shake: 0,
-    });
-
-    const vp = useRef({
-      w: 0,
-      h: 0,
-      dpr: 1,
-    });
-
-    const acc = useRef(0);
-    const lastT = useRef(0);
-    const netT = useRef(0);
-    const hudT = useRef(0);
-    const trailT = useRef(0);
-
-    const lapStart = useRef(performance.now());
-    const bestLap = useRef<number>(Infinity);
-
-    const combo = useRef({
-      score: 0,
-      ms: 0,
-      idle: 0,
-      banked: 0,
-    });
-
-    const ghostBuf = useRef(new GhostBuffer());
+    const ghost = useRef(new GhostBuffer());
 
     const selfRec = useRef<
       {
@@ -1058,6 +1464,42 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
     const bestRec = useRef<typeof selfRec.current | null>(null);
 
+    const camera = useRef({
+      x: startPose.x,
+      y: startPose.y,
+      zoom: 1,
+      shake: 0,
+      sx: 0,
+      sy: 0,
+    });
+
+    const viewport = useRef({
+      w: 1,
+      h: 1,
+      dpr: 1,
+    });
+
+    const timing = useRef({
+      lapStart: performance.now(),
+      best: Infinity,
+    });
+
+    const combo = useRef({
+      score: 0,
+      ms: 0,
+      idle: 0,
+      banked: 0,
+    });
+
+    const lastT = useRef(0);
+    const acc = useRef(0);
+    const hudT = useRef(0);
+    const netT = useRef(0);
+    const trailT = useRef(0);
+    const startedRef = useRef(false);
+
+    const [started, setStarted] = useState(false);
+    const [stickActive, setStickActive] = useState(false);
     const [hud, setHud] = useState({
       speed: 0,
       lap: 1,
@@ -1068,23 +1510,18 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       best: Infinity,
     });
 
-    const [started, setStarted] = useState(false);
-    const [stickActive, setStickActive] = useState(false);
-
     const doReset = useCallback(() => {
       car.current = makeCar();
+
       particles.current = [];
       skids.current = [];
-      popups.current = [];
       trail.current = [];
+      popups.current = [];
+      selfRec.current = [];
 
-      cam.current = {
-        x: startPose.x,
-        y: startPose.y,
-        zoom: 1,
-        sx: 0,
-        sy: 0,
-        shake: 0,
+      timing.current = {
+        lapStart: performance.now(),
+        best: timing.current.best,
       };
 
       combo.current = {
@@ -1094,18 +1531,34 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         banked: 0,
       };
 
-      selfRec.current = [];
-      lapStart.current = performance.now();
+      camera.current = {
+        x: startPose.x,
+        y: startPose.y,
+        zoom: 1,
+        shake: 0,
+        sx: 0,
+        sy: 0,
+      };
+
       startedRef.current = false;
       setStarted(false);
       setStickActive(false);
 
-      stick.current = {
+      joystick.current = {
         active: false,
         id: -1,
-        ix: 0,
-        iy: 0,
-        power: 0,
+        inputX: 0,
+        inputY: 0,
+        visualX: 0,
+        visualY: 0,
+      };
+
+      input.current = {
+        active: false,
+        aimX: 1,
+        aimY: 0,
+        brake: 0,
+        drift: false,
       };
 
       if (knobRef.current) {
@@ -1114,39 +1567,39 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     }, [makeCar, startPose]);
 
     useImperativeHandle(ref, () => ({
-      pushRemoteSnapshot: (s: NetSnapshot) => ghostBuf.current.push(s),
+      pushRemoteSnapshot: (snap: NetSnapshot) => ghost.current.push(snap),
       reset: () => doReset(),
     }));
 
     useEffect(() => {
-      const cv = canvasRef.current;
-      const wr = wrapRef.current;
+      const canvas = canvasRef.current;
+      const wrap = wrapRef.current;
 
-      if (!cv || !wr) return;
+      if (!canvas || !wrap) return;
 
-      const apply = () => {
+      const resize = () => {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = Math.max(1, wr.clientWidth);
-        const h = Math.max(1, wr.clientHeight);
+        const w = Math.max(1, wrap.clientWidth);
+        const h = Math.max(1, wrap.clientHeight);
 
-        vp.current = { w, h, dpr };
+        viewport.current = { w, h, dpr };
 
-        cv.width = Math.floor(w * dpr);
-        cv.height = Math.floor(h * dpr);
-        cv.style.width = `${w}px`;
-        cv.style.height = `${h}px`;
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
       };
 
-      apply();
+      resize();
 
-      const ro = new ResizeObserver(apply);
-      ro.observe(wr);
+      const ro = new ResizeObserver(resize);
+      ro.observe(wrap);
 
-      window.addEventListener('resize', apply);
+      window.addEventListener('resize', resize);
 
       return () => {
         ro.disconnect();
-        window.removeEventListener('resize', apply);
+        window.removeEventListener('resize', resize);
       };
     }, []);
 
@@ -1179,8 +1632,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overscrollBehavior = 'none';
 
-      const block = (e: TouchEvent) => {
-        if (e.cancelable) e.preventDefault();
+      const block = (event: TouchEvent) => {
+        if (event.cancelable) event.preventDefault();
       };
 
       wrap?.addEventListener('touchmove', block, { passive: false });
@@ -1193,42 +1646,42 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     }, []);
 
     useEffect(() => {
-      const down = (e: KeyboardEvent) => {
-        const k = e.key.toLowerCase();
+      const down = (event: KeyboardEvent) => {
+        const key = event.key.toLowerCase();
 
-        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'r'].includes(k)) {
-          e.preventDefault();
+        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd', 'r'].includes(key)) {
+          event.preventDefault();
         }
 
-        if (k === 'arrowup' || k === 'w') keys.current.up = true;
-        if (k === 'arrowdown' || k === 's') keys.current.down = true;
-        if (k === 'arrowleft' || k === 'a') keys.current.left = true;
-        if (k === 'arrowright' || k === 'd') keys.current.right = true;
-        if (k === ' ') keys.current.drift = true;
-        if (k === 'r') doReset();
+        if (key === 'arrowup' || key === 'w') keys.current.up = true;
+        if (key === 'arrowdown' || key === 's') keys.current.down = true;
+        if (key === 'arrowleft' || key === 'a') keys.current.left = true;
+        if (key === 'arrowright' || key === 'd') keys.current.right = true;
+        if (key === ' ') keys.current.drift = true;
+        if (key === 'r') doReset();
 
         if (
           !startedRef.current &&
-          (k === 'arrowup' ||
-            k === 'w' ||
-            k === 'arrowleft' ||
-            k === 'arrowright' ||
-            k === 'a' ||
-            k === 'd')
+          (key === 'arrowup' ||
+            key === 'w' ||
+            key === 'arrowleft' ||
+            key === 'arrowright' ||
+            key === 'a' ||
+            key === 'd')
         ) {
           startedRef.current = true;
           setStarted(true);
         }
       };
 
-      const up = (e: KeyboardEvent) => {
-        const k = e.key.toLowerCase();
+      const up = (event: KeyboardEvent) => {
+        const key = event.key.toLowerCase();
 
-        if (k === 'arrowup' || k === 'w') keys.current.up = false;
-        if (k === 'arrowdown' || k === 's') keys.current.down = false;
-        if (k === 'arrowleft' || k === 'a') keys.current.left = false;
-        if (k === 'arrowright' || k === 'd') keys.current.right = false;
-        if (k === ' ') keys.current.drift = false;
+        if (key === 'arrowup' || key === 'w') keys.current.up = false;
+        if (key === 'arrowdown' || key === 's') keys.current.down = false;
+        if (key === 'arrowleft' || key === 'a') keys.current.left = false;
+        if (key === 'arrowright' || key === 'd') keys.current.right = false;
+        if (key === ' ') keys.current.drift = false;
       };
 
       window.addEventListener('keydown', down, { passive: false });
@@ -1241,49 +1694,53 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     }, [doReset]);
 
     useEffect(() => {
-      const cv = canvasRef.current;
+      const canvas = canvasRef.current;
 
-      if (!cv) return;
+      if (!canvas) return;
 
-      const ctx = cv.getContext('2d', { alpha: false });
+      const ctx = canvas.getContext('2d', { alpha: false });
 
       if (!ctx) return;
 
       const loop = (now: number) => {
-        const v = vp.current;
+        const v = viewport.current;
         const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 50);
-
         lastT.current = now;
 
-        const i = input.current;
-        const st = stick.current;
+        const joy = joystick.current;
         const k = keys.current;
+        const inp = input.current;
 
-        const anyKey = k.up || k.down || k.left || k.right || k.drift;
+        const hasKeyboard = k.up || k.down || k.left || k.right || k.drift;
 
-        if (anyKey) {
+        if (hasKeyboard) {
           if (!startedRef.current) {
             startedRef.current = true;
             setStarted(true);
           }
 
-          i.throttle = k.up || (!k.down && startedRef.current) ? 1 : 0;
-          i.steer = (k.right ? 1 : 0) - (k.left ? 1 : 0);
-          i.brake = k.down ? 0.65 : 0;
-          i.drift = k.drift || k.down;
-        } else if (st.active && st.power > 0.05) {
-          i.steer = clamp(st.ix * 1.35, -1, 1);
+          const baseAngle = car.current.angle;
+          const steer = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+          const forward = k.up || (!k.down && startedRef.current);
+          const back = k.down;
 
-          const pullDown = clamp((st.iy - 0.35) / 0.65, 0, 1);
-
-          i.throttle = 1;
-          i.brake = pullDown * 0.55;
-          i.drift = pullDown > 0.18;
+          inp.active = forward || Math.abs(steer) > 0 || back;
+          inp.aimX = Math.cos(baseAngle + steer * 1.25 + (back ? Math.PI : 0));
+          inp.aimY = Math.sin(baseAngle + steer * 1.25 + (back ? Math.PI : 0));
+          inp.brake = back ? 0.8 : 0;
+          inp.drift = k.drift || back;
+        } else if (joy.active) {
+          inp.active = true;
+          inp.aimX = joy.inputX;
+          inp.aimY = joy.inputY;
+          inp.brake = joy.inputY > 0.55 ? clamp((joy.inputY - 0.55) / 0.45, 0, 1) * 0.6 : 0;
+          inp.drift = joy.inputY > 0.42;
         } else {
-          i.throttle = startedRef.current ? 1 : 0;
-          i.steer = 0;
-          i.brake = 0;
-          i.drift = false;
+          inp.active = false;
+          inp.aimX = Math.cos(car.current.angle);
+          inp.aimY = Math.sin(car.current.angle);
+          inp.brake = 0;
+          inp.drift = false;
         }
 
         acc.current += frameMs / 1000;
@@ -1291,51 +1748,51 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         let guard = 0;
 
         while (acc.current >= STEP && guard < 5) {
-          const res = stepCar(car.current, i, center, total);
+          const result = stepCar(car.current, inp, center, total);
+          const c = car.current;
 
           acc.current -= STEP;
           guard += 1;
 
-          const c = car.current;
-
-          if (res.speed > 70 && c.driftPower > 0.18) {
+          if (result.speed > 70 && c.driftPower > 0.16) {
             const rx = -Math.sin(c.angle);
             const ry = Math.cos(c.angle);
-            const bx = c.x - Math.cos(c.angle) * 22;
-            const by = c.y - Math.sin(c.angle) * 22;
 
-            if (c.driftPower > 0.28) {
+            const backX = c.x - Math.cos(c.angle) * 21;
+            const backY = c.y - Math.sin(c.angle) * 21;
+
+            if (c.driftPower > 0.22) {
               skids.current.push(
                 {
-                  x1: bx - rx * 10,
-                  y1: by - ry * 10,
-                  x2: bx - rx * 10 - c.vx * 0.028,
-                  y2: by - ry * 10 - c.vy * 0.028,
-                  life: 0.95,
-                  w: 4.5 + c.driftPower * 1.8,
+                  x1: backX - rx * 10,
+                  y1: backY - ry * 10,
+                  x2: backX - rx * 10 - c.vx * 0.028,
+                  y2: backY - ry * 10 - c.vy * 0.028,
+                  life: 0.98,
+                  width: 4 + c.driftPower * 2,
                 },
                 {
-                  x1: bx + rx * 10,
-                  y1: by + ry * 10,
-                  x2: bx + rx * 10 - c.vx * 0.028,
-                  y2: by + ry * 10 - c.vy * 0.028,
-                  life: 0.95,
-                  w: 4.5 + c.driftPower * 1.8,
+                  x1: backX + rx * 10,
+                  y1: backY + ry * 10,
+                  x2: backX + rx * 10 - c.vx * 0.028,
+                  y2: backY + ry * 10 - c.vy * 0.028,
+                  life: 0.98,
+                  width: 4 + c.driftPower * 2,
                 },
               );
             }
 
-            if (Math.random() > 0.58) {
-              spawn(particles.current, bx, by, 'smoke', 1, c.angle, 0.45 + c.driftPower * 0.7);
+            if (Math.random() > 0.52) {
+              spawnParticle(particles.current, backX, backY, 'smoke', 1, c.angle, 0.45 + c.driftPower * 0.85);
             }
 
-            if (Math.random() > 0.82) {
-              spawn(particles.current, bx, by, 'glow', 1, c.angle, 0.5);
+            if (Math.random() > 0.84) {
+              spawnParticle(particles.current, backX, backY, 'glow', 1, c.angle, 0.5);
             }
           }
 
-          if (res.surface === 'off' && res.speed > 70 && Math.random() > 0.62) {
-            spawn(
+          if (result.surface === 'off' && result.speed > 80 && Math.random() > 0.64) {
+            spawnParticle(
               particles.current,
               c.x - Math.cos(c.angle) * 18,
               c.y - Math.sin(c.angle) * 18,
@@ -1346,17 +1803,17 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
             );
           }
 
-          if (res.hardHit) {
-            cam.current.shake = Math.max(cam.current.shake, 0.72);
-            spawn(particles.current, c.x, c.y, 'spark', 4, c.angle, 1.15);
+          if (result.hardHit) {
+            camera.current.shake = Math.max(camera.current.shake, 0.78);
+            spawnParticle(particles.current, c.x, c.y, 'spark', 5, c.angle, 1.2);
             combo.current.score = 0;
           }
 
           const cm = combo.current;
 
-          if (c.driftPower > 0.34 && res.speed > 105) {
+          if (c.driftPower > 0.32 && result.speed > 115) {
             cm.ms += STEP * 1000;
-            cm.score += res.speed * c.driftPower * STEP * 0.65;
+            cm.score += result.speed * c.driftPower * STEP * 0.68;
             cm.idle = 0;
           } else {
             cm.idle += STEP * 1000;
@@ -1369,8 +1826,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
               popups.current.push({
                 x: c.x,
-                y: c.y - 32,
-                life: 1.08,
+                y: c.y - 34,
+                life: 1.1,
                 text: `+${gained}${mult > 1 ? ` ×${mult}` : ''}`,
                 big: mult > 1,
               });
@@ -1380,7 +1837,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
             }
           }
 
-          const recT = now - lapStart.current;
+          const recT = now - timing.current.lapStart;
           const rec = selfRec.current;
 
           if (rec.length === 0 || recT - rec[rec.length - 1].t > 40) {
@@ -1393,15 +1850,15 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
             });
           }
 
-          if (res.crossedFinish) {
-            const lapMs = now - lapStart.current;
+          if (result.crossedFinish) {
+            const lapMs = now - timing.current.lapStart;
 
-            if (lapMs < bestLap.current) {
-              bestLap.current = lapMs;
+            if (lapMs < timing.current.best) {
+              timing.current.best = lapMs;
               bestRec.current = selfRec.current.slice();
             }
 
-            lapStart.current = now;
+            timing.current.lapStart = now;
             selfRec.current = [];
           }
         }
@@ -1423,22 +1880,22 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
         const c = car.current;
         const speed = Math.hypot(c.vx, c.vy);
-        const cmr = cam.current;
+        const cam = camera.current;
         const dtSec = Math.min(frameMs / 1000, 0.05);
 
-        const kPos = 1 - Math.exp(-dtSec / 0.16);
+        const camK = 1 - Math.exp(-dtSec / 0.16);
 
-        cmr.x = lerp(cmr.x, c.x + c.vx * 0.24, kPos);
-        cmr.y = lerp(cmr.y, c.y + c.vy * 0.24, kPos);
+        cam.x = lerp(cam.x, c.x + c.vx * 0.26, camK);
+        cam.y = lerp(cam.y, c.y + c.vy * 0.26, camK);
 
-        const targetZoom = 1.05 - clamp(speed / TUNE.maxSpeed, 0, 1) * 0.13;
-        cmr.zoom = lerp(cmr.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.44));
+        const targetZoom = 1.03 - clamp(speed / PHYSICS.maxSpeed, 0, 1) * 0.12;
+        cam.zoom = lerp(cam.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.45));
 
-        cmr.shake = Math.max(0, cmr.shake - dtSec * 3);
-        cmr.sx = (Math.random() - 0.5) * cmr.shake * 10;
-        cmr.sy = (Math.random() - 0.5) * cmr.shake * 10;
+        cam.shake = Math.max(0, cam.shake - dtSec * 3);
+        cam.sx = (Math.random() - 0.5) * cam.shake * 10;
+        cam.sy = (Math.random() - 0.5) * cam.shake * 10;
 
-        if (now - trailT.current > 42 && speed > 75) {
+        if (now - trailT.current > 42 && speed > 80) {
           trailT.current = now;
 
           trail.current.push({
@@ -1453,32 +1910,29 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         const dt = frameMs / 1000;
 
         ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
-        ctx.fillStyle = C.bg;
+        ctx.fillStyle = COLORS.bg;
         ctx.fillRect(0, 0, v.w, v.h);
 
         ctx.save();
+        ctx.translate(v.w / 2 + cam.sx, v.h / 2 + cam.sy);
+        ctx.scale(cam.zoom, cam.zoom);
+        ctx.translate(-cam.x, -cam.y);
 
-        ctx.translate(v.w / 2 + cmr.sx, v.h / 2 + cmr.sy);
-        ctx.scale(cmr.zoom, cmr.zoom);
-        ctx.translate(-cmr.x, -cmr.y);
-
-        drawGround(ctx, cmr.x, cmr.y, v.w, v.h, cmr.zoom, now);
+        drawGround(ctx, cam.x, cam.y, v.w, v.h, cam.zoom, now);
         drawTrack(ctx, center, now);
         drawSkids(ctx, skids.current, dt);
         drawDirectionArrows(ctx, center, now);
         drawFinish(ctx, center, now);
 
-        for (const b of beacons) {
-          if (Math.abs(b.x - cmr.x) < 850 && Math.abs(b.y - cmr.y) < 850) {
-            drawBeacon(ctx, b, now);
-          }
+        for (const item of decor) {
+          drawDecor(ctx, item, c, now);
         }
 
         drawTrail(ctx, trail.current, dt);
         drawParticles(ctx, particles.current, dt);
 
-        if (ghostBuf.current.active) {
-          const g = ghostBuf.current.sample(now);
+        if (ghost.current.active) {
+          const g = ghost.current.sample(now);
 
           if (g) {
             drawCar(ctx, g.x, g.y, g.angle, {
@@ -1486,13 +1940,13 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
               drift: g.drift,
             });
 
-            if (g.drift > 0.38 && Math.random() > 0.76) {
-              spawn(particles.current, g.x, g.y, 'smoke', 1, g.angle, 0.4);
+            if (g.drift > 0.4 && Math.random() > 0.75) {
+              spawnParticle(particles.current, g.x, g.y, 'smoke', 1, g.angle, 0.4);
             }
           }
         } else if (selfGhost && bestRec.current && bestRec.current.length > 1) {
           const rec = bestRec.current;
-          const tt = now - lapStart.current;
+          const tt = now - timing.current.lapStart;
 
           if (tt <= rec[rec.length - 1].t) {
             let lo = 0;
@@ -1500,6 +1954,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
             while (lo < hi - 1) {
               const mid = (lo + hi) >> 1;
+
               if (rec[mid].t < tt) lo = mid;
               else hi = mid;
             }
@@ -1516,18 +1971,16 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         }
 
         drawCar(ctx, c.x, c.y, c.angle, {
-          steer: c.steer,
-          brake: i.brake,
           drift: c.driftPower,
-          speed,
+          brake: input.current.brake,
         });
 
-        for (let p = popups.current.length - 1; p >= 0; p -= 1) {
-          const pop = popups.current[p];
+        for (let i = popups.current.length - 1; i >= 0; i -= 1) {
+          const pop = popups.current[i];
 
           ctx.save();
           ctx.globalAlpha = clamp(pop.life, 0, 1);
-          ctx.fillStyle = pop.big ? C.gold : 'rgba(242,199,102,0.86)';
+          ctx.fillStyle = pop.big ? COLORS.gold : 'rgba(242,199,102,0.86)';
           ctx.font = `800 ${pop.big ? 26 : 19}px ui-monospace, monospace`;
           ctx.textAlign = 'center';
           ctx.fillText(pop.text, pop.x, pop.y);
@@ -1536,39 +1989,39 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           pop.y -= 36 * dt;
           pop.life -= dt;
 
-          if (pop.life <= 0) popups.current.splice(p, 1);
+          if (pop.life <= 0) popups.current.splice(i, 1);
         }
 
         ctx.restore();
 
-        const vg = ctx.createRadialGradient(
+        const vignette = ctx.createRadialGradient(
           v.w / 2,
           v.h / 2,
-          Math.min(v.w, v.h) * 0.28,
+          Math.min(v.w, v.h) * 0.3,
           v.w / 2,
           v.h / 2,
-          Math.max(v.w, v.h) * 0.76,
+          Math.max(v.w, v.h) * 0.78,
         );
 
-        vg.addColorStop(0, 'rgba(5,6,16,0)');
-        vg.addColorStop(1, 'rgba(5,6,16,0.5)');
+        vignette.addColorStop(0, 'rgba(5,6,16,0)');
+        vignette.addColorStop(1, 'rgba(5,6,16,0.52)');
 
-        ctx.fillStyle = vg;
+        ctx.fillStyle = vignette;
         ctx.fillRect(0, 0, v.w, v.h);
 
-        drawMini(ctx, center, c, v.w, ghostBuf.current);
+        drawMini(ctx, center, c, v.w, ghost.current);
 
-        if (now - hudT.current > 95) {
+        if (now - hudT.current > 90) {
           hudT.current = now;
 
           setHud({
-            speed: Math.round(speed * 0.45),
+            speed: Math.round(speed * 0.42),
             lap: c.lap,
             drift: c.driftPower,
             combo: Math.round(combo.current.score * (1 + Math.floor(combo.current.ms / 1600))),
             banked: combo.current.banked,
-            lapTime: now - lapStart.current,
-            best: bestLap.current,
+            lapTime: now - timing.current.lapStart,
+            best: timing.current.best,
           });
         }
 
@@ -1578,48 +2031,51 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       raf.current = requestAnimationFrame(loop);
 
       return () => {
-        if (raf.current) cancelAnimationFrame(raf.current);
+        if (raf.current) {
+          cancelAnimationFrame(raf.current);
+        }
       };
-    }, [beacons, center, onSnapshot, selfGhost, total]);
+    }, [center, decor, onSnapshot, selfGhost, total]);
 
-    const setKnob = (kx: number, ky: number) => {
+    const setKnob = (x: number, y: number) => {
       if (knobRef.current) {
-        knobRef.current.style.transform = `translate(${kx}px, ${ky}px)`;
+        knobRef.current.style.transform = `translate(${x}px, ${y}px)`;
       }
     };
 
-    const updateStickFromPointer = (e: React.PointerEvent, zone: HTMLDivElement) => {
-      const r = zone.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
+    const updateJoystick = (event: React.PointerEvent<HTMLDivElement>, zone: HTMLDivElement) => {
+      const rect = zone.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
 
-      const dx = e.clientX - cx;
-      const dy = e.clientY - cy;
+      const dx = event.clientX - cx;
+      const dy = event.clientY - cy;
       const d = Math.hypot(dx, dy) || 1;
-      const m = Math.min(d, STICK_R);
+      const m = Math.min(d, VISUAL.joystickRadius);
 
-      const kx = (dx / d) * m;
-      const ky = (dy / d) * m;
+      const visualX = (dx / d) * m;
+      const visualY = (dy / d) * m;
 
-      stick.current.ix = kx / STICK_R;
-      stick.current.iy = ky / STICK_R;
-      stick.current.power = clamp(d / STICK_R, 0, 1);
+      joystick.current.visualX = visualX;
+      joystick.current.visualY = visualY;
+      joystick.current.inputX = visualX / VISUAL.joystickRadius;
+      joystick.current.inputY = visualY / VISUAL.joystickRadius;
 
-      setKnob(kx, ky);
+      setKnob(visualX, visualY);
     };
 
-    const stickDown = (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
+    const stickDown = (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
 
-      const zone = e.currentTarget;
+      const zone = event.currentTarget;
 
-      stick.current.active = true;
-      stick.current.id = e.pointerId;
+      joystick.current.active = true;
+      joystick.current.id = event.pointerId;
 
       try {
-        zone.setPointerCapture(e.pointerId);
+        zone.setPointerCapture(event.pointerId);
       } catch {
-        /* best effort */
+        /* ignore */
       }
 
       if (!startedRef.current) {
@@ -1628,32 +2084,35 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       }
 
       setStickActive(true);
-      updateStickFromPointer(e, zone);
+      updateJoystick(event, zone);
     };
 
-    const stickMove = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!stick.current.active || stick.current.id !== e.pointerId) return;
+    const stickMove = (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!joystick.current.active || joystick.current.id !== event.pointerId) return;
 
-      e.preventDefault();
-      updateStickFromPointer(e, e.currentTarget);
+      event.preventDefault();
+      updateJoystick(event, event.currentTarget);
     };
 
-    const stickUp = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (stick.current.id !== e.pointerId) return;
+    const stickUp = (event: React.PointerEvent<HTMLDivElement>) => {
+      if (joystick.current.id !== event.pointerId) return;
 
-      stick.current = {
+      joystick.current = {
         active: false,
         id: -1,
-        ix: 0,
-        iy: 0,
-        power: 0,
+        inputX: 0,
+        inputY: 0,
+        visualX: 0,
+        visualY: 0,
       };
+
+      input.current.active = false;
 
       setKnob(0, 0);
       setStickActive(false);
 
       try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
+        event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
         /* ignore */
       }
@@ -1705,7 +2164,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           </div>
         </div>
 
-        {isFinite(hud.best) && (
+        {Number.isFinite(hud.best) && (
           <div className="pointer-events-none absolute left-1/2 top-[52px] -translate-x-1/2 rounded-full border border-white/[0.07] bg-[#050610]/55 px-3 py-0.5 text-[10px] tabular-nums text-[#9D7CFF] backdrop-blur-md">
             лучший {fmtTime(hud.best)}
           </div>
@@ -1715,7 +2174,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           <div className="pointer-events-none absolute left-1/2 top-[84px] -translate-x-1/2 text-center">
             <div
               className="text-xl font-extrabold uppercase tracking-tight text-[#F2C766] drop-shadow-[0_0_14px_rgba(242,199,102,0.55)]"
-              style={{ transform: `scale(${1 + Math.min(hud.drift, 1) * 0.18})` }}
+              style={{
+                transform: `scale(${1 + Math.min(hud.drift, 1) * 0.18})`,
+              }}
             >
               занос {hud.combo}
             </div>
@@ -1725,9 +2186,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         <button
           type="button"
           onClick={doReset}
-          onPointerDown={(e) => e.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
           className="absolute z-10 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050610]/60 text-lg text-white/70 backdrop-blur-md active:scale-95 active:text-[#52FFE5]"
-          style={{ right: 16, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}
+          style={{
+            left: 16,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+          }}
           aria-label="Заново"
         >
           ↻
@@ -1736,10 +2200,10 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         <div
           className="absolute z-10"
           style={{
-            left: 14,
+            right: 14,
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
-            width: STICK_ZONE,
-            height: STICK_ZONE,
+            width: VISUAL.joystickZone,
+            height: VISUAL.joystickZone,
             touchAction: 'none',
           }}
           onPointerDown={stickDown}
@@ -1750,9 +2214,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div
               className={`relative rounded-full border bg-white/[0.04] backdrop-blur-sm transition-colors ${
-                stickActive ? 'border-[#52FFE5]/45 shadow-[0_0_28px_rgba(82,255,229,0.12)]' : 'border-white/[0.10]'
+                stickActive ? 'border-[#52FFE5]/45 shadow-[0_0_28px_rgba(82,255,229,0.14)]' : 'border-white/[0.10]'
               }`}
-              style={{ width: STICK_R * 2 + 18, height: STICK_R * 2 + 18 }}
+              style={{
+                width: VISUAL.joystickRadius * 2 + 18,
+                height: VISUAL.joystickRadius * 2 + 18,
+              }}
             >
               <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-white/25">
                 занос ↓
@@ -1766,9 +2233,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
                     : 'border-white/20 bg-gradient-to-br from-white/80 to-white/40'
                 }`}
                 style={{
-                  width: 48,
-                  height: 48,
-                  margin: -24,
+                  width: 50,
+                  height: 50,
+                  margin: -25,
                   willChange: 'transform',
                 }}
               />
@@ -1779,11 +2246,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         {!started && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="mx-6 rounded-[22px] border border-white/[0.07] bg-[#050610]/72 px-5 py-4 text-center shadow-[0_20px_70px_rgba(0,0,0,0.45)] backdrop-blur-md">
-              <div className="text-sm font-bold text-white">Коснись стика — поехали</div>
+              <div className="text-sm font-bold text-white">Тяни стик — машина поедет туда</div>
               <div className="mt-1 text-[11px] leading-relaxed text-white/50">
-                Газ автоматический. Машина всегда слегка дрифтит.{' '}
-                <span className="text-[#52FFE5]">Рули дугой</span>,{' '}
-                <span className="text-[#F2C766]">тяни вниз — ручник</span>.
+                Управление как в аркаде: стик задаёт направление, машина сама уходит в{' '}
+                <span className="text-[#52FFE5]">мягкий дрифт</span>, вниз —{' '}
+                <span className="text-[#F2C766]">ручник</span>.
               </div>
             </div>
           </div>
@@ -1794,76 +2261,5 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 );
 
 RaceGame.displayName = 'RaceGame';
-
-/* =============================== MINIMAP ================================= */
-
-function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, ghost: GhostBuffer) {
-  const size = 78;
-  const x = width - size - 12;
-  const y = 64;
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const p of center) {
-    if (p.x < minX) minX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y > maxY) maxY = p.y;
-  }
-
-  const pad = 12;
-  const scale = Math.min((size - pad * 2) / (maxX - minX), (size - pad * 2) / (maxY - minY));
-
-  const ox = x + size / 2 - ((minX + maxX) / 2) * scale;
-  const oy = y + size / 2 - ((minY + maxY) / 2) * scale;
-
-  const mx = (wx: number) => ox + wx * scale;
-  const my = (wy: number) => oy + wy * scale;
-
-  ctx.save();
-
-  ctx.fillStyle = 'rgba(5,6,16,0.58)';
-  rr(ctx, x, y, size, size, 18);
-  ctx.fill();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(82,255,229,0.5)';
-  ctx.lineWidth = 2;
-  ctx.lineJoin = 'round';
-
-  ctx.beginPath();
-
-  center.forEach((p, i) => {
-    if (i === 0) ctx.moveTo(mx(p.x), my(p.y));
-    else ctx.lineTo(mx(p.x), my(p.y));
-  });
-
-  ctx.closePath();
-  ctx.stroke();
-
-  if (ghost.active) {
-    const g = ghost.sample(performance.now());
-
-    if (g) {
-      ctx.fillStyle = C.purple;
-      ctx.beginPath();
-      ctx.arc(mx(g.x), my(g.y), 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  ctx.fillStyle = C.gold;
-  ctx.beginPath();
-  ctx.arc(mx(car.x), my(car.y), 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
 
 export default RaceGame;
