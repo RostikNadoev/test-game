@@ -29,17 +29,21 @@ type AuthContextValue = {
   logout: () => void;
 };
 
+type RawAuthResponse = {
+  token?: string;
+  user?: ApiUser;
+  error?: string;
+  details?: string;
+};
+
 const TOKEN_STORAGE_KEY = 'twingames_jwt_token';
+
+const AUTH_URL = 'https://shamefully-gifted-catbird.cloudpub.ru/api/v1/auth/telegram';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const getTelegramWebApp = () =>
   (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
-
-const getTelegramInitData = () => {
-  const tgInitData = getTelegramWebApp()?.initData;
-  return tgInitData || import.meta.env.VITE_DEV_INIT_DATA || '';
-};
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
@@ -76,13 +80,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loginWithTelegram = useCallback(async () => {
     const tg = getTelegramWebApp();
-    const initData = getTelegramInitData();
+
+    tg?.ready?.();
+
+    const initData = tg?.initData || '';
+
+    console.log('RAW initData:', initData);
 
     console.log('[TG AUTH DEBUG]', {
       hasTelegram: Boolean((window as Window & { Telegram?: unknown }).Telegram),
       hasWebApp: Boolean(tg),
       initDataLength: initData.length,
-      initDataPreview: initData.slice(0, 80),
+      initDataPreview: initData.slice(0, 120),
       apiBaseUrl: import.meta.env.VITE_API_BASE_URL,
     });
 
@@ -90,9 +99,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error('Нет Telegram initData. Проверь, что приложение открыто именно как Telegram Mini App.');
     }
 
-    const response = await api.auth.telegram(initData);
-    saveToken(response.token);
-    setUser(response.user);
+    const rawResponse = await fetch(AUTH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        init_data: initData,
+      }),
+    });
+
+    let data: RawAuthResponse | null = null;
+
+    try {
+      data = (await rawResponse.json()) as RawAuthResponse;
+    } catch {
+      data = null;
+    }
+
+    console.log('[RAW AUTH RESPONSE]', {
+      status: rawResponse.status,
+      ok: rawResponse.ok,
+      data,
+    });
+
+    if (!rawResponse.ok) {
+      throw new Error(data?.details || data?.error || `Auth failed: ${rawResponse.status}`);
+    }
+
+    if (!data?.token || !data?.user) {
+      throw new Error('Backend не вернул token или user');
+    }
+
+    saveToken(data.token);
+    setUser(data.user);
   }, [saveToken]);
 
   const refreshUser = useCallback(async () => {
