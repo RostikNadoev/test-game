@@ -53,6 +53,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setApiToken(savedToken);
     return savedToken;
   });
+
   const [user, setUser] = useState<ApiUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,10 +75,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [saveToken]);
 
   const loginWithTelegram = useCallback(async () => {
+    const tg = getTelegramWebApp();
     const initData = getTelegramInitData();
 
+    console.log('[TG AUTH DEBUG]', {
+      hasTelegram: Boolean((window as Window & { Telegram?: unknown }).Telegram),
+      hasWebApp: Boolean(tg),
+      initDataLength: initData.length,
+      initDataPreview: initData.slice(0, 80),
+      apiBaseUrl: import.meta.env.VITE_API_BASE_URL,
+    });
+
     if (!initData) {
-      throw new Error('Нет Telegram initData. Открой приложение внутри Telegram WebApp.');
+      throw new Error('Нет Telegram initData. Проверь, что приложение открыто именно как Telegram Mini App.');
     }
 
     const response = await api.auth.telegram(initData);
@@ -97,6 +107,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshBalance = useCallback(async () => {
     const response = await api.users.balance();
+
     setUser((currentUser) => {
       if (!currentUser) return currentUser;
 
@@ -157,7 +168,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    bootstrap();
+    void bootstrap();
 
     return () => {
       ignore = true;

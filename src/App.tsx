@@ -1,6 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { AuthProvider } from './auth/AuthProvider';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
 import { GameIntroOverlay } from './components/GameIntroOverlay';
@@ -160,9 +159,7 @@ function AppShell() {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppShell />
-      </AuthProvider>
+      <AppShell />
     </BrowserRouter>
   );
 }
