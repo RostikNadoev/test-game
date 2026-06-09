@@ -21,20 +21,6 @@ export const Header = () => {
         <div className="relative flex items-center gap-2 overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#0a0a11]/85 px-2.5 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl">
           <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
 
-          <div className="flex min-w-0 items-center gap-2 pr-1">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[12px] bg-gradient-to-br from-[#F2C766]/30 to-[#52FFE5]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
-              <span className="text-sm font-black tracking-[-0.06em] text-white">T</span>
-            </div>
-            <div className="hidden min-[390px]:block">
-              <p className="text-[7px] font-black uppercase tracking-[0.22em] text-white/34">
-                TwinGames
-              </p>
-              <p className="-mt-0.5 text-[12px] font-black tracking-[-0.04em] text-white">
-                Arena
-              </p>
-            </div>
-          </div>
-
           <div className="min-w-0 flex-1">
             {isLoading ? (
               <div className="flex items-center gap-2 text-[11px] font-bold text-white/45">
@@ -47,7 +33,7 @@ export const Header = () => {
                   {user.photo_url ? (
                     <img
                       src={user.photo_url}
-                      alt={user.tg_user}
+                      alt={user.tg_user || 'Avatar'}
                       className="h-full w-full object-cover"
                     />
                   ) : (
@@ -71,6 +57,7 @@ export const Header = () => {
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/[0.08] bg-white/[0.06]">
                   <UserRound size={16} className="text-white/50" />
                 </div>
+
                 <div className="min-w-0">
                   <p className="truncate text-[12px] font-black text-white/70">
                     Нет авторизации
@@ -84,7 +71,7 @@ export const Header = () => {
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <div className="hidden items-center gap-1.5 rounded-[13px] border border-[#F2C766]/18 bg-[#F2C766]/[0.08] px-2 py-1.5 min-[360px]:flex">
+            <div className="flex items-center gap-1.5 rounded-[13px] border border-[#F2C766]/18 bg-[#F2C766]/[0.08] px-2 py-1.5">
               <span className="text-[9px] font-black text-[#FFE0A3]/60">TON</span>
               <span className="text-[12px] font-black tracking-[-0.03em] text-white tabular-nums">
                 {formatNumber(user?.balance_ton ?? 0)}
