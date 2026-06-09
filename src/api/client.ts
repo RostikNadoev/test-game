@@ -1,6 +1,7 @@
 import type { ApiErrorBody } from './types';
 
-const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
+const rawBaseUrl =
+  import.meta.env.VITE_API_BASE_URL || 'https://shamefully-gifted-catbird.cloudpub.ru';
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/$/, '');
 
