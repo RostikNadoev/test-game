@@ -1,16 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  CircleDollarSign,
-  Gamepad2,
-  RotateCcw,
-  Shield,
-  Sparkles,
-  Timer,
-  Trophy,
-  Zap,
-} from "lucide-react";
 
 /* ============================================================================
    PLINKO PvP — Telegram mini-app (mobile only)
@@ -30,13 +18,13 @@ import {
    ========================================================================== */
 
 const CFG = {
-  VW: 360, VH: 450,
+  VW: 360, VH: 560,
   ROWS: 9, TOP_PEGS: 3,
-  TOP_Y: 52, SY: 36, SX: 30,
+  TOP_Y: 64, SY: 43, SX: 30,
   pegR: 5, ballR: 6.5,
   WALL_L: 10, WALL_R: 350,
-  FLOOR: 412,
-  SLOT_TOP: 370,
+  FLOOR: 522,
+  SLOT_TOP: 474,
   N_SLOTS: 10,
   g: 760,
   eRest: 0.48,
@@ -44,7 +32,7 @@ const CFG = {
   air: 0.999,
   DT: 1 / 240,
   MAX_STEPS: 9000,
-  DROP_Y: 40,
+  DROP_Y: 48,
   DROP_OFFSET: 0.6,
   LAUNCH_VX: 120,
   LAUNCH_VY: 20,
@@ -302,20 +290,8 @@ type ActionMode = "x2" | "half" | "wall" | null;
 type WallKey = string;
 
 const PLAYERS = [
-  {
-    name: "Игрок 1",
-    color: "#52FFE5",
-    soft: "rgba(82,255,229,0.13)",
-    border: "rgba(82,255,229,0.34)",
-    emoji: "◇",
-  },
-  {
-    name: "Игрок 2",
-    color: "#F2C766",
-    soft: "rgba(242,199,102,0.14)",
-    border: "rgba(242,199,102,0.34)",
-    emoji: "◆",
-  },
+  { name: "Игрок 1", color: "#52FFE5", soft: "rgba(82,255,229,0.12)", emoji: "I" },
+  { name: "Игрок 2", color: "#F2C766", soft: "rgba(242,199,102,0.12)", emoji: "II" },
 ];
 
 // цвет по «ценности» лунки
@@ -324,7 +300,7 @@ function tierColor(v: number): string {
   if (v >= 5) return "#FFB86B";
   if (v >= 3) return "#9D7CFF";
   if (v >= 1.8) return "#52FFE5";
-  return "#7DFFC0";
+  return "#FFFFFF";
 }
 
 const fmt = (n: number) => {
@@ -473,12 +449,18 @@ export default function PlinkoPvpGame() {
     if (cv.height !== nextH) cv.height = nextH;
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
-    let scale = cv.width / CFG.VW;
-    if (CFG.VH * scale > cv.height) scale = cv.height / CFG.VH;
+    const reservedTop = 44 * dpr;
+    const reservedBottom = 94 * dpr;
+    const usableH = Math.max(300 * dpr, cv.height - reservedTop - reservedBottom);
+    const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH);
+    const boardW = CFG.VW * scale;
+    const boardH = CFG.VH * scale;
+    const freeY = cv.height - reservedTop - reservedBottom - boardH;
+
     tf.current = {
       scale,
-      offX: (cv.width - CFG.VW * scale) / 2,
-      offY: (cv.height - CFG.VH * scale) / 2,
+      offX: (cv.width - boardW) / 2,
+      offY: reservedTop + Math.max(0, freeY * 0.32),
       dpr,
     };
   }, []);
@@ -504,7 +486,7 @@ export default function PlinkoPvpGame() {
       const d = board.dividers;
       const x0 = d[i], x1 = d[i + 1];
       const cx = (x0 + x1) / 2;
-      const col = showValues ? tierColor(val) : "#6b7280";
+      const col = showValues ? tierColor(val) : "rgba(255,255,255,0.26)";
       const r = S(7);
       const top = Y(CFG.SLOT_TOP), bot = Y(CFG.FLOOR);
 
@@ -518,16 +500,16 @@ export default function PlinkoPvpGame() {
       ctx.lineTo(rx, top);
       // Без createLinearGradient на каждом стакане/кадре — это заметно легче
       // для Telegram WebView, особенно на Android.
-      ctx.fillStyle = showValues ? col + "22" : "rgba(255,255,255,0.035)";
+      ctx.fillStyle = showValues ? col + "12" : "rgba(255,255,255,0.025)";
       ctx.fill();
-      ctx.lineWidth = S(1.35);
-      ctx.strokeStyle = col + "ee";
+      ctx.lineWidth = S(1.15);
+      ctx.strokeStyle = showValues ? col + "cc" : "rgba(255,255,255,0.12)";
       ctx.stroke();
 
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.9)";
-      ctx.shadowBlur = S(4);
-      ctx.fillStyle = "#fff";
+      ctx.shadowBlur = S(2);
+      ctx.fillStyle = showValues ? "#fff" : "rgba(255,255,255,0.42)";
       ctx.font = `900 ${S(12.5)}px ui-sans-serif, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -577,12 +559,12 @@ export default function PlinkoPvpGame() {
       }
 
       // рамка поля
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = S(2);
+      ctx.strokeStyle = "rgba(255,255,255,0.045)";
+      ctx.lineWidth = S(1.4);
       ctx.strokeRect(X(CFG.WALL_L), Y(8), S(CFG.WALL_R - CFG.WALL_L), S(CFG.FLOOR - 8));
 
       // боковые стены
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillStyle = "rgba(255,255,255,0.035)";
       ctx.fillRect(X(CFG.WALL_L) - S(3), Y(8), S(3), S(CFG.FLOOR - 8));
       ctx.fillRect(X(CFG.WALL_R), Y(8), S(3), S(CFG.FLOOR - 8));
 
@@ -593,9 +575,9 @@ export default function PlinkoPvpGame() {
       for (const p of board.pegs) {
         ctx.beginPath();
         ctx.arc(X(p.x), Y(p.y), S(CFG.pegR), 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(220,235,255,0.9)";
-        ctx.shadowColor = "rgba(150,200,255,0.6)";
-        ctx.shadowBlur = S(4);
+        ctx.fillStyle = "rgba(255,255,255,0.72)";
+        ctx.shadowColor = "rgba(82,255,229,0.18)";
+        ctx.shadowBlur = S(2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
@@ -1126,456 +1108,311 @@ export default function PlinkoPvpGame() {
     setAngleFromClientX(e.clientX);
   };
 
-  const activePlayer = PLAYERS[turn];
-  const revealProgress = phase === "reveal"
-    ? Math.round(((Math.min(revealIdx + 1, revealOrder.length)) / revealOrder.length) * 100)
-    : 0;
+  const phaseLabel =
+    phase === "angles"
+      ? `${PLAYERS[turn].name} · угол ${curBall + 1}/${CFG.BALLS_PER_PLAYER}`
+      : phase === "actions"
+      ? `${PLAYERS[turn].name} · ${actionsLeft} действия · ${timeLeft}с`
+      : phase === "reveal"
+      ? `Шарик ${Math.min(revealIdx + 1, revealOrder.length)}/${revealOrder.length}`
+      : phase === "result"
+      ? "Финал"
+      : "Plinko PvP";
 
-  const statusText = (() => {
-    if (phase === "angles") return `${PLAYERS[turn].name} · угол ${curBall + 1}/${CFG.BALLS_PER_PLAYER}`;
-    if (phase === "actions") return `${PLAYERS[turn].name} · ${actionsLeft} действия · ${timeLeft}с`;
-    if (phase === "reveal") return `Вскрытие · шарик ${Math.min(revealIdx + 1, revealOrder.length)}/${revealOrder.length}`;
-    if (phase === "result") return "Раунд завершён";
-    if (phase === "handoff") return "Передача телефона";
-    return `PvP · ${CFG.BALLS_PER_PLAYER} шариков · скрытые действия`;
-  })();
-
-  const actionHint = actionMode === "wall"
-    ? "Тапни по светящейся точке между пегами"
-    : actionMode
-      ? "Тапни по нужной лунке внизу поля"
-      : "Выбери действие: усилить, срезать или поставить стенку";
+  const activeColor = PLAYERS[turn]?.color ?? "#52FFE5";
 
   return (
-    <main
-      className="relative flex h-full max-h-full w-full flex-col overflow-hidden overscroll-none select-none bg-[#050507] text-white"
+    <div
+      className="fixed inset-0 z-[70] overflow-hidden select-none bg-[#050507] text-white"
       style={{
         background:
-          "radial-gradient(circle at 16% -6%, rgba(242,199,102,0.14), transparent 30%), radial-gradient(circle at 100% 18%, rgba(82,255,229,0.10), transparent 30%), radial-gradient(circle at 0% 90%, rgba(157,124,255,0.08), transparent 34%), linear-gradient(180deg, #050507 0%, #09090e 48%, #050507 100%)",
+          "radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%), radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%), linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%)",
+        fontFamily:
+          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         touchAction: "none",
       }}
     >
-      <div className="pointer-events-none absolute inset-0 grid-fade opacity-45" />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.14]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)",
+          backgroundSize: "40px 40px",
+          maskImage: "linear-gradient(to bottom, transparent 0%, #000 12%, #000 78%, transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to bottom, transparent 0%, #000 12%, #000 78%, transparent 100%)",
+        }}
+      />
       <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
 
-      {/* TOP HUD */}
-      <section className="relative z-30 shrink-0 px-3 pb-2 pt-2">
-        <div className="top-hairline relative overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0a0a11]/85 px-3 py-2.5 shadow-[0_12px_34px_rgba(0,0,0,0.36)] backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(242,199,102,0.13),transparent_34%),radial-gradient(circle_at_100%_12%,rgba(82,255,229,0.11),transparent_38%)]" />
-
-          <div className="relative mb-2 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-[0.2em] text-[#F2C766]/70">
-                <Sparkles size={11} />
-                Plinko arena
-              </div>
-              <h1 className="mt-0.5 truncate text-[21px] font-black leading-none tracking-[-0.07em] text-white">
-                Plinko <span className="text-white/38">PvP</span>
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-1.5 rounded-[15px] border border-white/[0.07] bg-white/[0.05] px-2.5 py-1.5">
-              <Timer size={13} className="text-[#52FFE5]" />
-              <span className="text-[11px] font-black tabular-nums text-white/78">
-                {phase === "actions" ? `${timeLeft}с` : phase === "reveal" ? `${revealProgress}%` : "LIVE"}
-              </span>
-            </div>
-          </div>
-
-          <div className="relative grid grid-cols-2 gap-2">
-            {PLAYERS.map((p, i) => {
-              const active = (phase === "angles" || phase === "actions") && turn === i;
-              const isWinner = phase === "result" && winner === i;
-
-              return (
-                <div
-                  key={p.name}
-                  className="relative overflow-hidden rounded-[18px] border px-2.5 py-2 transition-all"
-                  style={{
-                    borderColor: active || isWinner ? p.border : "rgba(255,255,255,0.07)",
-                    background: active || isWinner ? p.soft : "rgba(255,255,255,0.04)",
-                    boxShadow: active || isWinner ? `0 0 0 1px ${p.border}, 0 12px 28px rgba(0,0,0,0.24)` : "none",
-                  }}
-                >
-                  <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-                  <div className="flex items-center gap-2" style={{ flexDirection: i === 1 ? "row-reverse" : "row" }}>
-                    <div
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-[13px] border text-[13px] font-black"
-                      style={{
-                        borderColor: p.border,
-                        background: `linear-gradient(180deg, ${p.soft}, rgba(255,255,255,0.04))`,
-                        color: p.color,
-                        boxShadow: active ? `0 0 18px ${p.soft}` : "none",
-                      }}
-                    >
-                      {p.emoji}
-                    </div>
-                    <div className="min-w-0 leading-none" style={{ textAlign: i === 1 ? "right" : "left" }}>
-                      <p className="truncate text-[8px] font-black uppercase tracking-[0.17em] text-white/34">
-                        {p.name}
-                      </p>
-                      <p className="mt-1 text-[17px] font-black tracking-[-0.05em] tabular-nums" style={{ color: p.color }}>
-                        ×{fmt(scores[i])}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="relative mt-2 flex items-center justify-between gap-2 rounded-[15px] border border-white/[0.06] bg-black/25 px-2.5 py-1.5">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <Shield size={12} className="shrink-0 text-[#F2C766]" />
-              <span className="truncate text-[10px] font-black tracking-[-0.02em] text-white/62">
-                {statusText}
-              </span>
-            </div>
-            <span className="shrink-0 text-[8px] font-black uppercase tracking-[0.16em] text-white/28">
-              fair physics
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* BOARD */}
-      <section
-        ref={wrapRef}
-        className="relative z-10 mx-3 min-h-0 flex-1 overflow-hidden rounded-[26px] border border-white/[0.07] bg-[#0a0a11]/80 shadow-[0_18px_50px_rgba(0,0,0,0.42)]"
-      >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(242,199,102,0.10),transparent_32%),radial-gradient(circle_at_100%_40%,rgba(82,255,229,0.07),transparent_36%)]" />
-        <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      <div ref={wrapRef} className="absolute inset-0">
         <canvas
           ref={canvasRef}
           onPointerDown={onCanvasPointer}
-          onPointerMove={(e) => { if (phase === "angles" && e.buttons === 1) onCanvasPointer(e); }}
+          onPointerMove={(e) => {
+            if (phase === "angles" && e.buttons === 1) onCanvasPointer(e);
+          }}
           className="absolute inset-0 h-full w-full"
           style={{ touchAction: "none", transform: "translateZ(0)" }}
         />
+      </div>
 
-        {phase === "actions" && (
-          <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 rounded-[17px] border border-white/[0.07] bg-[#050507]/72 px-3 py-2 backdrop-blur-md">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[8px] font-black uppercase tracking-[0.18em] text-[#F2C766]/70">Secret move</p>
-                <p className="mt-0.5 truncate text-[11px] font-bold text-white/58">{actionHint}</p>
+      <div className="pointer-events-none absolute left-2.5 right-2.5 z-30 grid grid-cols-[1fr_auto_1fr] items-start gap-2 pt-[calc(env(safe-area-inset-top,0px)+7px)]">
+        {PLAYERS.map((p, i) => {
+          const active = (phase === "angles" || phase === "actions") && turn === i;
+          return (
+            <div
+              key={p.name}
+              className="min-w-0 rounded-[14px] border px-2.5 py-1.5"
+              style={{
+                borderColor: active ? p.color + "80" : "rgba(255,255,255,0.07)",
+                background: active ? p.soft : "rgba(255,255,255,0.035)",
+                boxShadow: active ? `0 0 0 1px ${p.color}18` : "none",
+                textAlign: i === 1 ? "right" : "left",
+              }}
+            >
+              <div className="text-[7px] font-black uppercase tracking-[0.18em] text-white/34">
+                {p.name}
               </div>
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-[12px] border border-white/[0.07] bg-white/[0.05]">
-                <Zap size={15} style={{ color: activePlayer.color }} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {lastGain && (
-          <div
-            className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border px-3 py-1.5 text-[12px] font-black tracking-[-0.02em] shadow-[0_12px_28px_rgba(0,0,0,0.32)] backdrop-blur-md"
-            style={{
-              background: "rgba(5,5,7,0.78)",
-              borderColor: PLAYERS[lastGain.p].border,
-              color: PLAYERS[lastGain.p].color,
-              boxShadow: `0 0 24px ${PLAYERS[lastGain.p].soft}`,
-            }}
-          >
-            {PLAYERS[lastGain.p].emoji} {lastGain.stuck ? "застрял · ×1" : `×${fmt(lastGain.v)} → ×${fmt(lastGain.score)}`}
-          </div>
-        )}
-      </section>
-
-      {/* CONTROLS */}
-      <section
-        className="relative z-30 shrink-0 px-3 pb-4 pt-2"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 14px)" }}
-      >
-        <div className="relative overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0a0a11]/88 p-2.5 shadow-[0_-8px_34px_rgba(0,0,0,0.25)] backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-
-          {phase === "angles" && (
-            <div className="relative flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2 px-0.5">
-                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-white/34">
-                  <Gamepad2 size={12} />
-                  Aim control
-                </div>
-                <span
-                  className="rounded-full border px-2 py-1 text-[10px] font-black tabular-nums"
-                  style={{ borderColor: activePlayer.border, color: activePlayer.color, background: activePlayer.soft }}
-                >
-                  {angleDeg > 0 ? "+" : ""}{angleDeg}°
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-[16px] border border-white/[0.06] bg-black/25 px-2 py-2">
-                <ChevronLeft size={15} className="text-white/28" />
-                <div
-                  ref={sliderRef}
-                  onPointerDown={sliderDown}
-                  onPointerMove={sliderMove}
-                  className="relative h-8 min-w-0 flex-1 cursor-pointer"
-                  style={{ touchAction: "none" }}
-                >
-                  <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/[0.09]" />
-                  <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
-                  <div
-                    className="absolute top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20"
-                    style={{
-                      left: `${((liveAngle + 1) / 2) * 100}%`,
-                      background: activePlayer.color,
-                      boxShadow: `0 0 18px ${activePlayer.color}`,
-                    }}
-                  />
-                </div>
-                <ChevronRight size={15} className="text-white/28" />
-              </div>
-
-              <div className="grid grid-cols-[46px_1fr_46px] gap-2">
-                <button
-                  type="button"
-                  onClick={() => { hapticSelection(); setLiveAngle((a) => Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000)); }}
-                  className="press h-10 rounded-[15px] border border-white/[0.07] bg-white/[0.05] text-[18px] font-black text-white/70 active:bg-white/[0.09]"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmAngle}
-                  className="press h-10 rounded-[15px] text-[13px] font-black tracking-[-0.02em] active:scale-[0.98]"
-                  style={{
-                    background: `linear-gradient(135deg, ${activePlayer.color}, ${activePlayer.color}cc)`,
-                    color: "#07070b",
-                    boxShadow: `0 12px 24px ${activePlayer.soft}`,
-                  }}
-                >
-                  Зафиксировать · {curBall + 1}/{CFG.BALLS_PER_PLAYER}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { hapticSelection(); setLiveAngle((a) => Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000)); }}
-                  className="press h-10 rounded-[15px] border border-white/[0.07] bg-white/[0.05] text-[18px] font-black text-white/70 active:bg-white/[0.09]"
-                >
-                  +
-                </button>
+              <div
+                className="mt-0.5 truncate text-[15px] font-black leading-none tracking-[-0.05em] tabular-nums"
+                style={{ color: p.color }}
+              >
+                ×{fmt(scores[i])}
               </div>
             </div>
-          )}
+          );
+        })}
 
-          {phase === "actions" && (
-            <div className="relative flex flex-col gap-2">
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { m: "x2" as ActionMode, label: "×2", hint: "буст", icon: Zap },
-                  { m: "half" as ActionMode, label: "÷2", hint: "срез", icon: Shield },
-                  { m: "wall" as ActionMode, label: "Стенка", hint: "пеги", icon: CircleDollarSign },
-                ]).map((b) => {
-                  const on = actionMode === b.m;
-                  const Icon = b.icon;
+        <div className="rounded-full border border-white/[0.07] bg-black/35 px-3 py-1.5 text-center">
+          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#F2C766]/70">
+            PLINKO
+          </div>
+          <div className="mt-0.5 max-w-[116px] truncate text-[9px] font-bold text-white/54">
+            {phaseLabel}
+          </div>
+        </div>
+      </div>
 
-                  return (
-                    <button
-                      key={b.m}
-                      type="button"
-                      disabled={actionsLeft <= 0}
-                      onClick={() => {
-                        hapticSelection();
-                        setActionMode(on ? null : b.m);
-                      }}
-                      className="press relative flex h-[52px] flex-col items-center justify-center overflow-hidden rounded-[17px] border text-[12px] font-black transition-all disabled:opacity-40"
-                      style={{
-                        borderColor: on ? activePlayer.border : "rgba(255,255,255,0.07)",
-                        background: on ? activePlayer.color : "rgba(255,255,255,0.05)",
-                        color: on ? "#07070b" : "rgba(255,255,255,0.78)",
-                        boxShadow: on ? `0 0 22px ${activePlayer.soft}` : "none",
-                      }}
-                    >
-                      <Icon size={14} className="mb-1" />
-                      <span className="leading-none">{b.label}</span>
-                      <span className="mt-1 text-[8px] font-black uppercase tracking-[0.12em] opacity-55">{b.hint}</span>
-                    </button>
+      {lastGain && (
+        <div
+          className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.08] bg-[#08080d]/92 px-3 py-1.5 text-[11px] font-black tracking-[-0.02em] shadow-[0_10px_26px_rgba(0,0,0,0.35)]"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 54px)",
+            color: PLAYERS[lastGain.p].color,
+          }}
+        >
+          {lastGain.stuck ? "Застрял · ×1" : `×${fmt(lastGain.v)} → ×${fmt(lastGain.score)}`}
+        </div>
+      )}
+
+      {phase === "angles" && (
+        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
+          <div className="mx-auto max-w-[460px] rounded-[18px] border border-white/[0.07] bg-[#08080d]/94 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+            <div className="mb-1.5 flex items-center justify-between px-1">
+              <span className="text-[8px] font-black uppercase tracking-[0.18em] text-white/32">
+                Прицел
+              </span>
+              <span
+                className="text-[12px] font-black tracking-[-0.04em] tabular-nums"
+                style={{ color: activeColor }}
+              >
+                {angleDeg > 0 ? "+" : ""}
+                {angleDeg}°
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  hapticSelection();
+                  setLiveAngle((a) =>
+                    Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
                   );
-                })}
+                }}
+                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/[0.07] bg-white/[0.05] text-lg font-black text-white/72 active:bg-white/[0.08]"
+              >
+                −
+              </button>
+
+              <div
+                ref={sliderRef}
+                onPointerDown={sliderDown}
+                onPointerMove={sliderMove}
+                className="relative h-9 min-w-0 flex-1 cursor-pointer"
+                style={{ touchAction: "none" }}
+              >
+                <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.12]" />
+                <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
+                <div
+                  className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40"
+                  style={{
+                    left: `${((liveAngle + 1) / 2) * 100}%`,
+                    background: activeColor,
+                    boxShadow: `0 0 14px ${activeColor}55`,
+                  }}
+                />
               </div>
 
               <button
                 type="button"
-                onClick={finishActionTurn}
-                className="press h-9 w-full rounded-[15px] border border-white/[0.07] bg-white/[0.05] text-[11px] font-black text-white/62 active:bg-white/[0.09]"
+                onClick={() => {
+                  hapticSelection();
+                  setLiveAngle((a) =>
+                    Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
+                  );
+                }}
+                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/[0.07] bg-white/[0.05] text-lg font-black text-white/72 active:bg-white/[0.08]"
               >
-                Завершить ход
+                +
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmAngle}
+                className="press h-9 shrink-0 rounded-[13px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98]"
+                style={{ background: activeColor }}
+              >
+                OK {curBall + 1}/{CFG.BALLS_PER_PLAYER}
               </button>
             </div>
-          )}
-
-          {phase === "reveal" && (
-            <div className="relative h-[52px] overflow-hidden rounded-[17px] border border-white/[0.07] bg-white/[0.04] px-3 py-2">
-              <div className="mb-2 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.16em] text-white/34">
-                <span>Reveal sequence</span>
-                <span>{revealProgress}%</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/[0.07]">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-[#52FFE5] via-[#F2C766] to-[#9D7CFF] transition-all"
-                  style={{ width: `${revealProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {phase === "intro" && (
-            <button
-              type="button"
-              onClick={startGame}
-              className="press flex h-12 w-full items-center justify-center gap-2 rounded-[17px] bg-white text-[14px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
-            >
-              <Gamepad2 size={17} />
-              Начать раунд
-            </button>
-          )}
-
-          {phase === "result" && (
-            <button
-              type="button"
-              onClick={startGame}
-              className="press flex h-12 w-full items-center justify-center gap-2 rounded-[17px] bg-white text-[14px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
-            >
-              <RotateCcw size={17} />
-              Играть снова
-            </button>
-          )}
-
-          {phase === "handoff" && (
-            <div className="h-12 rounded-[17px] border border-white/[0.06] bg-white/[0.03]" />
-          )}
+          </div>
         </div>
-      </section>
+      )}
 
-      {/* HANDOFF OVERLAY */}
+      {phase === "actions" && (
+        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
+          <div className="mx-auto max-w-[460px] rounded-[18px] border border-white/[0.07] bg-[#08080d]/94 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
+              {([
+                { m: "x2" as ActionMode, label: "×2" },
+                { m: "half" as ActionMode, label: "÷2" },
+                { m: "wall" as ActionMode, label: "Wall" },
+              ]).map((b) => {
+                const on = actionMode === b.m;
+                return (
+                  <button
+                    key={b.m}
+                    type="button"
+                    disabled={actionsLeft <= 0}
+                    onClick={() => {
+                      hapticSelection();
+                      setActionMode(on ? null : b.m);
+                    }}
+                    className="press h-9 rounded-[13px] border text-[12px] font-black disabled:opacity-35"
+                    style={{
+                      borderColor: on ? activeColor + "90" : "rgba(255,255,255,0.07)",
+                      background: on ? activeColor : "rgba(255,255,255,0.05)",
+                      color: on ? "#050507" : "rgba(255,255,255,0.72)",
+                    }}
+                  >
+                    {b.label}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={finishActionTurn}
+                className="press h-9 rounded-[13px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/55"
+              >
+                Skip
+              </button>
+            </div>
+
+            <div className="mt-1.5 text-center text-[9px] font-bold text-white/36">
+              {actionMode === "wall"
+                ? "Нажми между пегами"
+                : actionMode
+                ? "Нажми по лунке"
+                : "Выбери действие"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "intro" && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
+          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/92 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.55)]">
+            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#F2C766]/70">
+              Battle Club
+            </div>
+            <div className="mt-2 text-[32px] font-black leading-none tracking-[-0.08em]">
+              Plinko PvP
+            </div>
+            <p className="mx-auto mt-3 max-w-[250px] text-[12px] font-medium leading-snug text-white/48">
+              Два игрока, скрытые углы, два действия и честное вскрытие на общем поле.
+            </p>
+            <button
+              type="button"
+              onClick={startGame}
+              className="press mt-5 h-11 w-full rounded-[16px] bg-white text-[13px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
+            >
+              Начать
+            </button>
+          </div>
+        </div>
+      )}
+
       {phase === "handoff" && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center px-6 text-center backdrop-blur-lg" style={{ background: "rgba(5,5,7,0.86)" }}>
-          <div className="top-hairline relative w-full max-w-[340px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0a0a11]/92 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(242,199,102,0.15),transparent_38%),radial-gradient(circle_at_100%_35%,rgba(82,255,229,0.10),transparent_40%)]" />
+        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
+          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/95 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.6)]">
             <div
-              className="relative mx-auto grid h-16 w-16 place-items-center rounded-[22px] border text-[28px] font-black"
-              style={{ borderColor: PLAYERS[handoff.to].border, color: PLAYERS[handoff.to].color, background: PLAYERS[handoff.to].soft }}
+              className="mx-auto grid h-12 w-12 place-items-center rounded-[16px] text-[14px] font-black text-[#050507]"
+              style={{ background: PLAYERS[handoff.to].color }}
             >
               {PLAYERS[handoff.to].emoji}
             </div>
-            <p className="relative mt-4 text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/70">
-              Private turn
-            </p>
-            <h2 className="relative mt-1 text-[24px] font-black leading-none tracking-[-0.07em] text-white">
-              Передайте телефон
-            </h2>
-            <p className="relative mt-2 text-[13px] font-bold leading-snug text-white/48">
-              {PLAYERS[handoff.to].name}: {handoff.label}
-            </p>
+            <div className="mt-4 text-[20px] font-black tracking-[-0.06em]">
+              Передай телефон
+            </div>
+            <div className="mt-1 text-[12px] font-bold text-white/46">
+              {PLAYERS[handoff.to].name} · {handoff.label}
+            </div>
             <button
               type="button"
               onClick={proceedHandoff}
-              className="press relative mt-5 h-12 w-full rounded-[17px] text-[14px] font-black tracking-[-0.02em] active:scale-[0.98]"
-              style={{ background: PLAYERS[handoff.to].color, color: "#07070b", boxShadow: `0 12px 28px ${PLAYERS[handoff.to].soft}` }}
+              className="press mt-5 h-11 w-full rounded-[16px] text-[13px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98]"
+              style={{ background: PLAYERS[handoff.to].color }}
             >
-              Я {PLAYERS[handoff.to].name}, продолжить
+              Продолжить
             </button>
           </div>
         </div>
       )}
 
-      {/* INTRO OVERLAY */}
-      {phase === "intro" && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center px-6 text-center" style={{ background: "rgba(5,5,7,0.58)" }}>
-          <div className="top-hairline relative w-full max-w-[340px] overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#0a0a11]/88 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(242,199,102,0.18),transparent_38%),radial-gradient(circle_at_100%_22%,rgba(82,255,229,0.13),transparent_42%),radial-gradient(circle_at_50%_100%,rgba(157,124,255,0.10),transparent_35%)]" />
-            <div className="relative mx-auto grid h-[74px] w-[74px] place-items-center rounded-[24px] border border-white/[0.09] bg-white/[0.05] text-4xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-              🟡
-            </div>
-            <p className="relative mt-4 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/75">
-              <Sparkles size={12} />
-              Battle Club arena
-            </p>
-            <h2 className="relative mt-1 text-[34px] font-black leading-[0.9] tracking-[-0.08em] text-white">
-              Plinko
-              <span className="block text-white/38">PvP</span>
-            </h2>
-            <p className="relative mx-auto mt-3 max-w-[280px] text-[13px] font-medium leading-snug text-white/48">
-              Двое на одном телефоне. Сначала углы шариков, потом скрытые действия: ×2, ÷2 и стенки между пегами.
-            </p>
-            <div className="relative mt-4 grid grid-cols-3 gap-2">
-              <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] px-2 py-2">
-                <p className="text-[16px] font-black text-[#52FFE5]">5</p>
-                <p className="mt-1 text-[7px] font-black uppercase tracking-[0.14em] text-white/34">balls</p>
-              </div>
-              <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] px-2 py-2">
-                <p className="text-[16px] font-black text-[#F2C766]">2</p>
-                <p className="mt-1 text-[7px] font-black uppercase tracking-[0.14em] text-white/34">moves</p>
-              </div>
-              <div className="rounded-[16px] border border-white/[0.07] bg-white/[0.04] px-2 py-2">
-                <p className="text-[16px] font-black text-[#9D7CFF]">10с</p>
-                <p className="mt-1 text-[7px] font-black uppercase tracking-[0.14em] text-white/34">turn</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={startGame}
-              className="press relative mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-[17px] bg-white text-[14px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
-            >
-              <Gamepad2 size={17} />
-              Запустить арену
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* RESULT OVERLAY */}
       {phase === "result" && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center px-6 text-center backdrop-blur-md" style={{ background: "rgba(5,5,7,0.72)" }}>
-          <div className="top-hairline relative w-full max-w-[340px] overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#0a0a11]/90 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(242,199,102,0.18),transparent_40%),radial-gradient(circle_at_100%_25%,rgba(82,255,229,0.12),transparent_42%)]" />
-            {winner === -1 ? (
-              <>
-                <div className="relative mx-auto grid h-16 w-16 place-items-center rounded-[22px] border border-white/[0.08] bg-white/[0.05] text-3xl">🤝</div>
-                <h2 className="relative mt-4 text-[28px] font-black tracking-[-0.07em] text-white">Ничья</h2>
-              </>
-            ) : (
-              <>
-                <div
-                  className="relative mx-auto grid h-16 w-16 place-items-center rounded-[22px] border text-[30px] font-black"
-                  style={{ borderColor: PLAYERS[winner].border, color: PLAYERS[winner].color, background: PLAYERS[winner].soft }}
-                >
-                  {PLAYERS[winner].emoji}
-                </div>
-                <p className="relative mt-4 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/75">
-                  <Trophy size={12} />
-                  Winner
-                </p>
-                <h2 className="relative mt-1 text-[28px] font-black leading-none tracking-[-0.07em]" style={{ color: PLAYERS[winner].color }}>
-                  {PLAYERS[winner].name}
-                </h2>
-              </>
-            )}
-
-            <div className="relative mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-              <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.04] px-3 py-2.5">
-                <p className="text-[8px] font-black uppercase tracking-[0.16em] text-white/34">Игрок 1</p>
-                <p className="mt-1 text-[20px] font-black tracking-[-0.05em] tabular-nums" style={{ color: PLAYERS[0].color }}>×{fmt(scores[0])}</p>
-              </div>
-              <span className="text-[16px] font-black text-white/24">:</span>
-              <div className="rounded-[18px] border border-white/[0.07] bg-white/[0.04] px-3 py-2.5">
-                <p className="text-[8px] font-black uppercase tracking-[0.16em] text-white/34">Игрок 2</p>
-                <p className="mt-1 text-[20px] font-black tracking-[-0.05em] tabular-nums" style={{ color: PLAYERS[1].color }}>×{fmt(scores[1])}</p>
-              </div>
+        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
+          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/94 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.6)]">
+            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/34">
+              Match result
             </div>
-
+            {winner === -1 ? (
+              <div className="mt-2 text-[30px] font-black tracking-[-0.08em]">Ничья</div>
+            ) : (
+              <div
+                className="mt-2 text-[30px] font-black tracking-[-0.08em]"
+                style={{ color: PLAYERS[winner].color }}
+              >
+                {PLAYERS[winner].name} победил
+              </div>
+            )}
+            <div className="mt-4 flex items-center justify-center gap-5 text-[22px] font-black tracking-[-0.06em] tabular-nums">
+              <span style={{ color: PLAYERS[0].color }}>×{fmt(scores[0])}</span>
+              <span className="text-white/24">:</span>
+              <span style={{ color: PLAYERS[1].color }}>×{fmt(scores[1])}</span>
+            </div>
             <button
               type="button"
               onClick={startGame}
-              className="press relative mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-[17px] bg-white text-[14px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
+              className="press mt-5 h-11 w-full rounded-[16px] bg-white text-[13px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
             >
-              <RotateCcw size={17} />
               Играть снова
             </button>
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
