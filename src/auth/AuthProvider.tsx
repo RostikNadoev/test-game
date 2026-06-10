@@ -38,7 +38,7 @@ type RawAuthResponse = {
 
 const TOKEN_STORAGE_KEY = 'twingames_jwt_token';
 
-const AUTH_URL = 'https://shamefully-gifted-catbird.cloudpub.ru/api/v1/auth/telegram';
+const AUTH_URL = 'https://twingames.duckdns.org/api/v1/auth/telegram';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
