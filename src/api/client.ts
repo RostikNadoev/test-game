@@ -1,7 +1,7 @@
 import type { ApiErrorBody } from './types';
 
 const rawBaseUrl =
-  import.meta.env.VITE_API_BASE_URL || 'https://shamefully-gifted-catbird.cloudpub.ru';
+  import.meta.env.VITE_API_BASE_URL || 'https://twingames.duckdns.org';
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/$/, '');
 
