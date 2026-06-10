@@ -1123,17 +1123,22 @@ export default function PlinkoPvpGame() {
 
   return (
     <div
-      className="fixed inset-0 z-[70] overflow-hidden select-none bg-[#050507] text-white"
+      className="relative z-0 flex h-full max-h-full w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white"
       style={{
-        background:
-          "radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%), radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%), linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%)",
         fontFamily:
           "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         touchAction: "none",
       }}
     >
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.14]"
+        className="pointer-events-none fixed inset-0 z-0 bg-[#050507]"
+        style={{
+          background:
+            "radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%), radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%), linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%)",
+        }}
+      />
+      <div
+        className="pointer-events-none fixed inset-0 z-0 opacity-[0.14]"
         style={{
           backgroundImage:
             "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)",
@@ -1143,9 +1148,9 @@ export default function PlinkoPvpGame() {
             "linear-gradient(to bottom, transparent 0%, #000 12%, #000 78%, transparent 100%)",
         }}
       />
-      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+      <div className="pointer-events-none fixed inset-x-8 top-0 z-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
 
-      <div ref={wrapRef} className="absolute inset-0">
+      <div ref={wrapRef} className="absolute inset-0 z-10">
         <canvas
           ref={canvasRef}
           onPointerDown={onCanvasPointer}
@@ -1157,7 +1162,7 @@ export default function PlinkoPvpGame() {
         />
       </div>
 
-      <div className="pointer-events-none absolute left-2.5 right-2.5 z-30 grid grid-cols-[1fr_auto_1fr] items-start gap-2 pt-[calc(env(safe-area-inset-top,0px)+7px)]">
+      <div className="pointer-events-none absolute left-2.5 right-2.5 top-0 z-30 grid grid-cols-[1fr_auto_1fr] items-start gap-2 pt-1.5">
         {PLAYERS.map((p, i) => {
           const active = (phase === "angles" || phase === "actions") && turn === i;
           return (
@@ -1198,7 +1203,7 @@ export default function PlinkoPvpGame() {
         <div
           className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.08] bg-[#08080d]/92 px-3 py-1.5 text-[11px] font-black tracking-[-0.02em] shadow-[0_10px_26px_rgba(0,0,0,0.35)]"
           style={{
-            top: "calc(env(safe-area-inset-top, 0px) + 54px)",
+            top: "54px",
             color: PLAYERS[lastGain.p].color,
           }}
         >
