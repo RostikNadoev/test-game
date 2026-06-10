@@ -411,6 +411,35 @@ export default function PlinkoPvpGame() {
     };
   }, []);
 
+
+  /* --------------------------- ФОН НА ВЕСЬ ЭКРАН --------------------------- */
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.setAttribute("data-plinko-fullscreen-bg", "true");
+    style.textContent = `
+      html,
+      body {
+        background:
+          radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%),
+          radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%),
+          linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%) !important;
+      }
+
+      #root {
+        background:
+          radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%),
+          radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%),
+          linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%) !important;
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    return () => {
+      style.remove();
+    };
+  }, []);
+
   /* --------------------------- CANVAS / АНИМАЦИЯ --------------------------- */
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -1130,26 +1159,6 @@ export default function PlinkoPvpGame() {
         touchAction: "none",
       }}
     >
-      <div
-        className="pointer-events-none fixed inset-0 z-0 bg-[#050507]"
-        style={{
-          background:
-            "radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%), radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%), linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%)",
-        }}
-      />
-      <div
-        className="pointer-events-none fixed inset-0 z-0 opacity-[0.14]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-          maskImage: "linear-gradient(to bottom, transparent 0%, #000 12%, #000 78%, transparent 100%)",
-          WebkitMaskImage:
-            "linear-gradient(to bottom, transparent 0%, #000 12%, #000 78%, transparent 100%)",
-        }}
-      />
-      <div className="pointer-events-none fixed inset-x-8 top-0 z-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-
       <div ref={wrapRef} className="absolute inset-0 z-10">
         <canvas
           ref={canvasRef}
