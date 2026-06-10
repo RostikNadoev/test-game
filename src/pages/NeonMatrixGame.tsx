@@ -46,6 +46,7 @@ const SPIN_MS = 5000;
 const DAMAGE_APPLY_MS = 1600;
 const RESULT_SHOW_MS = 3900;
 
+/* P1 = mint, P2 = rose. Target / action accent = gold. Internal keys stay 'cyan'/'magenta'. */
 const PLAYERS: Record<
   Player,
   {
@@ -58,20 +59,20 @@ const PLAYERS: Record<
   }
 > = {
   cyan: {
-    name: 'Cyan',
+    name: 'Mint',
     label: 'Игрок 1',
     short: 'P1',
-    main: '#22d3ee',
-    soft: 'rgba(34, 211, 238, .15)',
-    glow: 'rgba(34, 211, 238, .68)',
+    main: '#52FFE5',
+    soft: 'rgba(82, 255, 229, .15)',
+    glow: 'rgba(82, 255, 229, .60)',
   },
   magenta: {
-    name: 'Magenta',
+    name: 'Rose',
     label: 'Игрок 2',
     short: 'P2',
-    main: '#e879f9',
-    soft: 'rgba(232, 121, 249, .15)',
-    glow: 'rgba(232, 121, 249, .62)',
+    main: '#FF6B8A',
+    soft: 'rgba(255, 107, 138, .15)',
+    glow: 'rgba(255, 107, 138, .55)',
   },
 };
 
@@ -259,7 +260,7 @@ const TopHud = ({
       />
 
       <div className="rd-round">
-        <span>R</span>
+        <span>Round</span>
         <b>{round}</b>
       </div>
 
@@ -315,8 +316,8 @@ const Wheel = ({
         {labels.map((label) => {
           const angleDeg = numberToAngle(label);
           const rad = (angleDeg - 90) * (Math.PI / 180);
-          const x = 50 + Math.cos(rad) * 41;
-          const y = 50 + Math.sin(rad) * 41;
+          const x = 50 + Math.cos(rad) * 36;
+          const y = 50 + Math.sin(rad) * 36;
 
           return (
             <span key={label} style={{ left: `${x}%`, top: `${y}%` }}>
@@ -327,10 +328,7 @@ const Wheel = ({
       </div>
 
       {showPicks && picks.cyan !== null && (
-        <div
-          className="rd-bet rd-bet-cyan"
-          style={cssVars({ '--a': `${numberToAngle(picks.cyan)}deg` })}
-        >
+        <div className="rd-bet rd-bet-cyan" style={cssVars({ '--a': `${numberToAngle(picks.cyan)}deg` })}>
           <span>
             <b>P1</b>
             {showDistances && outcome && <em>Δ{outcome.cyanDistance}</em>}
@@ -339,10 +337,7 @@ const Wheel = ({
       )}
 
       {showPicks && picks.magenta !== null && (
-        <div
-          className="rd-bet rd-bet-magenta"
-          style={cssVars({ '--a': `${numberToAngle(picks.magenta)}deg` })}
-        >
+        <div className="rd-bet rd-bet-magenta" style={cssVars({ '--a': `${numberToAngle(picks.magenta)}deg` })}>
           <span>
             <b>P2</b>
             {showDistances && outcome && <em>Δ{outcome.magentaDistance}</em>}
@@ -351,10 +346,7 @@ const Wheel = ({
       )}
 
       {target !== null && (
-        <div
-          className="rd-bet rd-bet-target"
-          style={cssVars({ '--a': `${numberToAngle(target)}deg` })}
-        >
+        <div className="rd-bet rd-bet-target" style={cssVars({ '--a': `${numberToAngle(target)}deg` })}>
           <span>{target}</span>
         </div>
       )}
@@ -390,13 +382,7 @@ const Wheel = ({
       </div>
 
       <div className="rd-center">
-        <small>
-          {phase === 'spinning'
-            ? 'rolling'
-            : target !== null
-              ? 'final'
-              : 'pick'}
-        </small>
+        <small>{phase === 'spinning' ? 'rolling' : target !== null ? 'final' : 'pick'}</small>
         <strong>{phase === 'spinning' ? '•••' : target ?? displayNumber}</strong>
       </div>
     </div>
@@ -424,7 +410,7 @@ const PickPreview = ({
     <div className="rd-picks">
       <div className="rd-pick rd-pick-cyan">
         <span>P1</span>
-        <b>{hiddenCyan ? '??' : picks.cyan ?? '—'}</b>
+        <b>{hiddenCyan ? '••' : picks.cyan ?? '—'}</b>
         {showDistances && outcome && <small>Δ{outcome.cyanDistance}</small>}
       </div>
 
@@ -435,7 +421,7 @@ const PickPreview = ({
 
       <div className="rd-pick rd-pick-magenta">
         <span>P2</span>
-        <b>{hiddenMagenta ? '??' : picks.magenta ?? '—'}</b>
+        <b>{hiddenMagenta ? '••' : picks.magenta ?? '—'}</b>
         {showDistances && outcome && <small>Δ{outcome.magentaDistance}</small>}
       </div>
     </div>
@@ -509,8 +495,7 @@ export const NeonMatrixGame: React.FC = () => {
   const handoffPlayer: Player = picks.cyan === null ? 'cyan' : 'magenta';
   const canPick = phase === 'pickCyan' || phase === 'pickMagenta';
 
-  const matchWinner: Player | null =
-    health.cyan <= 0 ? 'magenta' : health.magenta <= 0 ? 'cyan' : null;
+  const matchWinner: Player | null = health.cyan <= 0 ? 'magenta' : health.magenta <= 0 ? 'cyan' : null;
 
   const showWheelPicks =
     phase === 'spinning' || phase === 'impact' || phase === 'result' || phase === 'gameover';
@@ -548,22 +533,25 @@ export const NeonMatrixGame: React.FC = () => {
   }, []);
 
   const burst = (tone: Particle['tone'], x: string, y: string, amount = 18) => {
-    const items = Array.from({ length: amount }, (_, index) => ({
+    // Tasteful cap — keeps impact feedback premium instead of noisy.
+    const count = Math.max(6, Math.min(amount, 16));
+
+    const items = Array.from({ length: count }, (_, index) => ({
       id: Date.now() + Math.random() + index,
       x,
       y,
-      angle: (360 / amount) * index + Math.random() * 20,
-      distance: 42 + Math.random() * 86,
-      size: 3 + Math.random() * 6,
+      angle: (360 / count) * index + Math.random() * 18,
+      distance: 34 + Math.random() * 68,
+      size: 2 + Math.random() * 4,
       tone,
-      delay: Math.random() * 70,
+      delay: Math.random() * 60,
     }));
 
     setParticles((prev) => [...prev, ...items]);
 
     window.setTimeout(() => {
       setParticles((prev) => prev.filter((item) => !items.some((newItem) => newItem.id === item.id)));
-    }, 1100);
+    }, 1000);
   };
 
   const changeDraft = (value: number) => {
@@ -589,7 +577,7 @@ export const NeonMatrixGame: React.FC = () => {
 
     if (nextOutcome.damage === 0) {
       setMessage('Одинаковая дистанция. Урона нет.');
-      burst('green', '50%', '43%', 24);
+      burst('green', '50%', '43%', 18);
       hapticNotify('success');
 
       schedule(() => {
@@ -613,8 +601,8 @@ export const NeonMatrixGame: React.FC = () => {
     schedule(() => {
       setHealth(nextHealth);
       hapticNotify(nextHealth.cyan <= 0 || nextHealth.magenta <= 0 ? 'error' : 'warning');
-      burst(nextOutcome.defender === 'cyan' ? 'magenta' : 'cyan', nextOutcome.defender === 'cyan' ? '24%' : '76%', '12%', 20);
-      burst('red', nextOutcome.defender === 'cyan' ? '22%' : '78%', '14%', 18);
+      burst(nextOutcome.defender === 'cyan' ? 'magenta' : 'cyan', nextOutcome.defender === 'cyan' ? '24%' : '76%', '12%', 16);
+      burst('red', nextOutcome.defender === 'cyan' ? '22%' : '78%', '14%', 14);
     }, DAMAGE_APPLY_MS);
 
     schedule(() => {
@@ -638,7 +626,7 @@ export const NeonMatrixGame: React.FC = () => {
     setOutcome(null);
     setPhase('spinning');
     setMessage('Рулетка крутится...');
-    burst('gold', '50%', '43%', 12);
+    burst('gold', '50%', '43%', 10);
     hapticImpact('medium');
 
     schedule(() => {
@@ -646,7 +634,7 @@ export const NeonMatrixGame: React.FC = () => {
     }, 60);
 
     schedule(() => {
-      burst('gold', '50%', '43%', 32);
+      burst('gold', '50%', '43%', 16);
       hapticImpact('heavy');
       finishRound(finalTarget, finalPicks);
     }, SPIN_MS + 160);
@@ -662,7 +650,7 @@ export const NeonMatrixGame: React.FC = () => {
     };
 
     setPicks(nextPicks);
-    burst(player, player === 'cyan' ? '34%' : '66%', '43%', 14);
+    burst(player, player === 'cyan' ? '34%' : '66%', '43%', 12);
     hapticImpact('medium');
 
     const missingPlayer: Player | null =
@@ -674,6 +662,9 @@ export const NeonMatrixGame: React.FC = () => {
       return;
     }
 
+    // Both picks are in: lock controls immediately so a fast double-tap
+    // can't queue a second spin during the 320ms pre-roll.
+    setPhase('spinning');
     setMessage('Оба выбора сохранены.');
     schedule(() => startSpin(nextPicks), 320);
   };
@@ -777,6 +768,13 @@ export const NeonMatrixGame: React.FC = () => {
     <div className={`rd-page rd-${phase}`}>
       <style>{`
         .rd-page {
+          --mint: #52FFE5;
+          --rose: #FF6B8A;
+          --gold: #F2C766;
+          --danger: #FF4D6D;
+          --line: rgba(255,255,255,.07);
+          --line-soft: rgba(255,255,255,.05);
+
           position: relative;
           width: 100%;
           height: 100%;
@@ -785,46 +783,19 @@ export const NeonMatrixGame: React.FC = () => {
           display: grid;
           grid-template-rows: auto minmax(0, 1fr) auto;
           gap: 4px;
-          padding: 7px 7px max(7px, env(safe-area-inset-bottom));
+          padding: 8px 8px max(8px, env(safe-area-inset-bottom));
           color: white;
-          font-family:
-            Inter,
-            ui-sans-serif,
-            system-ui,
-            -apple-system,
-            BlinkMacSystemFont,
-            "Segoe UI",
-            sans-serif;
+          font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           user-select: none;
           isolation: isolate;
           background:
-            radial-gradient(circle at 50% 10%, rgba(255,255,255,.08), transparent 27%),
-            radial-gradient(circle at 18% 46%, rgba(34,211,238,.16), transparent 34%),
-            radial-gradient(circle at 84% 44%, rgba(232,121,249,.15), transparent 34%),
-            linear-gradient(145deg, #020617 0%, #070b18 48%, #12051b 100%);
+            radial-gradient(circle at 16% 18%, rgba(82,255,229,.07), transparent 38%),
+            radial-gradient(circle at 84% 18%, rgba(255,107,138,.06), transparent 38%),
+            radial-gradient(circle at 50% 122%, rgba(242,199,102,.06), transparent 52%),
+            linear-gradient(160deg, #08080d 0%, #050507 52%, #0a0810 100%);
         }
 
-        .rd-page * {
-          box-sizing: border-box;
-        }
-
-        .rd-page::before {
-          content: "";
-          position: absolute;
-          inset: -35%;
-          z-index: -2;
-          opacity: .20;
-          background:
-            conic-gradient(
-              from 160deg at 50% 50%,
-              transparent 0deg,
-              rgba(34,211,238,.18) 78deg,
-              transparent 150deg,
-              rgba(232,121,249,.16) 240deg,
-              transparent 330deg
-            );
-          animation: rdAura 36s linear infinite;
-        }
+        .rd-page * { box-sizing: border-box; }
 
         .rd-page::after {
           content: "";
@@ -833,77 +804,75 @@ export const NeonMatrixGame: React.FC = () => {
           z-index: -1;
           pointer-events: none;
           background:
-            radial-gradient(circle at 50% 50%, transparent 0 44%, rgba(0,0,0,.50) 100%),
-            linear-gradient(180deg, rgba(0,0,0,.08), transparent 40%, rgba(0,0,0,.30));
+            radial-gradient(circle at 50% 48%, transparent 0 46%, rgba(0,0,0,.46) 100%),
+            linear-gradient(180deg, rgba(0,0,0,.06), transparent 38%, rgba(0,0,0,.26));
         }
+
+        /* ---------------------------------------------------------- HUD */
 
         .rd-top {
           position: relative;
           z-index: 25;
           display: grid;
-          grid-template-columns: 1fr 42px 1fr;
+          grid-template-columns: 1fr 48px 1fr;
           align-items: center;
-          gap: 5px;
-          min-height: 42px;
+          gap: 6px;
+          min-height: 44px;
         }
 
         .rd-health {
           position: relative;
           min-width: 0;
           overflow: hidden;
-          border-radius: 17px;
-          border: 1px solid rgba(255,255,255,.09);
+          border-radius: 16px;
+          border: 1px solid var(--line);
           background:
-            radial-gradient(circle at 50% 0%, var(--player-soft), transparent 70%),
-            rgba(255,255,255,.050);
-          padding: 6px;
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.09),
-            0 14px 38px rgba(0,0,0,.25);
-          backdrop-filter: blur(18px);
+            radial-gradient(circle at 50% 0%, var(--player-soft), transparent 74%),
+            rgba(255,255,255,.025);
+          padding: 7px 9px;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.28);
         }
 
         .rd-health-active {
-          border-color: rgba(255,255,255,.16);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.10),
-            0 0 28px var(--player-soft);
+          border-color: var(--player-glow);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 22px var(--player-soft);
         }
 
         .rd-health-head {
           position: relative;
           z-index: 2;
           display: flex;
-          align-items: center;
+          align-items: baseline;
           justify-content: space-between;
           gap: 8px;
-          margin-bottom: 5px;
+          margin-bottom: 6px;
         }
 
         .rd-health-head span {
-          color: rgba(255,255,255,.48);
-          font-size: 7px;
+          color: var(--player);
+          font-size: 8px;
           line-height: 1;
-          font-weight: 1000;
-          letter-spacing: .18em;
+          font-weight: 900;
+          letter-spacing: .2em;
           text-transform: uppercase;
+          opacity: .85;
         }
 
         .rd-health-head b {
           color: white;
-          font-size: 15px;
+          font-size: 16px;
           line-height: .9;
-          font-weight: 1000;
-          letter-spacing: -.06em;
+          font-weight: 900;
+          letter-spacing: -.05em;
         }
 
         .rd-health-track {
           position: relative;
-          height: 7px;
+          height: 6px;
           overflow: hidden;
           border-radius: 999px;
-          background: rgba(0,0,0,.34);
-          box-shadow: inset 0 1px 3px rgba(0,0,0,.65);
+          background: rgba(0,0,0,.4);
+          box-shadow: inset 0 1px 2px rgba(0,0,0,.6);
         }
 
         .rd-health-track i {
@@ -911,72 +880,64 @@ export const NeonMatrixGame: React.FC = () => {
           inset: 0 auto 0 0;
           width: var(--hp);
           border-radius: inherit;
-          background:
-            linear-gradient(90deg, var(--player), #ffffff);
-          box-shadow: 0 0 18px var(--player-glow);
+          background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 62%), var(--player);
+          box-shadow: 0 0 14px var(--player-glow);
           transition: width 1.85s cubic-bezier(.16, 1, .22, 1);
         }
 
         .rd-health-magenta .rd-health-track i {
           left: auto;
           right: 0;
-          background:
-            linear-gradient(270deg, var(--player), #ffffff);
         }
 
         .rd-health em {
           position: absolute;
           z-index: 4;
-          right: 8px;
-          top: 5px;
-          color: #fecaca;
-          font-size: 14px;
+          right: 9px;
+          top: 6px;
+          color: var(--danger);
+          font-size: 15px;
           line-height: 1;
           font-style: normal;
-          font-weight: 1000;
-          text-shadow: 0 0 18px rgba(248,113,113,.8);
+          font-weight: 900;
+          text-shadow: 0 0 16px rgba(255,77,109,.7);
           animation: rdDamagePop 1.55s ease both;
         }
 
-        .rd-health-cyan em {
-          right: auto;
-          left: 8px;
-        }
-
-        .rd-health-damaged {
-          animation: rdHealthHit 1.15s ease both;
-        }
+        .rd-health-cyan em { right: auto; left: 9px; }
+        .rd-health-damaged { animation: rdHealthHit 1.15s ease both; }
 
         .rd-round {
-          height: 40px;
+          height: 42px;
           display: grid;
           place-items: center;
           align-content: center;
           gap: 2px;
-          border-radius: 15px;
-          border: 1px solid rgba(255,255,255,.10);
-          background: rgba(255,255,255,.065);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.10),
-            0 14px 36px rgba(0,0,0,.28);
-          backdrop-filter: blur(18px);
+          border-radius: 14px;
+          border: 1px solid var(--line);
+          background: rgba(255,255,255,.03);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.28);
         }
 
         .rd-round span {
-          color: rgba(255,255,255,.42);
-          font-size: 7px;
+          color: rgba(255,255,255,.4);
+          font-size: 6.5px;
           line-height: 1;
-          font-weight: 1000;
+          font-weight: 900;
           letter-spacing: .16em;
           text-transform: uppercase;
         }
 
         .rd-round b {
-          color: white;
-          font-size: 16px;
+          color: var(--gold);
+          font-size: 17px;
           line-height: .9;
-          font-weight: 1000;
+          font-weight: 900;
+          letter-spacing: -.04em;
+          text-shadow: 0 0 16px rgba(242,199,102,.3);
         }
+
+        /* ---------------------------------------------------------- stage */
 
         .rd-main {
           position: relative;
@@ -989,178 +950,130 @@ export const NeonMatrixGame: React.FC = () => {
           gap: 2px;
         }
 
-        .rd-title {
-          text-align: center;
-          transform: translateY(1px);
-        }
+        .rd-title { text-align: center; }
 
         .rd-title small {
           display: block;
-          color: rgba(255,255,255,.34);
+          color: rgba(255,255,255,.32);
           font-size: 7px;
           line-height: 1;
-          font-weight: 1000;
-          letter-spacing: .22em;
+          font-weight: 900;
+          letter-spacing: .26em;
           text-transform: uppercase;
         }
 
         .rd-title h1 {
-          margin: 3px 0 0;
-          font-size: clamp(23px, 5.4vw, 38px);
+          margin: 4px 0 0;
+          font-size: clamp(22px, 5.2vw, 36px);
           line-height: .85;
-          font-weight: 1000;
-          letter-spacing: -.08em;
-          background: linear-gradient(90deg, #a5f3fc, #fff, #f5d0fe);
+          font-weight: 900;
+          letter-spacing: -.07em;
+          background: linear-gradient(100deg, #eafffb, #ffffff 42%, #ffe9b8);
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
-          text-shadow: 0 18px 40px rgba(0,0,0,.42);
         }
+
+        .rd-impact .rd-title h1 { background: linear-gradient(100deg, #fff, #ffd0d8); -webkit-background-clip: text; background-clip: text; }
+        .rd-gameover .rd-title h1 { background: linear-gradient(100deg, #fff, #ffe9b8); -webkit-background-clip: text; background-clip: text; }
 
         .rd-wheel {
           position: relative;
-          width: min(87vw, 448px);
-          height: min(87vw, 448px);
-          max-width: min(57vh, 448px);
-          max-height: min(57vh, 448px);
-          min-width: 286px;
-          min-height: 286px;
+          width: min(86vw, 440px);
+          height: min(86vw, 440px);
+          max-width: min(56vh, 440px);
+          max-height: min(56vh, 440px);
+          min-width: 282px;
+          min-height: 282px;
           border-radius: 50%;
           display: grid;
           place-items: center;
-          filter: drop-shadow(0 30px 70px rgba(0,0,0,.46));
+          filter: drop-shadow(0 26px 56px rgba(0,0,0,.5));
         }
 
         .rd-pickCyan .rd-wheel,
         .rd-pickMagenta .rd-wheel {
-          width: min(84vw, 420px);
-          height: min(84vw, 420px);
-          max-width: min(50vh, 420px);
-          max-height: min(50vh, 420px);
+          width: min(83vw, 412px);
+          height: min(83vw, 412px);
+          max-width: min(49vh, 412px);
+          max-height: min(49vh, 412px);
         }
 
         .rd-wheel-orb {
           position: absolute;
-          inset: -9%;
+          inset: 5%;
           border-radius: inherit;
-          opacity: .78;
-          background:
-            radial-gradient(circle at 34% 32%, rgba(34,211,238,.18), transparent 34%),
-            radial-gradient(circle at 70% 68%, rgba(232,121,249,.18), transparent 35%);
-          filter: blur(11px);
-          animation: rdOrbFloat 4.8s ease-in-out infinite alternate;
+          background: radial-gradient(circle at 50% 28%, rgba(255,255,255,.05), transparent 52%);
         }
 
         .rd-wheel-aura {
           position: absolute;
-          inset: -3%;
+          inset: -2px;
           border-radius: inherit;
-          background:
-            conic-gradient(
-              from 0deg,
-              rgba(34,211,238,.0),
-              rgba(34,211,238,.18),
-              rgba(255,255,255,.04),
-              rgba(232,121,249,.18),
-              rgba(34,211,238,.0)
-            );
-          filter: blur(9px);
-          opacity: .64;
-          animation: rdAuraSlow 12s linear infinite;
+          border: 1px solid rgba(242,199,102,.18);
+          box-shadow: 0 0 26px rgba(242,199,102,.07), inset 0 0 0 1px rgba(255,255,255,.02);
         }
 
         .rd-wheel-surface {
           position: absolute;
           inset: 0;
           border-radius: inherit;
-          border: 1px solid rgba(255,255,255,.15);
+          border: 1px solid rgba(255,255,255,.08);
           background:
-            radial-gradient(circle at 50% 42%, rgba(255,255,255,.18), rgba(255,255,255,.045) 35%, rgba(255,255,255,.018) 63%, rgba(0,0,0,.25) 100%),
-            repeating-conic-gradient(
-              from 0deg,
-              rgba(255,255,255,.055) 0deg,
-              rgba(255,255,255,.055) 1deg,
-              transparent 1deg,
-              transparent 3.6deg
-            ),
-            conic-gradient(
-              from 0deg,
-              rgba(34,211,238,.22),
-              rgba(255,255,255,.045),
-              rgba(232,121,249,.21),
-              rgba(255,255,255,.045),
-              rgba(34,211,238,.22)
-            );
+            radial-gradient(circle at 50% 30%, rgba(255,255,255,.06), transparent 46%),
+            radial-gradient(circle at 50% 50%, #0e0e16 0%, #08080e 62%, #050509 100%);
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.19),
-            inset 0 -42px 70px rgba(0,0,0,.30),
-            0 0 82px rgba(34,211,238,.10);
+            inset 0 1px 0 rgba(255,255,255,.07),
+            inset 0 -34px 58px rgba(0,0,0,.55),
+            inset 0 0 0 9px rgba(255,255,255,.012);
         }
 
         .rd-wheel-glass {
           position: absolute;
-          inset: 9%;
+          inset: 14%;
           border-radius: inherit;
           pointer-events: none;
+          border: 1px solid rgba(255,255,255,.05);
           background:
-            radial-gradient(circle at 50% 28%, rgba(255,255,255,.09), transparent 32%),
-            radial-gradient(circle at 50% 80%, rgba(0,0,0,.24), transparent 46%);
-          border: 1px solid rgba(255,255,255,.045);
+            radial-gradient(circle at 50% 26%, rgba(255,255,255,.05), transparent 42%),
+            radial-gradient(circle at 50% 82%, rgba(0,0,0,.22), transparent 48%);
         }
 
-        .rd-spinning .rd-wheel-surface {
-          animation: rdWheelGlow 1s ease-in-out infinite alternate;
-        }
+        .rd-spinning .rd-wheel-surface { animation: rdWheelGlow 1.1s ease-in-out infinite alternate; }
+        .rd-impact .rd-wheel-surface { animation: rdImpactGlow 1.4s ease-in-out both; }
 
-        .rd-impact .rd-wheel-surface {
-          animation: rdImpactGlow 1.45s ease-in-out both;
-        }
+        .rd-marks { position: absolute; inset: 0; border-radius: inherit; }
 
-        .rd-marks {
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-        }
-
+        /* Radius scales with the wheel (height %), so ticks never drift on small screens. */
         .rd-marks i {
           position: absolute;
           left: 50%;
-          top: 50%;
+          top: 0;
           width: 2px;
-          height: 8px;
-          border-radius: 999px;
-          background: rgba(255,255,255,.18);
-          transform:
-            rotate(var(--a))
-            translateY(calc(-1 * min(42vw, 204px)))
-            translateX(-50%);
-          transform-origin: center;
+          height: 48%;
+          transform-origin: 50% 100%;
+          transform: translateX(-50%) rotate(var(--a));
+          background: linear-gradient(to bottom, rgba(255,255,255,.10) 0 7px, transparent 7px);
         }
 
         .rd-marks .rd-mark-mid {
-          height: 11px;
-          background: rgba(255,255,255,.28);
+          background: linear-gradient(to bottom, rgba(255,255,255,.22) 0 10px, transparent 10px);
         }
 
         .rd-marks .rd-mark-major {
-          width: 3px;
-          height: 16px;
-          background: rgba(255,255,255,.54);
-          box-shadow: 0 0 14px rgba(255,255,255,.18);
+          width: 2.5px;
+          background: linear-gradient(to bottom, rgba(242,199,102,.55) 0 14px, transparent 14px);
         }
 
-        .rd-labels {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-        }
+        .rd-labels { position: absolute; inset: 0; pointer-events: none; }
 
         .rd-labels span {
           position: absolute;
           transform: translate(-50%, -50%);
-          color: rgba(255,255,255,.34);
+          color: rgba(255,255,255,.4);
           font-size: 10px;
-          font-weight: 1000;
+          font-weight: 900;
+          letter-spacing: -.02em;
         }
 
         .rd-bet {
@@ -1175,60 +1088,41 @@ export const NeonMatrixGame: React.FC = () => {
           position: absolute;
           left: 50%;
           top: 7.5%;
-          min-width: 30px;
-          min-height: 30px;
+          min-width: 28px;
+          min-height: 28px;
           display: grid;
           place-items: center;
           gap: 1px;
           transform: translate(-50%, -50%) rotate(calc(-1 * var(--a)));
           border-radius: 999px;
-          padding: 4px 6px;
-          color: #020617;
+          padding: 3px 6px;
           font-size: 9px;
           line-height: 1;
-          font-weight: 1000;
+          font-weight: 900;
           letter-spacing: -.02em;
-          box-shadow:
-            0 0 0 4px rgba(255,255,255,.08),
-            0 0 26px currentColor;
         }
 
-        .rd-bet span b {
-          font-size: 9px;
-          line-height: 1;
-        }
-
-        .rd-bet span em {
-          font-size: 8px;
-          line-height: 1;
-          font-style: normal;
-          opacity: .8;
-        }
+        .rd-bet span b { font-size: 9px; line-height: 1; }
+        .rd-bet span em { font-size: 7.5px; line-height: 1; font-style: normal; opacity: .82; }
 
         .rd-bet-cyan span {
-          background: #67e8f9;
-          color: #083344;
-          box-shadow:
-            0 0 0 4px rgba(103,232,249,.12),
-            0 0 28px rgba(34,211,238,.75);
+          background: linear-gradient(180deg, #8ffff1, #52FFE5);
+          color: #04201c;
+          box-shadow: 0 0 0 3px rgba(82,255,229,.14), 0 0 16px rgba(82,255,229,.55);
         }
 
         .rd-bet-magenta span {
-          background: #f5d0fe;
-          color: #4a044e;
-          box-shadow:
-            0 0 0 4px rgba(245,208,254,.12),
-            0 0 28px rgba(217,70,239,.75);
+          background: linear-gradient(180deg, #ff9cb1, #FF6B8A);
+          color: #3a0716;
+          box-shadow: 0 0 0 3px rgba(255,107,138,.14), 0 0 16px rgba(255,107,138,.5);
         }
 
         .rd-bet-target span {
-          min-width: 36px;
-          height: 36px;
-          background: linear-gradient(135deg, #fff7ed, #fde68a, #f59e0b);
-          color: #422006;
-          box-shadow:
-            0 0 0 5px rgba(251,191,36,.14),
-            0 0 34px rgba(251,191,36,.85);
+          min-width: 34px;
+          height: 34px;
+          background: linear-gradient(180deg, #ffe9ad, #F2C766);
+          color: #3a2a06;
+          box-shadow: 0 0 0 4px rgba(242,199,102,.16), 0 0 22px rgba(242,199,102,.7);
           animation: rdTargetPulse .9s ease-in-out infinite alternate;
         }
 
@@ -1242,80 +1136,78 @@ export const NeonMatrixGame: React.FC = () => {
           pointer-events: none;
         }
 
-        .rd-spinning .rd-arrow {
-          transition: transform var(--spin-ms) cubic-bezier(.06, .86, .05, 1);
-        }
+        .rd-spinning .rd-arrow { transition: transform var(--spin-ms) cubic-bezier(.06, .86, .05, 1); }
 
         .rd-arrow-line {
           position: absolute;
           left: 50%;
           top: 8%;
-          width: 5px;
+          width: 4px;
           height: 41%;
           transform: translateX(-50%);
           border-radius: 999px;
-          background:
-            linear-gradient(180deg, #ffffff, #fde68a 45%, rgba(251,191,36,.18));
-          box-shadow:
-            0 0 26px rgba(251,191,36,.72),
-            0 0 54px rgba(251,191,36,.36);
+          background: linear-gradient(180deg, #ffffff, #F2C766 48%, rgba(242,199,102,.12));
+          box-shadow: 0 0 16px rgba(242,199,102,.5);
         }
 
         .rd-arrow-head {
           position: absolute;
           left: 50%;
-          top: 3.4%;
+          top: 3.2%;
           width: 0;
           height: 0;
           transform: translateX(-50%);
-          border-left: 12px solid transparent;
-          border-right: 12px solid transparent;
-          border-bottom: 25px solid #fde68a;
-          filter:
-            drop-shadow(0 0 12px rgba(251,191,36,.9))
-            drop-shadow(0 0 30px rgba(251,191,36,.44));
+          border-left: 10px solid transparent;
+          border-right: 10px solid transparent;
+          border-bottom: 22px solid #F2C766;
+          filter: drop-shadow(0 0 8px rgba(242,199,102,.7));
         }
 
         .rd-center {
           position: relative;
           z-index: 9;
-          width: 38%;
+          width: 40%;
           aspect-ratio: 1;
           display: grid;
           place-items: center;
           align-content: center;
           border-radius: 50%;
-          border: 1px solid rgba(255,255,255,.14);
+          border: 1px solid rgba(255,255,255,.1);
           background:
-            radial-gradient(circle at 50% 18%, rgba(255,255,255,.18), transparent 34%),
-            linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.035));
+            radial-gradient(circle at 50% 20%, rgba(255,255,255,.08), transparent 40%),
+            linear-gradient(180deg, rgba(22,22,30,.92), rgba(10,10,16,.94));
           box-shadow:
-            0 26px 70px rgba(0,0,0,.46),
-            inset 0 1px 0 rgba(255,255,255,.18),
-            inset 0 -30px 46px rgba(0,0,0,.25);
-          backdrop-filter: blur(18px);
+            0 20px 48px rgba(0,0,0,.5),
+            inset 0 1px 0 rgba(255,255,255,.1),
+            inset 0 -22px 36px rgba(0,0,0,.4);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
         }
 
-        .rd-spinning .rd-center {
-          animation: rdCenterPulse .58s ease-in-out infinite alternate;
-        }
+        .rd-spinning .rd-center { animation: rdCenterPulse .58s ease-in-out infinite alternate; }
 
         .rd-center small {
-          color: rgba(255,255,255,.42);
+          color: rgba(255,255,255,.4);
           font-size: 7px;
-          font-weight: 1000;
-          letter-spacing: .20em;
+          font-weight: 900;
+          letter-spacing: .22em;
           text-transform: uppercase;
         }
 
         .rd-center strong {
           margin-top: 6px;
           color: white;
-          font-size: clamp(42px, 10.5vw, 70px);
+          font-size: clamp(40px, 10vw, 66px);
           line-height: .82;
-          font-weight: 1000;
-          letter-spacing: -.09em;
+          font-weight: 900;
+          letter-spacing: -.08em;
+          text-shadow: 0 0 26px rgba(242,199,102,.22);
         }
+
+        .rd-final .rd-center strong,
+        .rd-result .rd-center strong { color: var(--gold); }
+
+        /* ---------------------------------------------------------- clash */
 
         .rd-clash {
           position: absolute;
@@ -1329,67 +1221,58 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-clash-value {
           position: absolute;
           top: 50%;
-          width: 72px;
-          height: 72px;
+          width: 70px;
+          height: 70px;
           display: grid;
           place-items: center;
           align-content: center;
-          border-radius: 25px;
-          border: 1px solid rgba(255,255,255,.14);
+          border-radius: 22px;
+          border: 1px solid rgba(255,255,255,.12);
           background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.20), transparent 70%),
-            rgba(5,8,18,.82);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.13),
-            0 20px 60px rgba(0,0,0,.44);
-          backdrop-filter: blur(18px);
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.14), transparent 70%),
+            rgba(8,8,14,.86);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 18px 50px rgba(0,0,0,.46);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
         }
 
         .rd-clash-value small {
-          color: rgba(255,255,255,.42);
           font-size: 8px;
           line-height: 1;
-          font-weight: 1000;
+          font-weight: 900;
           letter-spacing: .16em;
+          opacity: .65;
         }
 
         .rd-clash-value span {
           margin-top: 6px;
-          font-size: 35px;
+          font-size: 34px;
           line-height: .82;
-          font-weight: 1000;
-          letter-spacing: -.08em;
+          font-weight: 900;
+          letter-spacing: -.07em;
         }
 
-        .rd-clash-cyan {
-          color: #a5f3fc;
-          animation: rdClashCyan 1.34s cubic-bezier(.2,.9,.2,1) both;
-        }
-
-        .rd-clash-magenta {
-          color: #f5d0fe;
-          animation: rdClashMagenta 1.34s cubic-bezier(.2,.9,.2,1) both;
-        }
+        .rd-clash-cyan { color: #8ffff1; animation: rdClashCyan 1.34s cubic-bezier(.2,.9,.2,1) both; }
+        .rd-clash-magenta { color: #ff9cb1; animation: rdClashMagenta 1.34s cubic-bezier(.2,.9,.2,1) both; }
 
         .rd-clash-core {
           position: relative;
-          width: 102px;
-          height: 102px;
+          width: 100px;
+          height: 100px;
           display: grid;
           place-items: center;
           align-content: center;
-          border-radius: 34px;
-          border: 1px solid rgba(255,255,255,.15);
+          border-radius: 30px;
+          border: 1px solid rgba(255,255,255,.14);
           background:
-            radial-gradient(circle at 50% 0%, rgba(248,113,113,.25), transparent 70%),
-            rgba(5,8,18,.90);
-          box-shadow:
-            0 0 58px rgba(248,113,113,.30),
-            inset 0 1px 0 rgba(255,255,255,.13);
+            radial-gradient(circle at 50% 0%, rgba(255,77,109,.22), transparent 70%),
+            rgba(8,8,14,.92);
+          box-shadow: 0 0 50px rgba(255,77,109,.26), inset 0 1px 0 rgba(255,255,255,.1);
           opacity: 0;
           transform: scale(.78);
           animation: rdClashCore 1.14s ease .82s both;
-          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
         }
 
         .rd-clash-core::before {
@@ -1397,17 +1280,16 @@ export const NeonMatrixGame: React.FC = () => {
           position: absolute;
           inset: -18px;
           border-radius: inherit;
-          background:
-            radial-gradient(circle, rgba(248,113,113,.22), transparent 64%);
+          background: radial-gradient(circle, rgba(255,77,109,.2), transparent 64%);
           animation: rdShockwave 1.18s ease .82s both;
         }
 
         .rd-clash-core small {
           position: relative;
           z-index: 2;
-          color: rgba(255,255,255,.45);
+          color: rgba(255,255,255,.42);
           font-size: 8px;
-          font-weight: 1000;
+          font-weight: 900;
           letter-spacing: .18em;
           text-transform: uppercase;
         }
@@ -1416,12 +1298,12 @@ export const NeonMatrixGame: React.FC = () => {
           position: relative;
           z-index: 2;
           margin-top: 6px;
-          color: #fecaca;
-          font-size: 44px;
+          color: #ffd7df;
+          font-size: 42px;
           line-height: .82;
-          font-weight: 1000;
-          letter-spacing: -.08em;
-          text-shadow: 0 0 24px rgba(248,113,113,.72);
+          font-weight: 900;
+          letter-spacing: -.07em;
+          text-shadow: 0 0 22px rgba(255,77,109,.7);
         }
 
         .rd-clash-to-cyan .rd-clash-core::after,
@@ -1429,153 +1311,117 @@ export const NeonMatrixGame: React.FC = () => {
           content: "";
           position: absolute;
           z-index: 3;
-          width: 24px;
-          height: 24px;
+          width: 22px;
+          height: 22px;
           border-radius: 999px;
-          background: #fb7185;
-          box-shadow:
-            0 0 24px rgba(248,113,113,.92),
-            0 0 58px rgba(248,113,113,.42);
+          background: var(--danger);
+          box-shadow: 0 0 22px rgba(255,77,109,.9), 0 0 48px rgba(255,77,109,.4);
           animation: rdDamageFlyCyan 1.28s ease 1.22s both;
         }
 
-        .rd-clash-to-magenta .rd-clash-core::after {
-          animation-name: rdDamageFlyMagenta;
-        }
+        .rd-clash-to-magenta .rd-clash-core::after { animation-name: rdDamageFlyMagenta; }
+
+        /* ---------------------------------------------------------- picks */
 
         .rd-picks {
-          width: min(100%, 338px);
+          width: min(100%, 336px);
           display: grid;
           grid-template-columns: 1fr .82fr 1fr;
-          gap: 5px;
-          transform: translateY(-2px);
+          gap: 6px;
         }
 
         .rd-pick {
-          min-height: 29px;
+          min-height: 28px;
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 5px;
           border-radius: 999px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(255,255,255,.052);
-          backdrop-filter: blur(14px);
-          padding: 0 7px;
+          border: 1px solid var(--line);
+          background: rgba(255,255,255,.035);
+          padding: 0 8px;
         }
 
         .rd-pick span {
-          color: rgba(255,255,255,.38);
+          color: rgba(255,255,255,.36);
           font-size: 7px;
-          font-weight: 1000;
-          letter-spacing: .13em;
+          font-weight: 900;
+          letter-spacing: .14em;
           text-transform: uppercase;
         }
 
-        .rd-pick b {
-          font-size: 14px;
-          line-height: .9;
-          font-weight: 1000;
-          letter-spacing: -.06em;
-        }
+        .rd-pick b { font-size: 14px; line-height: .9; font-weight: 900; letter-spacing: -.05em; }
+        .rd-pick small { color: rgba(255,255,255,.45); font-size: 8px; font-weight: 900; }
 
-        .rd-pick small {
-          color: rgba(255,255,255,.45);
-          font-size: 8px;
-          font-weight: 1000;
-        }
+        .rd-pick-cyan b { color: var(--mint); }
+        .rd-pick-magenta b { color: var(--rose); }
+        .rd-pick-final { border-color: rgba(242,199,102,.2); background: rgba(242,199,102,.06); }
+        .rd-pick-final b { color: var(--gold); }
 
-        .rd-pick-cyan b {
-          color: #a5f3fc;
-        }
+        /* ---------------------------------------------------------- bottom */
 
-        .rd-pick-magenta b {
-          color: #f5d0fe;
-        }
-
-        .rd-pick-final b {
-          color: #fde68a;
-        }
-
-        .rd-bottom {
-          position: relative;
-          z-index: 20;
-          display: grid;
-          gap: 5px;
-        }
+        .rd-bottom { position: relative; z-index: 20; display: grid; gap: 6px; }
 
         .rd-message {
           min-height: 12px;
           text-align: center;
-          color: rgba(255,255,255,.58);
+          color: rgba(255,255,255,.55);
           font-size: 9px;
-          line-height: 1.15;
-          font-weight: 800;
-          text-shadow: 0 8px 22px rgba(0,0,0,.38);
+          line-height: 1.2;
+          font-weight: 700;
+          letter-spacing: .01em;
         }
 
         .rd-picker {
           display: grid;
           grid-template-columns: 62px minmax(0, 1fr);
           align-items: center;
-          gap: 9px;
+          gap: 10px;
           min-height: 54px;
-          padding: 8px 10px;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,.09);
+          padding: 9px 12px;
+          border-radius: 20px;
+          border: 1px solid var(--line);
           background:
-            radial-gradient(circle at var(--value) 0%, var(--player-soft), transparent 48%),
-            rgba(255,255,255,.055);
-          box-shadow:
-            0 14px 38px rgba(0,0,0,.24),
-            inset 0 1px 0 rgba(255,255,255,.08);
-          backdrop-filter: blur(18px);
+            radial-gradient(circle at var(--value) 0%, var(--player-soft), transparent 52%),
+            rgba(255,255,255,.035);
+          box-shadow: 0 10px 30px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.05);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
         }
 
-        .rd-picker-value {
-          min-width: 0;
-          display: grid;
-          align-content: center;
-          gap: 3px;
-        }
+        .rd-picker-value { min-width: 0; display: grid; align-content: center; gap: 3px; }
 
         .rd-picker-value span {
-          color: rgba(255,255,255,.42);
+          color: var(--player);
           font-size: 7px;
           line-height: 1;
-          font-weight: 1000;
+          font-weight: 900;
           letter-spacing: .16em;
           text-transform: uppercase;
+          opacity: .85;
         }
 
         .rd-picker-value b {
           color: white;
           font-size: 30px;
           line-height: .82;
-          font-weight: 1000;
-          letter-spacing: -.08em;
-          text-shadow: 0 0 22px var(--player-glow);
+          font-weight: 900;
+          letter-spacing: -.07em;
+          text-shadow: 0 0 20px var(--player-glow);
         }
 
-        .rd-slider-row {
-          position: relative;
-          height: 36px;
-          display: grid;
-          align-items: center;
-        }
+        .rd-slider-row { position: relative; height: 36px; display: grid; align-items: center; }
 
         .rd-slider-track {
           position: absolute;
           left: 8px;
           right: 8px;
           top: 50%;
-          height: 9px;
+          height: 8px;
           transform: translateY(-50%);
           border-radius: 999px;
-          background: rgba(0,0,0,.34);
-          box-shadow:
-            inset 0 1px 3px rgba(0,0,0,.55),
-            0 0 0 1px rgba(255,255,255,.05);
+          background: rgba(0,0,0,.4);
+          box-shadow: inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04);
         }
 
         .rd-slider-fill {
@@ -1583,121 +1429,104 @@ export const NeonMatrixGame: React.FC = () => {
           inset: 0 auto 0 0;
           width: var(--value);
           border-radius: inherit;
-          background: linear-gradient(90deg, #22d3ee, #a855f7, #ec4899);
-          box-shadow: 0 0 20px rgba(168,85,247,.40);
+          background: linear-gradient(90deg, var(--player) 0%, var(--player) 72%, #ffffff 100%);
+          box-shadow: 0 0 16px var(--player-glow);
         }
 
         .rd-slider-thumb {
           position: absolute;
           left: var(--value);
           top: 50%;
-          width: 31px;
-          height: 31px;
+          width: 30px;
+          height: 30px;
           display: grid;
           place-items: center;
           transform: translate(-50%, -50%);
           border-radius: 999px;
-          background: white;
-          box-shadow:
-            0 0 0 7px rgba(255,255,255,.08),
-            0 0 34px var(--player-glow);
+          background: #ffffff;
+          box-shadow: 0 0 0 6px rgba(255,255,255,.07), 0 0 26px var(--player-glow), 0 6px 14px rgba(0,0,0,.4);
         }
 
-        .rd-slider-thumb i {
-          color: #020617;
-          font-size: 8px;
-          line-height: 1;
-          font-style: normal;
-          font-weight: 1000;
-        }
+        .rd-slider-thumb i { color: #050507; font-size: 8px; line-height: 1; font-style: normal; font-weight: 900; }
 
-        .rd-slider {
-          position: relative;
-          z-index: 4;
-          width: 100%;
-          height: 36px;
-          opacity: 0;
-          cursor: pointer;
-        }
+        .rd-slider { position: relative; z-index: 4; width: 100%; height: 36px; opacity: 0; cursor: pointer; margin: 0; }
 
         .rd-button {
           border: 0;
           width: 100%;
-          min-height: 42px;
-          border-radius: 18px;
-          padding: 0 15px;
-          color: white;
-          background: linear-gradient(135deg, #22d3ee 0%, #a855f7 52%, #ec4899 100%);
-          box-shadow:
-            0 16px 36px rgba(168,85,247,.26),
-            inset 0 2px 0 rgba(255,255,255,.24);
-          font-size: 10px;
+          min-height: 44px;
+          border-radius: 16px;
+          padding: 0 16px;
+          color: #1c1505;
+          background: linear-gradient(135deg, #ffe9ad 0%, #F2C766 46%, #d8a63c 100%);
+          box-shadow: 0 12px 28px rgba(242,199,102,.22), inset 0 1px 0 rgba(255,255,255,.5);
+          font-size: 11px;
           line-height: 1;
-          font-weight: 1000;
+          font-weight: 900;
           text-transform: uppercase;
-          letter-spacing: .11em;
+          letter-spacing: .12em;
           white-space: nowrap;
+          transition: transform .12s ease, filter .12s ease;
         }
 
-        .rd-button:active {
-          transform: scale(.97);
-        }
+        .rd-button:active { transform: scale(.975); }
+        .rd-button:disabled { opacity: .4; filter: grayscale(.7); transform: none; }
 
-        .rd-button:disabled {
-          opacity: .45;
-          filter: grayscale(1);
-        }
+        /* ---------------------------------------------------------- modal */
 
         .rd-card {
           position: absolute;
           z-index: 80;
           left: 50%;
           top: 50%;
-          width: min(330px, calc(100% - 32px));
+          width: min(328px, calc(100% - 30px));
           transform: translate(-50%, -50%);
           display: grid;
           justify-items: center;
           gap: 12px;
-          padding: 22px;
+          padding: 24px 22px;
           text-align: center;
-          border: 1px solid rgba(255,255,255,.13);
-          border-radius: 30px;
+          border: 1px solid rgba(255,255,255,.1);
+          border-radius: 26px;
           background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.16), transparent 42%),
-            rgba(5, 8, 18, .90);
-          box-shadow:
-            0 34px 92px rgba(0,0,0,.58),
-            inset 0 1px 0 rgba(255,255,255,.12);
-          backdrop-filter: blur(24px);
+            radial-gradient(circle at 50% 0%, rgba(242,199,102,.12), transparent 44%),
+            rgba(8, 8, 14, .94);
+          box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+          -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
           animation: rdCardIn .25s ease both;
         }
 
         .rd-card-icon {
           display: grid;
           place-items: center;
-          width: 62px;
-          height: 62px;
-          border-radius: 23px;
-          background: linear-gradient(135deg, rgba(34,211,238,.22), rgba(217,70,239,.22));
-          font-size: 30px;
+          width: 58px;
+          height: 58px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,.1);
+          background: linear-gradient(135deg, rgba(82,255,229,.18), rgba(242,199,102,.18));
+          font-size: 28px;
         }
 
         .rd-card h2 {
           margin: 0;
-          font-size: clamp(27px, 7vw, 40px);
-          line-height: .9;
-          font-weight: 1000;
-          letter-spacing: -.08em;
+          color: #fff;
+          font-size: clamp(24px, 6.4vw, 34px);
+          line-height: .92;
+          font-weight: 900;
+          letter-spacing: -.06em;
         }
 
         .rd-card p {
           margin: 0;
-          max-width: 270px;
-          color: rgba(255,255,255,.60);
+          max-width: 264px;
+          color: rgba(255,255,255,.56);
           font-size: 12px;
-          line-height: 1.35;
-          font-weight: 750;
+          line-height: 1.4;
+          font-weight: 600;
         }
+
+        /* ---------------------------------------------------------- particles */
 
         .rd-particle {
           position: absolute;
@@ -1709,379 +1538,142 @@ export const NeonMatrixGame: React.FC = () => {
           border-radius: 999px;
           pointer-events: none;
           background: currentColor;
-          color: #67e8f9;
-          box-shadow: 0 0 18px currentColor;
+          color: var(--mint);
+          box-shadow: 0 0 12px currentColor;
           transform: translate(-50%, -50%);
-          animation: rdParticle .92s cubic-bezier(.18,.86,.22,1) forwards;
+          animation: rdParticle .9s cubic-bezier(.18,.86,.22,1) forwards;
           animation-delay: var(--delay);
         }
 
-        .rd-particle-magenta {
-          color: #f5d0fe;
-        }
+        .rd-particle-magenta { color: var(--rose); }
+        .rd-particle-gold { color: var(--gold); }
+        .rd-particle-green { color: #9be8c4; }
+        .rd-particle-red { color: var(--danger); }
 
-        .rd-particle-gold {
-          color: #fde68a;
-        }
-
-        .rd-particle-green {
-          color: #bbf7d0;
-        }
-
-        .rd-particle-red {
-          color: #fecaca;
-        }
-
-        @keyframes rdAura {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes rdAuraSlow {
-          from { transform: rotate(0deg) scale(.98); }
-          to { transform: rotate(360deg) scale(1.02); }
-        }
-
-        @keyframes rdOrbFloat {
-          from {
-            transform: rotate(-8deg) scale(.98);
-          }
-          to {
-            transform: rotate(8deg) scale(1.02);
-          }
-        }
+        /* ---------------------------------------------------------- keyframes */
 
         @keyframes rdWheelGlow {
-          from {
-            filter: brightness(1);
-            box-shadow:
-              inset 0 1px 0 rgba(255,255,255,.18),
-              inset 0 -42px 70px rgba(0,0,0,.28),
-              0 0 62px rgba(34,211,238,.08);
-          }
-          to {
-            filter: brightness(1.14);
-            box-shadow:
-              inset 0 1px 0 rgba(255,255,255,.18),
-              inset 0 -42px 70px rgba(0,0,0,.28),
-              0 0 98px rgba(251,191,36,.20);
-          }
+          from { filter: brightness(1); }
+          to { filter: brightness(1.1); }
         }
 
         @keyframes rdImpactGlow {
-          0%, 100% {
-            filter: brightness(1);
-          }
-          45% {
-            filter: brightness(1.24);
-          }
+          0%, 100% { filter: brightness(1); }
+          45% { filter: brightness(1.2); }
         }
 
         @keyframes rdCenterPulse {
-          from {
-            transform: scale(.985);
-            filter: brightness(1);
-          }
-          to {
-            transform: scale(1.02);
-            filter: brightness(1.14);
-          }
+          from { transform: scale(.99); filter: brightness(1); }
+          to { transform: scale(1.02); filter: brightness(1.1); }
         }
 
         @keyframes rdTargetPulse {
-          from {
-            transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(.94);
-          }
-          to {
-            transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(1.08);
-          }
+          from { transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(.94); }
+          to { transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(1.07); }
         }
 
         @keyframes rdClashCyan {
-          0% {
-            opacity: 0;
-            transform: translate(-150%, -50%) scale(.78) rotate(-4deg);
-            filter: blur(10px);
-          }
-          25% {
-            opacity: 1;
-            filter: blur(0);
-          }
-          70% {
-            opacity: 1;
-            transform: translate(-60%, -50%) scale(1.04) rotate(0deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-20%, -50%) scale(.82) rotate(3deg);
-          }
+          0% { opacity: 0; transform: translate(-150%, -50%) scale(.78) rotate(-4deg); }
+          26% { opacity: 1; }
+          70% { opacity: 1; transform: translate(-62%, -50%) scale(1.03) rotate(0deg); }
+          100% { opacity: 0; transform: translate(-22%, -50%) scale(.82) rotate(3deg); }
         }
 
         @keyframes rdClashMagenta {
-          0% {
-            opacity: 0;
-            transform: translate(150%, -50%) scale(.78) rotate(4deg);
-            filter: blur(10px);
-          }
-          25% {
-            opacity: 1;
-            filter: blur(0);
-          }
-          70% {
-            opacity: 1;
-            transform: translate(60%, -50%) scale(1.04) rotate(0deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translate(20%, -50%) scale(.82) rotate(-3deg);
-          }
+          0% { opacity: 0; transform: translate(150%, -50%) scale(.78) rotate(4deg); }
+          26% { opacity: 1; }
+          70% { opacity: 1; transform: translate(62%, -50%) scale(1.03) rotate(0deg); }
+          100% { opacity: 0; transform: translate(22%, -50%) scale(.82) rotate(-3deg); }
         }
 
         @keyframes rdClashCore {
-          0% {
-            opacity: 0;
-            transform: scale(.72);
-            filter: blur(8px);
-          }
-          44%, 78% {
-            opacity: 1;
-            transform: scale(1);
-            filter: blur(0);
-          }
-          100% {
-            opacity: 0;
-            transform: scale(.88);
-          }
+          0% { opacity: 0; transform: scale(.72); }
+          44%, 78% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0; transform: scale(.88); }
         }
 
         @keyframes rdShockwave {
-          0% {
-            opacity: 0;
-            transform: scale(.45);
-          }
-          35% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: scale(1.65);
-          }
+          0% { opacity: 0; transform: scale(.45); }
+          35% { opacity: 1; }
+          100% { opacity: 0; transform: scale(1.6); }
         }
 
         @keyframes rdDamageFlyCyan {
-          0% {
-            opacity: 0;
-            transform: translate(0, 0) scale(.6);
-          }
-          15% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: translate(-42vw, -43vh) scale(.2);
-          }
+          0% { opacity: 0; transform: translate(0, 0) scale(.6); }
+          15% { opacity: 1; }
+          100% { opacity: 0; transform: translate(-42vw, -42vh) scale(.2); }
         }
 
         @keyframes rdDamageFlyMagenta {
-          0% {
-            opacity: 0;
-            transform: translate(0, 0) scale(.6);
-          }
-          15% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: translate(42vw, -43vh) scale(.2);
-          }
+          0% { opacity: 0; transform: translate(0, 0) scale(.6); }
+          15% { opacity: 1; }
+          100% { opacity: 0; transform: translate(42vw, -42vh) scale(.2); }
         }
 
         @keyframes rdHealthHit {
-          0%, 100% {
-            transform: translateX(0);
-            filter: brightness(1);
-          }
-          14% {
-            transform: translateX(-2px);
-            filter: brightness(1.34);
-          }
-          28% {
-            transform: translateX(2px);
-          }
-          42% {
-            transform: translateX(-1px);
-          }
-          56% {
-            transform: translateX(1px);
-          }
+          0%, 100% { transform: translateX(0); filter: brightness(1); }
+          14% { transform: translateX(-2px); filter: brightness(1.3); }
+          28% { transform: translateX(2px); }
+          42% { transform: translateX(-1px); }
+          56% { transform: translateX(1px); }
         }
 
         @keyframes rdDamagePop {
-          0% {
-            opacity: 0;
-            transform: translateY(8px) scale(.8);
-          }
-          22% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-18px) scale(.9);
-          }
+          0% { opacity: 0; transform: translateY(8px) scale(.8); }
+          22% { opacity: 1; transform: translateY(0) scale(1); }
+          100% { opacity: 0; transform: translateY(-16px) scale(.9); }
         }
 
         @keyframes rdCardIn {
-          from {
-            opacity: 0;
-            transform: translate(-50%, -44%) scale(.94);
-          }
-          to {
-            opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
-          }
+          from { opacity: 0; transform: translate(-50%, -44%) scale(.94); }
+          to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
         }
 
         @keyframes rdParticle {
-          0% {
-            opacity: 0;
-            transform:
-              translate(-50%, -50%)
-              rotate(var(--a))
-              translateX(0)
-              scale(.25);
-          }
-          18% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform:
-              translate(-50%, -50%)
-              rotate(var(--a))
-              translateX(var(--d))
-              scale(1.1);
-          }
+          0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateX(0) scale(.25); }
+          18% { opacity: 1; }
+          100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateX(var(--d)) scale(1.05); }
         }
 
+        /* ---------------------------------------------------------- responsive */
+
         @media (max-height: 720px) {
-          .rd-page {
-            gap: 2px;
-            padding-top: 6px;
-            padding-bottom: max(6px, env(safe-area-inset-bottom));
-          }
-
-          .rd-top {
-            min-height: 39px;
-          }
-
-          .rd-health {
-            padding: 6px;
-            border-radius: 15px;
-          }
-
-          .rd-health-head {
-            margin-bottom: 4px;
-          }
-
-          .rd-health-head b {
-            font-size: 14px;
-          }
-
-          .rd-round {
-            height: 37px;
-            border-radius: 14px;
-          }
-
-          .rd-title h1 {
-            font-size: clamp(22px, 5.2vw, 34px);
-          }
-
-          .rd-title small {
-            font-size: 6.5px;
-          }
-
+          .rd-page { gap: 3px; padding-top: 7px; padding-bottom: max(7px, env(safe-area-inset-bottom)); }
+          .rd-top { min-height: 41px; }
+          .rd-health { padding: 6px 8px; border-radius: 14px; }
+          .rd-health-head { margin-bottom: 5px; }
+          .rd-health-head b { font-size: 15px; }
+          .rd-round { height: 39px; border-radius: 13px; }
+          .rd-title h1 { font-size: clamp(20px, 5vw, 32px); }
           .rd-wheel {
-            min-width: 270px;
-            min-height: 270px;
-            width: min(82vw, 382px);
-            height: min(82vw, 382px);
-            max-width: min(51vh, 382px);
-            max-height: min(51vh, 382px);
+            min-width: 264px; min-height: 264px;
+            width: min(80vw, 374px); height: min(80vw, 374px);
+            max-width: min(50vh, 374px); max-height: min(50vh, 374px);
           }
-
-          .rd-pickCyan .rd-wheel,
-          .rd-pickMagenta .rd-wheel {
-            width: min(80vw, 360px);
-            height: min(80vw, 360px);
-            max-width: min(47vh, 360px);
-            max-height: min(47vh, 360px);
+          .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel {
+            width: min(78vw, 354px); height: min(78vw, 354px);
+            max-width: min(46vh, 354px); max-height: min(46vh, 354px);
           }
-
-          .rd-center strong {
-            font-size: clamp(37px, 10vw, 62px);
-          }
-
-          .rd-picks {
-            transform: translateY(-1px);
-          }
-
-          .rd-pick {
-            min-height: 27px;
-          }
-
-          .rd-picker {
-            min-height: 50px;
-            padding: 7px 9px;
-            border-radius: 20px;
-            grid-template-columns: 58px minmax(0, 1fr);
-          }
-
-          .rd-picker-value b {
-            font-size: 27px;
-          }
-
-          .rd-button {
-            min-height: 39px;
-          }
+          .rd-center strong { font-size: clamp(36px, 9.5vw, 58px); }
+          .rd-pick { min-height: 26px; }
+          .rd-picker { min-height: 50px; padding: 8px 10px; border-radius: 18px; grid-template-columns: 58px minmax(0, 1fr); }
+          .rd-picker-value b { font-size: 27px; }
+          .rd-button { min-height: 41px; }
         }
 
         @media (max-width: 520px) {
-          .rd-wheel {
-            min-width: 282px;
-            min-height: 282px;
-            width: min(85vw, 354px);
-            height: min(85vw, 354px);
-          }
+          .rd-wheel { min-width: 278px; min-height: 278px; width: min(85vw, 348px); height: min(85vw, 348px); }
+          .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel { min-width: 270px; min-height: 270px; width: min(82vw, 336px); height: min(82vw, 336px); }
+          .rd-center strong { font-size: 44px; }
+        }
 
-          .rd-pickCyan .rd-wheel,
-          .rd-pickMagenta .rd-wheel {
-            min-width: 274px;
-            min-height: 274px;
-            width: min(82vw, 342px);
-            height: min(82vw, 342px);
-          }
-
-          .rd-marks i {
-            transform:
-              rotate(var(--a))
-              translateY(calc(-1 * min(42vw, 160px)))
-              translateX(-50%);
-          }
-
-          .rd-center strong {
-            font-size: 44px;
-          }
+        @media (prefers-reduced-motion: reduce) {
+          .rd-page *, .rd-page *::before, .rd-page *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+          .rd-arrow, .rd-spinning .rd-arrow { transition: transform var(--spin-ms) linear; }
         }
       `}</style>
 
-      <TopHud
-        health={health}
-        round={round}
-        activePlayer={activePlayer}
-        phase={phase}
-        outcome={outcome}
-      />
+      <TopHud health={health} round={round} activePlayer={activePlayer} phase={phase} outcome={outcome} />
 
       <main className="rd-main">
         <div className="rd-title">
@@ -2124,9 +1716,7 @@ export const NeonMatrixGame: React.FC = () => {
           <div className="rd-card">
             <div className="rd-card-icon">🤫</div>
             <h2>Передай телефон</h2>
-            <p>
-              Выбор сохранён и скрыт. Теперь выбирает {PLAYERS[handoffPlayer].short}.
-            </p>
+            <p>Выбор сохранён и скрыт. Теперь выбирает {PLAYERS[handoffPlayer].short}.</p>
             <button type="button" className="rd-button" onClick={continueToSecondPlayer}>
               {PLAYERS[handoffPlayer].short} готов
             </button>
@@ -2177,13 +1767,7 @@ export const NeonMatrixGame: React.FC = () => {
           {matchWinner ? `${matchWinner === 'cyan' ? 'P1' : 'P2'} выиграл матч.` : resultText || message}
         </div>
 
-        {canPick && (
-          <NumberPicker
-            value={draftValue}
-            activePlayer={activePlayer}
-            onChange={changeDraft}
-          />
-        )}
+        {canPick && <NumberPicker value={draftValue} activePlayer={activePlayer} onChange={changeDraft} />}
 
         <button
           type="button"
