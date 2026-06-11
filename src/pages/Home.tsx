@@ -3,12 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import {
   Gamepad2,
   RefreshCw,
-  Swords,
   Trophy,
-  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { GAME_CATALOG } from '../data/games';
+import heroBanner from '../assets/home/banner.webp';
 
 type Lobby = {
   id: string;
@@ -22,12 +21,6 @@ type Lobby = {
   timeLeft?: string;
 };
 
-type Stat = {
-  icon: LucideIcon;
-  value: string | number;
-  label: string;
-};
-
 type CatalogGame = (typeof GAME_CATALOG)[number];
 
 type GameWithMedia = CatalogGame & {
@@ -39,10 +32,6 @@ type GameWithMedia = CatalogGame & {
 };
 
 const games = GAME_CATALOG as GameWithMedia[];
-
-// Потом просто поставишь путь к баннеру:
-// const HERO_IMAGE_URL = '/images/banners/main.webp';
-const HERO_IMAGE_URL = '';
 
 const getGameImage = (game?: GameWithMedia) => {
   if (!game) return undefined;
@@ -169,15 +158,6 @@ export const Home = () => {
     [lobbies],
   );
 
-  const stats: Stat[] = useMemo(
-    () => [
-      { icon: Gamepad2, value: games.length, label: 'Games' },
-      { icon: Swords, value: '1v1', label: 'Duel' },
-      { icon: Trophy, value: user?.stats?.rating ?? 1000, label: 'Rating' },
-    ],
-    [user?.stats?.rating],
-  );
-
   const handleRefresh = () => {
     setIsRefreshing(true);
     window.setTimeout(() => setIsRefreshing(false), 700);
@@ -191,47 +171,33 @@ export const Home = () => {
     <main className="app-scroll home-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-4">
       <section className="animate-fade-in mb-4">
         <div className="hero-banner rounded-[26px]">
-          {HERO_IMAGE_URL ? (
-            <img
-              src={HERO_IMAGE_URL}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-              draggable={false}
-            />
-          ) : (
-            <div className="absolute inset-0 hero-banner-placeholder">
-              <span className="text-[54px] opacity-85">♠️</span>
-            </div>
-          )}
+          <img
+            src={heroBanner}
+            alt="TwinGames"
+            className="absolute inset-0 h-full w-full object-cover"
+            draggable={false}
+          />
 
           <div className="absolute inset-0 hero-banner-overlay" />
 
-          <div className="relative z-10 flex min-h-[190px] flex-col justify-end p-4">
-            <div className="mb-4">
-              <p className="text-safe mb-1 text-[9px] font-bold uppercase tracking-[0.16em] text-white/55">
-                Battle Club
-              </p>
+          <div className="hero-stat-pill hero-stat-left">
+            <Gamepad2 size={12} className="text-white/75" />
+            <span className="text-safe text-[10px] font-bold text-white">
+              {games.length}
+            </span>
+            <span className="text-safe text-[7.5px] font-bold uppercase tracking-[0.12em] text-white/45">
+              Games
+            </span>
+          </div>
 
-              <h1 className="text-safe text-[23px] font-bold leading-[1.2] tracking-[-0.03em] text-white">
-                Play clean.
-                <br />
-                Win fast.
-              </h1>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {stats.map((stat) => (
-                <div key={stat.label} className="stat-card stat-card-on-banner">
-                  <stat.icon size={14} className="mb-1.5 text-white/75" />
-                  <p className="text-safe text-[14px] font-bold text-white">
-                    {stat.value}
-                  </p>
-                  <p className="text-safe text-[8.5px] font-bold uppercase tracking-[0.12em] text-white/45">
-                    {stat.label}
-                  </p>
-                </div>
-              ))}
-            </div>
+          <div className="hero-stat-pill hero-stat-right">
+            <Trophy size={12} className="text-white/75" />
+            <span className="text-safe text-[10px] font-bold text-white">
+              {user?.stats?.rating ?? 1000}
+            </span>
+            <span className="text-safe text-[7.5px] font-bold uppercase tracking-[0.12em] text-white/45">
+              Rating
+            </span>
           </div>
         </div>
       </section>
