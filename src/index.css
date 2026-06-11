@@ -11,7 +11,7 @@
 }
 
 :root {
-  --telegram-top-offset: 40px;
+  --telegram-top-offset: 45px;
 
   --bg-primary: #09090d;
   --bg-card: rgba(18, 18, 24, 0.9);
