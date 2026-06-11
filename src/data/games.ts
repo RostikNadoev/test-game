@@ -1,3 +1,6 @@
+import plinkoCover from '../assets/home/plinko.webp';
+import descentCover from '../assets/home/descent.webp';
+
 export type GameCode =
   | 'plinko_pvp'
   | 'descent_duel'
@@ -22,6 +25,7 @@ export type GameCatalogItem = {
   meta: string;
   status?: string;
   playPath: string;
+  coverUrl?: string;
 };
 
 export const GAME_CATALOG: GameCatalogItem[] = [
@@ -34,6 +38,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Plinko',
     status: 'New',
     playPath: '/game/plinko_pvp/play',
+    coverUrl: plinkoCover,
   },
   {
     code: 'descent_duel',
@@ -44,6 +49,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Physics',
     status: 'New',
     playPath: '/game/descent_duel/play',
+    coverUrl: descentCover
   },
   {
     code: 'paper_io',
