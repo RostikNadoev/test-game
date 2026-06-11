@@ -1,17 +1,10 @@
-import { type CSSProperties, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight,
-  Clock3,
-  Crown,
-  Flame,
   Gamepad2,
   RefreshCw,
-  Sparkles,
   Swords,
   Trophy,
-  Users,
-  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
@@ -43,87 +36,48 @@ type GameWithMedia = CatalogGame & {
   image?: string;
   bannerUrl?: string;
   posterUrl?: string;
-  status?: string;
-};
-
-type GameTheme = {
-  glow: string;
-  gradient: string;
-  badge: string;
-  border: string;
-  text: string;
 };
 
 const games = GAME_CATALOG as GameWithMedia[];
 
-const themes: GameTheme[] = [
-  {
-    glow: 'rgba(77,124,255,0.24)',
-    gradient: 'from-blue-500/45 via-cyan-400/20 to-indigo-500/45',
-    badge: 'bg-blue-500/15 text-blue-200 border-blue-300/20',
-    border: 'border-blue-300/20',
-    text: 'text-blue-200',
-  },
-  {
-    glow: 'rgba(240,185,11,0.22)',
-    gradient: 'from-yellow-400/45 via-orange-500/20 to-amber-600/40',
-    badge: 'bg-yellow-400/15 text-yellow-200 border-yellow-300/20',
-    border: 'border-yellow-300/20',
-    text: 'text-yellow-200',
-  },
-  {
-    glow: 'rgba(167,139,250,0.24)',
-    gradient: 'from-purple-500/45 via-fuchsia-500/20 to-pink-500/35',
-    badge: 'bg-purple-500/15 text-purple-100 border-purple-300/20',
-    border: 'border-purple-300/20',
-    text: 'text-purple-100',
-  },
-  {
-    glow: 'rgba(0,212,170,0.22)',
-    gradient: 'from-emerald-400/45 via-teal-400/20 to-cyan-500/35',
-    badge: 'bg-emerald-400/15 text-emerald-100 border-emerald-300/20',
-    border: 'border-emerald-300/20',
-    text: 'text-emerald-100',
-  },
-  {
-    glow: 'rgba(255,71,87,0.22)',
-    gradient: 'from-red-500/45 via-rose-500/20 to-orange-500/35',
-    badge: 'bg-red-500/15 text-red-100 border-red-300/20',
-    border: 'border-red-300/20',
-    text: 'text-red-100',
-  },
-];
-
-const getTheme = (code: string, index: number) => {
-  const hash = code.split('').reduce((sum, char) => sum + char.charCodeAt(0), index);
-  return themes[hash % themes.length];
-};
+// Потом просто поставишь путь к баннеру:
+// const HERO_IMAGE_URL = '/images/banners/main.webp';
+const HERO_IMAGE_URL = '';
 
 const getGameImage = (game?: GameWithMedia) => {
   if (!game) return undefined;
-  return game.coverUrl || game.imageUrl || game.image || game.bannerUrl || game.posterUrl;
+
+  return (
+    game.coverUrl ||
+    game.imageUrl ||
+    game.image ||
+    game.bannerUrl ||
+    game.posterUrl
+  );
 };
 
-const formatBet = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value);
+const getGameTone = (index: number) => {
+  const tones = ['blue', 'orange', 'violet', 'green'] as const;
+  return tones[index % tones.length];
+};
 
-const GameArtwork = ({
+const GameImage = ({
   game,
-  theme,
-  compact = false,
+  tone,
+  size = 'normal',
 }: {
   game: GameWithMedia;
-  theme: GameTheme;
-  compact?: boolean;
+  tone: 'blue' | 'orange' | 'violet' | 'green';
+  size?: 'normal' | 'lobby';
 }) => {
   const image = getGameImage(game);
 
   return (
     <div
       className={[
-        'relative overflow-hidden border bg-white/[0.03]',
-        theme.border,
-        compact ? 'h-20 rounded-[22px]' : 'aspect-[4/3] rounded-[26px]',
+        'game-image',
+        `game-image-${tone}`,
+        size === 'lobby' ? 'h-[92px] rounded-[19px]' : 'aspect-[4/3] rounded-[20px]',
       ].join(' ')}
     >
       {image ? (
@@ -135,35 +89,14 @@ const GameArtwork = ({
           draggable={false}
         />
       ) : (
-        <div className={`absolute inset-0 bg-gradient-to-br ${theme.gradient}`}>
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.20),transparent_32%)]" />
-          <div className="absolute -bottom-10 -right-8 text-[92px] leading-none opacity-20">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className={size === 'lobby' ? 'text-[38px]' : 'text-[46px]'}>
             {game.icon}
-          </div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-5xl drop-shadow-[0_12px_28px_rgba(0,0,0,0.28)]">
-              {game.icon}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="absolute inset-0 bg-gradient-to-t from-[#08080d] via-[#08080d]/35 to-transparent" />
-      <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_20%,rgba(255,255,255,0.12)_48%,transparent_72%)] opacity-20" />
-
-      <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/30 px-2 py-1 backdrop-blur-md">
-        <span className="text-[8px] font-black uppercase tracking-[0.18em] text-white/75">
-          {game.code}
-        </span>
-      </div>
-
-      {!compact && game.status && (
-        <div className={`absolute right-2 top-2 rounded-full border px-2 py-1 ${theme.badge}`}>
-          <span className="text-[8px] font-black uppercase tracking-[0.14em]">
-            {game.status}
           </span>
         </div>
       )}
+
+      <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/0 to-white/[0.04]" />
     </div>
   );
 };
@@ -231,8 +164,10 @@ export const Home = () => {
     },
   ]);
 
-  const featuredGame = games[0];
-  const featuredTheme = getTheme(featuredGame?.code ?? 'ARENA', 0);
+  const joinableLobbies = useMemo(
+    () => lobbies.filter((lobby) => lobby.players === 1),
+    [lobbies],
+  );
 
   const stats: Stat[] = useMemo(
     () => [
@@ -245,7 +180,7 @@ export const Home = () => {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    window.setTimeout(() => setIsRefreshing(false), 900);
+    window.setTimeout(() => setIsRefreshing(false), 700);
   };
 
   const openGame = (playPath: string) => {
@@ -253,176 +188,92 @@ export const Home = () => {
   };
 
   return (
-    <main className="app-scroll relative min-h-full overflow-y-auto px-4 pb-32 pt-3">
-      <div className="pointer-events-none absolute inset-0 grid-bg" />
-      <div className="pointer-events-none absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full bg-blue-500/10 blur-3xl" />
-      <div className="pointer-events-none absolute -right-24 top-56 h-64 w-64 rounded-full bg-purple-500/10 blur-3xl" />
+    <main className="app-scroll home-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-4">
+      <section className="animate-fade-in mb-4">
+        <div className="hero-banner rounded-[26px]">
+          {HERO_IMAGE_URL ? (
+            <img
+              src={HERO_IMAGE_URL}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+              draggable={false}
+            />
+          ) : (
+            <div className="absolute inset-0 hero-banner-placeholder">
+              <span className="text-[54px] opacity-85">♠️</span>
+            </div>
+          )}
 
-      <section className="animate-fade-in relative mb-5">
-        <div
-          className="card relative overflow-hidden rounded-[34px]"
-          style={{ boxShadow: `0 26px 90px ${featuredTheme.glow}` }}
-        >
-          <div className={`absolute inset-0 bg-gradient-to-br ${featuredTheme.gradient} opacity-30`} />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_14%,rgba(255,255,255,0.16),transparent_30%)]" />
+          <div className="absolute inset-0 hero-banner-overlay" />
 
-          <div className="relative h-[255px] overflow-hidden">
-            {featuredGame && getGameImage(featuredGame) ? (
-              <img
-                src={getGameImage(featuredGame)}
-                alt={featuredGame.displayName}
-                className="absolute inset-0 h-full w-full object-cover"
-                draggable={false}
-              />
-            ) : (
-              <>
-                <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(77,124,255,0.22),rgba(167,139,250,0.12),rgba(0,212,170,0.16))]" />
-                <div className="absolute left-1/2 top-6 -translate-x-1/2 whitespace-nowrap text-[46px] font-black uppercase tracking-[-0.08em] text-white/[0.035]">
-                  Battle Club
-                </div>
+          <div className="relative z-10 flex min-h-[190px] flex-col justify-end p-4">
+            <div className="mb-4">
+              <p className="text-safe mb-1 text-[9px] font-bold uppercase tracking-[0.16em] text-white/55">
+                Battle Club
+              </p>
 
-                <div className="absolute right-5 top-10 animate-floaty rounded-[28px] border border-white/10 bg-white/[0.06] p-4 backdrop-blur-md">
-                  <div className="text-5xl">⚔️</div>
-                </div>
-
-                <div className="absolute bottom-16 left-5 animate-floaty-delayed rounded-[24px] border border-yellow-300/20 bg-yellow-400/10 px-3 py-2 backdrop-blur-md">
-                  <div className="flex items-center gap-2">
-                    <Crown size={15} className="text-yellow-200" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.16em] text-yellow-100">
-                      PvP Arena
-                    </span>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-12 right-8 text-[118px] leading-none opacity-20 blur-[1px]">
-                  🕹️
-                </div>
-              </>
-            )}
-
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f]/68 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-          </div>
-
-          <div className="relative -mt-24 px-5 pb-5">
-            <div className="mb-4 flex items-end justify-between gap-4">
-              <div className="min-w-0">
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-yellow-300/20 bg-yellow-400/10 px-2.5 py-1">
-                  <Sparkles size={11} className="text-yellow-200" />
-                  <span className="text-[9px] font-black uppercase tracking-[0.18em] text-yellow-100">
-                    Competitive Arena
-                  </span>
-                </div>
-
-                <h1 className="text-[28px] font-black leading-none tracking-[-0.04em] text-white text-shadow-glow">
-                  Battle Club
-                </h1>
-
-                <p className="mt-2 max-w-[260px] text-[11px] font-bold leading-relaxed text-slate-300">
-                  Сочные PvP-арены, быстрые дуэли и карточки игр, готовые под большие арты.
-                </p>
-              </div>
-
-              <div className="shrink-0 rounded-[26px] border border-white/10 bg-white/[0.06] p-2 backdrop-blur-md">
-                <div className={`flex h-14 w-14 items-center justify-center rounded-[22px] bg-gradient-to-br ${featuredTheme.gradient}`}>
-                  <span className="text-3xl">🔥</span>
-                </div>
-              </div>
+              <h1 className="text-safe text-[23px] font-bold leading-[1.2] tracking-[-0.03em] text-white">
+                Play clean.
+                <br />
+                Win fast.
+              </h1>
             </div>
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const element = document.getElementById('games-grid');
-                  element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-                className="btn-press flex flex-1 items-center justify-center gap-2 rounded-[18px] bg-gradient-to-r from-blue-500 to-cyan-400 px-4 py-3 text-[12px] font-black uppercase tracking-[0.12em] text-white shadow-[0_16px_34px_rgba(77,124,255,0.24)]"
-              >
-                <Gamepad2 size={16} />
-                Play
-              </button>
-
-              <button
-                type="button"
-                onClick={() => navigate('/rating')}
-                className="btn-press flex flex-1 items-center justify-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.06] px-4 py-3 text-[12px] font-black uppercase tracking-[0.12em] text-white/85"
-              >
-                <Trophy size={16} className="text-yellow-200" />
-                Rating
-              </button>
+            <div className="grid grid-cols-3 gap-2">
+              {stats.map((stat) => (
+                <div key={stat.label} className="stat-card stat-card-on-banner">
+                  <stat.icon size={14} className="mb-1.5 text-white/75" />
+                  <p className="text-safe text-[14px] font-bold text-white">
+                    {stat.value}
+                  </p>
+                  <p className="text-safe text-[8.5px] font-bold uppercase tracking-[0.12em] text-white/45">
+                    {stat.label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      <section className="animate-fade-in relative mb-5 grid grid-cols-3 gap-2" style={{ animationDelay: '60ms' }}>
-        {stats.map((stat, index) => (
-          <div
-            key={stat.label}
-            className="card relative overflow-hidden rounded-[24px] p-3 text-center"
-            style={{ animationDelay: `${100 + index * 55}ms` }}
-          >
-            <div className="absolute -right-5 -top-5 h-14 w-14 rounded-full bg-blue-500/10 blur-2xl" />
-            <div className="relative mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05]">
-              <stat.icon size={15} className="text-blue-200" />
-            </div>
-
-            <p className="relative text-lg font-black leading-none text-white">
-              {stat.value}
+      <section className="animate-fade-in mb-5" style={{ animationDelay: '60ms' }}>
+        <div className="mb-2.5 flex items-center justify-between">
+          <div>
+            <p className="text-safe text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Waiting players
             </p>
-
-            <p className="relative mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">
-              {stat.label}
-            </p>
-          </div>
-        ))}
-      </section>
-
-      <section className="animate-fade-in relative mb-5" style={{ animationDelay: '140ms' }}>
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-1 rounded-full bg-gradient-to-b from-emerald-300 to-cyan-400" />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">
-                  Live Now
-                </span>
-              </div>
-
-              <h2 className="text-base font-black tracking-[-0.03em] text-white">
-                Active Lobbies
-              </h2>
-            </div>
+            <h2 className="text-safe text-[15px] font-bold text-white">
+              Active Lobbies
+            </h2>
           </div>
 
           <button
             type="button"
             onClick={handleRefresh}
             aria-label="Refresh lobbies"
-            className="btn-press card flex h-10 w-10 items-center justify-center rounded-[18px]"
+            className="pressable flex h-9 w-9 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.035]"
           >
             <RefreshCw
-              size={16}
-              className={`text-slate-300 transition-transform ${isRefreshing ? 'animate-spin' : ''}`}
+              size={15}
+              className={`text-slate-400 ${isRefreshing ? 'animate-spin' : ''}`}
             />
           </button>
         </div>
 
-        <div className="lobby-scroll -mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
-          {lobbies.map((lobby, index) => {
+        <div className="lobby-scroll -mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1">
+          {joinableLobbies.map((lobby, index) => {
             const game = games.find((item) => item.code === lobby.gameCode);
-            const theme = getTheme(lobby.gameCode, index);
-            const artworkGame =
-              game ??
-              ({
-                code: lobby.gameCode,
-                displayName: lobby.gameName,
-                icon: lobby.icon,
-                description: 'Live battle',
-                playPath: '/',
-              } as GameWithMedia);
+            const tone = getGameTone(index);
+
+            const fallbackGame = {
+              code: lobby.gameCode,
+              displayName: lobby.gameName,
+              description: '',
+              icon: lobby.icon,
+              playPath: '/',
+            } as GameWithMedia;
+
+            const targetGame = game ?? fallbackGame;
 
             return (
               <button
@@ -431,133 +282,76 @@ export const Home = () => {
                 onClick={() => {
                   if (game) openGame(game.playPath);
                 }}
-                className="btn-press card animate-fade-in min-w-[174px] shrink-0 overflow-hidden rounded-[28px] p-2.5 text-left"
-                style={
-                  {
-                    animationDelay: `${200 + index * 65}ms`,
-                    boxShadow: `0 18px 50px ${theme.glow}`,
-                  } as CSSProperties
-                }
+                className="pressable app-panel lobby-card min-w-[166px] shrink-0 rounded-[23px] p-2 text-left"
               >
-                <GameArtwork game={artworkGame} theme={theme} compact />
+                <GameImage game={targetGame} tone={tone} size="lobby" />
 
-                <div className="px-1 pt-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className={`truncate text-[9px] font-black uppercase tracking-[0.18em] ${theme.text}`}>
-                        {lobby.gameCode}
-                      </p>
-                      <h3 className="mt-0.5 truncate text-[13px] font-black text-white">
-                        {lobby.gameName}
-                      </h3>
-                    </div>
+                <div className="px-1 pt-2.5">
+                  <h3 className="text-safe mb-2 truncate text-[12px] font-bold text-white">
+                    {lobby.gameName}
+                  </h3>
 
-                    <span
-                      className={[
-                        'shrink-0 rounded-full border px-2 py-1 text-[8px] font-black uppercase tracking-[0.12em]',
-                        lobby.status === 'playing'
-                          ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-200'
-                          : 'border-yellow-300/20 bg-yellow-400/10 text-yellow-200',
-                      ].join(' ')}
-                    >
-                      {lobby.status === 'playing' ? 'Live' : 'Wait'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-2.5 py-2">
-                    <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400">
-                      <Users size={12} />
-                      {lobby.players}/{lobby.maxPlayers}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400">
-                      <Clock3 size={12} />
-                      {lobby.timeLeft}
-                    </div>
-
-                    <div className="text-[10px] font-black text-yellow-200">
-                      {formatBet(lobby.bet)} 💎
-                    </div>
+                  <div className="mini-button w-full">
+                    Join
                   </div>
                 </div>
               </button>
             );
           })}
+
+          {joinableLobbies.length === 0 && (
+            <div className="app-panel min-w-[220px] rounded-[23px] p-4">
+              <p className="text-safe text-[12px] font-bold text-white">
+                No open lobbies
+              </p>
+              <p className="text-safe mt-1 text-[9.5px] font-bold text-slate-500">
+                Waiting rooms will appear here.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
-      <section id="games-grid" className="animate-fade-in relative scroll-mt-4" style={{ animationDelay: '240ms' }}>
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-1 rounded-full bg-gradient-to-b from-blue-300 to-purple-400" />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <Zap size={12} className="text-blue-300" />
-                <span className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-300">
-                  All Games
-                </span>
-              </div>
-
-              <h2 className="text-base font-black tracking-[-0.03em] text-white">
-                Game Arenas
-              </h2>
-            </div>
+      <section
+        id="games-grid"
+        className="animate-fade-in scroll-mt-4"
+        style={{ animationDelay: '120ms' }}
+      >
+        <div className="mb-2.5 flex items-end justify-between">
+          <div>
+            <p className="text-safe text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Games
+            </p>
+            <h2 className="text-safe text-[15px] font-bold text-white">
+              Game Arenas
+            </h2>
           </div>
 
-          <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
-            <span className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
-              {games.length} modes
-            </span>
-          </div>
+          <span className="text-safe text-[9px] font-bold text-slate-500">
+            {games.length}
+          </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2.5">
           {games.map((game, index) => {
-            const theme = getTheme(game.code, index);
+            const tone = getGameTone(index);
 
             return (
               <button
                 key={game.code}
                 type="button"
                 onClick={() => openGame(game.playPath)}
-                className="btn-press card group animate-fade-in overflow-hidden rounded-[30px] p-2.5 text-left"
-                style={
-                  {
-                    animationDelay: `${300 + index * 42}ms`,
-                    boxShadow: `0 18px 48px ${theme.glow}`,
-                  } as CSSProperties
-                }
+                className="pressable app-panel game-card overflow-hidden rounded-[24px] p-2 text-left"
               >
-                <GameArtwork game={game} theme={theme} />
+                <GameImage game={game} tone={tone} />
 
-                <div className="px-1 pb-1 pt-3">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className={`mb-1 truncate text-[9px] font-black uppercase tracking-[0.18em] ${theme.text}`}>
-                        {game.code}
-                      </p>
+                <div className="px-1 pb-1 pt-2.5">
+                  <h3 className="text-safe mb-2 h-[34px] overflow-hidden text-[12px] font-bold leading-[1.35] text-white">
+                    {game.displayName}
+                  </h3>
 
-                      <h3 className="line-clamp-2 min-h-[32px] text-[14px] font-black leading-none tracking-[-0.03em] text-white">
-                        {game.displayName}
-                      </h3>
-                    </div>
-
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05] transition-transform duration-200 group-active:translate-x-0.5">
-                      <ArrowRight size={14} className="text-slate-300" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="line-clamp-1 text-[10px] font-bold leading-relaxed text-slate-500">
-                      {game.description}
-                    </p>
-
-                    <div className="flex shrink-0 items-center gap-1 rounded-full border border-orange-300/15 bg-orange-400/10 px-2 py-1">
-                      <Flame size={10} className="text-orange-200" />
-                      <span className="text-[8px] font-black uppercase tracking-[0.12em] text-orange-100">
-                        Hot
-                      </span>
-                    </div>
+                  <div className="mini-button w-full">
+                    Play
                   </div>
                 </div>
               </button>
