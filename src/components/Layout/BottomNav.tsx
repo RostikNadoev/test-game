@@ -1,5 +1,6 @@
+import { type CSSProperties } from 'react';
 import { Home, Trophy, User } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 
 const navItems = [
   { to: '/', icon: Home, label: 'Home' },
@@ -8,12 +9,28 @@ const navItems = [
 ];
 
 export const BottomNav = () => {
+  const location = useLocation();
+
+  const activeIndex = Math.max(
+    0,
+    navItems.findIndex((item) =>
+      item.to === '/'
+        ? location.pathname === '/'
+        : location.pathname.startsWith(item.to),
+    ),
+  );
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-[460px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))]">
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#09090d] via-[#09090d]/90 to-transparent" />
 
-      <div className="app-panel relative rounded-[24px] p-1.5">
-        <div className="grid grid-cols-3 gap-1">
+      <div
+        className="bottom-dock"
+        style={{ '--active-index': activeIndex } as CSSProperties}
+      >
+        <span className="nav-active-bg" />
+
+        <div className="relative z-10 grid grid-cols-3 gap-1.5">
           {navItems.map((item) => {
             const Icon = item.icon;
 
@@ -21,27 +38,25 @@ export const BottomNav = () => {
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.to === '/'}
                 className={({ isActive }) =>
                   [
-                    'pressable nav-item relative flex min-h-[54px] flex-col items-center justify-center gap-0.5 rounded-[19px]',
-                    isActive ? 'nav-item-active text-white' : 'text-slate-500',
+                    'pressable nav-link',
+                    isActive ? 'is-active' : '',
                   ].join(' ')
                 }
               >
                 {({ isActive }) => (
                   <>
-                    <Icon
-                      size={18}
-                      strokeWidth={isActive ? 2.4 : 1.7}
-                      className={isActive ? 'text-white' : 'text-slate-500'}
-                    />
+                    <span className="nav-icon-wrap">
+                      <Icon
+                        size={19}
+                        strokeWidth={isActive ? 2.55 : 1.8}
+                        className="nav-icon"
+                      />
+                    </span>
 
-                    <span
-                      className={[
-                        'text-safe text-[8.5px] font-bold uppercase tracking-[0.13em]',
-                        isActive ? 'text-white' : 'text-slate-500',
-                      ].join(' ')}
-                    >
+                    <span className="nav-label">
                       {item.label}
                     </span>
                   </>

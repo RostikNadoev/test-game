@@ -1,10 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Gamepad2,
-  RefreshCw,
-  Trophy,
-} from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { GAME_CATALOG } from '../data/games';
 import heroBanner from '../assets/home/banner.webp';
@@ -31,6 +27,8 @@ type GameWithMedia = CatalogGame & {
   posterUrl?: string;
 };
 
+type GameTone = 'blue' | 'orange' | 'violet' | 'green';
+
 const games = GAME_CATALOG as GameWithMedia[];
 
 const getGameImage = (game?: GameWithMedia) => {
@@ -45,7 +43,7 @@ const getGameImage = (game?: GameWithMedia) => {
   );
 };
 
-const getGameTone = (index: number) => {
+const getGameTone = (index: number): GameTone => {
   const tones = ['blue', 'orange', 'violet', 'green'] as const;
   return tones[index % tones.length];
 };
@@ -56,7 +54,7 @@ const GameImage = ({
   size = 'normal',
 }: {
   game: GameWithMedia;
-  tone: 'blue' | 'orange' | 'violet' | 'green';
+  tone: GameTone;
   size?: 'normal' | 'lobby';
 }) => {
   const image = getGameImage(game);
@@ -180,35 +178,25 @@ export const Home = () => {
 
           <div className="absolute inset-0 hero-banner-overlay" />
 
-          <div className="hero-stat-pill hero-stat-left">
-            <Gamepad2 size={12} className="text-white/75" />
-            <span className="text-safe text-[10px] font-bold text-white">
-              {games.length}
-            </span>
-            <span className="text-safe text-[7.5px] font-bold uppercase tracking-[0.12em] text-white/45">
-              Games
-            </span>
+          <div className="hero-stat-text hero-stat-left">
+            <span className="hero-stat-value">{games.length}</span>
+            <span className="hero-stat-label">Games</span>
           </div>
 
-          <div className="hero-stat-pill hero-stat-right">
-            <Trophy size={12} className="text-white/75" />
-            <span className="text-safe text-[10px] font-bold text-white">
-              {user?.stats?.rating ?? 1000}
-            </span>
-            <span className="text-safe text-[7.5px] font-bold uppercase tracking-[0.12em] text-white/45">
-              Rating
-            </span>
+          <div className="hero-stat-text hero-stat-right">
+            <span className="hero-stat-value">{user?.stats?.rating ?? 1000}</span>
+            <span className="hero-stat-label">Rating</span>
           </div>
         </div>
       </section>
 
       <section className="animate-fade-in mb-5" style={{ animationDelay: '60ms' }}>
-        <div className="mb-2.5 flex items-center justify-between">
+        <div className="section-heading">
           <div>
-            <p className="text-safe text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              Waiting players
+            <p className="section-kicker section-kicker-orange">
+              Waiting Players
             </p>
-            <h2 className="text-safe text-[15px] font-bold text-white">
+            <h2 className="section-title">
               Active Lobbies
             </h2>
           </div>
@@ -217,7 +205,7 @@ export const Home = () => {
             type="button"
             onClick={handleRefresh}
             aria-label="Refresh lobbies"
-            className="pressable flex h-9 w-9 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.035]"
+            className="pressable refresh-button"
           >
             <RefreshCw
               size={15}
@@ -257,7 +245,7 @@ export const Home = () => {
                     {lobby.gameName}
                   </h3>
 
-                  <div className="mini-button w-full">
+                  <div className="mini-button mini-button-join w-full">
                     Join
                   </div>
                 </div>
@@ -283,17 +271,17 @@ export const Home = () => {
         className="animate-fade-in scroll-mt-4"
         style={{ animationDelay: '120ms' }}
       >
-        <div className="mb-2.5 flex items-end justify-between">
+        <div className="section-heading mb-2.5">
           <div>
-            <p className="text-safe text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              Games
+            <p className="section-kicker section-kicker-blue">
+              Collection
             </p>
-            <h2 className="text-safe text-[15px] font-bold text-white">
+            <h2 className="section-title">
               Game Arenas
             </h2>
           </div>
 
-          <span className="text-safe text-[9px] font-bold text-slate-500">
+          <span className="games-count-text">
             {games.length}
           </span>
         </div>
@@ -311,12 +299,12 @@ export const Home = () => {
               >
                 <GameImage game={game} tone={tone} />
 
-                <div className="px-1 pb-1 pt-2.5">
-                  <h3 className="text-safe mb-2 h-[34px] overflow-hidden text-[12px] font-bold leading-[1.35] text-white">
+                <div className="game-card-body px-1 pb-1 pt-2.5">
+                  <h3 className="text-safe mb-[5px] h-[34px] overflow-hidden text-[12px] font-bold leading-[1.35] text-white">
                     {game.displayName}
                   </h3>
 
-                  <div className="mini-button w-full">
+                  <div className="mini-button mini-button-play w-full">
                     Play
                   </div>
                 </div>

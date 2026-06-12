@@ -1,5 +1,7 @@
 import plinkoCover from '../assets/home/plinko.webp';
 import descentCover from '../assets/home/descent.webp';
+import rpsCover from '../assets/home/rps.webp';
+import blCover from '../assets/home/21.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -99,6 +101,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#FF7A90]/22 via-[#F2C766]/10 to-transparent',
     meta: 'Mind Game',
     playPath: '/game/rps_duel/play',
+    coverUrl: rpsCover
   },
   {
     code: 'grid_lock',
@@ -117,6 +120,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#54F2A8]/22 via-[#52FFE5]/10 to-transparent',
     meta: 'Cards',
     playPath: '/game/blackjack_duel/play',
+    coverUrl: blCover
   },
   {
     code: 'dice_duel',
