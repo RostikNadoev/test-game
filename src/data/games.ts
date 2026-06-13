@@ -2,6 +2,7 @@ import plinkoCover from '../assets/home/plinko.webp';
 import descentCover from '../assets/home/descent.webp';
 import rpsCover from '../assets/home/rps.webp';
 import blCover from '../assets/home/21.webp';
+import paperCover from '../assets/home/paper.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -62,6 +63,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Territory',
     status: 'New',
     playPath: '/game/paper_io/play',
+    coverUrl: paperCover
   },
   {
     code: 'tower_stack',
