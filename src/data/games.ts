@@ -5,6 +5,7 @@ import blCover from '../assets/home/21.webp';
 import paperCover from '../assets/home/paper.webp';
 import diceCover from '../assets/home/dice.webp';
 import towerCover from '../assets/home/tower.webp';
+import marketCover from '../assets/home/market.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -97,6 +98,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Market',
     status: 'Hot',
     playPath: '/game/virus_market/play',
+    coverUrl: marketCover
   },
   {
     code: 'rps_duel',
