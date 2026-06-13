@@ -20,6 +20,7 @@ import { TowerStackGame } from './pages/TowerStackGame';
 import { PhysicsDuel } from './pages/PhysicsDuel';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
 import { GAME_TITLE_BY_PLAY_PATH, LOCKED_GAME_ROUTES } from './data/games';
+import appLoaderGif from './assets/app-loader.gif';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
@@ -51,6 +52,7 @@ function AppShell() {
   const navigate = useNavigate();
 
   const [introCompletedPath, setIntroCompletedPath] = useState<string | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
@@ -58,6 +60,14 @@ function AppShell() {
 
   const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
   const shouldMountRoutes = !shouldShowGameIntro;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!gameIntroTitle) {
@@ -71,8 +81,8 @@ function AppShell() {
     tg?.ready?.();
     tg?.expand?.();
     tg?.disableVerticalSwipes?.();
-    tg?.setHeaderColor?.('#050610');
-    tg?.setBackgroundColor?.('#050610');
+    tg?.setHeaderColor?.('#09090d');
+    tg?.setBackgroundColor?.('#09090d');
 
     if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
       tg?.lockOrientation?.();
@@ -93,7 +103,7 @@ function AppShell() {
       }
     };
 
-    if (isFooterRoute) {
+    if (isInitialLoading || isFooterRoute) {
       backButton.hide();
       return;
     }
@@ -105,10 +115,23 @@ function AppShell() {
       backButton.offClick?.(handleBack);
       backButton.hide();
     };
-  }, [isFooterRoute, navigate]);
+  }, [isInitialLoading, isFooterRoute, navigate]);
+
+  if (isInitialLoading) {
+    return (
+      <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] items-center justify-center overflow-hidden bg-[#09090d]">
+        <img
+          src={appLoaderGif}
+          alt=""
+          className="h-28 w-28 object-contain"
+          draggable={false}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#050610] pt-[var(--telegram-top-offset)]">
+    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#09090d] pt-[var(--telegram-top-offset)]">
       <Header />
 
       <main
@@ -139,7 +162,7 @@ function AppShell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         ) : (
-          <div className="h-full w-full bg-[#050610]" />
+          <div className="h-full w-full bg-[#09090d]" />
         )}
       </main>
 
