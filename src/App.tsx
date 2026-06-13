@@ -123,7 +123,7 @@ function AppInitialLoader({ onFinish }: { onFinish: () => void }) {
           key={`app-loader-${durationMs}`}
           src={appLoaderGif}
           alt=""
-          className="h-[260px] w-[260px] object-contain"
+          className="h-[290px] w-[290px] object-contain"
           draggable={false}
         />
       )}
