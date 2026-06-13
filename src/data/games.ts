@@ -3,6 +3,7 @@ import descentCover from '../assets/home/descent.webp';
 import rpsCover from '../assets/home/rps.webp';
 import blCover from '../assets/home/21.webp';
 import paperCover from '../assets/home/paper.webp';
+import diceCover from '../assets/home/dice.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -132,6 +133,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#F2C766]/26 via-[#FF7A90]/10 to-transparent',
     meta: 'Risk',
     playPath: '/game/dice_duel/play',
+    coverUrl: diceCover
   },
   {
     code: 'neon_matrix',
