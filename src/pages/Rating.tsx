@@ -18,7 +18,7 @@ const players: Player[] = [
   { name: 'Riptide', rating: 1790, wins: 71 },
 ];
 
-const podiumAccent = ['#FFC96A', '#7BC7FF', '#FF955C'];
+const podiumAccent = ['#f7c66b', '#78bfff', '#ff9a5e'];
 const podiumOrder = [1, 0, 2];
 
 const formatNumber = (value: number) =>
@@ -30,188 +30,67 @@ export const Rating = () => {
 
   return (
     <main className="app-scroll page-shell rating-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
-      <div className="page-ambient" />
-
-      <section className="premium-hero rating-hero page-reveal">
-        <div className="premium-hero-bg" />
-
-        <div className="relative z-10 flex items-start justify-between gap-4">
+      <section className="rating-head minimal-panel page-reveal">
+        <div className="rating-head-glow" />
+        <div className="relative z-10 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="hero-eyebrow">
-              <Trophy size={12} />
-              Leaderboard
-            </div>
-
-            <h1 className="hero-title mt-3">
-              Рейтинг
-              <span>игроков</span>
-            </h1>
-
-            <p className="hero-muted mt-2 max-w-[220px]">
-              Лучшие игроки клуба по рейтингу, победам и стабильности.
-            </p>
+            <div className="profile-kicker"><Trophy size={11} />Leaderboard</div>
+            <h1 className="rating-title">Рейтинг игроков</h1>
+            <p className="rating-subtitle">Минималистичная таблица лучших дуэлянтов клуба.</p>
           </div>
-
-          <div className="hero-icon-orb rating-orb">
-            <Crown size={28} className="fill-[#FFC96A] text-[#FFC96A]" />
-          </div>
+          <div className="rating-crown-orb"><Crown size={26} className="fill-current" /></div>
         </div>
-
-        <div className="relative z-10 mt-5 grid grid-cols-3 gap-2">
-          <div className="hero-micro-card">
-            <p>{players.length}</p>
-            <span>Players</span>
-          </div>
-
-          <div className="hero-micro-card is-blue">
-            <p>{formatNumber(players[0]?.rating ?? 0)}</p>
-            <span>Top rating</span>
-          </div>
-
-          <div className="hero-micro-card is-orange">
-            <p>{players[0]?.wins ?? 0}</p>
-            <span>Top wins</span>
-          </div>
+        <div className="relative z-10 mt-4 grid grid-cols-3 gap-2">
+          <div className="hero-micro-card"><p>{players.length}</p><span>Players</span></div>
+          <div className="hero-micro-card is-blue"><p>{formatNumber(players[0]?.rating ?? 0)}</p><span>Top rating</span></div>
+          <div className="hero-micro-card is-orange"><p>{players[0]?.wins ?? 0}</p><span>Top wins</span></div>
         </div>
       </section>
 
-      <section
-        className="rating-podium-grid page-reveal"
-        style={{ animationDelay: '60ms' }}
-      >
+      <section className="rating-podium-grid page-reveal" style={{ animationDelay: '60ms' }}>
         {podiumOrder.map((idx, placeIndex) => {
           const player = top3[idx];
           const accent = podiumAccent[idx];
           const isFirst = idx === 0;
-
           return (
-            <div
-              key={player.name}
-              className={`podium-card ${isFirst ? 'is-first' : ''}`}
-              style={
-                {
-                  '--accent': accent,
-                  '--podium-delay': `${placeIndex * 70}ms`,
-                } as CSSProperties
-              }
-            >
-              <div className="podium-glow" />
-
-              {isFirst && (
-                <div className="podium-crown">
-                  <Crown size={15} className="fill-current" />
-                </div>
-              )}
-
-              <div className="podium-avatar">
-                {player.name.charAt(0)}
-              </div>
-
-              <div className="podium-rank-badge">
-                {idx + 1}
-              </div>
-
-              <p className="podium-name">
-                {player.name}
-              </p>
-
-              <p className="podium-rating">
-                {formatNumber(player.rating)}
-              </p>
-
-              <p className="podium-wins">
-                {player.wins} wins
-              </p>
+            <div key={player.name} className={`podium-card ${isFirst ? 'is-first' : ''}`} style={{ '--accent': accent, '--podium-delay': `${placeIndex * 55}ms` } as CSSProperties}>
+              {isFirst && <div className="podium-crown"><Crown size={14} className="fill-current" /></div>}
+              <div className="podium-avatar">{player.name.charAt(0)}</div>
+              <div className="podium-rank-badge">{idx + 1}</div>
+              <p className="podium-name">{player.name}</p>
+              <p className="podium-rating">{formatNumber(player.rating)}</p>
+              <p className="podium-wins">{player.wins} wins</p>
             </div>
           );
         })}
       </section>
 
-      <section
-        className="leaderboard-section page-reveal"
-        style={{ animationDelay: '120ms' }}
-      >
-        <div className="section-heading mb-2.5">
-          <div>
-            <p className="section-kicker section-kicker-blue">
-              Standings
-            </p>
-            <h2 className="section-title">
-              Таблица
-            </h2>
-          </div>
-
-          <div className="section-icon-pill">
-            <Medal size={15} />
-          </div>
+      <section className="leaderboard-section page-reveal" style={{ animationDelay: '120ms' }}>
+        <div className="minimal-section-head">
+          <div><p className="minimal-kicker">Standings</p><h2>Таблица</h2></div>
+          <div className="minimal-head-icon"><Medal size={15} /></div>
         </div>
-
-        <div className="leaderboard-card">
+        <div className="leaderboard-card minimal-panel">
           {rest.map((player, index) => {
             const rank = index + 4;
-
             return (
-              <div
-                key={player.name}
-                className="leaderboard-row"
-                style={
-                  {
-                    '--row-delay': `${Math.min(index * 35, 220)}ms`,
-                  } as CSSProperties
-                }
-              >
-                <div className="rank-chip">
-                  {rank}
-                </div>
-
-                <div className="player-avatar">
-                  {player.name.charAt(0)}
-                </div>
-
+              <div key={player.name} className="leaderboard-row" style={{ '--row-delay': `${Math.min(index * 25, 160)}ms` } as CSSProperties}>
+                <div className="rank-chip">{rank}</div>
+                <div className="player-avatar">{player.name.charAt(0)}</div>
                 <div className="min-w-0 flex-1">
-                  <p className="player-name">
-                    {player.name}
-                  </p>
-
-                  <p className="player-meta">
-                    <Flame size={10} />
-                    {player.wins} побед
-                  </p>
+                  <p className="player-name">{player.name}</p>
+                  <p className="player-meta"><Flame size={10} />{player.wins} побед</p>
                 </div>
-
-                <div className="leaderboard-score">
-                  <p>{formatNumber(player.rating)}</p>
-                  <span>rating</span>
-                </div>
+                <div className="leaderboard-score"><p>{formatNumber(player.rating)}</p><span>rating</span></div>
               </div>
             );
           })}
         </div>
-
-        <div className="your-rank-card">
-          <div className="rank-chip is-you">
-            14
-          </div>
-
-          <div className="you-avatar">
-            <Sparkles size={18} />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <p className="player-name">
-              Вы · Игрок
-            </p>
-
-            <p className="player-meta">
-              <UsersRound size={10} />
-              42 победы
-            </p>
-          </div>
-
-          <div className="leaderboard-score is-you">
-            <p>1 250</p>
-            <span>rating</span>
-          </div>
+        <div className="your-rank-card minimal-panel">
+          <div className="rank-chip is-you">14</div>
+          <div className="you-avatar"><Sparkles size={17} /></div>
+          <div className="min-w-0 flex-1"><p className="player-name">Вы · Игрок</p><p className="player-meta"><UsersRound size={10} />42 победы</p></div>
+          <div className="leaderboard-score is-you"><p>1 250</p><span>rating</span></div>
         </div>
       </section>
     </main>
