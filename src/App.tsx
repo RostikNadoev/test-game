@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
 import { GameIntroOverlay } from './components/GameIntroOverlay';
@@ -24,6 +24,8 @@ import appLoaderGif from './assets/app-loader.gif';
 
 const FOOTER_ROUTES = ['/', '/profile', '/rating'];
 
+const APP_LOADER_FALLBACK_MS = 3600;
+
 type TelegramWebApp = {
   ready?: () => void;
   expand?: () => void;
@@ -47,6 +49,88 @@ function getTelegramWebApp() {
   return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
 }
 
+async function getGifDurationMs(src: string) {
+  const response = await fetch(src);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  let durationMs = 0;
+
+  for (let index = 0; index < bytes.length - 9; index += 1) {
+    const isGraphicsControlExtension =
+      bytes[index] === 0x21 &&
+      bytes[index + 1] === 0xf9 &&
+      bytes[index + 2] === 0x04;
+
+    if (!isGraphicsControlExtension) continue;
+
+    const delayCentiseconds = bytes[index + 4] | (bytes[index + 5] << 8);
+
+    durationMs += delayCentiseconds > 0
+      ? delayCentiseconds * 10
+      : 100;
+  }
+
+  return durationMs > 0 ? durationMs : APP_LOADER_FALLBACK_MS;
+}
+
+function AppInitialLoader({ onFinish }: { onFinish: () => void }) {
+  const onFinishRef = useRef(onFinish);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const prepareLoader = async () => {
+      try {
+        const gifDurationMs = await getGifDurationMs(appLoaderGif);
+
+        if (!isCancelled) {
+          setDurationMs(gifDurationMs);
+        }
+      } catch {
+        if (!isCancelled) {
+          setDurationMs(APP_LOADER_FALLBACK_MS);
+        }
+      }
+    };
+
+    void prepareLoader();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (durationMs === null) return;
+
+    const timer = window.setTimeout(() => {
+      onFinishRef.current();
+    }, durationMs);
+
+    return () => window.clearTimeout(timer);
+  }, [durationMs]);
+
+  return (
+    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] items-center justify-center overflow-hidden bg-[#09090d]">
+      {durationMs !== null && (
+        <img
+          key={`app-loader-${durationMs}`}
+          src={appLoaderGif}
+          alt=""
+          className="h-[180px] w-[180px] object-contain"
+          draggable={false}
+        />
+      )}
+    </div>
+  );
+}
+
 function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -60,14 +144,6 @@ function AppShell() {
 
   const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
   const shouldMountRoutes = !shouldShowGameIntro;
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setIsInitialLoading(false);
-    }, 4000);
-
-    return () => window.clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     if (!gameIntroTitle) {
@@ -119,14 +195,9 @@ function AppShell() {
 
   if (isInitialLoading) {
     return (
-      <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] items-center justify-center overflow-hidden bg-[#09090d]">
-        <img
-          src={appLoaderGif}
-          alt=""
-          className="h-45 w-45 object-contain"
-          draggable={false}
-        />
-      </div>
+      <AppInitialLoader
+        onFinish={() => setIsInitialLoading(false)}
+      />
     );
   }
 
