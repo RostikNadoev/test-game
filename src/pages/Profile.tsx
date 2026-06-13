@@ -40,10 +40,17 @@ export const Profile = () => {
 
   if (isLoading) {
     return (
-      <main className="app-scroll relative min-h-full overflow-y-auto px-3 pb-28 pt-1 text-white">
-        <section className="relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-6 text-center">
-          <RefreshCw size={22} className="mx-auto animate-spin text-[#52FFE5]" />
-          <p className="mt-3 text-[14px] font-black text-white/70">Загружаю профиль...</p>
+      <main className="app-scroll page-shell relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+        <div className="page-ambient" />
+
+        <section className="page-status-card">
+          <div className="page-loader-orb">
+            <RefreshCw size={22} className="animate-spin" />
+          </div>
+
+          <p className="mt-4 text-safe text-[12px] font-bold text-white/72">
+            Загружаю профиль
+          </p>
         </section>
       </main>
     );
@@ -51,10 +58,19 @@ export const Profile = () => {
 
   if (!user) {
     return (
-      <main className="app-scroll relative min-h-full overflow-y-auto px-3 pb-28 pt-1 text-white">
-        <section className="relative overflow-hidden rounded-[26px] border border-[#FF7A90]/20 bg-[#FF7A90]/[0.07] p-5">
-          <h1 className="text-[22px] font-black tracking-[-0.05em]">Профиль недоступен</h1>
-          <p className="mt-2 text-[12px] font-medium leading-snug text-white/52">
+      <main className="app-scroll page-shell relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+        <div className="page-ambient" />
+
+        <section className="page-status-card is-error">
+          <div className="page-error-icon">
+            <UserRound size={22} />
+          </div>
+
+          <h1 className="mt-4 text-safe text-[18px] font-bold text-white">
+            Профиль недоступен
+          </h1>
+
+          <p className="mt-2 max-w-[280px] text-safe text-center text-[11px] font-bold leading-relaxed text-white/48">
             {error || 'Нет пользователя. Открой мини-приложение внутри Telegram.'}
           </p>
         </section>
@@ -64,26 +80,37 @@ export const Profile = () => {
 
   const stats = user.stats;
 
+  const favoriteMode =
+    stats.favorite_mode && stats.favorite_mode !== 'none'
+      ? stats.favorite_mode
+      : 'Пока нет';
+
   return (
-    <main className="app-scroll relative min-h-full overflow-y-auto px-3 pb-28 pt-1 text-white">
-      <div className="pointer-events-none absolute inset-0 grid-fade opacity-60" />
+    <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+      <div className="page-ambient" />
 
-      <section className="reveal top-hairline relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-4">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(242,199,102,0.16),transparent_40%),radial-gradient(circle_at_100%_28%,rgba(82,255,229,0.11),transparent_42%)]" />
+      <section className="profile-hero page-reveal">
+        <div className="profile-hero-bg" />
 
-        <div className="relative flex items-start justify-between gap-3">
-          <div className="relative">
-            <div className="grid h-[88px] w-[88px] place-items-center overflow-hidden rounded-[28px] border border-white/[0.1] bg-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+        <div className="relative z-10 flex items-start justify-between gap-3">
+          <div className="profile-avatar-wrap">
+            <div className="profile-avatar">
               {user.photo_url ? (
-                <img src={user.photo_url} alt={user.tg_user} className="h-full w-full object-cover" />
+                <img
+                  src={user.photo_url}
+                  alt={user.tg_user}
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                />
               ) : (
-                <div className="grid h-[66px] w-[66px] place-items-center rounded-[22px] bg-gradient-to-br from-[#F2C766]/30 via-[#52FFE5]/18 to-[#9D7CFF]/20 text-[22px] font-black">
+                <div className="profile-avatar-fallback">
                   {getInitials(user.tg_user)}
                 </div>
               )}
             </div>
-            <div className="absolute -bottom-1.5 -right-1.5 grid h-9 w-9 place-items-center rounded-[14px] border border-white/[0.12] bg-[#08080C]">
-              <Crown size={17} className="fill-[#F2C766] text-[#F2C766]" />
+
+            <div className="profile-crown">
+              <Crown size={16} className="fill-current" />
             </div>
           </div>
 
@@ -91,150 +118,178 @@ export const Profile = () => {
             <button
               type="button"
               onClick={() => void refreshProfile()}
-              className="press inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.07] px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.18em] text-white/50 active:bg-white/[0.1]"
+              className="pressable profile-refresh-button"
             >
-              <RefreshCw size={11} className="text-[#52FFE5]" />
+              <RefreshCw size={11} />
               Refresh
             </button>
-            <p className="mt-2.5 text-[8px] font-black uppercase tracking-[0.2em] text-white/34">
+
+            <p className="profile-rating-label">
               Rating
             </p>
-            <p className="text-[28px] font-black leading-none tracking-[-0.07em] tabular-nums">
+
+            <p className="profile-rating-value">
               {stats.rating}
             </p>
           </div>
         </div>
 
-        <div className="relative mt-4">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/68">
+        <div className="relative z-10 mt-4">
+          <div className="profile-player-kicker">
             <UserRound size={12} />
             Telegram player
           </div>
-          <h1 className="mt-0.5 truncate text-[30px] font-black leading-none tracking-[-0.07em]">
+
+          <h1 className="profile-player-name">
             {user.tg_user || 'Игрок'}
           </h1>
-          <p className="mt-1.5 text-[12px] font-medium text-white/45">
-            ID: {user.id} · TG: {user.telegram_id} · c {formatDate(user.created_at)}
+
+          <p className="profile-player-id">
+            ID {user.id} · TG {user.telegram_id} · c {formatDate(user.created_at)}
           </p>
         </div>
 
-        <div className="relative mt-4 grid grid-cols-3 gap-2">
+        <div className="relative z-10 mt-4 grid grid-cols-3 gap-2">
           {[
-            { label: 'Рейтинг', value: stats.rating, icon: Trophy },
-            { label: 'Winrate', value: `${stats.winrate}%`, icon: Flame },
-            { label: 'Матчи', value: stats.total_games, icon: Swords },
-          ].map((item) => (
-            <div key={item.label} className="rounded-[18px] border border-white/[0.08] bg-black/25 p-3">
-              <item.icon size={15} className="mb-2.5 text-[#F2C766]" />
-              <p className="text-[18px] font-black leading-none tracking-[-0.05em] tabular-nums">
-                {item.value}
-              </p>
-              <p className="mt-1 text-[8px] font-black uppercase tracking-[0.14em] text-white/34">
-                {item.label}
-              </p>
-            </div>
-          ))}
+            { label: 'Рейтинг', value: stats.rating, icon: Trophy, tone: 'orange' },
+            { label: 'Winrate', value: `${stats.winrate}%`, icon: Flame, tone: 'blue' },
+            { label: 'Матчи', value: stats.total_games, icon: Swords, tone: 'violet' },
+          ].map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <div key={item.label} className={`profile-mini-stat is-${item.tone}`}>
+                <Icon size={15} />
+                <p>{item.value}</p>
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      <section className="reveal relative mt-2.5 grid grid-cols-2 gap-2" style={{ animationDelay: '50ms' }}>
-        <div className="relative overflow-hidden rounded-[22px] border border-[#F2C766]/18 bg-[#F2C766]/[0.1] p-3.5">
-          <div className="mb-4 grid h-11 w-11 place-items-center rounded-[16px] border border-white/[0.08] bg-white/[0.08]">
-            <Gem size={22} className="text-[#F2C766]" />
+      <section
+        className="profile-wallet-grid page-reveal"
+        style={{ animationDelay: '60ms' }}
+      >
+        <div className="profile-wallet-card is-ton">
+          <div className="profile-wallet-icon">
+            <Gem size={21} />
           </div>
-          <p className="text-[28px] font-black leading-none tracking-[-0.07em] tabular-nums">
+
+          <p className="profile-wallet-value">
             {formatNumber(user.balance_ton)}
           </p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-[#FFE0A3]/60">
+
+          <p className="profile-wallet-label">
             TON
           </p>
         </div>
 
-        <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.05] p-3.5">
-          <div className="mb-4 grid h-11 w-11 place-items-center rounded-[16px] border border-white/[0.08] bg-white/[0.08]">
-            <Coins size={22} className="text-[#52FFE5]" />
+        <div className="profile-wallet-card is-game">
+          <div className="profile-wallet-icon">
+            <Coins size={21} />
           </div>
-          <p className="text-[28px] font-black leading-none tracking-[-0.07em] tabular-nums">
+
+          <p className="profile-wallet-value">
             {formatNumber(user.balance_game)}
           </p>
-          <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-white/42">
+
+          <p className="profile-wallet-label">
             GAME
           </p>
         </div>
       </section>
 
-      <section className="relative mt-3 overflow-hidden rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-3.5">
-        <div className="mb-3 flex items-center justify-between gap-3">
+      <section
+        className="profile-stat-panel page-reveal"
+        style={{ animationDelay: '110ms' }}
+      >
+        <div className="section-heading mb-3">
           <div>
-            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.2em] text-[#52FFE5]/58">
-              <TrendingUp size={12} />
-              Backend stats
-            </div>
-            <h2 className="mt-0.5 text-[20px] font-black tracking-[-0.06em]">
+            <p className="section-kicker section-kicker-blue">
+              Backend Stats
+            </p>
+
+            <h2 className="section-title">
               Статистика
             </h2>
           </div>
-          <div className="grid h-10 w-10 place-items-center rounded-[16px] border border-white/[0.08] bg-white/[0.06]">
-            <Award size={19} className="text-[#F2C766]" />
+
+          <div className="section-icon-pill">
+            <Award size={15} />
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="profile-stat-list">
           {[
-            { label: 'Победы', value: stats.wins, icon: Trophy, accent: 'text-[#F2C766]' },
-            { label: 'Поражения', value: stats.losses, icon: ShieldCheck, accent: 'text-white/62' },
-            { label: 'Всего игр', value: stats.total_games, icon: Swords, accent: 'text-[#52FFE5]' },
-            { label: 'Рейтинг', value: stats.rating, icon: TrendingUp, accent: 'text-[#52FFE5]' },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="flex items-center justify-between rounded-[16px] border border-white/[0.07] bg-black/20 px-3 py-2.5"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="grid h-9 w-9 place-items-center rounded-[13px] bg-white/[0.06]">
-                  <item.icon size={16} className={item.accent} />
+            { label: 'Победы', value: stats.wins, icon: Trophy, tone: 'orange' },
+            { label: 'Поражения', value: stats.losses, icon: ShieldCheck, tone: 'muted' },
+            { label: 'Всего игр', value: stats.total_games, icon: Swords, tone: 'blue' },
+            { label: 'Рейтинг', value: stats.rating, icon: TrendingUp, tone: 'blue' },
+          ].map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <div key={item.label} className={`profile-stat-row is-${item.tone}`}>
+                <div className="profile-stat-left">
+                  <div className="profile-stat-icon">
+                    <Icon size={15} />
+                  </div>
+
+                  <span>{item.label}</span>
                 </div>
-                <span className="text-[13px] font-bold text-white/58">{item.label}</span>
+
+                <strong>{item.value}</strong>
               </div>
-              <span className={`text-[15px] font-black tabular-nums ${item.accent}`}>
-                {item.value}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
-      <section className="relative mt-3 overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#0a0a11]/80 p-3.5">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(242,199,102,0.12),transparent_38%),radial-gradient(circle_at_100%_100%,rgba(157,124,255,0.12),transparent_40%)]" />
+      <section
+        className="favorite-mode-card page-reveal"
+        style={{ animationDelay: '160ms' }}
+      >
+        <div className="favorite-mode-bg" />
 
-        <div className="relative mb-3 flex items-center gap-2.5">
-          <div className="grid h-10 w-10 place-items-center rounded-[16px] border border-white/[0.08] bg-white/[0.07]">
-            <Gamepad2 size={19} className="text-[#52FFE5]" />
+        <div className="relative z-10 mb-3 flex items-center gap-2.5">
+          <div className="favorite-mode-icon">
+            <Gamepad2 size={19} />
           </div>
+
           <div>
-            <h2 className="text-[17px] font-black tracking-[-0.05em]">Любимый режим</h2>
-            <p className="text-[11px] font-medium text-white/40">Поле favorite_mode из backend</p>
+            <h2 className="text-safe text-[16px] font-bold tracking-[-0.035em] text-white">
+              Любимый режим
+            </h2>
+
+            <p className="text-safe text-[10px] font-bold text-white/42">
+              Favorite mode from backend
+            </p>
           </div>
         </div>
 
-        <div className="relative overflow-hidden rounded-[20px] border border-white/[0.07] bg-white/[0.05] p-3.5">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#52FFE5]/16 via-[#9D7CFF]/12 to-transparent" />
-          <div className="relative flex items-end justify-between gap-3">
-            <div>
-              <div className="text-4xl">🎮</div>
-              <p className="mt-3 text-[9px] font-black uppercase tracking-[0.2em] text-[#F2C766]/60">
-                Top arena
-              </p>
-              <h3 className="mt-0.5 text-[24px] font-black leading-none tracking-[-0.07em]">
-                {stats.favorite_mode && stats.favorite_mode !== 'none' ? stats.favorite_mode : 'Пока нет'}
-              </h3>
-              <p className="mt-1.5 max-w-[240px] text-[12px] font-medium leading-snug text-white/45">
-                Когда backend начнёт отдавать активность, тут появится любимый режим игрока.
-              </p>
+        <div className="relative z-10 favorite-mode-inner">
+          <div>
+            <div className="favorite-mode-emoji">
+              🎮
             </div>
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#08080C]">
-              <TrendingUp size={18} />
-            </div>
+
+            <p className="favorite-mode-kicker">
+              Top arena
+            </p>
+
+            <h3 className="favorite-mode-title">
+              {favoriteMode}
+            </h3>
+
+            <p className="favorite-mode-text">
+              Когда backend начнёт отдавать больше активности, тут появится самый частый режим игрока.
+            </p>
+          </div>
+
+          <div className="favorite-mode-arrow">
+            <TrendingUp size={18} />
           </div>
         </div>
       </section>

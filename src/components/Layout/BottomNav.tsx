@@ -30,7 +30,7 @@ export const BottomNav = () => {
       >
         <span className="nav-active-bg" />
 
-        <div className="relative z-10 grid grid-cols-3 gap-1.5">
+        <div className="relative z-10 grid grid-cols-3">
           {navItems.map((item) => {
             const Icon = item.icon;
 

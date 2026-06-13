@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, RefreshCw, UsersRound } from 'lucide-react';
+import { RefreshCw, UsersRound } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { GAME_CATALOG } from '../data/games';
 import heroBanner from '../assets/home/banner.webp';
@@ -62,27 +62,27 @@ const GameCoinIcon = ({ className = '' }: { className?: string }) => {
     >
       <defs>
         <radialGradient id="homeCoinGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(13 10) rotate(48) scale(24)">
-          <stop stopColor="#FFFFFF" stopOpacity="0.95" />
-          <stop offset="0.34" stopColor="#FFE9A8" />
-          <stop offset="0.72" stopColor="#F3A640" />
-          <stop offset="1" stopColor="#8F4A12" />
+          <stop stopColor="#FFFFFF" stopOpacity="0.96" />
+          <stop offset="0.34" stopColor="#FFE08A" />
+          <stop offset="0.72" stopColor="#FF9F2D" />
+          <stop offset="1" stopColor="#9A4D10" />
         </radialGradient>
 
         <linearGradient id="homeCoinEdge" x1="8" y1="5" x2="29" y2="31" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFF7D7" />
-          <stop offset="0.42" stopColor="#F7B650" />
-          <stop offset="1" stopColor="#7C3D0D" />
+          <stop stopColor="#FFF4C7" />
+          <stop offset="0.42" stopColor="#FFB950" />
+          <stop offset="1" stopColor="#803B0C" />
         </linearGradient>
 
         <linearGradient id="homeCoinStar" x1="11" y1="9" x2="25" y2="27" gradientUnits="userSpaceOnUse">
           <stop stopColor="#FFFFFF" />
-          <stop offset="0.46" stopColor="#FFE08A" />
-          <stop offset="1" stopColor="#F28B25" />
+          <stop offset="0.45" stopColor="#FFE27A" />
+          <stop offset="1" stopColor="#FF7A1A" />
         </linearGradient>
 
         <filter id="homeCoinShadow" x="1" y="1" width="34" height="34" filterUnits="userSpaceOnUse">
           <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#000000" floodOpacity="0.42" />
-          <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#F7B650" floodOpacity="0.22" />
+          <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#FFB950" floodOpacity="0.35" />
         </filter>
       </defs>
 
@@ -93,7 +93,7 @@ const GameCoinIcon = ({ className = '' }: { className?: string }) => {
         <path
           d="M18 9.2L20.35 14.22L25.82 14.88L21.76 18.62L22.84 24.08L18 21.38L13.16 24.08L14.24 18.62L10.18 14.88L15.65 14.22L18 9.2Z"
           fill="url(#homeCoinStar)"
-          stroke="rgba(255,255,255,0.65)"
+          stroke="rgba(255,255,255,0.68)"
           strokeWidth="0.75"
           strokeLinejoin="round"
         />
@@ -101,7 +101,7 @@ const GameCoinIcon = ({ className = '' }: { className?: string }) => {
         <path
           d="M10.9 12.2C12.4 9.95 14.92 8.48 17.8 8.48"
           stroke="white"
-          strokeOpacity="0.58"
+          strokeOpacity="0.6"
           strokeWidth="1.25"
           strokeLinecap="round"
         />
@@ -134,7 +134,7 @@ const GameImage = ({
       className={[
         'game-image',
         `game-image-${tone}`,
-        size === 'lobby' ? 'h-[92px] rounded-[20px]' : 'aspect-[4/3] rounded-[21px]',
+        size === 'lobby' ? 'h-[94px] rounded-[21px]' : 'aspect-[4/3] rounded-[22px]',
       ].join(' ')}
     >
       {image ? (
@@ -153,28 +153,24 @@ const GameImage = ({
         </div>
       )}
 
+      <div className="game-image-glow" />
       <div className="game-image-glass" />
     </div>
   );
 };
 
-const LobbyLoadingState = () => {
+const LobbyRefreshSpinner = () => {
   return (
-    <div className="lobby-loading-wrap">
-      <div className="lobby-loading-card">
-        <div className="lobby-loading-orb">
-          <Loader2 size={22} className="animate-spin text-white" />
-        </div>
-
-        <div>
-          <p className="text-safe text-[12px] font-bold text-white">
-            Refreshing
-          </p>
-          <p className="text-safe mt-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
-            Updating lobbies
-          </p>
-        </div>
+    <div className="lobby-refresh-state">
+      <div className="refresh-energy-spinner" aria-hidden="true">
+        <span />
+        <span />
+        <span />
       </div>
+
+      <p className="text-safe mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+        Refreshing
+      </p>
     </div>
   );
 };
@@ -251,7 +247,7 @@ export const Home = () => {
     if (isRefreshing) return;
 
     setIsRefreshing(true);
-    window.setTimeout(() => setIsRefreshing(false), 1900);
+    window.setTimeout(() => setIsRefreshing(false), 2000);
   };
 
   const openGame = (playPath: string) => {
@@ -261,7 +257,7 @@ export const Home = () => {
   return (
     <main className="app-scroll home-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-4">
       <section className="animate-fade-in mb-4">
-        <div className="hero-banner rounded-[26px]">
+        <div className="hero-banner rounded-[27px]">
           <img
             src={heroBanner}
             alt="TwinGames"
@@ -301,11 +297,10 @@ export const Home = () => {
             aria-label="Refresh lobbies"
             className={`pressable refresh-button ${isRefreshing ? 'is-loading' : ''}`}
           >
-            {isRefreshing ? (
-              <Loader2 size={14} className="refresh-button-icon animate-spin" />
-            ) : (
-              <RefreshCw size={14} className="refresh-button-icon" />
-            )}
+            <RefreshCw
+              size={14}
+              className={`refresh-button-icon ${isRefreshing ? 'animate-spin' : ''}`}
+            />
 
             <span className="refresh-button-label">
               Refresh
@@ -314,7 +309,7 @@ export const Home = () => {
         </div>
 
         {isRefreshing ? (
-          <LobbyLoadingState />
+          <LobbyRefreshSpinner />
         ) : (
           <div className="lobby-scroll -mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1">
             {joinableLobbies.map((lobby, index) => {
@@ -338,22 +333,14 @@ export const Home = () => {
                   onClick={() => {
                     if (game) openGame(game.playPath);
                   }}
-                  className="pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[24px] p-2 text-left"
+                  className="pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[25px] p-2 text-left"
                 >
                   <GameImage game={targetGame} tone={tone} size="lobby" />
 
                   <div className="px-1 pt-2.5">
-                    <div className="lobby-title-row">
-                      <h3 className="text-safe truncate text-[12px] font-bold text-white">
-                        {lobby.gameName}
-                      </h3>
-
-                      {lobby.timeLeft && (
-                        <span className="lobby-time">
-                          {lobby.timeLeft}
-                        </span>
-                      )}
-                    </div>
+                    <h3 className="text-safe mb-2 truncate text-[12px] font-bold text-white">
+                      {lobby.gameName}
+                    </h3>
 
                     <div className="lobby-meta-row">
                       <div className="lobby-bet-pill">
@@ -378,7 +365,7 @@ export const Home = () => {
             })}
 
             {joinableLobbies.length === 0 && (
-              <div className="app-panel empty-lobby-card min-w-[220px] rounded-[23px] p-4">
+              <div className="app-panel empty-lobby-card min-w-[220px] rounded-[24px] p-4">
                 <p className="text-safe text-[12px] font-bold text-white">
                   No open lobbies
                 </p>
@@ -420,25 +407,17 @@ export const Home = () => {
                 key={game.code}
                 type="button"
                 onClick={() => openGame(game.playPath)}
-                className="pressable app-panel game-card overflow-hidden rounded-[24px] p-2 text-left"
+                className="pressable app-panel game-card overflow-hidden rounded-[25px] p-2 text-left"
               >
                 <GameImage game={game} tone={tone} />
 
                 <div className="game-card-body px-1 pb-1 pt-2.5">
-                  <div className="game-card-title-row">
-                    <h3 className="text-safe mb-[7px] h-[34px] overflow-hidden text-[12px] font-bold leading-[1.35] text-white">
-                      {game.displayName}
-                    </h3>
-                  </div>
+                  <h3 className="text-safe mb-[7px] h-[34px] overflow-hidden text-[12px] font-bold leading-[1.35] text-white">
+                    {game.displayName}
+                  </h3>
 
-                  <div className="game-card-footer">
-                    <span className="game-tag-pill">
-                      PVP
-                    </span>
-
-                    <div className="mini-button mini-button-play">
-                      Play
-                    </div>
+                  <div className="mini-button mini-button-play w-full">
+                    Play
                   </div>
                 </div>
               </button>
