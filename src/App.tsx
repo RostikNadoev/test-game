@@ -64,7 +64,7 @@ function AppShell() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setIsInitialLoading(false);
-    }, 5000);
+    }, 4500);
 
     return () => window.clearTimeout(timer);
   }, []);
@@ -123,7 +123,7 @@ function AppShell() {
         <img
           src={appLoaderGif}
           alt=""
-          className="h-40 w-40 object-contain"
+          className="h-50 w-50 object-contain"
           draggable={false}
         />
       </div>
