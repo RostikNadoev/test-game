@@ -29,6 +29,10 @@ const BASE_POINTS = 100;
 const REVEAL_DELAY_MS = 1700;
 const CHART_STEPS = 36;
 
+// Chart coordinate space (matches the SVG viewBox below).
+const VIEW_W = 360;
+const VIEW_H = 220;
+
 const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -119,6 +123,13 @@ const getChartData = (multiplier: number, crashed: boolean): ChartData => {
   return { path, areaPath, endX: end.x, endY: end.y, progress };
 };
 
+// Exact point on the trajectory for a given multiplier (used to lock the
+// static shield / bot markers onto the curve without touching the rAF loop).
+const curvePctAt = (multiplier: number): CSSProperties => {
+  const { endX, endY } = getChartData(multiplier, false);
+  return { left: `${(endX / VIEW_W) * 100}%`, top: `${(endY / VIEW_H) * 100}%` };
+};
+
 export const CrashDuelGame = () => {
   const navigate = useNavigate();
 
@@ -134,6 +145,7 @@ export const CrashDuelGame = () => {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const xRef = useRef<HTMLDivElement | null>(null);
   const areaRef = useRef<SVGPathElement | null>(null);
+  const glowRef = useRef<SVGPathElement | null>(null);
   const lineRef = useRef<SVGPathElement | null>(null);
   const hotRef = useRef<SVGPathElement | null>(null);
   const potentialRef = useRef<HTMLElement | null>(null);
@@ -160,6 +172,16 @@ export const CrashDuelGame = () => {
   const bigXValue = phase === 'ready' ? 1 : isCrashVisual && crashPoint ? crashPoint : liveMult;
   const securedPoints = userCashout ? Math.round(userCashout * BASE_POINTS) : 0;
   const livePotential = Math.round(liveMult * BASE_POINTS);
+
+  // Static on-curve markers (computed only on state change, never per frame).
+  const userMarkerStyle = useMemo<CSSProperties | null>(
+    () => (userCashout ? curvePctAt(userCashout) : null),
+    [userCashout],
+  );
+  const botMarkerStyle = useMemo<CSSProperties | null>(
+    () => (phase === 'reveal' && outcome?.botCashout ? curvePctAt(outcome.botCashout) : null),
+    [phase, outcome],
+  );
 
   const finalWinner: FinalWinner = useMemo(() => {
     if (totals.user === totals.bot) return 'draw';
@@ -274,6 +296,7 @@ export const CrashDuelGame = () => {
         root.style.setProperty('--end-y', String(data.endY));
         root.style.setProperty('--heat', String(clamp((mult - 1) / 5, 0, 1)));
         areaRef.current?.setAttribute('d', data.areaPath);
+        glowRef.current?.setAttribute('d', data.path);
         lineRef.current?.setAttribute('d', data.path);
         hotRef.current?.setAttribute('d', data.path);
         if (xRef.current) xRef.current.textContent = formatX(mult);
@@ -345,14 +368,20 @@ export const CrashDuelGame = () => {
     >
       <style>{`
         .cd-page {
+          --ton: #2f8cff;
+          --ton-rgb: 47,140,255;
+          --coin: #f59e42;
+          --coin-rgb: 245,158,66;
           --live: #52FFE5;
           --live-rgb: 82,255,229;
           --gold: #F2C766;
+          --gold-rgb: 242,199,102;
           --crash: #FF6B8A;
           --crash-rgb: 255,107,138;
-          --accent: #52FFE5;
-          --accent-rgb: 82,255,229;
+          --accent: var(--live);
+          --accent-rgb: var(--live-rgb);
           --line: rgba(255,255,255,.07);
+          --t2: rgba(255,255,255,.42);
 
           position: relative;
           width: 100%;
@@ -363,14 +392,11 @@ export const CrashDuelGame = () => {
           flex-direction: column;
           gap: 7px;
           padding: 8px 8px max(8px, env(safe-area-inset-bottom));
-          color: white;
+          color: #fff;
           font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           user-select: none;
-          background:
-            radial-gradient(circle at 16% 0%, rgba(82,255,229,.08), transparent 34%),
-            radial-gradient(circle at 86% 6%, rgba(242,199,102,.06), transparent 34%),
-            radial-gradient(circle at 50% 116%, rgba(82,255,229,.05), transparent 40%),
-            linear-gradient(180deg, #07070d 0%, #050507 54%, #030305 100%);
+          /* Transparent on purpose — the game lives inside the existing app background. */
+          background: transparent;
         }
         .cd-page.cd-crash { --accent: var(--crash); --accent-rgb: var(--crash-rgb); }
         .cd-page * { box-sizing: border-box; }
@@ -408,7 +434,7 @@ export const CrashDuelGame = () => {
           gap: 8px;
           border-radius: 18px;
           border: 1px solid var(--line);
-          background: rgba(255,255,255,.025);
+          background: rgba(255,255,255,.03);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
           padding: 7px 10px;
         }
@@ -424,9 +450,9 @@ export const CrashDuelGame = () => {
           place-items: center;
           border-radius: 10px;
           background: rgba(255,255,255,.05);
-          color: rgba(255,255,255,.7);
+          color: rgba(255,255,255,.6);
         }
-        .cd-hud-icon-user { color: var(--live); background: rgba(82,255,229,.1); }
+        .cd-hud-icon-user { color: var(--ton); background: rgba(47,140,255,.12); }
 
         .cd-hud-player span {
           display: block;
@@ -440,13 +466,13 @@ export const CrashDuelGame = () => {
         .cd-hud-player b {
           display: block;
           margin-top: 4px;
-          color: white;
+          color: #fff;
           font-size: 17px;
           line-height: .9;
           font-weight: 900;
           letter-spacing: -.04em;
         }
-        .cd-hud-player-user b { color: var(--live); }
+        .cd-hud-player-user b { color: var(--ton); }
 
         .cd-hud-center { min-width: 56px; display: grid; justify-items: center; gap: 4px; }
 
@@ -460,8 +486,8 @@ export const CrashDuelGame = () => {
         }
 
         .cd-round-dots { display: flex; gap: 4px; }
-        .cd-round-dot { width: 5px; height: 5px; border-radius: 999px; background: rgba(255,255,255,.14); }
-        .cd-round-dot-active { background: var(--gold); box-shadow: 0 0 9px rgba(242,199,102,.55); }
+        .cd-round-dot { width: 5px; height: 5px; border-radius: 999px; background: rgba(255,255,255,.14); transition: background .25s ease; }
+        .cd-round-dot-active { background: var(--gold); box-shadow: 0 0 9px rgba(var(--gold-rgb),.5); }
 
         .cd-phase {
           min-height: 15px;
@@ -477,6 +503,8 @@ export const CrashDuelGame = () => {
           letter-spacing: .12em;
           text-transform: uppercase;
         }
+        .cd-ph-running .cd-phase { color: var(--live); }
+        .cd-crash .cd-phase { color: var(--crash); }
 
         /* -------------------------------------------------------- arena */
 
@@ -488,24 +516,25 @@ export const CrashDuelGame = () => {
           overflow: hidden;
           border-radius: 24px;
           border: 1px solid var(--line);
+          /* Translucent dark glass: a contained stage, not a page background. */
           background:
-            radial-gradient(circle at 50% 14%, rgba(255,255,255,.05), transparent 36%),
-            radial-gradient(circle at 50% 90%, rgba(82,255,229,.05), transparent 42%),
-            linear-gradient(180deg, #0a0a12, #050507);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -40px 70px rgba(0,0,0,.4);
+            radial-gradient(circle at 50% 12%, rgba(var(--ton-rgb),.07), transparent 42%),
+            radial-gradient(circle at 50% 92%, rgba(var(--live-rgb),.05), transparent 46%),
+            linear-gradient(180deg, rgba(12,13,22,.66), rgba(5,5,9,.8));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -38px 64px rgba(0,0,0,.36);
         }
 
         .cd-arena::before {
           content: "";
           position: absolute;
           inset: 0;
-          opacity: .12;
+          opacity: .1;
           background:
             linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
             linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
           background-size: 32px 32px;
-          -webkit-mask-image: radial-gradient(circle at 50% 44%, black, transparent 72%);
-          mask-image: radial-gradient(circle at 50% 44%, black, transparent 72%);
+          -webkit-mask-image: radial-gradient(circle at 50% 44%, #000, transparent 72%);
+          mask-image: radial-gradient(circle at 50% 44%, #000, transparent 72%);
         }
 
         .cd-arena::after {
@@ -513,31 +542,41 @@ export const CrashDuelGame = () => {
           position: absolute;
           inset: 0;
           pointer-events: none;
-          background: radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(0,0,0,.42) 100%);
+          background: radial-gradient(circle at 50% 50%, transparent 0 52%, rgba(0,0,0,.38) 100%);
         }
 
         .cd-chart { position: absolute; inset: 78px 13px 22px; z-index: 2; }
         .cd-chart svg { width: 100%; height: 100%; overflow: visible; }
 
         .cd-area { opacity: .9; transition: opacity .25s ease; }
-        .cd-area-top { stop-color: var(--accent); stop-opacity: .24; }
+        .cd-area-top { stop-color: var(--accent); stop-opacity: .22; }
         .cd-area-bot { stop-color: var(--accent); stop-opacity: 0; }
 
+        /* Soft glow is a layered translucent stroke — no per-frame filter rasterisation. */
+        .cd-line-glow {
+          fill: none;
+          stroke: var(--accent);
+          stroke-width: 13;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          opacity: .16;
+          transition: stroke .2s ease;
+        }
         .cd-line {
           fill: none;
           stroke: var(--accent);
-          stroke-width: 5;
+          stroke-width: 4.5;
           stroke-linecap: round;
           stroke-linejoin: round;
-          filter: drop-shadow(0 0 7px rgba(var(--accent-rgb), .5));
+          transition: stroke .2s ease;
         }
         .cd-line-hot {
           fill: none;
-          stroke: rgba(255,255,255,.85);
-          stroke-width: 1.6;
+          stroke: rgba(255,255,255,.82);
+          stroke-width: 1.5;
           stroke-linecap: round;
           stroke-linejoin: round;
-          opacity: .8;
+          opacity: .75;
         }
 
         .cd-point {
@@ -550,35 +589,60 @@ export const CrashDuelGame = () => {
           border-radius: 999px;
           border: 2.5px solid #fff;
           background: var(--accent);
-          box-shadow: 0 0 18px rgba(var(--accent-rgb), .8), 0 0 44px rgba(var(--accent-rgb), .28);
+          box-shadow: 0 0 14px rgba(var(--accent-rgb), .75);
           transform: translate(-50%, -50%);
-          transition: left .08s linear, top .08s linear, background .2s ease;
+          transition: background .2s ease;
         }
         .cd-point::before {
           content: "";
           position: absolute;
-          inset: -11px;
+          inset: -10px;
           border-radius: inherit;
           border: 1px solid rgba(var(--accent-rgb), .5);
           animation: cdPulse 1.2s ease-in-out infinite;
         }
         .cd-ph-crashed .cd-point::before,
-        .cd-ph-reveal .cd-point::before { animation: none; }
+        .cd-ph-reveal .cd-point::before,
+        .cd-ph-gameover .cd-point::before { animation: none; opacity: 0; }
+
+        /* on-curve cashout markers */
+        .cd-marker {
+          position: absolute;
+          z-index: 6;
+          width: 21px;
+          height: 21px;
+          display: grid;
+          place-items: center;
+          border-radius: 7px;
+          transform: translate(-50%, -50%);
+          animation: cdMarkerIn .26s cubic-bezier(.16,1.1,.28,1) both;
+        }
+        .cd-marker-user {
+          color: var(--live);
+          background: rgba(var(--live-rgb), .16);
+          border: 1px solid rgba(var(--live-rgb), .55);
+          box-shadow: 0 0 12px rgba(var(--live-rgb), .35);
+        }
+        .cd-marker-bot {
+          color: #cbd5e1;
+          background: rgba(148,163,184,.16);
+          border: 1px solid rgba(148,163,184,.5);
+        }
 
         .cd-crash-flash {
           position: absolute;
           z-index: 7;
           left: calc(var(--end-x) / 360 * 100%);
           top: calc(var(--end-y) / 220 * 100%);
-          width: 220px;
-          height: 220px;
+          width: 210px;
+          height: 210px;
           pointer-events: none;
           border-radius: 999px;
           transform: translate(-50%, -50%);
-          background: radial-gradient(circle, rgba(255,107,138,.7) 0%, rgba(255,107,138,.32) 26%, transparent 64%);
+          background: radial-gradient(circle, rgba(var(--coin-rgb),.7) 0%, rgba(var(--crash-rgb),.42) 30%, transparent 64%);
           opacity: 0;
         }
-        .cd-ph-crashed .cd-crash-flash { animation: cdCrashFlash .68s ease both; }
+        .cd-ph-crashed .cd-crash-flash { animation: cdCrashFlash .66s ease both; }
 
         /* market HUD inside arena */
         .cd-market-hud {
@@ -609,18 +673,18 @@ export const CrashDuelGame = () => {
           letter-spacing: .16em;
           text-transform: uppercase;
         }
-        .cd-live-dot { width: 6px; height: 6px; border-radius: 999px; background: #94a3b8; }
-        .cd-ph-running .cd-live-dot { background: var(--live); box-shadow: 0 0 11px rgba(82,255,229,.7); }
-        .cd-crash .cd-live-dot { background: var(--crash); box-shadow: 0 0 11px rgba(255,107,138,.7); }
+        .cd-live-dot { width: 6px; height: 6px; border-radius: 999px; background: #94a3b8; transition: background .2s ease; }
+        .cd-ph-running .cd-live-dot { background: var(--live); box-shadow: 0 0 10px rgba(var(--live-rgb),.7); }
+        .cd-crash .cd-live-dot { background: var(--crash); box-shadow: 0 0 10px rgba(var(--crash-rgb),.7); }
 
         .cd-x {
           margin-top: 8px;
-          font-size: clamp(52px, 15vw, 84px);
+          font-size: clamp(50px, 14.5vw, 82px);
           line-height: .82;
           font-weight: 900;
           letter-spacing: -.08em;
-          color: white;
-          text-shadow: 0 0 26px rgba(var(--accent-rgb), .25), 0 20px 50px rgba(0,0,0,.5);
+          color: #fff;
+          text-shadow: 0 0 22px rgba(var(--accent-rgb), .22), 0 18px 44px rgba(0,0,0,.5);
         }
         .cd-crash .cd-x { color: #ffd0d8; }
         .cd-ph-crashed .cd-x { animation: cdCrashText .42s ease both; }
@@ -645,7 +709,7 @@ export const CrashDuelGame = () => {
         .cd-small-state b {
           display: block;
           margin-top: 5px;
-          color: white;
+          color: #fff;
           font-size: 17px;
           line-height: 1;
           font-weight: 900;
@@ -661,7 +725,7 @@ export const CrashDuelGame = () => {
           flex: 0 0 auto;
           border-radius: 20px;
           border: 1px solid var(--line);
-          background: rgba(255,255,255,.025);
+          background: rgba(255,255,255,.03);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
           padding: 10px;
         }
@@ -684,13 +748,14 @@ export const CrashDuelGame = () => {
         .cd-action-top b {
           display: block;
           margin-top: 4px;
-          color: white;
+          color: #fff;
           font-size: 23px;
           line-height: .9;
           font-weight: 900;
           letter-spacing: -.06em;
         }
-        .cd-ph-running .cd-action-top b { color: var(--gold); }
+        .cd-ph-running .cd-action-top b { color: var(--coin); }
+        .cd-actions-safe .cd-action-top b { color: var(--live); }
 
         .cd-status-pill {
           min-height: 28px;
@@ -706,8 +771,8 @@ export const CrashDuelGame = () => {
           letter-spacing: .12em;
           text-transform: uppercase;
         }
-        .cd-status-pill-safe { color: var(--live); border-color: rgba(82,255,229,.3); }
-        .cd-status-pill-risk { color: var(--gold); border-color: rgba(242,199,102,.28); }
+        .cd-status-pill-safe { color: var(--live); border-color: rgba(var(--live-rgb),.3); }
+        .cd-status-pill-risk { color: var(--coin); border-color: rgba(var(--coin-rgb),.3); }
 
         .cd-btn {
           width: 100%;
@@ -727,19 +792,24 @@ export const CrashDuelGame = () => {
         .cd-btn:active { transform: scale(.985); }
         .cd-btn:disabled { transform: none; }
 
+        .cd-btn-ton {
+          background: linear-gradient(135deg, #7fb6ff 0%, #2f8cff 52%, #1e6fe0 100%);
+          color: #00122e;
+          box-shadow: 0 12px 30px rgba(var(--ton-rgb),.2), inset 0 1px 0 rgba(255,255,255,.4);
+        }
         .cd-btn-mint {
           background: linear-gradient(135deg, #8ffff0 0%, #52FFE5 52%, #2fd9c4 100%);
           color: #042620;
-          box-shadow: 0 12px 30px rgba(82,255,229,.18), inset 0 1px 0 rgba(255,255,255,.45);
+          box-shadow: 0 12px 30px rgba(var(--live-rgb),.18), inset 0 1px 0 rgba(255,255,255,.45);
         }
         .cd-btn-gold {
           background: linear-gradient(135deg, #ffe9ad 0%, #F2C766 50%, #d8a63c 100%);
           color: #221903;
-          box-shadow: 0 12px 30px rgba(242,199,102,.18), inset 0 1px 0 rgba(255,255,255,.5);
+          box-shadow: 0 12px 30px rgba(var(--gold-rgb),.18), inset 0 1px 0 rgba(255,255,255,.5);
         }
         .cd-btn-secured {
-          background: rgba(82,255,229,.1);
-          border: 1px solid rgba(82,255,229,.3);
+          background: rgba(var(--live-rgb),.1);
+          border: 1px solid rgba(var(--live-rgb),.3);
           color: var(--live);
         }
         .cd-btn-mute {
@@ -757,17 +827,17 @@ export const CrashDuelGame = () => {
           display: grid;
           place-items: end center;
           padding: 10px;
-          background: linear-gradient(180deg, transparent 0%, rgba(3,3,5,.2) 34%, rgba(3,3,5,.88) 100%);
+          background: linear-gradient(180deg, transparent 0%, rgba(3,3,5,.2) 34%, rgba(3,3,5,.86) 100%);
           pointer-events: none;
         }
         .cd-reveal-card {
           width: min(100%, 408px);
           border-radius: 24px;
           border: 1px solid rgba(255,255,255,.1);
-          background: rgba(10,10,17,.96);
+          background: rgba(10,10,17,.97);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 24px 80px rgba(0,0,0,.6);
-          -webkit-backdrop-filter: blur(10px);
-          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
           padding: 14px;
           animation: cdRevealIn .4s cubic-bezier(.16,1.1,.28,1) both;
           pointer-events: auto;
@@ -782,9 +852,9 @@ export const CrashDuelGame = () => {
         }
         .cd-reveal-head h2 {
           margin: 6px 0 0;
-          color: white;
+          color: #fff;
           font-size: 29px;
-          line-height: .86;
+          line-height: .9;
           font-weight: 900;
           letter-spacing: -.07em;
         }
@@ -799,7 +869,7 @@ export const CrashDuelGame = () => {
           background: rgba(255,255,255,.035);
           text-align: center;
         }
-        .cd-reveal-box-user { border-color: rgba(82,255,229,.22); background: rgba(82,255,229,.05); }
+        .cd-reveal-box-user { border-color: rgba(var(--ton-rgb),.28); background: rgba(var(--ton-rgb),.06); }
         .cd-reveal-box span {
           color: rgba(255,255,255,.4);
           font-size: 7px;
@@ -810,18 +880,18 @@ export const CrashDuelGame = () => {
         .cd-reveal-box b {
           display: block;
           margin-top: 7px;
-          color: white;
+          color: #fff;
           font-size: 26px;
           line-height: .9;
           font-weight: 900;
           letter-spacing: -.06em;
         }
-        .cd-reveal-box-user b { color: var(--live); }
+        .cd-reveal-box-user b { color: var(--ton); }
         .cd-reveal-box em {
           display: block;
           margin-top: 7px;
-          color: var(--gold);
-          font-size: 10px;
+          color: var(--coin);
+          font-size: 11px;
           font-style: normal;
           font-weight: 900;
           letter-spacing: .02em;
@@ -834,7 +904,7 @@ export const CrashDuelGame = () => {
           place-items: center;
           border-radius: 16px;
           border: 1px solid var(--line);
-          background: rgba(255,107,138,.06);
+          background: rgba(var(--crash-rgb),.06);
           text-align: center;
           color: rgba(255,255,255,.66);
           font-size: 11px;
@@ -855,18 +925,18 @@ export const CrashDuelGame = () => {
           place-items: center;
           padding: 12px;
           background:
-            radial-gradient(circle at 50% 16%, rgba(82,255,229,.12), transparent 36%),
-            radial-gradient(circle at 50% 88%, rgba(242,199,102,.1), transparent 36%),
+            radial-gradient(circle at 50% 16%, rgba(var(--live-rgb),.12), transparent 38%),
+            radial-gradient(circle at 50% 88%, rgba(var(--gold-rgb),.1), transparent 38%),
             rgba(3,3,5,.92);
-          -webkit-backdrop-filter: blur(10px);
-          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
           animation: cdFinalIn .32s ease both;
         }
         .cd-final-card {
           width: min(100%, 400px);
           border-radius: 26px;
           border: 1px solid rgba(255,255,255,.1);
-          background: rgba(10,10,17,.96);
+          background: rgba(10,10,17,.97);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 30px 100px rgba(0,0,0,.6);
           padding: 18px;
           text-align: center;
@@ -879,15 +949,15 @@ export const CrashDuelGame = () => {
           margin: 0 auto 12px;
           border-radius: 20px;
           border: 1px solid rgba(255,255,255,.1);
-          background: rgba(242,199,102,.1);
+          background: rgba(var(--gold-rgb),.1);
           color: var(--gold);
         }
-        .cd-final-icon-win { background: rgba(82,255,229,.1); color: var(--live); }
+        .cd-final-icon-win { background: rgba(var(--live-rgb),.1); color: var(--live); }
         .cd-final-card h2 {
           margin: 0;
-          color: white;
+          color: #fff;
           font-size: 33px;
-          line-height: .86;
+          line-height: .9;
           font-weight: 900;
           letter-spacing: -.07em;
         }
@@ -906,7 +976,7 @@ export const CrashDuelGame = () => {
           background: rgba(255,255,255,.035);
           padding: 12px 8px;
         }
-        .cd-final-score-user { border-color: rgba(82,255,229,.22); background: rgba(82,255,229,.05); }
+        .cd-final-score-user { border-color: rgba(var(--ton-rgb),.28); background: rgba(var(--ton-rgb),.06); }
         .cd-final-score span {
           color: rgba(255,255,255,.38);
           font-size: 7px;
@@ -917,13 +987,13 @@ export const CrashDuelGame = () => {
         .cd-final-score b {
           display: block;
           margin-top: 7px;
-          color: white;
+          color: #fff;
           font-size: 26px;
           line-height: .9;
           font-weight: 900;
           letter-spacing: -.06em;
         }
-        .cd-final-score-user b { color: var(--live); }
+        .cd-final-score-user b { color: var(--ton); }
 
         .cd-secondary {
           width: 100%;
@@ -946,10 +1016,14 @@ export const CrashDuelGame = () => {
           0%, 100% { opacity: .35; transform: scale(.82); }
           50% { opacity: .85; transform: scale(1.18); }
         }
+        @keyframes cdMarkerIn {
+          from { opacity: 0; transform: translate(-50%, -50%) scale(.4); }
+          to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
         @keyframes cdCrashFlash {
           0% { opacity: 0; transform: translate(-50%, -50%) scale(.2); }
           42% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-          100% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+          100% { opacity: 0; transform: translate(-50%, -50%) scale(1.55); }
         }
         @keyframes cdCrashText {
           0% { transform: scale(1); }
@@ -970,7 +1044,7 @@ export const CrashDuelGame = () => {
           .cd-hud-player b { font-size: 15px; }
           .cd-arena { border-radius: 20px; }
           .cd-chart { inset: 70px 11px 20px; }
-          .cd-x { font-size: clamp(46px, 14vw, 70px); }
+          .cd-x { font-size: clamp(44px, 13.5vw, 68px); }
           .cd-actions { padding: 8px; border-radius: 18px; }
           .cd-action-top { margin-bottom: 7px; }
           .cd-action-top b { font-size: 21px; }
@@ -982,7 +1056,7 @@ export const CrashDuelGame = () => {
 
         @media (prefers-reduced-motion: reduce) {
           .cd-page *, .cd-page *::before, .cd-page *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
-          .cd-point { transition: none; }
+          .cd-point, .cd-line, .cd-line-glow, .cd-round-dot, .cd-live-dot { transition: none; }
         }
       `}</style>
 
@@ -1034,11 +1108,24 @@ export const CrashDuelGame = () => {
               </linearGradient>
             </defs>
             <path ref={areaRef} className="cd-area" d={chart.areaPath} fill="url(#cdArea)" />
+            <path ref={glowRef} className="cd-line-glow" d={chart.path} />
             <path ref={lineRef} className="cd-line" d={chart.path} />
             <path ref={hotRef} className="cd-line-hot" d={chart.path} />
           </svg>
 
           <div className="cd-point" />
+
+          {userMarkerStyle && (phase === 'running' || isCrashVisual) && (
+            <div className="cd-marker cd-marker-user" style={userMarkerStyle}>
+              <Shield size={11} />
+            </div>
+          )}
+
+          {botMarkerStyle && (
+            <div className="cd-marker cd-marker-bot" style={botMarkerStyle}>
+              <Bot size={11} />
+            </div>
+          )}
         </div>
 
         <div className="cd-crash-flash" />
@@ -1061,7 +1148,7 @@ export const CrashDuelGame = () => {
         </div>
       </section>
 
-      <section className="cd-actions">
+      <section className={`cd-actions ${userCashout ? 'cd-actions-safe' : ''}`}>
         <div className="cd-action-top">
           <div>
             <span>{phase === 'running' ? (userCashout ? 'secured' : 'current') : phase === 'ready' ? 'base' : 'round'}</span>
@@ -1082,7 +1169,7 @@ export const CrashDuelGame = () => {
         </div>
 
         {phase === 'ready' && (
-          <button type="button" className="cd-btn cd-btn-gold" onClick={startRound}>
+          <button type="button" className="cd-btn cd-btn-ton" onClick={startRound}>
             <Zap size={16} />
             Start
           </button>
@@ -1115,7 +1202,7 @@ export const CrashDuelGame = () => {
         )}
 
         {phase === 'gameover' && (
-          <button type="button" className="cd-btn cd-btn-gold" onClick={restart}>
+          <button type="button" className="cd-btn cd-btn-ton" onClick={restart}>
             <RefreshCw size={16} />
             New match
           </button>
@@ -1184,7 +1271,7 @@ export const CrashDuelGame = () => {
               </div>
             </div>
 
-            <button type="button" className="cd-btn cd-btn-gold" onClick={restart}>
+            <button type="button" className="cd-btn cd-btn-ton" onClick={restart}>
               <RefreshCw size={16} />
               New match
             </button>
