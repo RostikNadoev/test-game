@@ -64,7 +64,7 @@ function AppShell() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setIsInitialLoading(false);
-    }, 4300);
+    }, 4100);
 
     return () => window.clearTimeout(timer);
   }, []);
