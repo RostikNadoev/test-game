@@ -15,61 +15,63 @@ const getInitials = (name?: string) => {
 const GameCoinIcon = ({ className = '' }: { className?: string }) => {
   return (
     <svg
-      viewBox="0 0 32 32"
-      className={className}
+      viewBox="0 0 36 36"
+      className={`game-coin-icon ${className}`}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="gameCoinBody" x1="7" y1="5" x2="25" y2="27" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFE6A3" />
-          <stop offset="0.42" stopColor="#FFB84D" />
-          <stop offset="1" stopColor="#C96A12" />
+        <radialGradient id="headerCoinGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(13 10) rotate(48) scale(24)">
+          <stop stopColor="#FFFFFF" stopOpacity="0.95" />
+          <stop offset="0.34" stopColor="#FFE9A8" />
+          <stop offset="0.72" stopColor="#F3A640" />
+          <stop offset="1" stopColor="#8F4A12" />
+        </radialGradient>
+
+        <linearGradient id="headerCoinEdge" x1="8" y1="5" x2="29" y2="31" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFF7D7" />
+          <stop offset="0.42" stopColor="#F7B650" />
+          <stop offset="1" stopColor="#7C3D0D" />
         </linearGradient>
 
-        <linearGradient id="gameCoinInner" x1="10" y1="8" x2="22" y2="24" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFF2BD" />
-          <stop offset="0.48" stopColor="#F9A93D" />
-          <stop offset="1" stopColor="#B8550C" />
+        <linearGradient id="headerCoinStar" x1="11" y1="9" x2="25" y2="27" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFFFFF" />
+          <stop offset="0.46" stopColor="#FFE08A" />
+          <stop offset="1" stopColor="#F28B25" />
         </linearGradient>
 
-        <linearGradient id="gameCoinGem" x1="11" y1="10" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFF7D1" />
-          <stop offset="0.45" stopColor="#FFD166" />
-          <stop offset="1" stopColor="#F97316" />
-        </linearGradient>
-
-        <filter id="gameCoinShadow" x="2" y="2" width="28" height="28" filterUnits="userSpaceOnUse">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#7C2D12" floodOpacity="0.42" />
+        <filter id="headerCoinShadow" x="1" y="1" width="34" height="34" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#000000" floodOpacity="0.42" />
+          <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#F7B650" floodOpacity="0.22" />
         </filter>
       </defs>
 
-      <g filter="url(#gameCoinShadow)">
-        <circle cx="16" cy="16" r="12.5" fill="url(#gameCoinBody)" />
-        <circle cx="16" cy="16" r="9.2" fill="url(#gameCoinInner)" stroke="rgba(255,255,255,0.42)" strokeWidth="1" />
+      <g filter="url(#headerCoinShadow)">
+        <circle cx="18" cy="18" r="14" fill="url(#headerCoinEdge)" />
+        <circle cx="18" cy="18" r="11.2" fill="url(#headerCoinGlow)" stroke="rgba(255,255,255,0.55)" strokeWidth="1" />
 
         <path
-          d="M16 8.6L18.15 13.65L23.45 14.1L19.45 17.62L20.65 22.85L16 20.12L11.35 22.85L12.55 17.62L8.55 14.1L13.85 13.65L16 8.6Z"
-          fill="url(#gameCoinGem)"
-          stroke="rgba(255,255,255,0.55)"
-          strokeWidth="0.8"
+          d="M18 9.2L20.35 14.22L25.82 14.88L21.76 18.62L22.84 24.08L18 21.38L13.16 24.08L14.24 18.62L10.18 14.88L15.65 14.22L18 9.2Z"
+          fill="url(#headerCoinStar)"
+          stroke="rgba(255,255,255,0.65)"
+          strokeWidth="0.75"
           strokeLinejoin="round"
         />
 
         <path
-          d="M10.2 10.7C11.55 8.95 13.66 7.85 16.02 7.85"
+          d="M10.9 12.2C12.4 9.95 14.92 8.48 17.8 8.48"
           stroke="white"
-          strokeOpacity="0.42"
-          strokeWidth="1.2"
+          strokeOpacity="0.58"
+          strokeWidth="1.25"
           strokeLinecap="round"
         />
 
         <path
-          d="M22.4 20.3C21.05 22.12 18.86 23.3 16.4 23.3"
-          stroke="#7C2D12"
-          strokeOpacity="0.32"
-          strokeWidth="1.2"
+          d="M25.1 22.9C23.55 25.1 21.02 26.52 18.18 26.52"
+          stroke="#74370C"
+          strokeOpacity="0.34"
+          strokeWidth="1.25"
           strokeLinecap="round"
         />
       </g>
@@ -162,7 +164,7 @@ export const Header = () => {
               </div>
 
               <div className="balance-pill balance-game">
-                <GameCoinIcon className="h-[16px] w-[16px] shrink-0" />
+                <GameCoinIcon className="h-[17px] w-[17px] shrink-0" />
                 <span className="text-safe text-[10px] font-bold tabular-nums text-white">
                   {formatNumber(user?.balance_game ?? 0)}
                 </span>
@@ -172,7 +174,7 @@ export const Header = () => {
                 type="button"
                 onClick={() => setIsWalletOpen(true)}
                 aria-label="Open wallet"
-                className="pressable flex h-9 w-9 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04]"
+                className="pressable wallet-button"
               >
                 <Wallet size={15} className="text-slate-300" />
               </button>

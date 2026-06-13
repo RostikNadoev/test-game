@@ -50,8 +50,8 @@ export const BottomNav = () => {
                   <>
                     <span className="nav-icon-wrap">
                       <Icon
-                        size={19}
-                        strokeWidth={isActive ? 2.55 : 1.8}
+                        size={20}
+                        strokeWidth={isActive ? 2.65 : 1.85}
                         className="nav-icon"
                       />
                     </span>
