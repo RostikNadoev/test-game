@@ -9,6 +9,8 @@ import marketCover from '../assets/home/market.webp';
 import crashCover from '../assets/home/crash.webp';
 import hockeyCover from '../assets/home/hockey.webp';
 import raceCover from '../assets/home/race.webp';
+import penalCover from '../assets/home/penal.webp';
+import gridCover from '../assets/home/grid.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -123,6 +125,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#9D7CFF]/24 via-[#FF7A90]/10 to-transparent',
     meta: 'Strategy',
     playPath: '/game/grid_lock/play',
+    coverUrl: gridCover
   },
   {
     code: 'blackjack_duel',
@@ -183,6 +186,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Penalty',
     status: 'New',
     playPath: '/game/penalty_pvp/play',
+    coverUrl: penalCover
   },
 ];
 
