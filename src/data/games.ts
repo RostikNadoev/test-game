@@ -7,6 +7,7 @@ import diceCover from '../assets/home/dice.webp';
 import towerCover from '../assets/home/tower.webp';
 import marketCover from '../assets/home/market.webp';
 import crashCover from '../assets/home/crash.webp';
+import hockeyCover from '../assets/home/hockey.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -168,6 +169,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#9D7CFF]/22 via-[#52FFE5]/8 to-transparent',
     meta: 'Arcade',
     playPath: '/game/air_hockey/play',
+    coverUrl: hockeyCover
   },
 ];
 
