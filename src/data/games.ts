@@ -8,7 +8,7 @@ import towerCover from '../assets/home/tower.webp';
 import marketCover from '../assets/home/market.webp';
 import crashCover from '../assets/home/crash.webp';
 import hockeyCover from '../assets/home/hockey.webp';
-import raceCover from '../assets/home/race.webp'
+import raceCover from '../assets/home/race.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -23,6 +23,7 @@ export type GameCode =
   | 'dice_duel'
   | 'neon_matrix'
   | 'street_race'
+  | 'penalty_pvp'
   | 'air_hockey';
 
 export type GameCatalogItem = {
@@ -58,7 +59,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Physics',
     status: 'New',
     playPath: '/game/descent_duel/play',
-    coverUrl: descentCover
+    coverUrl: descentCover,
   },
   {
     code: 'paper_io',
@@ -69,7 +70,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Territory',
     status: 'New',
     playPath: '/game/paper_io/play',
-    coverUrl: paperCover
+    coverUrl: paperCover,
   },
   {
     code: 'tower_stack',
@@ -80,7 +81,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Stack',
     status: 'New',
     playPath: '/game/tower_stack/play',
-    coverUrl: towerCover
+    coverUrl: towerCover,
   },
   {
     code: 'crash_duel',
@@ -91,7 +92,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Crash',
     status: 'New',
     playPath: '/game/crash_duel/play',
-    coverUrl: crashCover
+    coverUrl: crashCover,
   },
   {
     code: 'virus_market',
@@ -102,7 +103,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Market',
     status: 'Hot',
     playPath: '/game/virus_market/play',
-    coverUrl: marketCover
+    coverUrl: marketCover,
   },
   {
     code: 'rps_duel',
@@ -112,7 +113,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#FF7A90]/22 via-[#F2C766]/10 to-transparent',
     meta: 'Mind Game',
     playPath: '/game/rps_duel/play',
-    coverUrl: rpsCover
+    coverUrl: rpsCover,
   },
   {
     code: 'grid_lock',
@@ -131,7 +132,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#54F2A8]/22 via-[#52FFE5]/10 to-transparent',
     meta: 'Cards',
     playPath: '/game/blackjack_duel/play',
-    coverUrl: blCover
+    coverUrl: blCover,
   },
   {
     code: 'dice_duel',
@@ -141,7 +142,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#F2C766]/26 via-[#FF7A90]/10 to-transparent',
     meta: 'Risk',
     playPath: '/game/dice_duel/play',
-    coverUrl: diceCover
+    coverUrl: diceCover,
   },
   {
     code: 'neon_matrix',
@@ -161,7 +162,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#52FFE5]/18 via-[#9D7CFF]/10 to-transparent',
     meta: 'Race',
     playPath: '/game/street_race/play',
-    coverUrl: raceCover
+    coverUrl: raceCover,
   },
   {
     code: 'air_hockey',
@@ -171,7 +172,17 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#9D7CFF]/22 via-[#52FFE5]/8 to-transparent',
     meta: 'Arcade',
     playPath: '/game/air_hockey/play',
-    coverUrl: hockeyCover
+    coverUrl: hockeyCover,
+  },
+  {
+    code: 'penalty_pvp',
+    displayName: 'Penalty PvP',
+    icon: '⚽',
+    description: 'Пенальти 1v1',
+    color: 'from-[#52FFE5]/18 via-[#F2C766]/12 to-transparent',
+    meta: 'Penalty',
+    status: 'New',
+    playPath: '/game/penalty_pvp/play',
   },
 ];
 

@@ -18,6 +18,7 @@ import { CrashDuelGame } from './pages/CrashDuelGame';
 import { PaperIoGame } from './pages/PaperIoGame';
 import { TowerStackGame } from './pages/TowerStackGame';
 import { PhysicsDuel } from './pages/PhysicsDuel';
+import { PenaltyPvpGame } from './pages/PenaltyPvpGame';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
 import { GAME_TITLE_BY_PLAY_PATH, LOCKED_GAME_ROUTES } from './data/games';
 import appLoaderGif from './assets/app-loader.gif';
@@ -227,6 +228,7 @@ function AppShell() {
             <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
             <Route path="/game/street_race/play" element={<RaceGame />} />
             <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
+            <Route path="/game/penalty_pvp/play" element={<PenaltyPvpGame />} />
 
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
