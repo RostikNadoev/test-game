@@ -8,6 +8,7 @@ import towerCover from '../assets/home/tower.webp';
 import marketCover from '../assets/home/market.webp';
 import crashCover from '../assets/home/crash.webp';
 import hockeyCover from '../assets/home/hockey.webp';
+import raceCover from '../assets/home/race.webp'
 
 export type GameCode =
   | 'plinko_pvp'
@@ -160,6 +161,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     color: 'from-[#52FFE5]/18 via-[#9D7CFF]/10 to-transparent',
     meta: 'Race',
     playPath: '/game/street_race/play',
+    coverUrl: raceCover
   },
   {
     code: 'air_hockey',
