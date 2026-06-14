@@ -18,6 +18,7 @@ type Preview = { r: number; c: number; o: Orientation; valid: boolean };
 
 const N = 9;
 const WALLS = 10;
+const TURN_SECONDS = 10;
 
 // SVG board metrics: viewBox 0..100
 const P = 5;
@@ -278,6 +279,7 @@ export const GridLockGame: React.FC = () => {
   const [orient, setOrient] = useState<Orientation>("h");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [notice, setNotice] = useState("");
+  const [timeLeft, setTimeLeft] = useState(TURN_SECONDS);
 
   const cur = turn === "p1" ? p1 : p2;
   const other = turn === "p1" ? p2 : p1;
@@ -369,6 +371,31 @@ export const GridLockGame: React.FC = () => {
     const id = window.setTimeout(() => setNotice(""), 1100);
     return () => window.clearTimeout(id);
   }, [notice]);
+
+  useEffect(() => {
+    if (winner) return;
+    setTimeLeft(TURN_SECONDS);
+  }, [turn, winner]);
+
+  useEffect(() => {
+    if (winner) return;
+
+    const id = window.setInterval(() => {
+      setTimeLeft((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [turn, winner]);
+
+  useEffect(() => {
+    if (winner || timeLeft > 0) return;
+
+    haptic("error");
+    setPreview(null);
+    setMode("move");
+    setNotice("Время вышло");
+    setTurn((t) => otherPlayer(t));
+  }, [timeLeft, winner]);
 
   const blocked = useMemo(() => buildBlocked(walls), [walls]);
 
@@ -562,13 +589,10 @@ export const GridLockGame: React.FC = () => {
     setOrient("h");
     setPreview(null);
     setNotice("");
+    setTimeLeft(TURN_SECONDS);
   };
 
-  const status = winner
-    ? `${CFG[winner].name} победил`
-    : mode === "wall"
-      ? `${cfg.name}: стена ${orient === "h" ? "━" : "┃"}`
-      : `${cfg.name}: ход`;
+  const timerProgress = timeLeft / TURN_SECONDS;
 
   return (
     <div
@@ -600,23 +624,7 @@ export const GridLockGame: React.FC = () => {
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <PlayerMini cfg={CFG.p1} count={left.p1} active={turn === "p1" && !winner} align="left" />
 
-          <div
-            className="min-w-[116px] rounded-[18px] border px-3 py-2 text-center"
-            style={{
-              background: APP.bgCardSoft,
-              borderColor: APP.border,
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,.055)",
-            }}
-          >
-            <div className="truncate text-[11px] font-black leading-none" style={{ color: winner ? APP.gold : cfg.text }}>
-              {status}
-            </div>
-            {!winner && (
-              <div className="mt-1 text-[8px] font-black uppercase tracking-[0.16em]" style={{ color: APP.muted }}>
-                цель {cfg.arrow} {cfg.goal}
-              </div>
-            )}
-          </div>
+          <TimerBadge seconds={timeLeft} progress={timerProgress} accent={winner ? APP.gold : accent} done={!!winner} />
 
           <PlayerMini cfg={CFG.p2} count={left.p2} active={turn === "p2" && !winner} align="right" />
         </div>
@@ -632,7 +640,7 @@ export const GridLockGame: React.FC = () => {
             tapStart.current = null;
             setPreview(null);
           }}
-          className="relative aspect-square w-full max-w-[min(100%,calc(100vh-152px))] overflow-hidden rounded-[25px] border"
+          className="relative aspect-square w-full max-w-[min(100%,calc(100vh-168px))] overflow-hidden rounded-[25px] border"
           style={{
             background: "rgba(18,18,24,0.64)",
             borderColor: APP.border,
@@ -863,6 +871,52 @@ export const GridLockGame: React.FC = () => {
   );
 };
 
+
+const TimerBadge = ({
+  seconds,
+  progress,
+  accent,
+  done,
+}: {
+  seconds: number;
+  progress: number;
+  accent: string;
+  done: boolean;
+}) => {
+  const degrees = clamp(progress, 0, 1) * 360;
+
+  return (
+    <div
+      className="grid h-[54px] w-[72px] place-items-center rounded-[20px] border"
+      style={{
+        background: APP.bgCardSoft,
+        borderColor: APP.border,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.055)",
+      }}
+      aria-label="Таймер хода"
+    >
+      <div
+        className="grid h-[40px] w-[40px] place-items-center rounded-full"
+        style={{
+          background: `conic-gradient(${accent} ${degrees}deg, rgba(255,255,255,0.075) ${degrees}deg 360deg)`,
+          boxShadow: `0 0 14px ${accent}22`,
+        }}
+      >
+        <div
+          className="grid h-[32px] w-[32px] place-items-center rounded-full text-[14px] font-black leading-none"
+          style={{
+            background: "rgba(9,9,13,0.88)",
+            color: done ? APP.gold : APP.text,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.06)",
+          }}
+        >
+          {done ? "✓" : seconds}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PlayerMini = ({
   cfg,
   count,
@@ -875,7 +929,7 @@ const PlayerMini = ({
   align: "left" | "right";
 }) => (
   <div
-    className="flex min-w-0 items-center gap-2 rounded-[18px] border px-2 py-2"
+    className="flex min-h-[54px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5"
     style={{
       flexDirection: align === "right" ? "row-reverse" : "row",
       background: active ? `${cfg.main}18` : APP.bgCardSoft,
@@ -885,16 +939,16 @@ const PlayerMini = ({
     }}
   >
     <span
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-[13px] text-[11px] font-black"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black"
       style={{ background: cfg.main, color: "#fff" }}
     >
       {cfg.short}
     </span>
-    <span className="min-w-0 leading-none" style={{ textAlign: align === "right" ? "right" : "left" }}>
-      <span className="block truncate text-[10px] font-black" style={{ color: cfg.text }}>
+    <span className="min-w-0 leading-[1.24]" style={{ textAlign: align === "right" ? "right" : "left" }}>
+      <span className="block truncate text-[10.5px] font-black" style={{ color: cfg.text }}>
         {cfg.name}
       </span>
-      <span className="mt-1 block truncate text-[8px] font-black uppercase tracking-[0.12em]" style={{ color: APP.muted }}>
+      <span className="mt-1.5 block truncate text-[8.5px] font-black uppercase tracking-[0.12em] leading-[1.35]" style={{ color: APP.muted }}>
         {count} стен
       </span>
     </span>
