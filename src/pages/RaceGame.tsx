@@ -11,14 +11,14 @@ import React, {
 /* ============================================================================
  * RaceGame.tsx — TwinGames arcade drift racer
  * ----------------------------------------------------------------------------
- * Physics now follows the reference feel:
+ * Arcade feel:
  * - joystick points where the car wants to go;
- * - car compares joystick angle with current heading;
- * - sharp direction changes reduce speed;
- * - actual velocity lags behind heading via driftFactor;
- * - result: constant smooth arcade drift, easy and pleasant.
+ * - heading rotates smoothly toward the stick;
+ * - velocity lags heading (grip model) => natural, controllable drift;
+ * - walls are SOFT: only the into-wall velocity is removed, the slide is kept;
+ * - curbs barely slow you, offroad slows smoothly and recovers fast.
  *
- * Public API preserved for future online mode:
+ * Public API preserved for online mode:
  * - NetSnapshot
  * - DriftRaceHandle
  * - onSnapshot
@@ -170,20 +170,42 @@ const CURB_WIDTH = 16;
 const RUNOFF = 70;
 const WALL = ROAD_HALF + CURB_WIDTH + RUNOFF;
 
+/* ----------------------------------------------------------------------------
+ * Physics constants.
+ * The sim runs on a FIXED step (STEP = 1/60), so every multiplier below is a
+ * straight per-step value — no frame-rate scaling math needed.
+ * -------------------------------------------------------------------------- */
 const PHYSICS = {
-  maxSpeed: 540,
-  accel: 820,
-  idleAccel: 300,
-  friction: 0.985,
-  driftFactor: 0.958,
-  driftFactorHard: 0.972,
-  turnSpeed: 0.085,
-  wallFriction: 0.45,
-  turnResistance: 0.95,
-  brakePower: 760,
-  offroadDrag: 0.72,
-  curbDrag: 0.9,
-};
+  maxSpeed: 560, // hard top speed (px/s)
+  accel: 1320, // throttle acceleration (px/s^2) — responsive
+  idleSpeed: 230, // relaxed cruise when the stick is released
+  idleEase: 0.03, // how fast we settle toward idle cruise
+  brakePower: 1500, // handbrake / brake deceleration (px/s^2)
+
+  friction: 0.992, // light coasting drag (per step)
+
+  steerResponse: 0.105, // how fast heading eases toward the stick direction
+  steerLowSpeed: 150, // below this, steering authority scales down a little
+  handbrakeTurn: 1.35, // handbrake sharpens turn-in
+  handbrakeScrub: 0.99, // tiny extra scrub while handbraking
+  turnScrub: 0.01, // mild speed bleed on sharp direction changes
+
+  gripBase: 0.91, // velocity->heading alignment (lower = grippier)
+  gripDrift: 0.965, // alignment while sliding/handbraking (higher = more slide)
+  curbGripLoss: 0.012, // curbs feel a touch looser (drift feel, not a wall)
+  offroadGripLoss: 0.02, // offroad is looser still
+
+  curbDrag: 0.991, // subtle curb slowdown (per step)
+  offroadDrag: 0.974, // noticeable offroad slowdown (per step)
+  offroadCap: 320, // soft speed cap while offroad
+
+  // --- soft arcade wall response ---
+  wallTangentKeep: 0.92, // preserve ~92% of the along-wall (slide) velocity
+  wallBounce: 0.1, // small push-off, not a hard bounce
+  wallDrag: 0.99, // mild overall scrub on contact
+  wallPush: 1.0, // depenetration firmness
+  hardHitNormal: 230, // into-wall speed that counts as a real crash (shake)
+} as const;
 
 const VISUAL = {
   curbLen: 28,
@@ -693,7 +715,7 @@ function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
 }
 
 function drawDecor(ctx: CanvasRenderingContext2D, decor: Decor, car: CarState, now: number) {
-  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 1450) return;
+  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 1150) return;
 
   ctx.save();
   ctx.translate(decor.x, decor.y);
@@ -965,7 +987,7 @@ function spawnParticle(
   angle: number,
   power: number,
 ) {
-  if (list.length > 180) list.splice(0, list.length - 150);
+  if (list.length > 130) list.splice(0, list.length - 110);
 
   for (let i = 0; i < count; i += 1) {
     const a = angle + Math.PI + (Math.random() - 0.5) * 1.8;
@@ -1009,7 +1031,7 @@ function drawSkids(ctx: CanvasRenderingContext2D, list: Skid[], dt: number) {
     if (skid.life <= 0) list.splice(i, 1);
   }
 
-  if (list.length > 280) list.splice(0, list.length - 280);
+  if (list.length > 200) list.splice(0, list.length - 200);
 }
 
 function drawTrail(ctx: CanvasRenderingContext2D, list: Trail[], dt: number) {
@@ -1034,7 +1056,7 @@ function drawTrail(ctx: CanvasRenderingContext2D, list: Trail[], dt: number) {
     if (tr.life <= 0) list.splice(i, 1);
   }
 
-  if (list.length > 20) list.splice(0, list.length - 20);
+  if (list.length > 14) list.splice(0, list.length - 14);
 }
 
 function drawCar(
@@ -1191,6 +1213,9 @@ function fmtTime(ms: number) {
   return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
 }
 
+/* ----------------------------------------------------------------------------
+ * Core simulation step. Fixed timestep, arcade handling.
+ * -------------------------------------------------------------------------- */
 function stepCar(
   car: CarState,
   input: InputState,
@@ -1203,94 +1228,137 @@ function stepCar(
   hardHit: boolean;
   crossedFinish: boolean;
 } {
-  const beforeHit = queryTrack(center, total, car.x, car.y);
-  const surface = beforeHit.surface;
-
+  const before = queryTrack(center, total, car.x, car.y);
+  const surface = before.surface;
   const prevProgress = car.progress;
 
+  // ---- target direction + throttle from input ----
+  let targetAngle = car.angle;
+  let throttle = 0;
+
   if (input.active) {
-    const stickAngle = Math.atan2(input.aimY, input.aimX);
-    const diff = angleDiff(stickAngle, car.angle);
-    const absDiff = Math.abs(diff);
+    const mag = Math.hypot(input.aimX, input.aimY);
 
-    const turnPenalty = clamp(1 - absDiff * (1 - PHYSICS.turnResistance), 0.76, 1);
-    car.speed *= Math.pow(turnPenalty, STEP * 60);
-
-    if (absDiff < Math.PI / 1.45) {
-      const push = PHYSICS.accel * (1 - absDiff * 0.18);
-      car.speed += push * STEP;
+    if (mag > 0.12) {
+      targetAngle = Math.atan2(input.aimY, input.aimX);
+      throttle = clamp(mag, 0, 1);
+      if (throttle < 0.35) throttle = 0.35; // keep a baseline push so it never feels dead
     } else {
-      car.speed *= Math.pow(0.945, STEP * 60);
+      // stick near center: hold heading, gentle throttle
+      targetAngle = car.angle;
+      throttle = 0.35;
     }
+  }
 
-    if (input.drift) {
-      car.speed *= Math.pow(0.965, STEP * 60);
-    }
+  const diff = angleDiff(targetAngle, car.angle);
+  const absDiff = Math.abs(diff);
 
-    car.speed -= input.brake * PHYSICS.brakePower * STEP;
+  // ---- steering: ease heading toward the stick ----
+  const authority = clamp(Math.abs(car.speed) / PHYSICS.steerLowSpeed, 0.2, 1);
+  const turnBoost = input.drift ? PHYSICS.handbrakeTurn : 1;
+  car.angle += diff * PHYSICS.steerResponse * authority * turnBoost;
 
-    const speedAuthority = Math.min(Math.abs(car.speed) / 155, 1);
-    const turnBoost = input.drift ? 1.22 : 1;
-
-    car.angle += diff * PHYSICS.turnSpeed * speedAuthority * turnBoost * STEP * 60;
+  // ---- throttle / braking ----
+  if (input.active) {
+    // sharp direction changes scrub a little speed (mild, predictable)
+    const sharp = Math.min(absDiff, Math.PI) / Math.PI;
+    car.speed *= 1 - sharp * PHYSICS.turnScrub;
+    car.speed += PHYSICS.accel * throttle * STEP;
   } else {
-    car.speed += PHYSICS.idleAccel * STEP * 0.3;
+    // relaxed cruise so the car keeps flowing on mobile
+    car.speed += (PHYSICS.idleSpeed - car.speed) * PHYSICS.idleEase;
   }
 
+  if (input.brake > 0) {
+    car.speed -= input.brake * PHYSICS.brakePower * STEP;
+  }
+
+  if (input.drift) {
+    car.speed *= PHYSICS.handbrakeScrub;
+  }
+
+  // ---- surface drag (curbs nudge, offroad slows smoothly) ----
   if (surface === 'curb') {
-    car.speed *= Math.pow(PHYSICS.curbDrag, STEP * 60);
+    car.speed *= PHYSICS.curbDrag;
+  } else if (surface === 'off') {
+    car.speed *= PHYSICS.offroadDrag;
+    if (car.speed > PHYSICS.offroadCap) {
+      car.speed = lerp(car.speed, PHYSICS.offroadCap, 0.1);
+    }
   }
 
-  if (surface === 'off') {
-    car.speed *= Math.pow(PHYSICS.offroadDrag, STEP * 60);
-  }
-
-  car.speed *= Math.pow(PHYSICS.friction, STEP * 60);
+  // ---- light base friction + clamp ----
+  car.speed *= PHYSICS.friction;
   car.speed = clamp(car.speed, 0, PHYSICS.maxSpeed);
 
+  // ---- velocity follows heading via grip (this is what creates drift) ----
   const targetVX = Math.cos(car.angle) * car.speed;
   const targetVY = Math.sin(car.angle) * car.speed;
 
-  const turnLoad = input.active ? Math.abs(angleDiff(Math.atan2(input.aimY, input.aimX), car.angle)) : 0;
-  const driftFactor = input.drift || turnLoad > 0.55 ? PHYSICS.driftFactorHard : PHYSICS.driftFactor;
-  const factor = Math.pow(driftFactor, STEP * 60);
+  const moveSpeed = Math.hypot(car.vx, car.vy);
+  const slipAngle =
+    moveSpeed > 30 ? Math.abs(angleDiff(Math.atan2(car.vy, car.vx), car.angle)) : 0;
 
-  car.vx = car.vx * factor + targetVX * (1 - factor);
-  car.vy = car.vy * factor + targetVY * (1 - factor);
+  const sliding = input.drift || absDiff > 0.5 || slipAngle > 0.22;
+  let grip: number = sliding ? PHYSICS.gripDrift : PHYSICS.gripBase;
+  if (surface === 'curb') grip += PHYSICS.curbGripLoss;
+  else if (surface === 'off') grip += PHYSICS.offroadGripLoss;
+  grip = clamp(grip, 0, 0.985);
 
+  car.vx = car.vx * grip + targetVX * (1 - grip);
+  car.vy = car.vy * grip + targetVY * (1 - grip);
+
+  // ---- integrate position ----
   let nx = car.x + car.vx * STEP;
   let ny = car.y + car.vy * STEP;
 
+  // ---- SOFT arcade wall response ----
+  // Remove only the velocity going INTO the wall, keep the slide along it.
   let hardHit = false;
-  const nextHit = queryTrack(center, total, nx, ny);
+  const hit = queryTrack(center, total, nx, ny);
 
-  if (nextHit.d > WALL) {
-    const pen = nextHit.d - WALL;
+  if (hit.d > WALL) {
+    const pen = hit.d - WALL;
+    const nxn = hit.nx; // outward normal (centerline -> car)
+    const nyn = hit.ny;
 
-    nx -= nextHit.nx * pen;
-    ny -= nextHit.ny * pen;
+    // push the car back into the playable area
+    nx -= nxn * pen * PHYSICS.wallPush;
+    ny -= nyn * pen * PHYSICS.wallPush;
 
-    car.vx *= PHYSICS.wallFriction;
-    car.vy *= PHYSICS.wallFriction;
-    car.speed *= PHYSICS.wallFriction;
+    // velocity component heading into the wall
+    const vn = car.vx * nxn + car.vy * nyn;
 
-    if (Math.hypot(car.vx, car.vy) > 120) {
-      hardHit = true;
+    if (vn > 0) {
+      // tangent (slide) component
+      const tx = car.vx - vn * nxn;
+      const ty = car.vy - vn * nyn;
+
+      // keep most of the slide, cancel the normal part with only a tiny bounce
+      car.vx = (tx * PHYSICS.wallTangentKeep - nxn * vn * PHYSICS.wallBounce) * PHYSICS.wallDrag;
+      car.vy = (ty * PHYSICS.wallTangentKeep - nyn * vn * PHYSICS.wallBounce) * PHYSICS.wallDrag;
+
+      // keep the scalar speed in sync with the new velocity
+      car.speed = Math.hypot(car.vx, car.vy);
+
+      // only a genuine head-on smack shakes the camera
+      if (vn > PHYSICS.hardHitNormal) hardHit = true;
     }
   }
 
   car.x = nx;
   car.y = ny;
 
-  const speed = Math.hypot(car.vx, car.vy);
-  const moveAngle = speed > 8 ? Math.atan2(car.vy, car.vx) : car.angle;
-  const slip = speed > 35 ? Math.abs(angleDiff(moveAngle, car.angle)) : 0;
+  // ---- drift visual ----
+  const finalSpeed = Math.hypot(car.vx, car.vy);
+  const moveAngle = finalSpeed > 8 ? Math.atan2(car.vy, car.vx) : car.angle;
+  const slip = finalSpeed > 35 ? Math.abs(angleDiff(moveAngle, car.angle)) : 0;
+  const driftVisual = clamp(slip / 0.6 + (input.drift ? 0.2 : 0), 0, 1);
+  car.driftPower = lerp(car.driftPower, driftVisual * smooth(50, 220, finalSpeed), 0.2);
 
-  const driftVisual = clamp(slip / 0.65 + (input.drift ? 0.22 : 0), 0, 1);
-  car.driftPower = lerp(car.driftPower, driftVisual * smooth(60, 230, speed), 0.18);
-
-  const afterHit = queryTrack(center, total, car.x, car.y);
-  car.progress = afterHit.progress;
+  // ---- progress + lap counting ----
+  const after = queryTrack(center, total, car.x, car.y);
+  car.progress = after.progress;
 
   let crossedFinish = false;
 
@@ -1305,7 +1373,7 @@ function stepCar(
   }
 
   return {
-    speed,
+    speed: finalSpeed,
     drift: car.driftPower,
     surface,
     hardHit,
@@ -1733,8 +1801,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           inp.active = true;
           inp.aimX = joy.inputX;
           inp.aimY = joy.inputY;
-          inp.brake = joy.inputY > 0.55 ? clamp((joy.inputY - 0.55) / 0.45, 0, 1) * 0.6 : 0;
-          inp.drift = joy.inputY > 0.42;
+          inp.brake = joy.inputY > 0.6 ? clamp((joy.inputY - 0.6) / 0.4, 0, 1) * 0.55 : 0;
+          inp.drift = joy.inputY > 0.5;
         } else {
           inp.active = false;
           inp.aimX = Math.cos(car.current.angle);
@@ -1782,7 +1850,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
               );
             }
 
-            if (Math.random() > 0.52) {
+            if (Math.random() > 0.6) {
               spawnParticle(particles.current, backX, backY, 'smoke', 1, c.angle, 0.45 + c.driftPower * 0.85);
             }
 
@@ -1804,7 +1872,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           }
 
           if (result.hardHit) {
-            camera.current.shake = Math.max(camera.current.shake, 0.78);
+            camera.current.shake = Math.max(camera.current.shake, 0.5);
             spawnParticle(particles.current, c.x, c.y, 'spark', 5, c.angle, 1.2);
             combo.current.score = 0;
           }
@@ -1885,15 +1953,15 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
         const camK = 1 - Math.exp(-dtSec / 0.16);
 
-        cam.x = lerp(cam.x, c.x + c.vx * 0.26, camK);
-        cam.y = lerp(cam.y, c.y + c.vy * 0.26, camK);
+        cam.x = lerp(cam.x, c.x + c.vx * 0.18, camK);
+        cam.y = lerp(cam.y, c.y + c.vy * 0.18, camK);
 
-        const targetZoom = 1.03 - clamp(speed / PHYSICS.maxSpeed, 0, 1) * 0.12;
-        cam.zoom = lerp(cam.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.45));
+        const targetZoom = 1.0 - clamp(speed / PHYSICS.maxSpeed, 0, 1) * 0.06;
+        cam.zoom = lerp(cam.zoom, targetZoom, 1 - Math.exp(-dtSec / 0.6));
 
-        cam.shake = Math.max(0, cam.shake - dtSec * 3);
-        cam.sx = (Math.random() - 0.5) * cam.shake * 10;
-        cam.sy = (Math.random() - 0.5) * cam.shake * 10;
+        cam.shake = Math.max(0, cam.shake - dtSec * 4.5);
+        cam.sx = (Math.random() - 0.5) * cam.shake * 7;
+        cam.sy = (Math.random() - 0.5) * cam.shake * 7;
 
         if (now - trailT.current > 42 && speed > 80) {
           trailT.current = now;

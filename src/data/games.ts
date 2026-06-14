@@ -6,6 +6,7 @@ import paperCover from '../assets/home/paper.webp';
 import diceCover from '../assets/home/dice.webp';
 import towerCover from '../assets/home/tower.webp';
 import marketCover from '../assets/home/market.webp';
+import crashCover from '../assets/home/crash.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -88,6 +89,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Crash',
     status: 'New',
     playPath: '/game/crash_duel/play',
+    coverUrl: crashCover
   },
   {
     code: 'virus_market',
