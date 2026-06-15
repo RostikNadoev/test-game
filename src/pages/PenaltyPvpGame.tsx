@@ -16,41 +16,46 @@ const DIRS: Dir[] = ["TL", "TR", "C", "BL", "BR"];
 
 const ROUNDS = 5;
 const CHOOSE_MS = 5000;
-const TRAVEL_MS = 760;
-const REBOUND_MS = 680;
-const RESULT_MS = 1500;
+const TRAVEL_MS = 740;
+const REBOUND_MS = 560;
+const RESULT_MS = 1350;
 
 /* Scene coordinate maps (percentages of the play area) ------------- */
+/* Lower corners are now real ground shots; keeper model anchor is the glove line. */
 const ZONE: Record<Dir, { x: number; y: number }> = {
-  TL: { x: 34, y: 21 },
-  TR: { x: 66, y: 21 },
-  C: { x: 50, y: 28 },
-  BL: { x: 35, y: 36 },
-  BR: { x: 65, y: 36 },
+  TL: { x: 33.4, y: 22.2 },
+  TR: { x: 66.6, y: 22.2 },
+  C: { x: 50, y: 29.2 },
+  BL: { x: 35.9, y: 39.3 },
+  BR: { x: 64.1, y: 39.3 },
 };
-const REST_KEEPER = { x: 50, y: 47, tilt: 0 };
+const REST_KEEPER = { x: 50, y: 45.2, tilt: 0 };
 const KEEPER: Record<Dir, { x: number; y: number; tilt: number }> = {
-  TL: { x: 36, y: 47, tilt: -44 },
-  TR: { x: 64, y: 47, tilt: 44 },
-  C: { x: 50, y: 47, tilt: 0 },
-  BL: { x: 38, y: 47, tilt: -66 },
-  BR: { x: 62, y: 47, tilt: 66 },
+  TL: { x: 33.4, y: 22.2, tilt: -58 },
+  TR: { x: 66.6, y: 22.2, tilt: 58 },
+  C: { x: 50, y: 29.2, tilt: 0 },
+  BL: { x: 35.9, y: 39.3, tilt: -68 },
+  BR: { x: 64.1, y: 39.3, tilt: 68 },
 };
-/* arc lift per shot — % of the ball's own height; ball bows upward mid-flight */
-const ARC: Record<Dir, number> = { TL: -120, TR: -120, C: -88, BL: -52, BR: -52 };
+/* arc lift per shot — lower corners are almost flat rollers */
+const ARC: Record<Dir, number> = { TL: -136, TR: -136, C: -54, BL: -8, BR: -8 };
+const SHOT_SCALE: Record<Dir, number> = { TL: 0.32, TR: 0.32, C: 0.37, BL: 0.54, BR: 0.54 };
+const SHOT_MS: Record<Dir, number> = { TL: 780, TR: 780, C: 680, BL: 610, BR: 610 };
 const REBOUND: Record<Dir, { x: number; y: number; scale: number; arc: number }> = {
-  TL: { x: 19, y: 62, scale: 0.82, arc: -85 },
-  TR: { x: 81, y: 62, scale: 0.82, arc: -85 },
-  C: { x: 55, y: 69, scale: 0.92, arc: -70 },
-  BL: { x: 22, y: 72, scale: 1.02, arc: -42 },
-  BR: { x: 78, y: 72, scale: 1.02, arc: -42 },
+  TL: { x: 15, y: 58, scale: 0.78, arc: -92 },
+  TR: { x: 85, y: 58, scale: 0.78, arc: -92 },
+  C: { x: 56, y: 68, scale: 0.9, arc: -52 },
+  BL: { x: 20, y: 75, scale: 1.0, arc: -14 },
+  BR: { x: 80, y: 75, scale: 1.0, arc: -14 },
 };
 
 const C = {
   gold: "#f6c453",
   goldHi: "#ffe7a0",
   teal: "#34e2b0",
+  goal: "#31e981",
   rose: "#ff5d7a",
+  noGoal: "#ff4365",
   sky: "#7fb6ff",
   ink: "#0a0f1d",
   grass: "#178847",
@@ -64,7 +69,8 @@ const HOSTS: { code: string; grad: string }[] = [
   { code: "MEX", grad: "linear-gradient(90deg,#1f9d57 0 33%,#fff 33% 66%,#e23b4e 66%)" },
   { code: "USA", grad: "linear-gradient(90deg,#3b6bff 0 40%,#fff 40% 70%,#e23b4e 70%)" },
 ];
-const MARQUEE = "PENALTY SHOOTOUT 2026   •   HIDDEN PICKS   •   FIVE ROUNDS   •   FAIR PLAY   •   ";
+
+const SIDE_TROPHY_SRC = "/assets/world-cup-side-trophy.svg";
 
 interface GameState {
   pScore: number;
@@ -129,22 +135,28 @@ function autoPick(role: "shoot" | "save"): Dir {
     ? weighted({ TL: 1, TR: 1, C: 0.4, BL: 1, BR: 1 })
     : weighted({ TL: 1, TR: 1, C: 0.9, BL: 1, BR: 1 });
 }
+function isTopDir(d: Dir): boolean {
+  return d === "TL" || d === "TR";
+}
 
 /* --------------------------- styles ------------------------------ */
 const STYLES = `
 .pk-root,.pk-root *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .pk-root{position:relative;width:100%;height:100%;overflow:hidden;display:flex;flex-direction:column;
   user-select:none;touch-action:manipulation;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  color:#eef2ff;background:radial-gradient(120% 80% at 50% -10%,#16203c 0%,#0a0f1d 55%,#070a14 100%)}
+  color:#eef2ff;background:
+    radial-gradient(70% 45% at 50% 0%,rgba(55,84,150,.32),transparent 65%),
+    linear-gradient(180deg,#091225 0%,#07101f 42%,#06101b 100%)}
 @keyframes pk-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
 @keyframes pk-spin{from{transform:rotate(0)}to{transform:rotate(720deg)}}
 @keyframes pk-rot{to{transform:rotate(360deg)}}
-@keyframes pk-arc{0%{transform:translateY(0)}54%{transform:translateY(var(--arc,0))}100%{transform:translateY(0)}}
-@keyframes pk-dive{0%{transform:scaleY(.98) scaleX(1.01)}24%{transform:scaleY(1.06) scaleX(.94)}62%{transform:scaleX(1.18) scaleY(.88)}100%{transform:scale(1)}}
+@keyframes pk-arc{0%{transform:translate3d(0,0,0)}58%{transform:translate3d(0,var(--arc,0),0)}100%{transform:translate3d(0,0,0)}}
+@keyframes pk-dive{0%{transform:scale(.88)}55%{transform:scale(1.08,.92)}100%{transform:scale(1)}}
+@keyframes pk-diveHigh{0%{transform:scale(.82)}50%{transform:scale(1.12,.9)}100%{transform:scale(1)}}
 @keyframes pk-flash{0%{opacity:.95}100%{opacity:0}}
 @keyframes pk-ripple{0%{transform:translate(-50%,-50%) scale(.25);opacity:.85}100%{transform:translate(-50%,-50%) scale(2.6);opacity:0}}
 @keyframes pk-bulge{0%{transform:translate(-50%,-50%) scale(.2);opacity:0}40%{opacity:.9}100%{transform:translate(-50%,-50%) scale(1.15);opacity:0}}
-@keyframes pk-shake{0%,100%{transform:translate(0,0)}20%{transform:translate(-3px,2px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-2px,-1px)}80%{transform:translate(2px,1px)}}
+@keyframes pk-shake{0%,100%{transform:translate3d(0,0,0)}35%{transform:translate3d(-1px,1px,0)}70%{transform:translate3d(1px,-1px,0)}}
 @keyframes pk-pop{0%{transform:scale(1)}40%{transform:scale(1.4)}100%{transform:scale(1)}}
 @keyframes pk-lock{0%{transform:translate(-50%,-50%) scale(1)}45%{transform:translate(-50%,-50%) scale(1.16)}100%{transform:translate(-50%,-50%) scale(1)}}
 @keyframes pk-rise{0%{opacity:0;transform:translate(-50%,12px)}100%{opacity:1;transform:translate(-50%,0)}}
@@ -153,11 +165,10 @@ const STYLES = `
 @keyframes pk-glow{0%,100%{opacity:.4}50%{opacity:.95}}
 @keyframes pk-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 @keyframes pk-sweep{0%{transform:translateX(-140%)}100%{transform:translateX(140%)}}
-@keyframes pk-marquee{from{transform:translateX(0)}to{transform:translateX(-33.333%)}}
-@keyframes pk-twinkle{0%,100%{opacity:.15}50%{opacity:.9}}
-@keyframes pk-flood{0%,100%{opacity:.5}50%{opacity:.85}}
-@keyframes pk-netPulse{0%{opacity:.18;transform:scale(.96)}55%{opacity:.55;transform:scale(1.06)}100%{opacity:0;transform:scale(1.18)}}
+@keyframes pk-netPulse{0%{opacity:.18;transform:scale(.96)}55%{opacity:.62;transform:scale(1.06)}100%{opacity:0;transform:scale(1.18)}}
 @keyframes pk-saveSpark{0%{opacity:0;transform:translate(-50%,-50%) scale(.45)}25%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1.7)}}
+@keyframes pk-scoreOk{0%{transform:scale(.6);box-shadow:0 0 0 transparent}45%{transform:scale(1.45);box-shadow:0 0 12px #31e981}100%{transform:scale(1)}}
+@keyframes pk-scoreBad{0%{transform:scale(.6)}45%{transform:scale(1.35)}100%{transform:scale(1)}}
 .pk-shakefx{animation:pk-shake .34s ease both}
 .pk-spinfx{animation:pk-spin .72s cubic-bezier(.22,.05,.45,.95)}
 .pk-zone{transition:transform .15s ease,box-shadow .2s ease,background .2s ease}
@@ -227,14 +238,14 @@ const Keeper: FC<{ accent: string }> = memo(({ accent }) => (
     <path d="M24 30 Q36 26 48 30 L46 58 Q36 62 26 58 Z" fill="url(#pkkit)" stroke="rgba(0,0,0,.15)" strokeWidth="1" />
     {/* number */}
     <text x="36" y="48" textAnchor="middle" fontSize="13" fontWeight="900" fill="rgba(255,255,255,.85)" fontFamily="ui-sans-serif,system-ui">1</text>
-    {/* arms out (ready / star) */}
-    <path d="M26 33 L8 18" stroke={accent} strokeWidth="9" strokeLinecap="round" />
-    <path d="M46 33 L64 18" stroke={accent} strokeWidth="9" strokeLinecap="round" />
+    {/* arms are part of the keeper model; the model itself is anchored to the save point */}
+    <path d="M26 33 L10 21" stroke={accent} strokeWidth="8.8" strokeLinecap="round" opacity=".9" />
+    <path d="M46 33 L62 21" stroke={accent} strokeWidth="8.8" strokeLinecap="round" opacity=".9" />
     {/* gloves */}
     <g>
-      <circle cx="6" cy="16" r="8" fill="#f0ff8a" stroke="#0c2a1c" strokeWidth="1.5" />
-      <circle cx="66" cy="16" r="8" fill="#f0ff8a" stroke="#0c2a1c" strokeWidth="1.5" />
-      <path d="M2 16 h8 M62 16 h8" stroke="#0c2a1c" strokeWidth="1" opacity=".6" />
+      <circle cx="10" cy="21" r="7.7" fill="#f0ff8a" stroke="#0c2a1c" strokeWidth="1.5" />
+      <circle cx="62" cy="21" r="7.7" fill="#f0ff8a" stroke="#0c2a1c" strokeWidth="1.5" />
+      <path d="M6 21 h8 M58 21 h8" stroke="#0c2a1c" strokeWidth="1" opacity=".6" />
     </g>
     {/* head */}
     <circle cx="36" cy="22" r="9.5" fill="#f3c9a3" />
@@ -283,7 +294,7 @@ const Zone: FC<{
         top: `${y}%`,
         width: `${w}%`,
         height: `${h}%`,
-        transform: "translate(-50%,-50%)",
+        transform: "translate3d(-50%,-50%,0)",
         borderRadius: 13,
         border: "none",
         background: selected ? `${accent}22` : active ? "rgba(255,255,255,.04)" : "transparent",
@@ -307,7 +318,7 @@ const Zone: FC<{
             inset: "-22%",
             borderRadius: "50%",
             background: `radial-gradient(closest-side,${accent}26,transparent)`,
-            animation: "pk-glow 1.8s ease-in-out infinite",
+            opacity: 0.85,
             pointerEvents: "none",
           }}
         />
@@ -323,7 +334,7 @@ const Zone: FC<{
             inset: 0,
             borderRadius: "50%",
             border: `1.5px ${selected ? "solid" : "dashed"} ${selected || active ? accent : "rgba(255,255,255,.45)"}`,
-            animation: active && !selected ? "pk-rot 6s linear infinite" : undefined,
+            animation: undefined,
           }}
         />
         <span
@@ -334,7 +345,7 @@ const Zone: FC<{
             width: 4,
             height: 4,
             borderRadius: "50%",
-            transform: "translate(-50%,-50%)",
+            transform: "translate3d(-50%,-50%,0)",
             background: selected || active ? accent : "rgba(255,255,255,.7)",
             boxShadow: selected ? `0 0 8px ${accent}` : "none",
           }}
@@ -365,11 +376,11 @@ const FlyBall: FC<{
         top: `${y}%`,
         width: "8.8%",
         aspectRatio: "1 / 1",
-        transform: "translate(-50%,-50%)",
+        transform: "translate3d(-50%,-50%,0)",
         opacity,
         zIndex: opacity === 1 ? 8 : 7,
         pointerEvents: "none",
-        transition: `left ${duration}ms cubic-bezier(.24,.82,.22,1) ${delay}ms,top ${duration}ms cubic-bezier(.24,.82,.22,1) ${delay}ms`,
+        transition: `left ${duration}ms cubic-bezier(.2,.78,.18,1) ${delay}ms,top ${duration}ms cubic-bezier(.2,.78,.18,1) ${delay}ms`,
       }}
     >
       <span
@@ -379,11 +390,11 @@ const FlyBall: FC<{
           top: "88%",
           width: "88%",
           height: "18%",
-          transform: "translate(-50%,-50%)",
+          transform: "translate3d(-50%,-50%,0)",
           borderRadius: "50%",
           background: "radial-gradient(closest-side,rgba(0,0,0,.42),transparent)",
           opacity: saved ? 0.55 : 0.35,
-          filter: "blur(1px)",
+          filter: "blur(.5px)",
         }}
       />
       <div
@@ -401,7 +412,7 @@ const FlyBall: FC<{
             width: "100%",
             height: "100%",
             transform: `scale(${scale})`,
-            transition: `transform ${duration}ms cubic-bezier(.24,.82,.22,1) ${delay}ms`,
+            transition: `transform ${duration}ms cubic-bezier(.2,.78,.18,1) ${delay}ms`,
           }}
         >
           <div
@@ -439,39 +450,97 @@ const Trophy: FC<{ size: number }> = memo(({ size }) => (
   </svg>
 ));
 
-const Twinkles: FC = memo(() => {
-  const dots = useMemo(
-    () =>
-      Array.from({ length: 14 }, () => ({
-        l: 6 + Math.random() * 88,
-        t: 4 + Math.random() * 12,
-        d: Math.random() * 3,
-        s: 1.6 + Math.random() * 1.4,
-      })),
-    [],
-  );
-  return (
-    <>
-      {dots.map((p, i) => (
-        <span
-          key={i}
-          style={{
-            position: "absolute",
-            left: `${p.l}%`,
-            top: `${p.t}%`,
-            width: 2.5,
-            height: 2.5,
-            borderRadius: "50%",
-            background: "#fff",
-            boxShadow: "0 0 5px 1px rgba(255,255,255,.8)",
-            animation: `pk-twinkle ${p.s}s ease-in-out ${p.d}s infinite`,
-            pointerEvents: "none",
-          }}
-        />
-      ))}
-    </>
-  );
-});
+const CupAsset: FC<{ size: number; shadow?: string }> = memo(({ size, shadow = "drop-shadow(0 8px 18px rgba(246,196,83,.28))" }) => (
+  <img
+    src={SIDE_TROPHY_SRC}
+    alt=""
+    draggable={false}
+    style={{
+      display: "block",
+      width: size,
+      height: "auto",
+      filter: shadow,
+      userSelect: "none",
+      pointerEvents: "none",
+    }}
+  />
+));
+
+const SideTrophyStand: FC = memo(() => (
+  <div
+    style={{
+      position: "absolute",
+      right: "6.2%",
+      top: "17.5%",
+      width: "14%",
+      height: "33%",
+      zIndex: 8,
+      pointerEvents: "none",
+    }}
+  >
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        top: "95%",
+        width: "96%",
+        height: "8%",
+        transform: "translate3d(-50%,-50%,0)",
+        borderRadius: 999,
+        background: "radial-gradient(closest-side,rgba(0,0,0,.42),transparent)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "5%",
+        width: "86%",
+        height: "11%",
+        transform: "translateX(-50%) perspective(80px) rotateX(28deg)",
+        borderRadius: 8,
+        background: "linear-gradient(180deg,#263652,#141f33)",
+        boxShadow: "0 8px 16px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.12)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "14%",
+        width: "16%",
+        height: "48%",
+        transform: "translateX(-50%)",
+        borderRadius: 10,
+        background: "linear-gradient(180deg,#32486b,#1f2e47)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "58%",
+        width: "48%",
+        height: "6.5%",
+        transform: "translateX(-50%)",
+        borderRadius: 8,
+        background: "linear-gradient(180deg,#2f4566,#172338)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: "61%",
+        transform: "translateX(-50%)",
+      }}
+    >
+      <CupAsset size={64} shadow="drop-shadow(0 10px 18px rgba(0,0,0,.28)) drop-shadow(0 0 8px rgba(246,196,83,.18))" />
+    </div>
+  </div>
+));
 
 const Confetti: FC<{ n: number }> = memo(({ n }) => {
   const pieces = useMemo(
@@ -517,22 +586,18 @@ const TimerRing: FC<{ active: boolean; runKey: number; onExpire: () => void }> =
     setLeft(CHOOSE_MS / 1000);
     if (!active) return;
     const start = performance.now();
-    let raf = 0;
     let fired = false;
-    const tick = (now: number) => {
-      const rem = Math.max(0, CHOOSE_MS / 1000 - (now - start) / 1000);
+    const tick = () => {
+      const rem = Math.max(0, CHOOSE_MS / 1000 - (performance.now() - start) / 1000);
       setLeft(rem);
-      if (rem <= 0) {
-        if (!fired) {
-          fired = true;
-          expire.current();
-        }
-        return;
+      if (rem <= 0 && !fired) {
+        fired = true;
+        expire.current();
       }
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    tick();
+    const interval = window.setInterval(tick, 100);
+    return () => window.clearInterval(interval);
   }, [active, runKey]);
 
   const r = 13;
@@ -627,24 +692,26 @@ const Chip: FC<{ label: string; score: number; accent: string; flag: [string, st
 );
 
 /* tracker dots */
-const Track: FC<{ res: Outcome[]; accent: string; align: "left" | "right" }> = ({ res, accent, align }) => {
+const Track: FC<{ res: Outcome[]; align: "left" | "right" }> = ({ res, align }) => {
   const slots = Math.max(ROUNDS, res.length);
   return (
     <div style={{ display: "flex", gap: 4, justifyContent: align === "right" ? "flex-end" : "flex-start" }}>
       {Array.from({ length: slots }, (_, i) => {
         const o = res[i];
-        const bg = o === "goal" ? accent : o === "save" ? "rgba(255,93,122,.85)" : "transparent";
+        const bg = o === "goal" ? C.goal : o === "save" ? C.noGoal : "transparent";
         return (
           <span
             key={i}
+            title={o === "goal" ? "goal" : o === "save" ? "no goal" : "pending"}
             style={{
               width: 9,
               height: 9,
               borderRadius: 99,
               background: bg,
               border: o ? "none" : "1.5px solid rgba(255,255,255,.22)",
-              boxShadow: o === "goal" ? `0 0 6px ${accent}` : "none",
-              transition: "background .25s ease",
+              boxShadow: o === "goal" ? `0 0 8px ${C.goal}` : o === "save" ? `0 0 7px ${C.noGoal}88` : "none",
+              animation: o === "goal" ? "pk-scoreOk .45s ease" : o === "save" ? "pk-scoreBad .36s ease" : undefined,
+              transition: "background .25s ease,box-shadow .25s ease",
             }}
           />
         );
@@ -814,23 +881,27 @@ export const PenaltyPvpGame: FC = () => {
   const revealing = phase === "reveal" || phase === "result";
   const rebound = phase === "result" && anim?.outcome === "save" ? REBOUND[anim.shoot] : null;
   const ballPos = revealing && anim ? rebound ?? ZONE[anim.shoot] : { x: 50, y: 82 };
-  const ballScale = revealing && anim ? rebound?.scale ?? 0.38 : 1;
+  const ballScale = revealing && anim ? rebound?.scale ?? SHOT_SCALE[anim.shoot] : 1;
   const ballArc = revealing && anim ? rebound?.arc ?? ARC[anim.shoot] : 0;
-  const ballDuration = rebound ? REBOUND_MS : TRAVEL_MS;
+  const ballDuration = rebound ? REBOUND_MS : anim ? SHOT_MS[anim.shoot] : TRAVEL_MS;
   const keeperPos = revealing && anim ? KEEPER[anim.save] : REST_KEEPER;
+  const highDive = revealing && anim ? isTopDir(anim.save) : false;
+  const keeperTransform = revealing ? "translate3d(-50%,-21%,0)" : "translate3d(-50%,-100%,0)";
+  const keeperOrigin = revealing ? "50% 21%" : "50% 74%";
+  const keeperWidth = revealing ? (highDive ? "13.8%" : "14.6%") : "15.2%";
 
-  const resultLabel = anim?.outcome === "goal" ? "GOAL!" : "SAVED!";
+  const resultLabel = anim?.outcome === "goal" ? "ГОЛ!" : "СЕЙВ!";
   const resultColor = anim?.outcome === "goal" ? C.gold : C.sky;
   const resultSub =
     anim == null
       ? ""
       : anim.shooter === "player"
         ? anim.outcome === "goal"
-          ? "Clean finish"
-          : "Deflected away"
+          ? "В самый угол"
+          : "Вратарь дотянулся"
         : anim.outcome === "save"
-          ? "Strong hands"
-          : "Out of reach";
+          ? "Сильные руки"
+          : "Не достал";
 
   const celebrate = phase === "result" && anim?.outcome === "goal" && anim.shooter === "player";
 
@@ -852,7 +923,7 @@ export const PenaltyPvpGame: FC = () => {
       >
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
           <Chip label="YOU" score={g.pScore} accent={C.teal} flag={["#34e2b0", "#1f8f6c"]} pulse={fx > 0 && anim?.shooter === "player"} />
-          <Track res={g.pRes} accent={C.teal} align="left" />
+          <Track res={g.pRes} align="left" />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 70, paddingTop: 2 }}>
@@ -876,7 +947,7 @@ export const PenaltyPvpGame: FC = () => {
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
           <Chip label="CPU" score={g.bScore} accent={C.rose} flag={["#ff5d7a", "#a72f48"]} pulse={fx > 0 && anim?.shooter === "bot"} right />
-          <Track res={g.bRes} accent={C.rose} align="right" />
+          <Track res={g.bRes} align="right" />
         </div>
       </div>
 
@@ -906,7 +977,7 @@ export const PenaltyPvpGame: FC = () => {
                     borderRadius: "50%",
                     background: "#fffbe6",
                     boxShadow: "0 0 6px 2px rgba(255,250,210,.7)",
-                    animation: `pk-flood ${2.4 + i * 0.2}s ease-in-out ${i * 0.15}s infinite`,
+                    opacity: 0.85,
                   }}
                 />
               ))}
@@ -929,8 +1000,7 @@ export const PenaltyPvpGame: FC = () => {
               WebkitMaskImage: "linear-gradient(to bottom,black 60%,transparent)",
             }}
           />
-          {/* camera-flash twinkles in the crowd */}
-          <Twinkles />
+          {/* crowd kept static for smoother mobile performance */}
 
           {/* tri-host bunting */}
           <div style={{ position: "absolute", top: "1.6%", left: 0, right: 0, display: "flex", justifyContent: "center", gap: 0 }}>
@@ -950,41 +1020,30 @@ export const PenaltyPvpGame: FC = () => {
             ))}
           </div>
 
-          {/* LED perimeter board — scrolling World Cup ’26 ticker */}
+          {/* static stadium rail — no marquee for mobile performance */}
           <div
             style={{
               position: "absolute",
-              left: "14%",
-              right: "14%",
-              top: "8.2%",
-              height: "3.4%",
-              borderRadius: 3,
-              overflow: "hidden",
-              background: "linear-gradient(180deg,#0a1018,#05080e)",
-              boxShadow: "inset 0 0 0 1px rgba(255,255,255,.08),0 2px 6px rgba(0,0,0,.5)",
+              left: "15%",
+              right: "15%",
+              top: "8.4%",
+              height: "3%",
+              borderRadius: 4,
+              background: "linear-gradient(180deg,rgba(15,24,42,.95),rgba(5,9,17,.95))",
+              boxShadow: "inset 0 0 0 1px rgba(255,255,255,.07),0 2px 6px rgba(0,0,0,.45)",
             }}
-          >
-            <div style={{ display: "flex", width: "300%", height: "100%", animation: "pk-marquee 24s linear infinite" }}>
-              {[0, 1, 2].map((k) => (
-                <div
-                  key={k}
-                  style={{
-                    width: "33.333%",
-                    display: "flex",
-                    alignItems: "center",
-                    whiteSpace: "nowrap",
-                    fontSize: 9,
-                    fontWeight: 900,
-                    letterSpacing: 2,
-                    color: C.gold,
-                    textShadow: `0 0 6px ${C.gold}88`,
-                  }}
-                >
-                  {MARQUEE.repeat(2)}
-                </div>
-              ))}
-            </div>
-          </div>
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: "20%",
+              right: "20%",
+              top: "12.8%",
+              height: "14%",
+              background: "radial-gradient(50% 100% at 50% 0%,rgba(110,150,255,.12),transparent 70%)",
+              pointerEvents: "none",
+            }}
+          />
 
           {/* pitch base */}
           <div style={{ position: "absolute", top: "42%", left: 0, right: 0, bottom: 0, background: "linear-gradient(180deg,#1fa65a 0%,#15743d 54%,#0f5d32 100%)" }} />
@@ -1029,34 +1088,51 @@ export const PenaltyPvpGame: FC = () => {
             <circle cx="50" cy="75" r="1.25" fill="rgba(255,255,255,.9)" stroke="none" />
           </svg>
 
-          {/* GOAL frame */}
-          <div style={{ position: "absolute", left: "14%", top: "10%", width: "72%", height: "34%" }}>
+          {/* GOAL frame — lowered height, deeper net, cleaner proportions */}
+          <div style={{ position: "absolute", left: "17.5%", top: "15.0%", width: "65%", height: "25.4%" }}>
             {/* goal-mouth depth */}
-            <div style={{ position: "absolute", inset: "6% 4.5% 0 4.5%", background: "linear-gradient(180deg,rgba(3,7,15,.92),rgba(8,15,28,.64) 76%,rgba(8,15,28,.28))", borderRadius: "5px 5px 0 0" }} />
+            <div style={{ position: "absolute", inset: "7% 5.4% 0 5.4%", background: "linear-gradient(180deg,rgba(2,5,12,.95),rgba(8,15,28,.68) 74%,rgba(8,15,28,.22))", borderRadius: "5px 5px 0 0", boxShadow: "inset 0 14px 28px rgba(0,0,0,.45)" }} />
             {/* net mesh */}
             <div
               style={{
                 position: "absolute",
-                inset: "6% 4.5% 0 4.5%",
+                inset: "7% 5.4% 0 5.4%",
                 background:
-                  "repeating-linear-gradient(38deg,rgba(255,255,255,.23) 0 1px,transparent 1px 9px)," +
-                  "repeating-linear-gradient(-38deg,rgba(255,255,255,.23) 0 1px,transparent 1px 9px)",
-                borderRadius: "3px 3px 0 0",
-                maskImage: "linear-gradient(180deg,black 70%,transparent)",
-                WebkitMaskImage: "linear-gradient(180deg,black 70%,transparent)",
+                  "repeating-linear-gradient(37deg,rgba(255,255,255,.27) 0 1px,transparent 1px 8px)," +
+                  "repeating-linear-gradient(-37deg,rgba(255,255,255,.24) 0 1px,transparent 1px 8px)," +
+                  "linear-gradient(180deg,rgba(255,255,255,.10),transparent 45%)",
+                borderRadius: "4px 4px 0 0",
+                maskImage: "linear-gradient(180deg,black 76%,transparent)",
+                WebkitMaskImage: "linear-gradient(180deg,black 76%,transparent)",
               }}
             />
+            {/* subtle net waves after a goal */}
+            {phase === "result" && anim?.outcome === "goal" && (
+              <div
+                key={`net-${fx}`}
+                style={{
+                  position: "absolute",
+                  inset: "7% 5.4% 0 5.4%",
+                  borderRadius: "50%",
+                  background: `radial-gradient(closest-side,${C.goal}44,transparent 70%)`,
+                  animation: "pk-netPulse .62s ease-out forwards",
+                  pointerEvents: "none",
+                }}
+              />
+            )}
             {/* side netting hint */}
-            <div style={{ position: "absolute", left: "4.5%", top: "6%", width: "6%", height: "94%", background: "repeating-linear-gradient(75deg,rgba(255,255,255,.14) 0 1px,transparent 1px 7px)" }} />
-            <div style={{ position: "absolute", right: "4.5%", top: "6%", width: "6%", height: "94%", background: "repeating-linear-gradient(-75deg,rgba(255,255,255,.14) 0 1px,transparent 1px 7px)" }} />
+            <div style={{ position: "absolute", left: "5.4%", top: "7%", width: "6%", height: "93%", background: "repeating-linear-gradient(75deg,rgba(255,255,255,.16) 0 1px,transparent 1px 7px)", transform: "skewY(-6deg)", opacity: .9 }} />
+            <div style={{ position: "absolute", right: "5.4%", top: "7%", width: "6%", height: "93%", background: "repeating-linear-gradient(-75deg,rgba(255,255,255,.16) 0 1px,transparent 1px 7px)", transform: "skewY(6deg)", opacity: .9 }} />
             {/* posts + crossbar (glossy) */}
-            <div style={{ position: "absolute", left: "4.5%", top: "6%", width: "3.2%", height: "94%", background: "linear-gradient(90deg,#e9eefc,#fff,#aab4cc)", borderRadius: 2, boxShadow: "0 0 7px rgba(255,255,255,.5)" }} />
-            <div style={{ position: "absolute", right: "4.5%", top: "6%", width: "3.2%", height: "94%", background: "linear-gradient(90deg,#aab4cc,#fff,#e9eefc)", borderRadius: 2, boxShadow: "0 0 7px rgba(255,255,255,.5)" }} />
-            <div style={{ position: "absolute", left: "4.5%", right: "4.5%", top: "6%", height: "7.5%", background: "linear-gradient(180deg,#fff,#c2cadd)", borderRadius: 2, boxShadow: "0 0 7px rgba(255,255,255,.5)" }} />
+            <div style={{ position: "absolute", left: "5.4%", top: "7%", width: "2.8%", height: "93%", background: "linear-gradient(90deg,#d8e2f7,#fff,#9fabca)", borderRadius: 2, boxShadow: "0 0 8px rgba(255,255,255,.55),3px 0 5px rgba(0,0,0,.28)" }} />
+            <div style={{ position: "absolute", right: "5.4%", top: "7%", width: "2.8%", height: "93%", background: "linear-gradient(90deg,#9fabca,#fff,#d8e2f7)", borderRadius: 2, boxShadow: "0 0 8px rgba(255,255,255,.55),-3px 0 5px rgba(0,0,0,.28)" }} />
+            <div style={{ position: "absolute", left: "5.4%", right: "5.4%", top: "7%", height: "6.4%", background: "linear-gradient(180deg,#fff,#bdc8de)", borderRadius: 2, boxShadow: "0 0 8px rgba(255,255,255,.58),0 4px 6px rgba(0,0,0,.25)" }} />
           </div>
 
+          <SideTrophyStand />
+
           {/* goal-line shadow on grass */}
-          <div style={{ position: "absolute", left: "50%", top: "44%", width: "74%", height: "3.4%", transform: "translate(-50%,-50%)", background: "radial-gradient(closest-side,rgba(0,0,0,.48),transparent)" }} />
+          <div style={{ position: "absolute", left: "50%", top: "40.7%", width: "66%", height: "2.6%", transform: "translate3d(-50%,-50%,0)", background: "radial-gradient(closest-side,rgba(0,0,0,.48),transparent)" }} />
 
           {/* net bulge on a goal */}
           {revealing && anim && anim.outcome === "goal" && (
@@ -1070,7 +1146,7 @@ export const PenaltyPvpGame: FC = () => {
                 height: "20%",
                 borderRadius: "50%",
                 background: `radial-gradient(closest-side,${C.gold}66,transparent 70%)`,
-                transform: "translate(-50%,-50%)",
+                transform: "translate3d(-50%,-50%,0)",
                 animation: phase === "result" ? "pk-bulge .6s ease-out forwards" : undefined,
                 opacity: 0,
                 zIndex: 5,
@@ -1087,11 +1163,11 @@ export const PenaltyPvpGame: FC = () => {
                 position: "absolute",
                 left: `${ZONE[anim.shoot].x}%`,
                 top: `${ZONE[anim.shoot].y}%`,
-                width: "16%",
-                height: "16%",
+                width: "13%",
+                height: "13%",
                 borderRadius: "50%",
-                border: `3px solid ${anim.outcome === "goal" ? C.gold : "#fff"}`,
-                transform: "translate(-50%,-50%)",
+                border: `2px solid ${anim.outcome === "goal" ? C.gold : "#fff"}`,
+                transform: "translate3d(-50%,-50%,0)",
                 animation: phase === "result" ? "pk-ripple .55s ease-out forwards" : undefined,
                 opacity: phase === "result" ? 1 : 0,
                 pointerEvents: "none",
@@ -1110,7 +1186,7 @@ export const PenaltyPvpGame: FC = () => {
                 height: "13%",
                 borderRadius: "50%",
                 background: `radial-gradient(closest-side,#ffffff,${C.sky}88,transparent 72%)`,
-                transform: "translate(-50%,-50%)",
+                transform: "translate3d(-50%,-50%,0)",
                 animation: "pk-saveSpark .46s ease-out forwards",
                 pointerEvents: "none",
                 zIndex: 11,
@@ -1128,36 +1204,37 @@ export const PenaltyPvpGame: FC = () => {
                 top: `${keeperPos.y + 1.2}%`,
                 width: "16%",
                 height: "2.7%",
-                transform: "translate(-50%,-50%)",
+                transform: "translate3d(-50%,-50%,0)",
                 background: "radial-gradient(closest-side,rgba(0,0,0,.5),transparent)",
                 transition: `left ${TRAVEL_MS - 160}ms cubic-bezier(.2,.7,.2,1),top ${TRAVEL_MS - 160}ms cubic-bezier(.2,.7,.2,1)`,
               }}
             />
-            {/* keeper */}
+            {/* keeper model — no separate hand layer; gloves are anchored to the save point */}
             <div
               style={{
                 position: "absolute",
                 left: `${keeperPos.x}%`,
                 top: `${keeperPos.y}%`,
-                width: "15%",
-                transform: "translate(-50%,-100%)",
-                transition: `left ${TRAVEL_MS - 160}ms cubic-bezier(.2,.7,.2,1),top ${TRAVEL_MS - 160}ms cubic-bezier(.2,.7,.2,1)`,
-                zIndex: 6,
+                width: keeperWidth,
+                transform: keeperTransform,
+                transition: `left ${TRAVEL_MS - 160}ms cubic-bezier(.18,.82,.2,1),top ${TRAVEL_MS - 160}ms cubic-bezier(.18,.82,.2,1),width ${TRAVEL_MS - 160}ms ease,transform ${TRAVEL_MS - 160}ms ease`,
+                zIndex: revealing ? 10 : 6,
+                willChange: revealing ? "left,top,transform" : undefined,
               }}
             >
               {/* rotate layer */}
               <div
                 style={{
                   transform: `rotate(${keeperPos.tilt}deg)`,
-                  transformOrigin: "50% 74%",
+                  transformOrigin: keeperOrigin,
                   transition: `transform ${TRAVEL_MS - 160}ms cubic-bezier(.2,.7,.2,1)`,
                 }}
               >
                 {/* dive / breathe layer */}
                 <div
                   style={{
-                    transformOrigin: "50% 80%",
-                    animation: revealing ? `pk-dive ${TRAVEL_MS - 120}ms ease-out` : "pk-breathe 2.6s ease-in-out infinite",
+                    transformOrigin: keeperOrigin,
+                    animation: revealing ? `${highDive ? "pk-diveHigh" : "pk-dive"} ${TRAVEL_MS - 120}ms ease-out forwards` : "pk-breathe 2.6s ease-in-out infinite",
                   }}
                 >
                   <Keeper accent={anim?.keeper === "player" || (!anim && !playerIsShooter) ? C.teal : "#2bd4a0"} />
@@ -1182,13 +1259,7 @@ export const PenaltyPvpGame: FC = () => {
               )}
             </div>
 
-            {/* ghost trail (follows the arc, staggered) */}
-            {revealing && anim && (
-              <>
-                <FlyBall x={ballPos.x} y={ballPos.y} scale={ballScale} arc={ballArc} delay={130} opacity={0.1} reveal spin={false} duration={ballDuration} saved={anim.outcome === "save"} />
-                <FlyBall x={ballPos.x} y={ballPos.y} scale={ballScale} arc={ballArc} delay={70} opacity={0.18} reveal spin={false} duration={ballDuration} saved={anim.outcome === "save"} />
-              </>
-            )}
+            {/* live ball only: lighter on mobile than multi-layer trails */}
             {/* live ball */}
             <FlyBall x={ballPos.x} y={ballPos.y} scale={ballScale} arc={ballArc} delay={0} opacity={1} reveal={revealing} spin={phase === "reveal" || anim?.outcome === "save"} duration={ballDuration} saved={anim?.outcome === "save"} />
           </div>
@@ -1202,8 +1273,8 @@ export const PenaltyPvpGame: FC = () => {
                 dir={d}
                 x={z.x}
                 y={z.y}
-                w={d === "C" ? 13 : 15}
-                h={d === "C" ? 8.5 : 9}
+                w={d === "C" ? 12 : 14}
+                h={d === "C" ? 7.8 : 8.4}
                 accent={playerIsShooter ? C.teal : C.gold}
                 active={phase === "choosing"}
                 selected={selected === d}
@@ -1233,7 +1304,6 @@ export const PenaltyPvpGame: FC = () => {
                   padding: "5px 16px",
                   borderRadius: 999,
                   background: "rgba(8,12,24,.55)",
-                  backdropFilter: "blur(4px)",
                   border: `1px solid ${playerIsShooter ? C.teal + "66" : C.gold + "66"}`,
                   fontSize: 13,
                   fontWeight: 900,
@@ -1242,7 +1312,7 @@ export const PenaltyPvpGame: FC = () => {
                   textShadow: `0 0 12px ${playerIsShooter ? C.teal : C.gold}66`,
                 }}
               >
-                {selected ? "PICKED • WAIT" : playerIsShooter ? "YOU SHOOT" : "YOU DEFEND"}
+                {selected ? "ВЫБРАНО • ЖДИ" : playerIsShooter ? "ТЫ БЬЁШЬ" : "ТЫ ВРАТАРЬ"}
               </div>
             </div>
           )}
@@ -1267,7 +1337,7 @@ export const PenaltyPvpGame: FC = () => {
                   position: "absolute",
                   left: "50%",
                   top: "55%",
-                  transform: "translate(-50%,-50%)",
+                  transform: "translate3d(-50%,-50%,0)",
                   animation: "pk-resultIn .5s cubic-bezier(.2,.9,.3,1.2) forwards",
                   textAlign: "center",
                   pointerEvents: "none",
@@ -1293,7 +1363,7 @@ export const PenaltyPvpGame: FC = () => {
             </>
           )}
 
-          {celebrate && <Confetti n={20} />}
+          {celebrate && <Confetti n={10} />}
 
           {/* vignette */}
           <div
@@ -1310,7 +1380,7 @@ export const PenaltyPvpGame: FC = () => {
         {phase === "intro" && (
           <Overlay>
             <div style={{ animation: "pk-float 3s ease-in-out infinite" }}>
-              <Trophy size={86} />
+              <CupAsset size={86} shadow="drop-shadow(0 8px 18px rgba(246,196,83,.35))" />
             </div>
             <div
               style={{
@@ -1358,9 +1428,9 @@ export const PenaltyPvpGame: FC = () => {
         {/* ===================== FINAL OVERLAY ===================== */}
         {phase === "final" && (
           <Overlay>
-            {winner === "player" && <Confetti n={28} />}
+            {winner === "player" && <Confetti n={16} />}
             <div style={{ animation: "pk-float 3s ease-in-out infinite", opacity: winner === "player" ? 1 : 0.4 }}>
-              <Trophy size={92} />
+              <CupAsset size={92} shadow="drop-shadow(0 8px 18px rgba(246,196,83,.35))" />
             </div>
             <div style={{ marginTop: 12, fontSize: 10, fontWeight: 800, letterSpacing: 4, color: "rgba(255,255,255,.5)" }}>
               WORLD CUP ’26 FINAL
