@@ -707,7 +707,7 @@ function readViewportHeight(parentHeight = 0): number {
   return Math.floor(parentHeight > 0 ? Math.min(parentHeight, viewport) : viewport);
 }
 
-function useViewportHeight(rootRef: RefObject<HTMLElement | null>): number {
+function useViewportHeight<T extends HTMLElement>(rootRef: RefObject<T | null>): number {
   const [h, setH] = useState<number>(() => readViewportHeight());
 
   useEffect(() => {
@@ -799,8 +799,9 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     (info: PlaceInfo) => {
       setPlayerScore((s) => Math.max(0, s + info.scoreDelta));
       setCombo(info.combo);
-      addLabel(info.quality, info.x, info.y);
-      if (info.comboBonus > 0 && info.combo >= COMBO_MIN) addLabel('COMBO', info.x, info.y - 30);
+      const labelY = info.y - 34;
+      addLabel(info.quality, info.x, labelY);
+      if (info.comboBonus > 0 && info.combo >= COMBO_MIN) addLabel('COMBO', info.x, labelY - 28);
       haptic(info.quality);
     },
     [addLabel, haptic],
@@ -1039,7 +1040,7 @@ const STYLES = `
   background:transparent; color:#eaf0f7;
   font-family:'Supercell','Supercell-Magic','SupercellMagic',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-tap-highlight-color:transparent; user-select:none;
-  padding: calc(env(safe-area-inset-top,0px) + 8px) 10px calc(env(safe-area-inset-bottom,0px) + 6px);
+  padding: calc(env(safe-area-inset-top,0px) + 2px) 10px calc(env(safe-area-inset-bottom,0px) + 6px);
 }
 .ts-root *{ box-sizing:border-box; }
 
