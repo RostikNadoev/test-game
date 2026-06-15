@@ -431,25 +431,6 @@ const FlyBall: FC<{
   ),
 );
 
-const Trophy: FC<{ size: number }> = memo(({ size }) => (
-  <svg viewBox="0 0 64 80" width={size} height={(size * 80) / 64} style={{ display: "block", filter: "drop-shadow(0 8px 18px rgba(246,196,83,.35))" }}>
-    <defs>
-      <linearGradient id="pkgold" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#ffe7a0" />
-        <stop offset="45%" stopColor="#f6c453" />
-        <stop offset="100%" stopColor="#b9831f" />
-      </linearGradient>
-    </defs>
-    <path d="M14 8 H50 V20 Q50 40 32 46 Q14 40 14 20 Z" fill="url(#pkgold)" stroke="#8a5e16" strokeWidth="1" />
-    <path d="M14 12 Q3 12 4 22 Q5 30 16 30" fill="none" stroke="url(#pkgold)" strokeWidth="3.4" />
-    <path d="M50 12 Q61 12 60 22 Q59 30 48 30" fill="none" stroke="url(#pkgold)" strokeWidth="3.4" />
-    <rect x="29" y="46" width="6" height="11" fill="url(#pkgold)" />
-    <path d="M21 57 H43 L47 67 H17 Z" fill="url(#pkgold)" stroke="#8a5e16" strokeWidth="1" />
-    <rect x="15" y="67" width="34" height="7" rx="2" fill="#b9831f" />
-    <path d="M24 12 Q26 28 32 38" stroke="#fff" strokeWidth="2" opacity=".5" fill="none" strokeLinecap="round" />
-  </svg>
-));
-
 const CupAsset: FC<{ size: number; shadow?: string }> = memo(({ size, shadow = "drop-shadow(0 8px 18px rgba(246,196,83,.28))" }) => (
   <img
     src={SIDE_TROPHY_SRC}
