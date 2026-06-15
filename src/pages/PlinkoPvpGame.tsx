@@ -3,28 +3,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /* ============================================================================
    PLINKO PvP — Telegram mini-app (mobile only)
    ----------------------------------------------------------------------------
-   ФИЗИКА: настоящая импульсная, детерминированная (фикс. шаг dt=1/240).
-   Никаких скриптовых "толчков". Шарик падает реально по заданному углу;
-   один и тот же угол всегда даёт один и тот же путь (честный PvP).
-   От залипания на вершинах пегов спасают реальные средства: микросмещение
-   точки сброса (реальный бросок не идеально по центру) + трение о поверхность
-   пега + чистый "жёлоб" вдоль боковых стен (крайние пеги отодвинуты).
-
-   ПОТОК (хот-сит): intro → каждый задаёт углы 5 шариков → каждый делает
-   2 действия за 10с (×2 / ÷2 лунки, стенка между пегами ниже 3-го ряда),
-   не видя чужих → вскрытие: модификаторы и стенки обоих складываются на
-   общей доске, шарики падают по очереди (П1·1, П2·1, П1·2 …). Между ходами —
-   экран «передай телефон».
+   Правки:
+   1) верхний/нижний UI разнесены с полем и safe-area;
+   2) счёт снова считается как честное умножение от 1: 1 → x5 → 5 → x5 → 25,
+      плюс есть защита от двойной обработки одного приземления;
+   3) верхний UI: слева игрок, центр — счётчики шариков, справа соперник;
+   4) общий фон игры убран, декоративный фон оставлен только у поля;
+   5) в нижних кнопках используются ASCII x2 и /2, без символа деления;
+   6) доска стала ниже, стаканы ближе к последнему ряду, снизу оставлен зазор;
+   7) палитра приведена к главной теме приложения: blue/orange glass.
    ========================================================================== */
 
 const CFG = {
-  VW: 360, VH: 560,
+  VW: 360, VH: 520,
   ROWS: 9, TOP_PEGS: 3,
   TOP_Y: 64, SY: 43, SX: 30,
   pegR: 5, ballR: 6.5,
   WALL_L: 10, WALL_R: 350,
-  FLOOR: 522,
-  SLOT_TOP: 474,
+  FLOOR: 494,
+  SLOT_TOP: 448,
   N_SLOTS: 10,
   g: 760,
   eRest: 0.48,
@@ -38,8 +35,6 @@ const CFG = {
   LAUNCH_VY: 20,
   pegFric: 0.06,
   SUBSTEPS_PER_FRAME: 4,
-  // Telegram WebView часто проседает по FPS. Движение шарика теперь считается
-  // от реального времени, а не от количества кадров.
   REVEAL_SPEED: 1.12,
   MAX_DPR: 1.45,
   TRAIL_MAX: 8,
@@ -132,9 +127,6 @@ function isStuckPathResting(path: number[][], idx: number) {
   const last = path[path.length - 1];
   if (!cur || !last) return false;
 
-  // Важно: не прыгаем в финальную точку. Считаем шарик остановившимся
-  // только когда текущая видимая позиция уже почти совпадает с финальным
-  // местом зависания и следующие кадры почти не двигаются.
   const nearFinal = Math.hypot(cur[0] - last[0], cur[1] - last[1]) < 3.2;
   if (!nearFinal) return false;
 
@@ -156,12 +148,15 @@ function buildBoard(): Board {
     const n = c.TOP_PEGS + r;
     const w = (n - 1) * c.SX;
     const left = c.VW / 2 - w / 2;
-    for (let col = 0; col < n; col++)
+    for (let col = 0; col < n; col++) {
       pegs.push({ x: left + col * c.SX, y: c.TOP_Y + r * c.SY, row: r, col });
+    }
   }
+
   const dividers: number[] = [];
-  for (let i = 0; i <= c.N_SLOTS; i++)
+  for (let i = 0; i <= c.N_SLOTS; i++) {
     dividers.push(c.WALL_L + ((c.WALL_R - c.WALL_L) * i) / c.N_SLOTS);
+  }
   const posts = dividers.slice(1, -1);
 
   const gaps: Gap[] = [];
@@ -176,6 +171,7 @@ function buildBoard(): Board {
       });
     }
   }
+
   return { pegs, dividers, posts, gaps };
 }
 
@@ -224,6 +220,7 @@ function simulate(angleNorm: number, board: Board, userWalls: Seg[]): SimResult 
         }
       }
     }
+
     // стенки игроков (отрезок-круг)
     for (const w of userWalls) {
       const [cx, cy] = closestOnSeg(x, y, w.ax, w.ay, w.bx, w.by);
@@ -238,6 +235,7 @@ function simulate(angleNorm: number, board: Board, userWalls: Seg[]): SimResult 
         if (vn < 0) { vx -= (1 + c.eRest) * vn * nx; vy -= (1 + c.eRest) * vn * ny; }
       }
     }
+
     // боковые стены
     if (x - c.ballR < c.WALL_L) { x = c.WALL_L + c.ballR; if (vx < 0) vx = -vx * c.wRest; }
     if (x + c.ballR > c.WALL_R) { x = c.WALL_R - c.ballR; if (vx > 0) vx = -vx * c.wRest; }
@@ -261,6 +259,7 @@ function simulate(angleNorm: number, board: Board, userWalls: Seg[]): SimResult 
         }
       }
     }
+
     // пол
     if (y + c.ballR > c.FLOOR) {
       y = c.FLOOR - c.ballR;
@@ -290,17 +289,17 @@ type ActionMode = "x2" | "half" | "wall" | null;
 type WallKey = string;
 
 const PLAYERS = [
-  { name: "Игрок 1", color: "#52FFE5", soft: "rgba(82,255,229,0.12)", emoji: "I" },
-  { name: "Игрок 2", color: "#F2C766", soft: "rgba(242,199,102,0.12)", emoji: "II" },
+  { name: "Игрок 1", color: "#5BB7FF", soft: "rgba(47,140,255,0.12)", emoji: "I" },
+  { name: "Игрок 2", color: "#FFB45C", soft: "rgba(255,143,45,0.12)", emoji: "II" },
 ];
 
 // цвет по «ценности» лунки
 function tierColor(v: number): string {
-  if (v >= 8) return "#F2C766";
-  if (v >= 5) return "#FFB86B";
-  if (v >= 3) return "#9D7CFF";
-  if (v >= 1.8) return "#52FFE5";
-  return "#FFFFFF";
+  if (v >= 8) return "#FFB45C";
+  if (v >= 5) return "#FF8F2D";
+  if (v >= 3) return "#B48CFF";
+  if (v >= 1.8) return "#5BB7FF";
+  return "#EAF4FF";
 }
 
 const fmt = (n: number) => {
@@ -342,6 +341,7 @@ export default function PlinkoPvpGame() {
   const [actionsLeft, setActionsLeft] = useState(CFG.ACTIONS_PER_TURN);
   const [timeLeft, setTimeLeft] = useState(CFG.TURN_SECONDS);
 
+  // Счёт — множитель от 1. Например: старт 1 → x5 = 5 → x5 = 25.
   const [scores, setScores] = useState<[number, number]>([1, 1]);
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
@@ -377,6 +377,7 @@ export default function PlinkoPvpGame() {
   }, []);
 
   const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number; stuck: boolean }[]>([]);
+  const processedLandings = useRef<Set<number>>(new Set());
 
   /* --------------------------- ЗАПРЕТ СКРОЛЛА ------------------------------ */
   useEffect(() => {
@@ -411,35 +412,6 @@ export default function PlinkoPvpGame() {
     };
   }, []);
 
-
-  /* --------------------------- ФОН НА ВЕСЬ ЭКРАН --------------------------- */
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.setAttribute("data-plinko-fullscreen-bg", "true");
-    style.textContent = `
-      html,
-      body {
-        background:
-          radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%),
-          radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%),
-          linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%) !important;
-      }
-
-      #root {
-        background:
-          radial-gradient(circle at 50% -18%, rgba(242,199,102,0.11), transparent 34%),
-          radial-gradient(circle at 110% 22%, rgba(82,255,229,0.08), transparent 30%),
-          linear-gradient(180deg, #050507 0%, #08080d 48%, #030304 100%) !important;
-      }
-    `;
-
-    document.head.appendChild(style);
-
-    return () => {
-      style.remove();
-    };
-  }, []);
-
   /* --------------------------- CANVAS / АНИМАЦИЯ --------------------------- */
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -455,11 +427,12 @@ export default function PlinkoPvpGame() {
     i: number;
     color: string;
     player: number;
+    ballIdx: number;
     landed: { x: number; y: number; color: string }[];
     pausing: number;
     done: boolean;
     trail: number[][];
-  }>({ path: [], i: 0, color: "#fff", player: 0, landed: [], pausing: 0, done: false, trail: [] });
+  }>({ path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] });
 
   const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoffNext: handoff.next });
   useEffect(() => {
@@ -470,7 +443,9 @@ export default function PlinkoPvpGame() {
     const cv = canvasRef.current, wrap = wrapRef.current;
     if (!cv || !wrap) return;
     const dpr = Math.min(window.devicePixelRatio || 1, CFG.MAX_DPR);
-    const w = wrap.clientWidth, h = wrap.clientHeight;
+    const viewportH = window.visualViewport?.height ?? window.innerHeight ?? wrap.clientHeight;
+    const w = wrap.clientWidth;
+    const h = Math.max(320, Math.min(wrap.clientHeight || viewportH, viewportH));
     const nextW = Math.round(w * dpr);
     const nextH = Math.round(h * dpr);
 
@@ -478,10 +453,12 @@ export default function PlinkoPvpGame() {
     if (cv.height !== nextH) cv.height = nextH;
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
-    const reservedTop = 44 * dpr;
-    const reservedBottom = 94 * dpr;
-    const usableH = Math.max(300 * dpr, cv.height - reservedTop - reservedBottom);
-    const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH);
+
+    // Доска специально чуть меньше по высоте и не доходит до нижней панели.
+    const reservedTop = 62 * dpr;
+    const reservedBottom = 156 * dpr;
+    const usableH = Math.max(240 * dpr, cv.height - reservedTop - reservedBottom);
+    const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH) * 0.93;
     const boardW = CFG.VW * scale;
     const boardH = CFG.VH * scale;
     const freeY = cv.height - reservedTop - reservedBottom - boardH;
@@ -489,7 +466,7 @@ export default function PlinkoPvpGame() {
     tf.current = {
       scale,
       offX: (cv.width - boardW) / 2,
-      offY: reservedTop + Math.max(0, freeY * 0.32),
+      offY: reservedTop + Math.max(0, freeY * 0.08),
       dpr,
     };
   }, []);
@@ -497,8 +474,15 @@ export default function PlinkoPvpGame() {
   useEffect(() => {
     resize();
     window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("scroll", resize);
     const id = window.setTimeout(resize, 60);
-    return () => { window.removeEventListener("resize", resize); window.clearTimeout(id); };
+    return () => {
+      window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("scroll", resize);
+      window.clearTimeout(id);
+    };
   }, [resize]);
 
   /* ------------------------------ ЦИКЛ ОТРИСОВКИ -------------------------- */
@@ -511,54 +495,89 @@ export default function PlinkoPvpGame() {
     const X = (v: number) => tf.current.offX + v * tf.current.scale;
     const Y = (v: number) => tf.current.offY + v * tf.current.scale;
 
+    const roundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+      const rr = Math.min(r, w / 2, h / 2);
+      ctx.moveTo(x + rr, y);
+      ctx.lineTo(x + w - rr, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+      ctx.lineTo(x + w, y + h - rr);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+      ctx.lineTo(x + rr, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+      ctx.lineTo(x, y + rr);
+      ctx.quadraticCurveTo(x, y, x + rr, y);
+    };
+
+    const factorOf = (viewer: number, i: number) => view.current.factors[viewer][i];
+
     const drawCup = (i: number, val: number, viewer: number, isReveal: boolean, showValues: boolean) => {
       const d = board.dividers;
       const x0 = d[i], x1 = d[i + 1];
       const cx = (x0 + x1) / 2;
-      const col = showValues ? tierColor(val) : "rgba(255,255,255,0.26)";
-      const r = S(7);
+      const col = showValues ? tierColor(val) : "rgba(255,255,255,0.34)";
+      const r = S(9);
       const top = Y(CFG.SLOT_TOP), bot = Y(CFG.FLOOR);
-
-      ctx.beginPath();
-      const lx = X(x0) + S(2), rx = X(x1) - S(2);
-      ctx.moveTo(lx, top);
-      ctx.lineTo(lx, bot - r);
-      ctx.quadraticCurveTo(lx, bot, lx + r, bot);
-      ctx.lineTo(rx - r, bot);
-      ctx.quadraticCurveTo(rx, bot, rx, bot - r);
-      ctx.lineTo(rx, top);
-      // Без createLinearGradient на каждом стакане/кадре — это заметно легче
-      // для Telegram WebView, особенно на Android.
-      ctx.fillStyle = showValues ? col + "12" : "rgba(255,255,255,0.025)";
-      ctx.fill();
-      ctx.lineWidth = S(1.15);
-      ctx.strokeStyle = showValues ? col + "cc" : "rgba(255,255,255,0.12)";
-      ctx.stroke();
+      const lx = X(x0) + S(2.4), rx = X(x1) - S(2.4);
+      const width = rx - lx;
+      const hot = showValues && val >= 5;
 
       ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,0.9)";
-      ctx.shadowBlur = S(2);
-      ctx.fillStyle = showValues ? "#fff" : "rgba(255,255,255,0.42)";
-      ctx.font = `900 ${S(12.5)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.beginPath();
+      ctx.moveTo(lx, top + S(2));
+      ctx.lineTo(lx + S(1.8), bot - r);
+      ctx.quadraticCurveTo(lx + S(1.8), bot, lx + r, bot);
+      ctx.lineTo(rx - r, bot);
+      ctx.quadraticCurveTo(rx - S(1.8), bot, rx - S(1.8), bot - r);
+      ctx.lineTo(rx, top + S(2));
+      ctx.quadraticCurveTo(rx, top, rx - S(4), top);
+      ctx.lineTo(lx + S(4), top);
+      ctx.quadraticCurveTo(lx, top, lx, top + S(2));
+
+      const grad = ctx.createLinearGradient(0, top, 0, bot);
+      grad.addColorStop(0, showValues ? col + "42" : "rgba(255,255,255,0.05)");
+      grad.addColorStop(0.42, "rgba(255,255,255,0.035)");
+      grad.addColorStop(1, showValues ? col + "1c" : "rgba(255,255,255,0.025)");
+      ctx.fillStyle = grad;
+      ctx.shadowColor = hot ? col : "rgba(0,0,0,0)";
+      ctx.shadowBlur = hot ? S(11) : 0;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.lineWidth = S(hot ? 1.9 : 1.15);
+      ctx.strokeStyle = showValues ? col + (hot ? "ee" : "bb") : "rgba(255,255,255,0.14)";
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(lx + S(5), top + S(4));
+      ctx.lineTo(rx - S(5), top + S(4));
+      ctx.strokeStyle = "rgba(255,255,255,0.22)";
+      ctx.lineWidth = S(0.8);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.fillRect(lx + width * 0.16, bot - S(3), width * 0.68, S(1.3));
+
+      ctx.shadowColor = showValues ? col : "rgba(255,255,255,0.3)";
+      ctx.shadowBlur = showValues ? S(7) : S(2);
+      ctx.fillStyle = showValues ? "#fff" : "rgba(255,255,255,0.5)";
+      ctx.font = `900 ${S(showValues && val >= 8 ? 13.8 : 12.2)}px ui-sans-serif, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(showValues ? `×${fmt(val)}` : "?", X(cx), (top + bot) / 2 + S(1));
-      ctx.restore();
+      ctx.fillText(showValues ? `x${fmt(val)}` : "?", X(cx), (top + bot) / 2 + S(1));
+      ctx.shadowBlur = 0;
 
       if (showValues && !isReveal && factorOf(viewer, i) !== 1) {
-        ctx.save();
+        const label = factorOf(viewer, i) > 1 ? "BOOST" : "CUT";
         ctx.fillStyle = PLAYERS[viewer].color;
-        ctx.shadowColor = "rgba(0,0,0,0.9)";
-        ctx.shadowBlur = S(4);
-        ctx.font = `900 ${S(7.5)}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.shadowColor = PLAYERS[viewer].color;
+        ctx.shadowBlur = S(6);
+        ctx.font = `900 ${S(6.8)}px ui-sans-serif, system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(factorOf(viewer, i) > 1 ? "буст" : "сброс", X(cx), top - S(5));
-        ctx.restore();
+        ctx.fillText(label, X(cx), top - S(6));
       }
+      ctx.restore();
     };
-
-    const factorOf = (viewer: number, i: number) => view.current.factors[viewer][i];
 
     const loop = (ts: number) => {
       const deltaMs = lastFrameTs.current ? Math.min(50, ts - lastFrameTs.current) : 16.67;
@@ -587,28 +606,70 @@ export default function PlinkoPvpGame() {
         screenShake.current = Math.max(0, screenShake.current * Math.pow(0.86, frameScale) - 0.05 * frameScale);
       }
 
-      // рамка поля
-      ctx.strokeStyle = "rgba(255,255,255,0.045)";
-      ctx.lineWidth = S(1.4);
-      ctx.strokeRect(X(CFG.WALL_L), Y(8), S(CFG.WALL_R - CFG.WALL_L), S(CFG.FLOOR - 8));
+      // Декоративная подложка только у игрового поля, общего фона больше нет.
+      const bx = X(CFG.WALL_L - 15);
+      const by = Y(0);
+      const bw = S(CFG.WALL_R - CFG.WALL_L + 30);
+      const bh = S(CFG.FLOOR + 12);
+      ctx.save();
+      const bodyGrad = ctx.createLinearGradient(0, by, 0, by + bh);
+      bodyGrad.addColorStop(0, "rgba(255,255,255,0.055)");
+      bodyGrad.addColorStop(0.42, "rgba(12,14,22,0.78)");
+      bodyGrad.addColorStop(1, "rgba(0,0,0,0.34)");
+      ctx.beginPath();
+      roundedRect(bx, by, bw, bh, S(24));
+      ctx.fillStyle = bodyGrad;
+      ctx.shadowColor = "rgba(0,0,0,0.42)";
+      ctx.shadowBlur = S(20);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = S(1.25);
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.stroke();
 
-      // боковые стены
-      ctx.fillStyle = "rgba(255,255,255,0.035)";
-      ctx.fillRect(X(CFG.WALL_L) - S(3), Y(8), S(3), S(CFG.FLOOR - 8));
-      ctx.fillRect(X(CFG.WALL_R), Y(8), S(3), S(CFG.FLOOR - 8));
+      ctx.beginPath();
+      roundedRect(X(CFG.WALL_L - 7), Y(10), S(CFG.WALL_R - CFG.WALL_L + 14), S(CFG.FLOOR - 4), S(17));
+      ctx.strokeStyle = "rgba(47,140,255,0.12)";
+      ctx.lineWidth = S(1.2);
+      ctx.stroke();
+      ctx.restore();
+
+      // боковые направляющие
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.045)";
+      ctx.shadowColor = "rgba(47,140,255,0.16)";
+      ctx.shadowBlur = S(8);
+      ctx.fillRect(X(CFG.WALL_L) - S(4), Y(10), S(4), S(CFG.FLOOR - 10));
+      ctx.shadowColor = "rgba(255,143,45,0.14)";
+      ctx.fillRect(X(CFG.WALL_R), Y(10), S(4), S(CFG.FLOOR - 10));
+      ctx.restore();
 
       // стаканы
       for (let i = 0; i < CFG.N_SLOTS; i++) drawCup(i, display[i], viewer, isReveal, showValues);
 
       // пеги
       for (const p of board.pegs) {
+        const pegCol = p.row % 2 === 0 ? "#5BB7FF" : "#FFB45C";
+        ctx.save();
         ctx.beginPath();
-        ctx.arc(X(p.x), Y(p.y), S(CFG.pegR), 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,255,255,0.72)";
-        ctx.shadowColor = "rgba(82,255,229,0.18)";
-        ctx.shadowBlur = S(2);
+        ctx.arc(X(p.x), Y(p.y), S(CFG.pegR + 1.45), 0, Math.PI * 2);
+        ctx.fillStyle = pegCol + "22";
+        ctx.shadowColor = pegCol;
+        ctx.shadowBlur = S(8);
         ctx.fill();
         ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(X(p.x), Y(p.y), S(CFG.pegR), 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.88)";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(X(p.x - 1.3), Y(p.y - 1.45), S(1.45), 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fill();
+        ctx.lineWidth = S(1.15);
+        ctx.strokeStyle = pegCol + "88";
+        ctx.stroke();
+        ctx.restore();
       }
 
       // стенки: свои во время хода, все при вскрытии
@@ -622,10 +683,13 @@ export default function PlinkoPvpGame() {
         ctx.moveTo(X(g.ax), Y(g.ay));
         ctx.lineTo(X(g.bx), Y(g.by));
         ctx.lineCap = "round";
-        ctx.lineWidth = S(6);
-        ctx.strokeStyle = isReveal ? "#ffe16b" : PLAYERS[viewer].color;
+        ctx.lineWidth = S(8);
+        ctx.strokeStyle = isReveal ? "#FFB45C" : PLAYERS[viewer].color;
         ctx.shadowColor = ctx.strokeStyle as string;
-        ctx.shadowBlur = S(8);
+        ctx.shadowBlur = S(13);
+        ctx.stroke();
+        ctx.lineWidth = S(3.2);
+        ctx.strokeStyle = "rgba(255,255,255,0.62)";
         ctx.stroke();
         ctx.shadowBlur = 0;
       });
@@ -691,7 +755,7 @@ export default function PlinkoPvpGame() {
         if (pb.pausing > 0) {
           pb.pausing = Math.max(0, pb.pausing - frameScale);
         } else if (!pb.done && pb.path.length) {
-          const activeData = revealData.current[v.revealIdx];
+          const activeData = revealData.current[pb.ballIdx];
           const advance = Math.max(
             1,
             Math.round(CFG.SUBSTEPS_PER_FRAME * frameScale * CFG.REVEAL_SPEED)
@@ -704,10 +768,10 @@ export default function PlinkoPvpGame() {
           if (stuckRested || reachedEnd) {
             const finishIdx = stuckRested ? pb.i : pb.path.length - 1;
             const [lx, ly] = pb.path[finishIdx];
-            const mult = activeData?.value ?? 1;
+            const value = activeData?.value ?? 0;
             const stuck = activeData?.stuck ?? false;
             pb.landed.push({ x: lx, y: ly, color: pb.color });
-            spawnLanding(lx, ly, pb.color, mult, stuck);
+            spawnLanding(lx, ly, pb.color, value, stuck);
             pb.done = true;
             onBallLanded();
           }
@@ -926,8 +990,12 @@ export default function PlinkoPvpGame() {
       Array(CFG.BALLS_PER_PLAYER).fill(0),
     ]);
     setTurn(0); setCurBall(0); setLiveAngle(0);
+    setRevealIdx(0);
+    setLastGain(null);
+    processedLandings.current.clear();
     particles.current = []; pops.current = [];
     screenShake.current = 0;
+    playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] };
     setPhase("angles");
   };
 
@@ -1008,7 +1076,7 @@ export default function PlinkoPvpGame() {
       return;
     }
 
-    // ×2 / ÷2 — по лунке
+    // x2 / /2 — по лунке
     const d = board.dividers;
     let slot = -1;
     for (let i = 0; i < d.length - 1; i++) if (wx >= d[i] && wx < d[i + 1]) { slot = i; break; }
@@ -1070,9 +1138,10 @@ export default function PlinkoPvpGame() {
         stuck,
       };
     });
+    processedLandings.current.clear();
     particles.current = []; pops.current = [];
     screenShake.current = 0;
-    playback.current = { path: [], i: 0, color: "#fff", player: 0, landed: [], pausing: 0, done: false, trail: [] };
+    playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] };
     setScores([1, 1]); setRevealIdx(0); setLastGain(null);
     setPhase("reveal");
     loadBall(0);
@@ -1085,38 +1154,69 @@ export default function PlinkoPvpGame() {
       path: d.path, i: 0,
       color: PLAYERS[d.player].color,
       player: d.player,
+      ballIdx: idx,
       landed: playback.current.landed,
       pausing: 12, done: false, trail: [],
     };
   };
 
   const onBallLanded = () => {
-    setRevealIdx((idx) => {
-      const d = revealData.current[idx];
-      if (d) {
-        setScores((s) => {
-          const ns: [number, number] = [s[0], s[1]];
-          ns[d.player] = Math.round(ns[d.player] * d.value * 100) / 100;
-          setLastGain({ p: d.player, v: d.value, score: ns[d.player], stuck: d.stuck });
-          return ns;
-        });
-      }
-      const nextIdx = idx + 1;
-      if (nextIdx >= revealData.current.length) {
-        window.setTimeout(() => {
-          hapticNotify("success");
-          setPhase("result");
-        }, 1100);
-        return idx;
-      }
-      window.setTimeout(() => { setLastGain(null); loadBall(nextIdx); }, 850);
-      return nextIdx;
-    });
+    const idx = playback.current.ballIdx;
+    if (idx < 0 || processedLandings.current.has(idx)) return;
+    processedLandings.current.add(idx);
+
+    const d = revealData.current[idx];
+    if (d) {
+      setScores((s) => {
+        const ns: [number, number] = [s[0], s[1]];
+        ns[d.player] = Math.round(ns[d.player] * d.value * 100) / 100;
+        setLastGain({ p: d.player, v: d.value, score: ns[d.player], stuck: d.stuck });
+        return ns;
+      });
+    }
+
+    const nextIdx = idx + 1;
+    setRevealIdx(nextIdx);
+
+    if (nextIdx >= revealData.current.length) {
+      window.setTimeout(() => {
+        hapticNotify("success");
+        setPhase("result");
+      }, 1100);
+      return;
+    }
+
+    window.setTimeout(() => {
+      setLastGain(null);
+      loadBall(nextIdx);
+    }, 850);
   };
 
   /* ------------------------------- ПРОИЗВОДНОЕ ---------------------------- */
   const angleDeg = Math.round(liveAngle * CFG.ANGLE_MAX_DEG);
   const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
+
+  const ballCounters = useMemo<[number, number]>(() => {
+    if (phase === "intro") return [0, 0];
+
+    if (phase === "angles") {
+      if (turn === 0) return [curBall, 0];
+      return [CFG.BALLS_PER_PLAYER, curBall];
+    }
+
+    if (phase === "handoff" && handoff.next === "angles") {
+      return handoff.to === 1 ? [CFG.BALLS_PER_PLAYER, 0] : [0, 0];
+    }
+
+    if (phase === "reveal") {
+      const done = clamp(revealIdx, 0, revealOrder.length);
+      const counts: [number, number] = [0, 0];
+      for (let i = 0; i < done; i++) counts[revealOrder[i].player]++;
+      return counts;
+    }
+
+    return [CFG.BALLS_PER_PLAYER, CFG.BALLS_PER_PLAYER];
+  }, [phase, turn, curBall, handoff.next, handoff.to, revealIdx, revealOrder]);
 
   // кастомный ползунок (надёжный для webview): pointer-события
   const sliderRef = useRef<HTMLDivElement | null>(null);
@@ -1137,25 +1237,17 @@ export default function PlinkoPvpGame() {
     setAngleFromClientX(e.clientX);
   };
 
-  const phaseLabel =
-    phase === "angles"
-      ? `${PLAYERS[turn].name} · угол ${curBall + 1}/${CFG.BALLS_PER_PLAYER}`
-      : phase === "actions"
-      ? `${PLAYERS[turn].name} · ${actionsLeft} действия · ${timeLeft}с`
-      : phase === "reveal"
-      ? `Шарик ${Math.min(revealIdx + 1, revealOrder.length)}/${revealOrder.length}`
-      : phase === "result"
-      ? "Финал"
-      : "Plinko PvP";
-
-  const activeColor = PLAYERS[turn]?.color ?? "#52FFE5";
+  const activeColor = PLAYERS[turn]?.color ?? "#5BB7FF";
 
   return (
     <div
-      className="relative z-0 flex h-full max-h-full w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white"
+      className="relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white"
       style={{
+        height: "var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh))",
+        maxHeight: "var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh))",
+        minHeight: 0,
         fontFamily:
-          "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          "'Supercell', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
         touchAction: "none",
       }}
     >
@@ -1171,59 +1263,39 @@ export default function PlinkoPvpGame() {
         />
       </div>
 
-      <div className="pointer-events-none absolute left-2.5 right-2.5 top-0 z-30 grid grid-cols-[1fr_auto_1fr] items-start gap-2 pt-1.5">
-        {PLAYERS.map((p, i) => {
-          const active = (phase === "angles" || phase === "actions") && turn === i;
-          return (
-            <div
-              key={p.name}
-              className="min-w-0 rounded-[14px] border px-2.5 py-1.5"
-              style={{
-                borderColor: active ? p.color + "80" : "rgba(255,255,255,0.07)",
-                background: active ? p.soft : "rgba(255,255,255,0.035)",
-                boxShadow: active ? `0 0 0 1px ${p.color}18` : "none",
-                textAlign: i === 1 ? "right" : "left",
-              }}
-            >
-              <div className="text-[7px] font-black uppercase tracking-[0.18em] text-white/34">
-                {p.name}
-              </div>
-              <div
-                className="mt-0.5 truncate text-[15px] font-black leading-none tracking-[-0.05em] tabular-nums"
-                style={{ color: p.color }}
-              >
-                ×{fmt(scores[i])}
-              </div>
-            </div>
-          );
-        })}
+      <div className="pointer-events-none absolute left-3 right-3 top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 pt-[calc(env(safe-area-inset-top,0px)+8px)]">
+        <div className="flex min-w-0 justify-start">
+          <PlayerScoreCard player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
+        </div>
 
-        <div className="rounded-full border border-white/[0.07] bg-black/35 px-3 py-1.5 text-center">
-          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#F2C766]/70">
-            PLINKO
-          </div>
-          <div className="mt-0.5 max-w-[116px] truncate text-[9px] font-bold text-white/54">
-            {phaseLabel}
-          </div>
+        <div className="flex h-12 items-center gap-2 rounded-[18px] border border-white/[0.08] bg-[#09090d]/78 px-3 shadow-[0_12px_28px_rgba(0,0,0,.28)] backdrop-blur-xl">
+          <BallCounter color={PLAYERS[0].color} value={ballCounters[0]} />
+          <div className="h-5 w-px bg-white/12" />
+          <BallCounter color={PLAYERS[1].color} value={ballCounters[1]} reverse />
+        </div>
+
+        <div className="flex min-w-0 justify-end">
+          <PlayerScoreCard player={PLAYERS[1]} score={scores[1]} active={(phase === "angles" || phase === "actions") && turn === 1} reverse />
         </div>
       </div>
 
       {lastGain && (
         <div
-          className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.08] bg-[#08080d]/92 px-3 py-1.5 text-[11px] font-black tracking-[-0.02em] shadow-[0_10px_26px_rgba(0,0,0,0.35)]"
+          className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl"
           style={{
-            top: "54px",
+            top: "calc(env(safe-area-inset-top, 0px) + 66px)",
             color: PLAYERS[lastGain.p].color,
           }}
         >
-          {lastGain.stuck ? "Застрял · ×1" : `×${fmt(lastGain.v)} → ×${fmt(lastGain.score)}`}
+          {lastGain.stuck ? "x1" : `x${fmt(lastGain.v)} → ${fmt(lastGain.score)}`}
         </div>
       )}
 
       {phase === "angles" && (
-        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
-          <div className="mx-auto max-w-[460px] rounded-[18px] border border-white/[0.07] bg-[#08080d]/94 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <div className="mb-1.5 flex items-center justify-between px-1">
+        <div className="fixed inset-x-0 z-30 px-3"
+          style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}>
+          <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
+            <div className="mb-1 flex items-center justify-between px-1">
               <span className="text-[8px] font-black uppercase tracking-[0.18em] text-white/32">
                 Прицел
               </span>
@@ -1245,7 +1317,7 @@ export default function PlinkoPvpGame() {
                     Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
                   );
                 }}
-                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/[0.07] bg-white/[0.05] text-lg font-black text-white/72 active:bg-white/[0.08]"
+                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78 shadow-[inset_0_1px_0_rgba(255,255,255,.06)] active:bg-white/[0.10]"
               >
                 −
               </button>
@@ -1254,13 +1326,13 @@ export default function PlinkoPvpGame() {
                 ref={sliderRef}
                 onPointerDown={sliderDown}
                 onPointerMove={sliderMove}
-                className="relative h-9 min-w-0 flex-1 cursor-pointer"
+                className="relative h-8 min-w-0 flex-1 cursor-pointer"
                 style={{ touchAction: "none" }}
               >
-                <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.12]" />
+                <div className="absolute inset-x-0 top-1/2 h-[5px] -translate-y-1/2 rounded-full bg-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,.12)]" />
                 <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
                 <div
-                  className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40"
+                  className="absolute top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40"
                   style={{
                     left: `${((liveAngle + 1) / 2) * 100}%`,
                     background: activeColor,
@@ -1277,7 +1349,7 @@ export default function PlinkoPvpGame() {
                     Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
                   );
                 }}
-                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/[0.07] bg-white/[0.05] text-lg font-black text-white/72 active:bg-white/[0.08]"
+                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78 shadow-[inset_0_1px_0_rgba(255,255,255,.06)] active:bg-white/[0.10]"
               >
                 +
               </button>
@@ -1285,7 +1357,7 @@ export default function PlinkoPvpGame() {
               <button
                 type="button"
                 onClick={confirmAngle}
-                className="press h-9 shrink-0 rounded-[13px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98]"
+                className="press h-9 shrink-0 rounded-[14px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_10px_22px_rgba(0,0,0,.28)] active:scale-[0.98]"
                 style={{ background: activeColor }}
               >
                 OK {curBall + 1}/{CFG.BALLS_PER_PLAYER}
@@ -1296,12 +1368,13 @@ export default function PlinkoPvpGame() {
       )}
 
       {phase === "actions" && (
-        <div className="absolute inset-x-0 bottom-0 z-30 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+10px)]">
-          <div className="mx-auto max-w-[460px] rounded-[18px] border border-white/[0.07] bg-[#08080d]/94 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+        <div className="fixed inset-x-0 z-30 px-3"
+          style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}>
+          <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
             <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
               {([
-                { m: "x2" as ActionMode, label: "×2" },
-                { m: "half" as ActionMode, label: "÷2" },
+                { m: "x2" as ActionMode, label: "x2" },
+                { m: "half" as ActionMode, label: "/2" },
                 { m: "wall" as ActionMode, label: "Wall" },
               ]).map((b) => {
                 const on = actionMode === b.m;
@@ -1314,7 +1387,7 @@ export default function PlinkoPvpGame() {
                       hapticSelection();
                       setActionMode(on ? null : b.m);
                     }}
-                    className="press h-9 rounded-[13px] border text-[12px] font-black disabled:opacity-35"
+                    className="press h-9 min-w-0 rounded-[14px] border px-2 text-[12px] font-black tracking-[-0.01em] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] disabled:opacity-35"
                     style={{
                       borderColor: on ? activeColor + "90" : "rgba(255,255,255,0.07)",
                       background: on ? activeColor : "rgba(255,255,255,0.05)",
@@ -1329,18 +1402,24 @@ export default function PlinkoPvpGame() {
               <button
                 type="button"
                 onClick={finishActionTurn}
-                className="press h-9 rounded-[13px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/55"
+                className="press h-9 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3 text-[11px] font-black text-white/60"
               >
                 Skip
               </button>
             </div>
 
-            <div className="mt-1.5 text-center text-[9px] font-bold text-white/36">
-              {actionMode === "wall"
-                ? "Нажми между пегами"
-                : actionMode
-                ? "Нажми по лунке"
-                : "Выбери действие"}
+            <div className="mt-1 flex items-center justify-center gap-2 text-[9px] font-bold text-white/36">
+              <span>{actionsLeft}/{CFG.ACTIONS_PER_TURN}</span>
+              <span className="h-1 w-1 rounded-full bg-white/20" />
+              <span>{timeLeft}s</span>
+              <span className="h-1 w-1 rounded-full bg-white/20" />
+              <span>
+                {actionMode === "wall"
+                  ? "между пегами"
+                  : actionMode
+                  ? "по лунке"
+                  : "действие"}
+              </span>
             </div>
           </div>
         </div>
@@ -1348,11 +1427,11 @@ export default function PlinkoPvpGame() {
 
       {phase === "intro" && (
         <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/92 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.55)]">
-            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#F2C766]/70">
+          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.62)] backdrop-blur-xl">
+            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#FFB45C]/70">
               Battle Club
             </div>
-            <div className="mt-2 text-[32px] font-black leading-none tracking-[-0.08em]">
+            <div className="mt-2 bg-gradient-to-b from-white to-white/58 bg-clip-text text-[34px] font-black leading-none tracking-[-0.08em] text-transparent">
               Plinko PvP
             </div>
             <p className="mx-auto mt-3 max-w-[250px] text-[12px] font-medium leading-snug text-white/48">
@@ -1361,7 +1440,7 @@ export default function PlinkoPvpGame() {
             <button
               type="button"
               onClick={startGame}
-              className="press mt-5 h-11 w-full rounded-[16px] bg-white text-[13px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
+              className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
             >
               Начать
             </button>
@@ -1371,7 +1450,7 @@ export default function PlinkoPvpGame() {
 
       {phase === "handoff" && (
         <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/95 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.6)]">
+          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.64)] backdrop-blur-xl">
             <div
               className="mx-auto grid h-12 w-12 place-items-center rounded-[16px] text-[14px] font-black text-[#050507]"
               style={{ background: PLAYERS[handoff.to].color }}
@@ -1398,7 +1477,7 @@ export default function PlinkoPvpGame() {
 
       {phase === "result" && (
         <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[330px] rounded-[24px] border border-white/[0.07] bg-[#08080d]/94 px-5 py-5 shadow-[0_22px_70px_rgba(0,0,0,0.6)]">
+          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.64)] backdrop-blur-xl">
             <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/34">
               Match result
             </div>
@@ -1413,20 +1492,80 @@ export default function PlinkoPvpGame() {
               </div>
             )}
             <div className="mt-4 flex items-center justify-center gap-5 text-[22px] font-black tracking-[-0.06em] tabular-nums">
-              <span style={{ color: PLAYERS[0].color }}>×{fmt(scores[0])}</span>
+              <span style={{ color: PLAYERS[0].color }}>{fmt(scores[0])}</span>
               <span className="text-white/24">:</span>
-              <span style={{ color: PLAYERS[1].color }}>×{fmt(scores[1])}</span>
+              <span style={{ color: PLAYERS[1].color }}>{fmt(scores[1])}</span>
             </div>
             <button
               type="button"
               onClick={startGame}
-              className="press mt-5 h-11 w-full rounded-[16px] bg-white text-[13px] font-black tracking-[-0.02em] text-[#08080C] active:scale-[0.98]"
+              className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
             >
               Играть снова
             </button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type PlayerScoreCardProps = {
+  player: typeof PLAYERS[number];
+  score: number;
+  active: boolean;
+  reverse?: boolean;
+};
+
+function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScoreCardProps) {
+  return (
+    <div
+      className={`flex h-12 max-w-[130px] min-w-[92px] items-center gap-1.5 overflow-hidden rounded-[18px] border px-2 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
+      style={{
+        borderColor: active ? player.color + "80" : "rgba(255,255,255,0.07)",
+        background: active ? `linear-gradient(135deg, ${player.color}24, rgba(255,255,255,0.045))` : "rgba(12,13,20,0.72)",
+        boxShadow: active ? `0 10px 28px ${player.color}14, inset 0 1px 0 rgba(255,255,255,.08)` : "inset 0 1px 0 rgba(255,255,255,.055)",
+      }}
+    >
+      <div
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[9px] font-black text-[#050507]"
+        style={{
+          background: player.color,
+          borderColor: "rgba(255,255,255,0.22)",
+          boxShadow: `0 0 16px ${player.color}33`,
+        }}
+      >
+        {player.emoji}
+      </div>
+      <div
+        className={`min-w-0 flex-1 truncate font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"}`}
+        style={{ color: player.color, fontSize: "clamp(12px, 3.7vw, 15px)", lineHeight: 1.22 }}
+      >
+        {fmt(score)}
+      </div>
+    </div>
+  );
+}
+
+type BallCounterProps = {
+  color: string;
+  value: number;
+  reverse?: boolean;
+};
+
+function BallCounter({ color, value, reverse = false }: BallCounterProps) {
+  return (
+    <div className={`flex items-center gap-1.5 ${reverse ? "flex-row-reverse" : ""}`}>
+      <span
+        className="h-2 w-2 rounded-full"
+        style={{
+          background: color,
+          boxShadow: `0 0 10px ${color}66`,
+        }}
+      />
+      <span className="text-[12px] font-black leading-none tracking-[-0.04em] text-white/82 tabular-nums">
+        {value}/{CFG.BALLS_PER_PLAYER}
+      </span>
     </div>
   );
 }
