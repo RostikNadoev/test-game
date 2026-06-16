@@ -796,6 +796,9 @@ export const NeonMatrixGame: React.FC = () => {
           padding: 8px 8px max(8px, env(safe-area-inset-bottom));
           color: white;
           font-family: 'Supercell','Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+          font-size: 12px;
+          line-height: 1.25;
+          -webkit-font-smoothing: antialiased;
           user-select: none;
           isolation: isolate;
           background:
@@ -829,7 +832,7 @@ export const NeonMatrixGame: React.FC = () => {
           grid-template-columns: 1fr 48px 1fr;
           align-items: center;
           gap: 6px;
-          min-height: 44px;
+          min-height: 40px;
         }
 
         .rd-health {
@@ -841,7 +844,7 @@ export const NeonMatrixGame: React.FC = () => {
           background:
             radial-gradient(circle at 50% 0%, var(--player-soft), transparent 74%),
             rgba(255,255,255,.025);
-          padding: 7px 9px;
+          padding: 6px 9px;
           box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.28);
         }
 
@@ -857,7 +860,7 @@ export const NeonMatrixGame: React.FC = () => {
           align-items: baseline;
           justify-content: space-between;
           gap: 8px;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
 
         .rd-health-head span {
@@ -872,8 +875,8 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-health-head b {
           color: white;
-          font-size: 16px;
-          line-height: .9;
+          font-size: 13px;
+          line-height: 1.18;
           font-weight: 900;
           letter-spacing: -.05em;
         }
@@ -908,8 +911,8 @@ export const NeonMatrixGame: React.FC = () => {
           right: 9px;
           top: 6px;
           color: var(--danger);
-          font-size: 15px;
-          line-height: 1;
+          font-size: 12px;
+          line-height: 1.18;
           font-style: normal;
           font-weight: 900;
           text-shadow: 0 0 16px rgba(255,107,107,.7);
@@ -920,7 +923,7 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-health-damaged { animation: rdHealthHit 1.15s ease both; }
 
         .rd-round {
-          height: 42px;
+          height: 39px;
           display: grid;
           place-items: center;
           align-content: center;
@@ -942,8 +945,8 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-round b {
           color: var(--gold);
-          font-size: 17px;
-          line-height: .9;
+          font-size: 14px;
+          line-height: 1.18;
           font-weight: 900;
           letter-spacing: -.04em;
           text-shadow: 0 0 16px rgba(255,201,106,.3);
@@ -976,8 +979,8 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-title h1 {
           margin: 4px 0 0;
-          font-size: clamp(22px, 5.2vw, 36px);
-          line-height: .85;
+          font-size: clamp(18px, 4.6vw, 28px);
+          line-height: 1.1;
           font-weight: 900;
           letter-spacing: -.07em;
           background: linear-gradient(100deg, #EAF4FF, #ffffff 42%, #ffe9b8);
@@ -1083,7 +1086,8 @@ export const NeonMatrixGame: React.FC = () => {
           position: absolute;
           transform: translate(-50%, -50%);
           color: rgba(255,255,255,.4);
-          font-size: 10px;
+          font-size: 8.5px;
+          line-height: 1.15;
           font-weight: 900;
           letter-spacing: -.02em;
         }
@@ -1108,14 +1112,14 @@ export const NeonMatrixGame: React.FC = () => {
           transform: translate(-50%, -50%) rotate(calc(-1 * var(--a)));
           border-radius: 999px;
           padding: 3px 6px;
-          font-size: 9px;
-          line-height: 1;
+          font-size: 8px;
+          line-height: 1.15;
           font-weight: 900;
           letter-spacing: -.02em;
         }
 
-        .rd-bet span b { font-size: 9px; line-height: 1; }
-        .rd-bet span em { font-size: 7.5px; line-height: 1; font-style: normal; opacity: .82; }
+        .rd-bet span b { font-size: 8px; line-height: 1.15; }
+        .rd-bet span em { font-size: 6.8px; line-height: 1.15; font-style: normal; opacity: .82; }
 
         .rd-bet-cyan span {
           background: linear-gradient(180deg, #A7D8FF, #2F8CFF);
@@ -1199,17 +1203,18 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-center small {
           color: rgba(255,255,255,.4);
-          font-size: 7px;
+          font-size: 6.5px;
+          line-height: 1.2;
           font-weight: 900;
-          letter-spacing: .22em;
+          letter-spacing: .18em;
           text-transform: uppercase;
         }
 
         .rd-center strong {
-          margin-top: 6px;
+          margin-top: 3px;
           color: white;
-          font-size: clamp(40px, 10vw, 66px);
-          line-height: .82;
+          font-size: clamp(30px, 8vw, 48px);
+          line-height: 1.08;
           font-weight: 900;
           letter-spacing: -.08em;
           text-shadow: 0 0 26px rgba(255,201,106,.22);
@@ -1247,17 +1252,17 @@ export const NeonMatrixGame: React.FC = () => {
         }
 
         .rd-clash-value small {
-          font-size: 8px;
-          line-height: 1;
+          font-size: 7px;
+          line-height: 1.18;
           font-weight: 900;
-          letter-spacing: .16em;
+          letter-spacing: .14em;
           opacity: .65;
         }
 
         .rd-clash-value span {
           margin-top: 6px;
-          font-size: 34px;
-          line-height: .82;
+          font-size: 26px;
+          line-height: 1.08;
           font-weight: 900;
           letter-spacing: -.07em;
         }
@@ -1308,8 +1313,8 @@ export const NeonMatrixGame: React.FC = () => {
           z-index: 2;
           margin-top: 6px;
           color: #ffd7df;
-          font-size: 42px;
-          line-height: .82;
+          font-size: 31px;
+          line-height: 1.08;
           font-weight: 900;
           letter-spacing: -.07em;
           text-shadow: 0 0 22px rgba(255,107,107,.7);
@@ -1359,7 +1364,7 @@ export const NeonMatrixGame: React.FC = () => {
           text-transform: uppercase;
         }
 
-        .rd-pick b { font-size: 14px; line-height: .9; font-weight: 900; letter-spacing: -.05em; }
+        .rd-pick b { font-size: 12px; line-height: 1.12; font-weight: 900; letter-spacing: -.05em; }
         .rd-pick small { color: rgba(255,255,255,.45); font-size: 8px; font-weight: 900; }
 
         .rd-pick-cyan b { color: var(--mint); }
@@ -1411,8 +1416,8 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-picker-value b {
           color: white;
-          font-size: 30px;
-          line-height: .82;
+          font-size: 22px;
+          line-height: 1.12;
           font-weight: 900;
           letter-spacing: -.07em;
           text-shadow: 0 0 20px var(--player-glow);
@@ -1462,14 +1467,14 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-button {
           border: 0;
           width: 100%;
-          min-height: 44px;
+          min-height: 40px;
           border-radius: 16px;
           padding: 0 16px;
           color: #1c1505;
           background: linear-gradient(135deg, #ffe9ad 0%, #FFC96A 46%, #d78a20 100%);
           box-shadow: 0 12px 28px rgba(255,201,106,.22), inset 0 1px 0 rgba(255,255,255,.5);
-          font-size: 11px;
-          line-height: 1;
+          font-size: 9.5px;
+          line-height: 1.18;
           font-weight: 900;
           text-transform: uppercase;
           letter-spacing: .12em;
@@ -1512,14 +1517,14 @@ export const NeonMatrixGame: React.FC = () => {
           border-radius: 20px;
           border: 1px solid rgba(255,255,255,.1);
           background: linear-gradient(135deg, rgba(47,140,255,.18), rgba(255,201,106,.18));
-          font-size: 28px;
+          font-size: 24px;
         }
 
         .rd-card h2 {
           margin: 0;
           color: #fff;
-          font-size: clamp(24px, 6.4vw, 34px);
-          line-height: .92;
+          font-size: clamp(20px, 5.4vw, 28px);
+          line-height: 1.12;
           font-weight: 900;
           letter-spacing: -.06em;
         }
@@ -1528,8 +1533,8 @@ export const NeonMatrixGame: React.FC = () => {
           margin: 0;
           max-width: 264px;
           color: rgba(255,255,255,.56);
-          font-size: 12px;
-          line-height: 1.4;
+          font-size: 10.5px;
+          line-height: 1.45;
           font-weight: 600;
         }
 
@@ -1649,9 +1654,9 @@ export const NeonMatrixGame: React.FC = () => {
           .rd-top { min-height: 41px; }
           .rd-health { padding: 6px 8px; border-radius: 14px; }
           .rd-health-head { margin-bottom: 5px; }
-          .rd-health-head b { font-size: 15px; }
-          .rd-round { height: 39px; border-radius: 13px; }
-          .rd-title h1 { font-size: clamp(20px, 5vw, 32px); }
+          .rd-health-head b { font-size: 12px; line-height:1.18; }
+          .rd-round { height: 37px; border-radius: 13px; }
+          .rd-title h1 { font-size: clamp(17px, 4.4vw, 25px); line-height:1.1; }
           .rd-wheel {
             min-width: 264px; min-height: 264px;
             width: min(80vw, 374px); height: min(80vw, 374px);
@@ -1661,17 +1666,17 @@ export const NeonMatrixGame: React.FC = () => {
             width: min(78vw, 354px); height: min(78vw, 354px);
             max-width: min(46vh, 354px); max-height: min(46vh, 354px);
           }
-          .rd-center strong { font-size: clamp(36px, 9.5vw, 58px); }
+          .rd-center strong { font-size: clamp(28px, 7.8vw, 42px); line-height:1.08; }
           .rd-pick { min-height: 26px; }
           .rd-picker { min-height: 50px; padding: 8px 10px; border-radius: 18px; grid-template-columns: 58px minmax(0, 1fr); }
-          .rd-picker-value b { font-size: 27px; }
+          .rd-picker-value b { font-size: 21px; line-height:1.12; }
           .rd-button { min-height: 41px; }
         }
 
         @media (max-width: 520px) {
           .rd-wheel { min-width: 278px; min-height: 278px; width: min(85vw, 348px); height: min(85vw, 348px); }
           .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel { min-width: 270px; min-height: 270px; width: min(82vw, 336px); height: min(82vw, 336px); }
-          .rd-center strong { font-size: 44px; }
+          .rd-center strong { font-size: 34px; line-height:1.08; }
         }
 
         @media (prefers-reduced-motion: reduce) {
