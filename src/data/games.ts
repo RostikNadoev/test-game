@@ -11,6 +11,7 @@ import hockeyCover from '../assets/home/hockey.webp';
 import raceCover from '../assets/home/race.webp';
 import penalCover from '../assets/home/penal.webp';
 import gridCover from '../assets/home/grid.webp';
+import rouletteCover from '../assets/home/roulette.webp'
 
 export type GameCode =
   | 'plinko_pvp'
@@ -156,6 +157,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Neon',
     status: 'Top',
     playPath: '/game/neon_matrix/play',
+    coverUrl: rouletteCover
   },
   {
     code: 'street_race',
