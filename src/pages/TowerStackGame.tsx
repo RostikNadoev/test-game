@@ -85,10 +85,11 @@ const DUST_GRAV = 220;
 const SLAB_GRAV = 900;
 const FLASH_DECAY = 2.2;
 
-// Scoring — designed so a precise player and the bot trade a believable race.
-const SCORE: Record<Quality, number> = { PERFECT: 120, GREAT: 70, GOOD: 35, MISS: -25 };
-const COMBO_MIN = 3; // combos start paying out from this streak length
-const COMBO_STEP = 18; // bonus per combo level beyond COMBO_MIN
+// Scoring — compact and capped so rounds stay readable, not 60k+ point floods.
+const SCORE: Record<Quality, number> = { PERFECT: 36, GREAT: 22, GOOD: 10, MISS: -12 };
+const COMBO_MIN = 4; // combos start paying out from this streak length
+const COMBO_STEP = 4; // bonus per combo level beyond COMBO_MIN
+const COMBO_BONUS_MAX = 32; // hard cap so long streaks never explode the score
 
 // Round / flow
 const ROUND_SECONDS = 40;
@@ -108,7 +109,7 @@ function scoreFor(quality: Quality, comboAfter: number) {
   const base = SCORE[quality];
   let bonus = 0;
   if ((quality === 'PERFECT' || quality === 'GREAT') && comboAfter >= COMBO_MIN) {
-    bonus = COMBO_STEP * (comboAfter - COMBO_MIN + 1);
+    bonus = Math.min(COMBO_BONUS_MAX, COMBO_STEP * (comboAfter - COMBO_MIN + 1));
   }
   return { base, bonus, delta: base + bonus };
 }
@@ -761,7 +762,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const engineRef = useRef<TowerEngine | null>(null);
   const timeoutsRef = useRef<number[]>([]);
 
-  const [phase, setPhase] = useState<Phase>('ready');
+  const [phase, setPhase] = useState<Phase>('countdown');
   const [playerScore, setPlayerScore] = useState(0);
   const [rivalScore, setRivalScore] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -1040,7 +1041,7 @@ const STYLES = `
   background:transparent; color:#eaf0f7;
   font-family:'Supercell','Supercell-Magic','SupercellMagic',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-tap-highlight-color:transparent; user-select:none;
-  padding: calc(env(safe-area-inset-top,0px) + 2px) 10px calc(env(safe-area-inset-bottom,0px) + 6px);
+  padding: 2px 10px calc(env(safe-area-inset-bottom,0px) + 6px);
 }
 .ts-root *{ box-sizing:border-box; }
 
@@ -1086,7 +1087,7 @@ const STYLES = `
 
 /* Stage */
 .ts-stage{
-  position:relative; flex:1 1 auto; margin-top:6px; min-height:0;
+  position:relative; flex:1 1 auto; margin-top:5px; min-height:0;
   border-radius:20px; overflow:hidden; isolation:isolate;
   border:1px solid rgba(255,255,255,0.06);
   background:
