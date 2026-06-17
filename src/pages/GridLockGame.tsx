@@ -272,7 +272,6 @@ const Pawn = ({ player, pos, active }: { player: PlayerId; pos: Pos; active: boo
 
 export const GridLockGame: React.FC = () => {
   const boardRef = useRef<HTMLDivElement | null>(null);
-  const cancelZoneRef = useRef<HTMLDivElement | null>(null);
   const dragWallRef = useRef<DragWall | null>(null);
 
   const [p1, setP1] = useState<Pos>(START.p1);
@@ -460,19 +459,14 @@ export const GridLockGame: React.FC = () => {
     [walls, p1, p2]
   );
 
-  const isInCancelZone = useCallback((clientX: number, clientY: number) => {
-    const el = cancelZoneRef.current;
-    if (!el) return false;
+  const isInCancelZone = useCallback((_clientX: number, clientY: number) => {
+    const board = boardRef.current;
+    if (!board) return false;
 
-    const rect = el.getBoundingClientRect();
-    const pad = 18;
+    const rect = board.getBoundingClientRect();
 
-    return (
-      clientX >= rect.left - pad &&
-      clientX <= rect.right + pad &&
-      clientY >= rect.top - pad &&
-      clientY <= rect.bottom + pad
-    );
+    // Зона отмены — вообще всё, что ниже игрового поля.
+    return clientY >= rect.bottom;
   }, []);
 
   const endTurn = useCallback(() => {
@@ -669,7 +663,6 @@ export const GridLockGame: React.FC = () => {
         @keyframes glPulse { 0%,100%{ opacity:.10; transform:scale(1);} 50%{ opacity:.22; transform:scale(1.18);} }
         @keyframes glPop { 0%{ transform:scale(.82); opacity:0;} 100%{ transform:scale(1); opacity:1;} }
         @keyframes glToast { 0%{ opacity:0; transform:translateY(8px) scale(.98);} 100%{ opacity:1; transform:none;} }
-        @keyframes glGhost { 0%{ transform:translate(-50%,-50%) scale(.92); opacity:0;} 100%{ transform:translate(-50%,-50%) scale(1); opacity:1;} }
         .gl-pulse { animation: glPulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
         .gl-pop { animation: glPop 150ms cubic-bezier(.2,.9,.2,1.15) both; transform-box: fill-box; transform-origin: center; }
         .gl-tap { transition: transform .1s ease, opacity .1s ease, background-color .1s ease, border-color .1s ease; }
@@ -870,7 +863,6 @@ export const GridLockGame: React.FC = () => {
         style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
       >
         <div
-          ref={cancelZoneRef}
           className="relative mx-auto grid h-[56px] w-[168px] grid-cols-2 gap-2 rounded-[22px] border p-1.5"
           style={{
             background: dragWall?.overCancel ? "rgba(239,68,68,0.16)" : "rgba(18,18,24,0.72)",
@@ -899,21 +891,19 @@ export const GridLockGame: React.FC = () => {
           {dragWall?.overCancel && (
             <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-[22px]">
               <div
-                className="grid h-9 w-9 place-items-center rounded-full text-[18px] font-black"
+                className="grid h-10 w-10 place-items-center rounded-full"
                 style={{
                   background: "rgba(239,68,68,0.92)",
                   color: "#fff",
                   boxShadow: "0 10px 24px rgba(239,68,68,.24)",
                 }}
               >
-                ×
+                <TrashIcon />
               </div>
             </div>
           )}
         </div>
       </footer>
-
-      {dragWall && <DraggedWallGhost drag={dragWall} accent={accent} />}
     </div>
   );
 };
@@ -1031,24 +1021,22 @@ const WallDragButton = ({
   </button>
 );
 
-const DraggedWallGhost = ({ drag, accent }: { drag: DragWall; accent: string }) => (
-  <div
-    className="pointer-events-none fixed z-50"
-    style={{
-      left: drag.x,
-      top: drag.y,
-      width: drag.o === "h" ? 78 : 18,
-      height: drag.o === "h" ? 18 : 78,
-      transform: "translate(-50%, -50%)",
-      animation: "glGhost 110ms ease-out both",
-      borderRadius: 999,
-      background: drag.overCancel ? APP.danger : accent,
-      boxShadow: drag.overCancel
-        ? "0 12px 30px rgba(239,68,68,.32), inset 0 1px 0 rgba(255,255,255,.32)"
-        : `0 12px 30px ${accent}33, inset 0 1px 0 rgba(255,255,255,.35)`,
-      opacity: drag.overCancel ? 0.86 : 0.96,
-    }}
-  />
+const TrashIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <path
+      d="M9 4.75h6M10 4.75l.55-1.15A1 1 0 0 1 11.45 3h1.1a1 1 0 0 1 .9.6L14 4.75M5.75 7h12.5M8 7.75l.7 11.1A2 2 0 0 0 10.7 20.75h2.6a2 2 0 0 0 2-1.9l.7-11.1M10.25 10.25v7M13.75 10.25v7"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
 );
 
 export const GridLock = GridLockGame;
