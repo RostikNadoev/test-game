@@ -25,6 +25,7 @@ const S = 10;
 const CELL_GAP = 0.72;
 const WT = 2.05; // стены визуально крупнее
 const WPAD = 0.72;
+const WALL_DRAG_Y_OFFSET_PX = 34; // стена ставится чуть выше пальца, чтобы было видно точное место
 
 const APP = {
   bgCard: "rgba(18, 18, 24, 0.9)",
@@ -589,7 +590,8 @@ export const GridLockGame: React.FC = () => {
 
       dragWallRef.current = next;
       setDragWallState(next);
-      setPreview(overCancel ? null : pointToSlot(event.clientX, event.clientY, drag.o));
+      const slotY = event.clientY - WALL_DRAG_Y_OFFSET_PX;
+      setPreview(overCancel ? null : pointToSlot(event.clientX, slotY, drag.o));
     };
 
     const cancelDrag = () => {
@@ -607,7 +609,8 @@ export const GridLockGame: React.FC = () => {
       event.preventDefault();
 
       const overCancel = isInCancelZone(event.clientX, event.clientY);
-      const slot = overCancel ? null : pointToSlot(event.clientX, event.clientY, drag.o);
+      const slotY = event.clientY - WALL_DRAG_Y_OFFSET_PX;
+      const slot = overCancel ? null : pointToSlot(event.clientX, slotY, drag.o);
 
       dragWallRef.current = null;
       setDragWallState(null);
