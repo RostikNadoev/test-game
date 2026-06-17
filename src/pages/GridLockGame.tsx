@@ -1,24 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /* =========================================================================
-   GRIDLOCK / QUORIDOR — minimal app-style version
-   - без отдельного фонового декора: компонент прозрачный и ложится на фон приложения
-   - палитра под приложение: blue/orange + тёмные panels
-   - крупнее и заметнее стены
-   - нижнее меню максимально короткое: Ход / Стена / Поворот
-   - стены ставятся тапом, с мягким магнитом по слотам
+   GRIDLOCK / QUORIDOR — app-style version
+   - шахматный таймер: каждому игроку по 2 минуты на всю партию
+   - ходы показываются только точками, без дополнительных квадратиков
+   - стены ставятся drag-and-drop из двух нижних кнопок: вертикальная / горизонтальная
+   - если отпустить стену обратно в нижнюю зону кнопок — постановка отменяется
    ========================================================================= */
 
 type PlayerId = "p1" | "p2";
 type Orientation = "h" | "v";
-type Mode = "move" | "wall";
 type Pos = { r: number; c: number };
 type Wall = { id: string; r: number; c: number; o: Orientation; by: PlayerId };
 type Preview = { r: number; c: number; o: Orientation; valid: boolean };
+type DragWall = { o: Orientation; x: number; y: number; overCancel: boolean };
 
 const N = 9;
 const WALLS = 10;
-const TURN_SECONDS = 10;
+const TOTAL_SECONDS = 120;
 
 // SVG board metrics: viewBox 0..100
 const P = 5;
@@ -26,7 +25,6 @@ const S = 10;
 const CELL_GAP = 0.72;
 const WT = 2.05; // стены визуально крупнее
 const WPAD = 0.72;
-const TAP_CANCEL_PX = 20;
 
 const APP = {
   bgCard: "rgba(18, 18, 24, 0.9)",
@@ -34,6 +32,7 @@ const APP = {
   border: "rgba(255, 255, 255, 0.075)",
   text: "#ffffff",
   muted: "#8f8f9c",
+  danger: "#ef4444",
   blue: "#2f8cff",
   blueSoft: "#5bb7ff",
   orange: "#f59e42",
@@ -75,8 +74,14 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const same = (a: Pos, b: Pos) => a.r === b.r && a.c === b.c;
 const inBoard = (p: Pos) => p.r >= 0 && p.r < N && p.c >= 0 && p.c < N;
 const posKey = (p: Pos) => `${p.r},${p.c}`;
-const wallKey = (w: { r: number; c: number; o: Orientation }) => `${w.r}:${w.c}:${w.o}`;
 const otherPlayer = (p: PlayerId): PlayerId => (p === "p1" ? "p2" : "p1");
+
+const formatClock = (seconds: number) => {
+  const safe = Math.max(0, seconds);
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
 
 const edgeKey = (a: Pos, b: Pos) => {
   const x = posKey(a);
@@ -267,7 +272,8 @@ const Pawn = ({ player, pos, active }: { player: PlayerId; pos: Pos; active: boo
 
 export const GridLockGame: React.FC = () => {
   const boardRef = useRef<HTMLDivElement | null>(null);
-  const tapStart = useRef<{ x: number; y: number } | null>(null);
+  const cancelZoneRef = useRef<HTMLDivElement | null>(null);
+  const dragWallRef = useRef<DragWall | null>(null);
 
   const [p1, setP1] = useState<Pos>(START.p1);
   const [p2, setP2] = useState<Pos>(START.p2);
@@ -275,16 +281,20 @@ export const GridLockGame: React.FC = () => {
   const [turn, setTurn] = useState<PlayerId>("p1");
   const [left, setLeft] = useState<Record<PlayerId, number>>({ p1: WALLS, p2: WALLS });
   const [winner, setWinner] = useState<PlayerId | null>(null);
-  const [mode, setMode] = useState<Mode>("move");
-  const [orient, setOrient] = useState<Orientation>("h");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [notice, setNotice] = useState("");
-  const [timeLeft, setTimeLeft] = useState(TURN_SECONDS);
+  const [clocks, setClocks] = useState<Record<PlayerId, number>>({ p1: TOTAL_SECONDS, p2: TOTAL_SECONDS });
+  const [dragWall, setDragWallState] = useState<DragWall | null>(null);
 
   const cur = turn === "p1" ? p1 : p2;
   const other = turn === "p1" ? p2 : p1;
   const cfg = CFG[turn];
   const accent = cfg.main;
+
+  const setDragWall = useCallback((next: DragWall | null) => {
+    dragWallRef.current = next;
+    setDragWallState(next);
+  }, []);
 
   useEffect(() => {
     const tg = (window as Window & { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
@@ -368,40 +378,49 @@ export const GridLockGame: React.FC = () => {
 
   useEffect(() => {
     if (!notice) return;
-    const id = window.setTimeout(() => setNotice(""), 1100);
+    const id = window.setTimeout(() => setNotice(""), 1200);
     return () => window.clearTimeout(id);
   }, [notice]);
 
   useEffect(() => {
     if (winner) return;
-    setTimeLeft(TURN_SECONDS);
-  }, [turn, winner]);
-
-  useEffect(() => {
-    if (winner) return;
 
     const id = window.setInterval(() => {
-      setTimeLeft((value) => Math.max(0, value - 1));
+      setClocks((value) => ({
+        ...value,
+        [turn]: Math.max(0, value[turn] - 1),
+      }));
     }, 1000);
 
     return () => window.clearInterval(id);
   }, [turn, winner]);
 
   useEffect(() => {
-    if (winner || timeLeft > 0) return;
+    if (winner) return;
 
-    haptic("error");
-    setPreview(null);
-    setMode("move");
-    setNotice("Время вышло");
-    setTurn((t) => otherPlayer(t));
-  }, [timeLeft, winner]);
+    if (clocks.p1 <= 0) {
+      haptic("error");
+      setPreview(null);
+      setDragWall(null);
+      setNotice("У Игрока 1 вышло время");
+      setWinner("p2");
+      return;
+    }
+
+    if (clocks.p2 <= 0) {
+      haptic("error");
+      setPreview(null);
+      setDragWall(null);
+      setNotice("У Игрока 2 вышло время");
+      setWinner("p1");
+    }
+  }, [clocks, winner, setDragWall]);
 
   const blocked = useMemo(() => buildBlocked(walls), [walls]);
 
   const moves = useMemo(
-    () => (winner || mode !== "move" ? [] : legalMovesOf(cur, other, blocked)),
-    [cur, other, blocked, winner, mode]
+    () => (winner ? [] : legalMovesOf(cur, other, blocked)),
+    [cur, other, blocked, winner]
   );
 
   const moveKeys = useMemo(() => new Set(moves.map(posKey)), [moves]);
@@ -414,24 +433,8 @@ export const GridLockGame: React.FC = () => {
     return arr;
   }, []);
 
-  const wallHints = useMemo(() => {
-    if (mode !== "wall" || winner || left[turn] <= 0) return [];
-
-    const arr: Preview[] = [];
-    for (let r = 0; r <= N - 2; r++) {
-      for (let c = 0; c <= N - 2; c++) {
-        const candidate = { r, c, o: orient };
-        const valid = wallValid(candidate, walls, p1, p2);
-        if (valid) arr.push({ ...candidate, valid });
-      }
-    }
-    return arr;
-  }, [mode, winner, left, turn, orient, walls, p1, p2]);
-
-  const validHintKeys = useMemo(() => new Set(wallHints.map(wallKey)), [wallHints]);
-
   const pointToSlot = useCallback(
-    (clientX: number, clientY: number): Preview | null => {
+    (clientX: number, clientY: number, o: Orientation): Preview | null => {
       const el = boardRef.current;
       if (!el) return null;
 
@@ -443,7 +446,7 @@ export const GridLockGame: React.FC = () => {
       let r: number;
       let c: number;
 
-      if (orient === "h") {
+      if (o === "h") {
         r = clamp(Math.round((y - P) / S) - 1, 0, N - 2);
         c = clamp(Math.floor((x - P) / S), 0, N - 2);
       } else {
@@ -451,24 +454,39 @@ export const GridLockGame: React.FC = () => {
         c = clamp(Math.round((x - P) / S) - 1, 0, N - 2);
       }
 
-      const candidate = { r, c, o: orient };
-      return { ...candidate, valid: validHintKeys.has(wallKey(candidate)) };
+      const candidate = { r, c, o };
+      return { ...candidate, valid: wallValid(candidate, walls, p1, p2) };
     },
-    [orient, validHintKeys]
+    [walls, p1, p2]
   );
 
-  const endTurn = () => {
+  const isInCancelZone = useCallback((clientX: number, clientY: number) => {
+    const el = cancelZoneRef.current;
+    if (!el) return false;
+
+    const rect = el.getBoundingClientRect();
+    const pad = 18;
+
+    return (
+      clientX >= rect.left - pad &&
+      clientX <= rect.right + pad &&
+      clientY >= rect.top - pad &&
+      clientY <= rect.bottom + pad
+    );
+  }, []);
+
+  const endTurn = useCallback(() => {
     setTurn((t) => otherPlayer(t));
-  };
+  }, []);
 
   const tryMove = (r: number, c: number) => {
-    if (winner || mode !== "move") return;
+    if (winner || dragWallRef.current) return;
 
     const next = { r, c };
     if (!moveKeys.has(posKey(next))) {
       if (!same(next, cur)) {
         haptic("error");
-        setNotice("Можно ходить только на подсвеченные клетки");
+        setNotice("Можно ходить только на точки");
       }
       return;
     }
@@ -493,89 +511,132 @@ export const GridLockGame: React.FC = () => {
     endTurn();
   };
 
-  const placeWall = (slot: Preview | null) => {
-    if (!slot || winner || left[turn] <= 0 || mode !== "wall") return;
+  const placeWall = useCallback(
+    (slot: Preview | null) => {
+      if (winner || left[turn] <= 0) return;
 
-    setPreview(slot);
+      if (!slot) {
+        haptic("error");
+        setNotice("Перетащи стену на поле");
+        return;
+      }
 
-    if (!slot.valid) {
-      haptic("error");
-      setNotice("Тут нельзя поставить стену");
-      return;
-    }
+      setPreview(slot);
 
-    haptic("medium");
+      if (!slot.valid) {
+        haptic("error");
+        setNotice("Тут нельзя поставить стену");
+        return;
+      }
 
-    setWalls((w) => [
-      ...w,
-      {
-        id: `${turn}-${slot.r}-${slot.c}-${slot.o}-${Date.now()}`,
-        r: slot.r,
-        c: slot.c,
-        o: slot.o,
-        by: turn,
-      },
-    ]);
-    setLeft((l) => ({ ...l, [turn]: l[turn] - 1 }));
-    setPreview(null);
-    setNotice("");
-    setMode("move");
-    endTurn();
-  };
+      haptic("medium");
 
-  const onBoardPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (mode !== "wall" || winner || left[turn] <= 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    tapStart.current = { x: e.clientX, y: e.clientY };
-    const slot = pointToSlot(e.clientX, e.clientY);
-    if (slot) setPreview(slot);
-  };
+      setWalls((w) => [
+        ...w,
+        {
+          id: `${turn}-${slot.r}-${slot.c}-${slot.o}-${Date.now()}`,
+          r: slot.r,
+          c: slot.c,
+          o: slot.o,
+          by: turn,
+        },
+      ]);
+      setLeft((l) => ({ ...l, [turn]: l[turn] - 1 }));
+      setPreview(null);
+      setNotice("");
+      endTurn();
+    },
+    [winner, left, turn, endTurn]
+  );
 
-  const onBoardPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (mode !== "wall" || winner || left[turn] <= 0) return;
-    e.preventDefault();
-    const slot = pointToSlot(e.clientX, e.clientY);
-    if (slot) setPreview(slot);
-  };
-
-  const onBoardPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (mode !== "wall" || winner || left[turn] <= 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const start = tapStart.current;
-    tapStart.current = null;
-
-    if (start) {
-      const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
-      if (dist > TAP_CANCEL_PX) return;
-    }
-
-    placeWall(pointToSlot(e.clientX, e.clientY));
-  };
-
-  const setGameMode = (next: Mode) => {
+  const startWallDrag = (o: Orientation, e: React.PointerEvent<HTMLButtonElement>) => {
     if (winner) return;
 
-    if (next === "wall" && left[turn] <= 0) {
+    if (left[turn] <= 0) {
       haptic("error");
       setNotice("Стены закончились");
       return;
     }
 
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // no-op
+    }
+
     haptic("light");
-    setMode(next);
     setPreview(null);
-    setNotice("");
+
+    setDragWall({
+      o,
+      x: e.clientX,
+      y: e.clientY,
+      overCancel: true,
+    });
   };
 
-  const rotate = () => {
-    if (winner || mode !== "wall") return;
-    haptic("light");
-    setOrient((o) => (o === "h" ? "v" : "h"));
-    setPreview(null);
-  };
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const drag = dragWallRef.current;
+      if (!drag || winner) return;
+
+      event.preventDefault();
+
+      const overCancel = isInCancelZone(event.clientX, event.clientY);
+      const next = {
+        ...drag,
+        x: event.clientX,
+        y: event.clientY,
+        overCancel,
+      };
+
+      dragWallRef.current = next;
+      setDragWallState(next);
+      setPreview(overCancel ? null : pointToSlot(event.clientX, event.clientY, drag.o));
+    };
+
+    const cancelDrag = () => {
+      const drag = dragWallRef.current;
+      if (!drag) return;
+      dragWallRef.current = null;
+      setDragWallState(null);
+      setPreview(null);
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const drag = dragWallRef.current;
+      if (!drag) return;
+
+      event.preventDefault();
+
+      const overCancel = isInCancelZone(event.clientX, event.clientY);
+      const slot = overCancel ? null : pointToSlot(event.clientX, event.clientY, drag.o);
+
+      dragWallRef.current = null;
+      setDragWallState(null);
+      setPreview(null);
+
+      if (overCancel) {
+        haptic("light");
+        return;
+      }
+
+      placeWall(slot);
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPointerUp, { passive: false });
+    window.addEventListener("pointercancel", cancelDrag);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", cancelDrag);
+    };
+  }, [winner, isInCancelZone, pointToSlot, placeWall]);
 
   const restart = () => {
     haptic("medium");
@@ -585,14 +646,11 @@ export const GridLockGame: React.FC = () => {
     setLeft({ p1: WALLS, p2: WALLS });
     setTurn("p1");
     setWinner(null);
-    setMode("move");
-    setOrient("h");
     setPreview(null);
     setNotice("");
-    setTimeLeft(TURN_SECONDS);
+    setClocks({ p1: TOTAL_SECONDS, p2: TOTAL_SECONDS });
+    setDragWall(null);
   };
-
-  const timerProgress = timeLeft / TURN_SECONDS;
 
   return (
     <div
@@ -611,6 +669,7 @@ export const GridLockGame: React.FC = () => {
         @keyframes glPulse { 0%,100%{ opacity:.10; transform:scale(1);} 50%{ opacity:.22; transform:scale(1.18);} }
         @keyframes glPop { 0%{ transform:scale(.82); opacity:0;} 100%{ transform:scale(1); opacity:1;} }
         @keyframes glToast { 0%{ opacity:0; transform:translateY(8px) scale(.98);} 100%{ opacity:1; transform:none;} }
+        @keyframes glGhost { 0%{ transform:translate(-50%,-50%) scale(.92); opacity:0;} 100%{ transform:translate(-50%,-50%) scale(1); opacity:1;} }
         .gl-pulse { animation: glPulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
         .gl-pop { animation: glPop 150ms cubic-bezier(.2,.9,.2,1.15) both; transform-box: fill-box; transform-origin: center; }
         .gl-tap { transition: transform .1s ease, opacity .1s ease, background-color .1s ease, border-color .1s ease; }
@@ -621,23 +680,31 @@ export const GridLockGame: React.FC = () => {
         className="z-10 px-3 pt-2"
         style={{ paddingTop: "max(8px, env(safe-area-inset-top))" }}
       >
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <PlayerMini cfg={CFG.p1} count={left.p1} active={turn === "p1" && !winner} align="left" />
+        <div className="grid grid-cols-[1fr_40px_1fr] items-center gap-2">
+          <PlayerMini
+            cfg={CFG.p1}
+            count={left.p1}
+            timeLeft={clocks.p1}
+            active={turn === "p1" && !winner}
+            align="left"
+          />
 
-          <TimerBadge seconds={timeLeft} progress={timerProgress} accent={winner ? APP.gold : accent} done={!!winner} />
+          <TurnBadge player={turn} done={!!winner} />
 
-          <PlayerMini cfg={CFG.p2} count={left.p2} active={turn === "p2" && !winner} align="right" />
+          <PlayerMini
+            cfg={CFG.p2}
+            count={left.p2}
+            timeLeft={clocks.p2}
+            active={turn === "p2" && !winner}
+            align="right"
+          />
         </div>
       </header>
 
       <main className="relative flex min-h-0 flex-1 items-center justify-center px-3 py-2">
         <div
           ref={boardRef}
-          onPointerDown={onBoardPointerDown}
-          onPointerMove={onBoardPointerMove}
-          onPointerUp={onBoardPointerUp}
           onPointerCancel={() => {
-            tapStart.current = null;
             setPreview(null);
           }}
           className="relative aspect-square w-full max-w-[min(100%,calc(100vh-168px))] overflow-hidden rounded-[25px] border"
@@ -674,7 +741,7 @@ export const GridLockGame: React.FC = () => {
             <rect x={P} y={P + S * (N - 1)} width={N * S} height={S} fill={CFG.p2.main} opacity={0.055} />
 
             {cells.map((cell) => {
-              const legal = mode === "move" && moveKeys.has(`${cell.r},${cell.c}`);
+              const legal = moveKeys.has(`${cell.r},${cell.c}`);
 
               return (
                 <g key={`${cell.r}-${cell.c}`} onClick={() => tryMove(cell.r, cell.c)}>
@@ -685,37 +752,18 @@ export const GridLockGame: React.FC = () => {
                     height={S - CELL_GAP}
                     rx={1.65}
                     fill="rgba(255,255,255,0.036)"
-                    stroke={legal ? accent : "rgba(255,255,255,0.065)"}
-                    strokeWidth={legal ? 0.42 : 0.22}
+                    stroke="rgba(255,255,255,0.065)"
+                    strokeWidth={0.22}
                   />
 
-                  {legal && (
+                  {legal && !winner && !dragWall && (
                     <g pointerEvents="none">
-                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={2.1} fill={accent} opacity={0.15} />
-                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.08} fill={accent} opacity={0.96} />
+                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.32} fill={accent} opacity={0.96} />
                     </g>
                   )}
                 </g>
               );
             })}
-
-            {mode === "wall" && !winner &&
-              wallHints.map((h) => {
-                const r = wallRect(h);
-                return (
-                  <rect
-                    key={`hint-${h.r}-${h.c}-${h.o}`}
-                    pointerEvents="none"
-                    x={r.x}
-                    y={r.y}
-                    width={r.w}
-                    height={r.h}
-                    rx={0.9}
-                    fill={accent}
-                    opacity={0.11}
-                  />
-                );
-              })}
 
             {walls.map((w) => {
               const r = wallRect(w);
@@ -756,7 +804,7 @@ export const GridLockGame: React.FC = () => {
                     width={r.w}
                     height={r.h}
                     rx={0.9}
-                    fill={preview.valid ? `url(#wall-${turn})` : "#ef4444"}
+                    fill={preview.valid ? `url(#wall-${turn})` : APP.danger}
                     opacity={preview.valid ? 0.98 : 0.78}
                   />
                 </g>
@@ -766,21 +814,6 @@ export const GridLockGame: React.FC = () => {
             <Pawn player="p1" pos={p1} active={turn === "p1" && !winner} />
             <Pawn player="p2" pos={p2} active={turn === "p2" && !winner} />
           </svg>
-
-          {mode === "wall" && !winner && (
-            <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center px-3">
-              <div
-                className="rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-[0.12em]"
-                style={{
-                  background: "rgba(9,9,13,0.72)",
-                  borderColor: `${accent}55`,
-                  color: "rgba(255,255,255,0.74)",
-                }}
-              >
-                тап по подсветке · {orient === "h" ? "━" : "┃"}
-              </div>
-            </div>
-          )}
 
           {notice && (
             <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-center">
@@ -837,82 +870,69 @@ export const GridLockGame: React.FC = () => {
         style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
       >
         <div
-          className="grid h-[48px] grid-cols-[1fr_1fr_54px] gap-1.5 rounded-[22px] border p-1.5"
+          ref={cancelZoneRef}
+          className="relative mx-auto grid h-[56px] w-[168px] grid-cols-2 gap-2 rounded-[22px] border p-1.5"
           style={{
-            background: "rgba(18,18,24,0.72)",
-            borderColor: APP.border,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,.055), 0 12px 28px rgba(0,0,0,.22)",
+            background: dragWall?.overCancel ? "rgba(239,68,68,0.16)" : "rgba(18,18,24,0.72)",
+            borderColor: dragWall?.overCancel ? "rgba(239,68,68,0.55)" : APP.border,
+            boxShadow: dragWall?.overCancel
+              ? "0 0 0 1px rgba(239,68,68,.12), 0 12px 28px rgba(0,0,0,.22)"
+              : "inset 0 1px 0 rgba(255,255,255,.055), 0 12px 28px rgba(0,0,0,.22)",
           }}
         >
-          <ControlButton active={mode === "move"} accent={accent} onClick={() => setGameMode("move")} disabled={!!winner}>
-            Ход
-          </ControlButton>
+          <WallDragButton
+            o="v"
+            accent={accent}
+            disabled={!!winner || left[turn] <= 0}
+            faded={!!dragWall}
+            onPointerDown={(e) => startWallDrag("v", e)}
+          />
 
-          <ControlButton active={mode === "wall"} accent={accent} onClick={() => setGameMode("wall")} disabled={!!winner || left[turn] <= 0}>
-            Стена <span style={{ opacity: 0.58 }}>{left[turn]}</span>
-          </ControlButton>
+          <WallDragButton
+            o="h"
+            accent={accent}
+            disabled={!!winner || left[turn] <= 0}
+            faded={!!dragWall}
+            onPointerDown={(e) => startWallDrag("h", e)}
+          />
 
-          <button
-            onClick={rotate}
-            disabled={!!winner || mode !== "wall"}
-            className="gl-tap rounded-[17px] text-[17px] font-black disabled:opacity-35"
-            style={{
-              background: mode === "wall" ? `${accent}22` : "rgba(255,255,255,0.035)",
-              color: mode === "wall" ? "#fff" : "rgba(255,255,255,0.45)",
-            }}
-            type="button"
-            aria-label="Повернуть стену"
-          >
-            {orient === "h" ? "━" : "┃"}
-          </button>
+          {dragWall?.overCancel && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-[22px]">
+              <div
+                className="grid h-9 w-9 place-items-center rounded-full text-[18px] font-black"
+                style={{
+                  background: "rgba(239,68,68,0.92)",
+                  color: "#fff",
+                  boxShadow: "0 10px 24px rgba(239,68,68,.24)",
+                }}
+              >
+                ×
+              </div>
+            </div>
+          )}
         </div>
       </footer>
+
+      {dragWall && <DraggedWallGhost drag={dragWall} accent={accent} />}
     </div>
   );
 };
 
-
-const TimerBadge = ({
-  seconds,
-  progress,
-  accent,
-  done,
-}: {
-  seconds: number;
-  progress: number;
-  accent: string;
-  done: boolean;
-}) => {
-  const degrees = clamp(progress, 0, 1) * 360;
+const TurnBadge = ({ player, done }: { player: PlayerId; done: boolean }) => {
+  const cfg = CFG[player];
 
   return (
     <div
-      className="grid h-[54px] w-[72px] place-items-center rounded-[20px] border"
+      className="grid h-10 w-10 place-items-center rounded-[16px] border text-[15px] font-black"
       style={{
-        background: APP.bgCardSoft,
-        borderColor: APP.border,
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,.055)",
+        background: done ? `${APP.gold}18` : `${cfg.main}18`,
+        borderColor: done ? `${APP.gold}55` : `${cfg.main}55`,
+        color: done ? APP.gold : cfg.text,
+        boxShadow: done ? "none" : `0 8px 22px ${cfg.main}12, inset 0 1px 0 rgba(255,255,255,.055)`,
       }}
-      aria-label="Таймер хода"
+      aria-label="Текущий ход"
     >
-      <div
-        className="grid h-[40px] w-[40px] place-items-center rounded-full"
-        style={{
-          background: `conic-gradient(${accent} ${degrees}deg, rgba(255,255,255,0.075) ${degrees}deg 360deg)`,
-          boxShadow: `0 0 14px ${accent}22`,
-        }}
-      >
-        <div
-          className="grid h-[32px] w-[32px] place-items-center rounded-full text-[14px] font-black leading-none"
-          style={{
-            background: "rgba(9,9,13,0.88)",
-            color: done ? APP.gold : APP.text,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,.06)",
-          }}
-        >
-          {done ? "✓" : seconds}
-        </div>
-      </div>
+      {done ? "✓" : cfg.arrow}
     </div>
   );
 };
@@ -920,67 +940,115 @@ const TimerBadge = ({
 const PlayerMini = ({
   cfg,
   count,
+  timeLeft,
   active,
   align,
 }: {
   cfg: PlayerCfg;
   count: number;
+  timeLeft: number;
   active: boolean;
   align: "left" | "right";
-}) => (
-  <div
-    className="flex min-h-[54px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5"
-    style={{
-      flexDirection: align === "right" ? "row-reverse" : "row",
-      background: active ? `${cfg.main}18` : APP.bgCardSoft,
-      borderColor: active ? `${cfg.main}66` : APP.border,
-      opacity: active ? 1 : 0.62,
-      boxShadow: active ? `0 8px 22px ${cfg.main}13, inset 0 1px 0 rgba(255,255,255,.055)` : "inset 0 1px 0 rgba(255,255,255,.045)",
-    }}
-  >
-    <span
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black"
-      style={{ background: cfg.main, color: "#fff" }}
-    >
-      {cfg.short}
-    </span>
-    <span className="min-w-0 leading-[1.24]" style={{ textAlign: align === "right" ? "right" : "left" }}>
-      <span className="block truncate text-[10.5px] font-black" style={{ color: cfg.text }}>
-        {cfg.name}
-      </span>
-      <span className="mt-1.5 block truncate text-[8.5px] font-black uppercase tracking-[0.12em] leading-[1.35]" style={{ color: APP.muted }}>
-        {count} стен
-      </span>
-    </span>
-  </div>
-);
+}) => {
+  const lowTime = timeLeft <= 15;
 
-const ControlButton = ({
-  active,
+  return (
+    <div
+      className="flex min-h-[64px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5"
+      style={{
+        flexDirection: align === "right" ? "row-reverse" : "row",
+        background: active ? `${cfg.main}18` : APP.bgCardSoft,
+        borderColor: active ? `${cfg.main}66` : APP.border,
+        opacity: active ? 1 : 0.62,
+        boxShadow: active
+          ? `0 8px 22px ${cfg.main}13, inset 0 1px 0 rgba(255,255,255,.055)`
+          : "inset 0 1px 0 rgba(255,255,255,.045)",
+      }}
+    >
+      <span
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black"
+        style={{ background: cfg.main, color: "#fff" }}
+      >
+        {cfg.short}
+      </span>
+      <span className="min-w-0 leading-[1.16]" style={{ textAlign: align === "right" ? "right" : "left" }}>
+        <span className="block truncate text-[10.5px] font-black" style={{ color: cfg.text }}>
+          {cfg.name}
+        </span>
+        <span
+          className="mt-1 block truncate text-[12px] font-black tabular-nums tracking-[0.05em]"
+          style={{ color: lowTime ? "#fecaca" : active ? APP.text : "rgba(255,255,255,0.72)" }}
+        >
+          {formatClock(timeLeft)}
+        </span>
+        <span
+          className="mt-1 block truncate text-[8px] font-black uppercase tracking-[0.12em] leading-[1.25]"
+          style={{ color: APP.muted }}
+        >
+          {count} стен
+        </span>
+      </span>
+    </div>
+  );
+};
+
+const WallDragButton = ({
+  o,
   accent,
   disabled,
-  onClick,
-  children,
+  faded,
+  onPointerDown,
 }: {
-  active: boolean;
+  o: Orientation;
   accent: string;
   disabled?: boolean;
-  onClick: () => void;
-  children?: React.ReactNode;
+  faded?: boolean;
+  onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
 }) => (
   <button
-    onClick={onClick}
+    onPointerDown={onPointerDown}
     disabled={disabled}
-    className="gl-tap rounded-[17px] text-[11px] font-black uppercase tracking-[0.12em] disabled:opacity-35"
+    className="gl-tap grid place-items-center rounded-[17px] disabled:opacity-35"
     style={{
-      background: active ? `${accent}24` : "transparent",
-      color: active ? "#fff" : "rgba(255,255,255,0.48)",
-      border: active ? `1px solid ${accent}55` : "1px solid transparent",
+      background: `${accent}1f`,
+      border: `1px solid ${accent}55`,
+      opacity: faded ? 0.28 : 1,
+      touchAction: "none",
     }}
     type="button"
+    aria-label={o === "h" ? "Поставить горизонтальную стену" : "Поставить вертикальную стену"}
   >
-    {children}
+    <span
+      style={{
+        display: "block",
+        width: o === "h" ? 34 : 8,
+        height: o === "h" ? 8 : 34,
+        borderRadius: 999,
+        background: accent,
+        boxShadow: `0 0 16px ${accent}44, inset 0 1px 0 rgba(255,255,255,.35)`,
+      }}
+    />
   </button>
+);
+
+const DraggedWallGhost = ({ drag, accent }: { drag: DragWall; accent: string }) => (
+  <div
+    className="pointer-events-none fixed z-50"
+    style={{
+      left: drag.x,
+      top: drag.y,
+      width: drag.o === "h" ? 78 : 18,
+      height: drag.o === "h" ? 18 : 78,
+      transform: "translate(-50%, -50%)",
+      animation: "glGhost 110ms ease-out both",
+      borderRadius: 999,
+      background: drag.overCancel ? APP.danger : accent,
+      boxShadow: drag.overCancel
+        ? "0 12px 30px rgba(239,68,68,.32), inset 0 1px 0 rgba(255,255,255,.32)"
+        : `0 12px 30px ${accent}33, inset 0 1px 0 rgba(255,255,255,.35)`,
+      opacity: drag.overCancel ? 0.86 : 0.96,
+    }}
+  />
 );
 
 export const GridLock = GridLockGame;
