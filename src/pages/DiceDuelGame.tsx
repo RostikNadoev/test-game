@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type Player = 'amber' | 'violet';
-type Phase = 'ready' | 'decision' | 'reveal' | 'gameover';
+type Phase = 'ready' | 'rolling' | 'decision' | 'rerolling' | 'reveal' | 'gameover';
 
 
 const TARGET_SCORE = 3;
@@ -48,19 +48,21 @@ const PipLayer = ({ value, mini = false }: { value: number; mini?: boolean }) =>
 const Die = ({
   value,
   index,
+  rolling,
   selected,
   selectable,
   onClick,
 }: {
   value: number;
   index: number;
+  rolling: boolean;
   selected: boolean;
   selectable: boolean;
   onClick?: () => void;
 }) => (
   <button
     type="button"
-    className={`dd-die ${selected ? 'dd-die-selected' : ''}`}
+    className={`dd-die ${rolling ? 'dd-die-rolling' : ''} ${selected ? 'dd-die-selected' : ''}`}
     disabled={!selectable}
     onClick={onClick}
     style={cssVars({ '--delay': `${index * 45}ms` })}
@@ -137,24 +139,49 @@ export const DiceDuelGame: React.FC = () => {
   const [scores, setScores] = useState<Record<Player, number>>({ amber: 0, violet: 0 });
   const [round, setRound] = useState(1);
   const [activeDice, setActiveDice] = useState<number[]>([1, 1, 1]);
+  const [stoppedDice, setStoppedDice] = useState<boolean[]>([true, true, true]);
   const [bankedDice, setBankedDice] = useState<Record<Player, number[] | null>>({ amber: null, violet: null });
   const [selectedDie, setSelectedDie] = useState<number | null>(null);
   const [usedReroll, setUsedReroll] = useState(false);
   const [message, setMessage] = useState('Amber начинает. Брось 3 кубика.');
   const [roundWinner, setRoundWinner] = useState<Player | 'push' | null>(null);
 
+  const intervalRef = useRef<number | null>(null);
+  const timeoutsRef = useRef<number[]>([]);
+
   const total = useMemo(() => sumDice(activeDice), [activeDice]);
   const matchWinner = scores.amber >= TARGET_SCORE ? 'amber' : scores.violet >= TARGET_SCORE ? 'violet' : null;
+  const isBusy = phase === 'rolling' || phase === 'rerolling';
   const canSelectDie = phase === 'decision' && !usedReroll;
   const canRisk = phase === 'decision' && !usedReroll && selectedDie !== null;
   const activeMeta = PLAYERS[currentPlayer];
 
+  const clearRollTimers = useCallback(() => {
+    timeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    timeoutsRef.current = [];
+
+    if (intervalRef.current !== null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  const pushTimeout = useCallback((callback: () => void, ms: number) => {
+    const id = window.setTimeout(callback, ms);
+    timeoutsRef.current.push(id);
+    return id;
+  }, []);
+
+  useEffect(() => () => clearRollTimers(), [clearRollTimers]);
+
   const resetMatch = () => {
+    clearRollTimers();
     setPhase('ready');
     setCurrentPlayer('amber');
     setScores({ amber: 0, violet: 0 });
     setRound(1);
     setActiveDice([1, 1, 1]);
+    setStoppedDice([true, true, true]);
     setBankedDice({ amber: null, violet: null });
     setSelectedDie(null);
     setUsedReroll(false);
@@ -169,6 +196,7 @@ export const DiceDuelGame: React.FC = () => {
     setCurrentPlayer(nextStarter);
     setBankedDice({ amber: null, violet: null });
     setActiveDice([1, 1, 1]);
+    setStoppedDice([true, true, true]);
     setSelectedDie(null);
     setUsedReroll(false);
     setRoundWinner(null);
@@ -176,30 +204,92 @@ export const DiceDuelGame: React.FC = () => {
     setMessage(`${PLAYERS[nextStarter].name} начинает новый раунд. Брось 3 кубика.`);
   };
 
+  const finishRoll = (finalDice: number[], isFull: boolean) => {
+    const nextTotal = sumDice(finalDice);
+
+    setActiveDice(finalDice);
+    setStoppedDice([true, true, true]);
+    setSelectedDie(null);
+    setPhase('decision');
+
+    if (!isFull) setUsedReroll(true);
+
+    setMessage(
+      isFull
+        ? `${activeMeta.name}: сумма ${nextTotal}. Можно зафиксировать или рискнуть одним кубиком.`
+        : `${activeMeta.name}: новая сумма ${nextTotal}. Теперь фиксируй результат.`,
+    );
+  };
+
+  const animateRoll = (mode: 'full' | 'single', dieIndex?: number) => {
+    if (isBusy || matchWinner) return;
+
+    const isFull = mode === 'full';
+    const finalDice = isFull ? rollDice() : [...activeDice];
+
+    if (!isFull && typeof dieIndex === 'number') {
+      finalDice[dieIndex] = rollDie();
+    }
+
+    clearRollTimers();
+
+    if (isFull) {
+      setSelectedDie(null);
+      setStoppedDice([false, false, false]);
+      setPhase('rolling');
+      setMessage('Кубики крутятся...');
+    } else {
+      setStoppedDice(activeDice.map((_, index) => index !== dieIndex));
+      setPhase('rerolling');
+      setMessage(`Риск-переброс кубика #${(dieIndex ?? 0) + 1}...`);
+    }
+
+    const startedAt = Date.now();
+    const fullStopTimes = [420, 690, 960];
+    const singleStopTime = 640;
+
+    intervalRef.current = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+
+      setActiveDice((prev) => {
+        if (isFull) {
+          return prev.map((_, index) => (elapsed >= fullStopTimes[index] ? finalDice[index] : rollDie()));
+        }
+
+        return prev.map((value, index) => {
+          if (index !== dieIndex) return value;
+          return elapsed >= singleStopTime ? finalDice[index] : rollDie();
+        });
+      });
+
+      if (isFull) {
+        setStoppedDice(fullStopTimes.map((stopTime) => elapsed >= stopTime));
+      } else {
+        setStoppedDice((prev) =>
+          prev.map((_, index) => {
+            if (index !== dieIndex) return true;
+            return elapsed >= singleStopTime;
+          }),
+        );
+      }
+    }, 72);
+
+    const finishDelay = isFull ? fullStopTimes[2] + 150 : singleStopTime + 150;
+
+    pushTimeout(() => {
+      clearRollTimers();
+      finishRoll(finalDice, isFull);
+    }, finishDelay);
+  };
+
   const startRoll = () => {
     if (phase !== 'ready' || matchWinner) return;
-
-    const dice = rollDice();
-    const nextTotal = sumDice(dice);
-
-    setActiveDice(dice);
-    setSelectedDie(null);
-    setUsedReroll(false);
-    setPhase('decision');
-    setMessage(`${activeMeta.name}: сумма ${nextTotal}. Можно зафиксировать или рискнуть одним кубиком.`);
+    animateRoll('full');
   };
 
   const rerollSelected = () => {
     if (!canRisk || selectedDie === null) return;
-
-    const dice = [...activeDice];
-    dice[selectedDie] = rollDie();
-    const nextTotal = sumDice(dice);
-
-    setActiveDice(dice);
-    setSelectedDie(null);
-    setUsedReroll(true);
-    setMessage(`${activeMeta.name}: новая сумма ${nextTotal}. Теперь фиксируй результат.`);
+    animateRoll('single', selectedDie);
   };
 
   const bankCurrent = () => {
@@ -216,6 +306,7 @@ export const DiceDuelGame: React.FC = () => {
     if (currentPlayer === 'amber' && !nextBanked.violet) {
       setCurrentPlayer('violet');
       setActiveDice([1, 1, 1]);
+      setStoppedDice([true, true, true]);
       setPhase('ready');
       setMessage(`Amber зафиксировал ${currentTotal}. Ход Violet.`);
       return;
@@ -224,6 +315,7 @@ export const DiceDuelGame: React.FC = () => {
     if (currentPlayer === 'violet' && !nextBanked.amber) {
       setCurrentPlayer('amber');
       setActiveDice([1, 1, 1]);
+      setStoppedDice([true, true, true]);
       setPhase('ready');
       setMessage(`Violet зафиксировал ${currentTotal}. Ход Amber.`);
       return;
@@ -256,6 +348,8 @@ export const DiceDuelGame: React.FC = () => {
   const actionLabel =
     phase === 'ready'
       ? 'Бросить'
+      : phase === 'rolling' || phase === 'rerolling'
+        ? 'Крутятся...'
       : phase === 'reveal'
         ? 'Дальше'
         : phase === 'gameover'
@@ -551,6 +645,20 @@ export const DiceDuelGame: React.FC = () => {
           transform: scale(.95);
         }
 
+        .dd-die-rolling {
+          pointer-events: none;
+        }
+
+        .dd-die-rolling .dd-die-shell {
+          animation: ddDiceRoll .28s cubic-bezier(.2,.8,.2,1) infinite;
+          animation-delay: var(--delay);
+        }
+
+        .dd-die-rolling .dd-die-gloss {
+          animation: ddGlossSweep .36s ease-in-out infinite;
+        }
+
+
         .dd-die-shell {
           position: absolute;
           inset: 0;
@@ -716,6 +824,18 @@ export const DiceDuelGame: React.FC = () => {
           box-shadow: none;
         }
 
+        @keyframes ddDiceRoll {
+          0% { transform: translateY(0) rotate(0deg) scale(1); }
+          28% { transform: translateY(-10px) rotate(-8deg) scale(1.035); }
+          56% { transform: translateY(5px) rotate(9deg) scale(.99); }
+          100% { transform: translateY(0) rotate(0deg) scale(1); }
+        }
+
+        @keyframes ddGlossSweep {
+          0%, 100% { opacity: .42; transform: translateX(-10%); }
+          50% { opacity: .9; transform: translateX(12%); }
+        }
+
         @keyframes ddPipSwap {
           0% { opacity: 0; transform: scale(.78); filter: blur(1px); }
           70% { opacity: 1; transform: scale(1.06); filter: blur(0); }
@@ -839,6 +959,7 @@ export const DiceDuelGame: React.FC = () => {
             gap: 4px;
           }
 
+
           .dd-dice-cloud {
             gap: 7px;
           }
@@ -883,6 +1004,13 @@ export const DiceDuelGame: React.FC = () => {
                 key={`active-die-${index}-${value}`}
                 value={value}
                 index={index}
+                rolling={
+                  phase === 'rolling'
+                    ? !stoppedDice[index]
+                    : phase === 'rerolling' && selectedDie === index
+                      ? !stoppedDice[index]
+                      : false
+                }
                 selected={selectedDie === index}
                 selectable={canSelectDie}
                 onClick={canSelectDie ? () => setSelectedDie(index) : undefined}
@@ -904,7 +1032,7 @@ export const DiceDuelGame: React.FC = () => {
             Риск
           </button>
 
-          <button type="button" className="dd-button" onClick={handlePrimary} disabled={phase === 'ready' && !!matchWinner}>
+          <button type="button" className="dd-button" onClick={handlePrimary} disabled={isBusy || (phase === 'ready' && !!matchWinner)}>
             {actionLabel}
           </button>
 
