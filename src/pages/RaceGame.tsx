@@ -171,17 +171,19 @@ const CURB_WIDTH = 16;
 const RUNOFF = 70;
 const WALL = ROAD_HALF + CURB_WIDTH + RUNOFF;
 
-const PERF_DPR_CAP = 1.45;
-const MAX_PARTICLE_POOL = 88;
-const MAX_SKIDS = 120;
-const MAX_TRAILS = 8;
+const PERF_DPR_CAP = 1.25;
+const MAX_PARTICLE_POOL = 68;
+const MAX_SKIDS = 86;
+const MAX_TRAILS = 6;
 
 // Invisible anti-cut gates. A lap counts only after these checkpoints
 // are crossed in order, even if the player manages to drive near the finish.
 const CHECKPOINTS = [0.12, 0.25, 0.38, 0.52, 0.67, 0.82] as const;
 
 const TUNNEL_FROM = 0.18;
-const TUNNEL_TO = 0.27;
+const TUNNEL_TO = 0.26;
+const TUNNEL2_FROM = 0.70;
+const TUNNEL2_TO = 0.765;
 
 /* ----------------------------------------------------------------------------
  * Physics constants.
@@ -189,11 +191,11 @@ const TUNNEL_TO = 0.27;
  * straight per-step value — no frame-rate scaling math needed.
  * -------------------------------------------------------------------------- */
 const PHYSICS = {
-  maxSpeed: 560, // hard top speed (px/s)
-  accel: 1320, // throttle acceleration (px/s^2) — responsive
-  idleSpeed: 230, // relaxed cruise when the stick is released
+  maxSpeed: 505, // hard top speed (px/s)
+  accel: 1160, // throttle acceleration (px/s^2) — responsive
+  idleSpeed: 205, // relaxed cruise when the stick is released
   idleEase: 0.03, // how fast we settle toward idle cruise
-  brakePower: 1500, // handbrake / brake deceleration (px/s^2)
+  brakePower: 1320, // handbrake / brake deceleration (px/s^2)
 
   friction: 0.992, // light coasting drag (per step)
 
@@ -221,38 +223,47 @@ const PHYSICS = {
 } as const;
 
 const VISUAL = {
-  curbLen: 28,
+  curbLen: 44,
   joystickRadius: 54,
   joystickZone: 154,
 };
 
 const TRACK_NODES: Vec[] = [
   { x: 0, y: 760 },
-  { x: 860, y: 720 },
-  { x: 1500, y: 260 },
-  { x: 2350, y: 360 },
-  { x: 3000, y: 920 },
-  { x: 3900, y: 880 },
-  { x: 4800, y: 420 },
-  { x: 5450, y: -250 },
-  { x: 5100, y: -1050 },
-  { x: 4200, y: -1320 },
-  { x: 3300, y: -980 },
-  { x: 3000, y: -250 },
-  { x: 3500, y: 430 },
-  { x: 4400, y: 780 },
-  { x: 5350, y: 420 },
-  { x: 6250, y: -520 },
-  { x: 6000, y: -1550 },
-  { x: 4850, y: -2200 },
-  { x: 3500, y: -1900 },
-  { x: 2550, y: -2520 },
-  { x: 1250, y: -2160 },
-  { x: 450, y: -1320 },
-  { x: -620, y: -1540 },
-  { x: -1450, y: -650 },
-  { x: -980, y: 520 },
-  { x: -260, y: 760 },
+  { x: 520, y: 760 },
+  { x: 930, y: 430 },
+  { x: 1320, y: 700 },
+  { x: 1740, y: 300 },
+  { x: 2260, y: 430 },
+  { x: 2650, y: 980 },
+  { x: 3260, y: 720 },
+  { x: 3860, y: 980 },
+  { x: 4480, y: 520 },
+  { x: 5180, y: 120 },
+  { x: 5480, y: -560 },
+  { x: 5000, y: -1160 },
+  { x: 4240, y: -1360 },
+  { x: 3520, y: -980 },
+  { x: 3140, y: -260 },
+  { x: 3460, y: 420 },
+  { x: 4140, y: 820 },
+  { x: 4960, y: 620 },
+  { x: 5620, y: 50 },
+  { x: 6400, y: -430 },
+  { x: 6220, y: -1180 },
+  { x: 5480, y: -1660 },
+  { x: 4620, y: -1460 },
+  { x: 4000, y: -2040 },
+  { x: 3120, y: -2280 },
+  { x: 2450, y: -1780 },
+  { x: 1640, y: -2200 },
+  { x: 720, y: -1780 },
+  { x: 360, y: -1040 },
+  { x: -520, y: -1360 },
+  { x: -1360, y: -760 },
+  { x: -1120, y: 60 },
+  { x: -760, y: 560 },
+  { x: -220, y: 760 },
 ];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -280,7 +291,7 @@ function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: n
   ctx.closePath();
 }
 
-function chaikin(nodes: Vec[], passes = 3): Vec[] {
+function chaikin(nodes: Vec[], passes = 2): Vec[] {
   let pts = [...nodes];
 
   for (let pass = 0; pass < passes; pass += 1) {
@@ -309,7 +320,7 @@ function chaikin(nodes: Vec[], passes = 3): Vec[] {
 }
 
 function buildTrack(): { center: CenterPt[]; total: number } {
-  const raw = chaikin(TRACK_NODES, 3);
+  const raw = chaikin(TRACK_NODES, 2);
   const center: CenterPt[] = [];
   let total = 0;
 
@@ -573,7 +584,7 @@ function drawGround(
   ctx.fillStyle = grassGlow;
   ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
 
-  const gridStep = 340;
+  const gridStep = 440;
   ctx.strokeStyle = `rgba(157,124,255,${0.028 + Math.sin(now * 0.0016) * 0.01})`;
   ctx.lineWidth = 1 / zoom;
   ctx.beginPath();
@@ -647,7 +658,7 @@ function strokeLoop(
 function drawCurbs(ctx: CanvasRenderingContext2D, center: CenterPt[], side: 1 | -1, now: number) {
   let dash = 0;
 
-  for (let i = 0; i < center.length; i += 1) {
+  for (let i = 0; i < center.length; i += 2) {
     const p1 = center[i];
     const p2 = center[(i + 1) % center.length];
 
@@ -685,47 +696,55 @@ function drawTunnel(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  const drawRangeStroke = (width: number, color: string) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    let started = false;
+  const approxTotal = center[center.length - 1].dist || 1;
 
-    center.forEach((p) => {
-      const progress = p.dist / center[center.length - 1].dist;
-      if (progress < TUNNEL_FROM || progress > TUNNEL_TO) return;
+  const drawOneTunnel = (from: number, to: number, small = false) => {
+    const drawRangeStroke = (width: number, color: string) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      let started = false;
 
-      if (!started) {
-        ctx.moveTo(p.x, p.y);
-        started = true;
-      } else {
-        ctx.lineTo(p.x, p.y);
-      }
-    });
+      center.forEach((p) => {
+        const progress = p.dist / approxTotal;
+        if (progress < from || progress > to) return;
 
-    if (started) ctx.stroke();
+        if (!started) {
+          ctx.moveTo(p.x, p.y);
+          started = true;
+        } else {
+          ctx.lineTo(p.x, p.y);
+        }
+      });
+
+      if (started) ctx.stroke();
+    };
+
+    drawRangeStroke(ROAD_WIDTH + (small ? 58 : 82), small ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.52)');
+    drawRangeStroke(ROAD_WIDTH + (small ? 32 : 46), small ? 'rgba(13,16,28,0.84)' : 'rgba(20,24,40,0.88)');
+    drawRangeStroke(ROAD_WIDTH + 8, small ? 'rgba(157,124,255,0.12)' : 'rgba(82,255,229,0.10)');
+
+    const step = small ? 0.022 : 0.018;
+    for (let t = from; t <= to; t += step) {
+      const p = sampleTrackPoint(center, approxTotal, t);
+      const pulse = 0.35 + Math.sin(now * 0.006 + t * 80) * 0.18;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle + Math.PI / 2);
+      ctx.strokeStyle = small ? `rgba(157,124,255,${pulse})` : `rgba(242,199,102,${pulse})`;
+      ctx.lineWidth = small ? 2.4 : 3;
+      ctx.beginPath();
+      ctx.moveTo(-ROAD_HALF - 22, 0);
+      ctx.lineTo(-ROAD_HALF - 8, 0);
+      ctx.moveTo(ROAD_HALF + 8, 0);
+      ctx.lineTo(ROAD_HALF + 22, 0);
+      ctx.stroke();
+      ctx.restore();
+    }
   };
 
-  drawRangeStroke(ROAD_WIDTH + 82, 'rgba(0,0,0,0.50)');
-  drawRangeStroke(ROAD_WIDTH + 46, 'rgba(20,24,40,0.86)');
-  drawRangeStroke(ROAD_WIDTH + 8, 'rgba(82,255,229,0.10)');
-
-  for (let t = TUNNEL_FROM; t <= TUNNEL_TO; t += 0.018) {
-    const p = sampleTrackPoint(center, center[center.length - 1].dist, t);
-    const pulse = 0.35 + Math.sin(now * 0.006 + t * 80) * 0.2;
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(p.angle + Math.PI / 2);
-    ctx.strokeStyle = `rgba(242,199,102,${pulse})`;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-ROAD_HALF - 22, 0);
-    ctx.lineTo(-ROAD_HALF - 8, 0);
-    ctx.moveTo(ROAD_HALF + 8, 0);
-    ctx.lineTo(ROAD_HALF + 22, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
+  drawOneTunnel(TUNNEL_FROM, TUNNEL_TO, false);
+  drawOneTunnel(TUNNEL2_FROM, TUNNEL2_TO, true);
 
   ctx.restore();
 }
@@ -749,7 +768,7 @@ function drawTrack(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numbe
 }
 
 function drawDirectionArrows(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
-  for (let i = 8; i < center.length; i += 18) {
+  for (let i = 8; i < center.length; i += 26) {
     const p = center[i];
     const a = Math.atan2(p.ty, p.tx);
     const alpha = 0.27 + Math.sin(now * 0.004 + i * 0.2) * 0.1;
@@ -806,7 +825,7 @@ function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
 }
 
 function drawDecor(ctx: CanvasRenderingContext2D, decor: Decor, car: CarState, now: number) {
-  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 900) return;
+  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 720) return;
 
   ctx.save();
   ctx.translate(decor.x, decor.y);
@@ -1241,40 +1260,6 @@ function drawCar(
   ctx.restore();
 }
 
-function drawRivalChip(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.32)';
-  ctx.beginPath();
-  ctx.ellipse(0, 7, 19, 12, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  const grad = ctx.createRadialGradient(-5, -5, 2, 0, 0, 18);
-  grad.addColorStop(0, '#d9ccff');
-  grad.addColorStop(0.45, COLORS.purple);
-  grad.addColorStop(1, '#342064');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(0, 0, 14, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.50)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  ctx.fillStyle = 'rgba(255,255,255,0.82)';
-  ctx.beginPath();
-  ctx.moveTo(7, 0);
-  ctx.lineTo(-5, -5);
-  ctx.lineTo(-2, 0);
-  ctx.lineTo(-5, 5);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.restore();
-}
 
 class GhostBuffer {
   private buf: NetSnapshot[] = [];
@@ -1921,7 +1906,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
       const loop = (now: number) => {
         const v = viewport.current;
-        const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 50);
+        const frameMs = lastT.current === 0 ? 16.7 : Math.min(now - lastT.current, 34);
         lastT.current = now;
 
         const joy = joystick.current;
@@ -1960,11 +1945,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           inp.drift = false;
         }
 
-        acc.current += frameMs / 1000;
+        acc.current = Math.min(acc.current + frameMs / 1000, STEP * 3);
 
         let guard = 0;
 
-        while (acc.current >= STEP && guard < 4) {
+        while (acc.current >= STEP && guard < 3) {
           const result = stepCar(car.current, inp, center, total);
           const c = car.current;
 
@@ -2048,7 +2033,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         const cam = camera.current;
         const dtSec = Math.min(frameMs / 1000, 0.05);
 
-        rivalRace.current = Math.min(TOTAL_LAPS, rivalRace.current + dtSec * 0.026);
+        rivalRace.current = Math.min(TOTAL_LAPS, rivalRace.current + dtSec * 0.022);
         const fallbackProgress = rivalRace.current % 1;
         const fallbackRival = sampleTrackPoint(center, total, fallbackProgress);
         const remoteRival = ghost.current.sample(now);
@@ -2070,7 +2055,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         cam.sx = (Math.random() - 0.5) * cam.shake * 7;
         cam.sy = (Math.random() - 0.5) * cam.shake * 7;
 
-        if (now - trailT.current > 42 && speed > 80) {
+        if (now - trailT.current > 58 && speed > 90) {
           trailT.current = now;
 
           trail.current.push({
@@ -2106,7 +2091,10 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         drawTrail(ctx, trail.current, dt);
         drawParticles(ctx, particles.current, dt);
 
-        drawRivalChip(ctx, rival.x, rival.y, rival.angle);
+        drawCar(ctx, rival.x, rival.y, rival.angle, {
+          ghost: true,
+          drift: rival.drift,
+        });
 
         drawCar(ctx, c.x, c.y, c.angle, {
           drift: c.driftPower,
