@@ -44,7 +44,8 @@ const CFG = {
   WIND_MAX: 0.16,
   WALL_MIN_ROW: 3,
   ACTIONS_PER_TURN: 2,
-  TURN_SECONDS: 10,
+  ANGLE_SECONDS: 15,
+  ACTION_SECONDS: 15,
   BALLS_PER_PLAYER: 5,
   ANGLE_MAX_DEG: 18,
 };
@@ -339,7 +340,7 @@ export default function PlinkoPvpGame() {
   const [walls, setWalls] = useState<WallKey[][]>([[], []]);
   const [actionMode, setActionMode] = useState<ActionMode>(null);
   const [actionsLeft, setActionsLeft] = useState(CFG.ACTIONS_PER_TURN);
-  const [timeLeft, setTimeLeft] = useState(CFG.TURN_SECONDS);
+  const [timeLeft, setTimeLeft] = useState(CFG.ANGLE_SECONDS);
 
   // Счёт — множитель от 1. Например: старт 1 → x5 = 5 → x5 = 25.
   const [scores, setScores] = useState<[number, number]>([1, 1]);
@@ -378,6 +379,18 @@ export default function PlinkoPvpGame() {
 
   const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number; stuck: boolean }[]>([]);
   const processedLandings = useRef<Set<number>>(new Set());
+
+  const phaseRef = useRef(phase);
+  const turnRef = useRef(turn);
+  const curBallRef = useRef(curBall);
+  const liveAngleRef = useRef(liveAngle);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+    turnRef.current = turn;
+    curBallRef.current = curBall;
+    liveAngleRef.current = liveAngle;
+  }, [phase, turn, curBall, liveAngle]);
 
   /* --------------------------- ЗАПРЕТ СКРОЛЛА ------------------------------ */
   useEffect(() => {
@@ -454,8 +467,8 @@ export default function PlinkoPvpGame() {
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
 
-    // Доска специально чуть меньше по высоте и не доходит до нижней панели.
-    const reservedTop = 62 * dpr;
+    // HUD прижат к самому верху, поэтому поле начинается ниже и не залезает под него.
+    const reservedTop = 74 * dpr;
     const reservedBottom = 156 * dpr;
     const usableH = Math.max(240 * dpr, cv.height - reservedTop - reservedBottom);
     const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH) * 0.93;
@@ -960,14 +973,27 @@ export default function PlinkoPvpGame() {
 
   /* ----------------------------- ТАЙМЕР ХОДА ------------------------------ */
   useEffect(() => {
-    if (phase !== "actions") return;
-    setTimeLeft(CFG.TURN_SECONDS);
+    if (phase !== "angles" && phase !== "actions") return;
+
+    const total = phase === "angles" ? CFG.ANGLE_SECONDS : CFG.ACTION_SECONDS;
+    let fired = false;
     const t0 = Date.now();
+
+    setTimeLeft(total);
+
     const id = window.setInterval(() => {
-      const left = CFG.TURN_SECONDS - Math.floor((Date.now() - t0) / 1000);
+      const left = Math.max(0, total - Math.floor((Date.now() - t0) / 1000));
       setTimeLeft(left);
-      if (left <= 0) { window.clearInterval(id); finishActionTurn(); }
-    }, 200);
+
+      if (left <= 0 && !fired) {
+        fired = true;
+        window.clearInterval(id);
+
+        if (phaseRef.current === "angles") finishAngleTurn();
+        if (phaseRef.current === "actions") finishActionTurn();
+      }
+    }, 150);
+
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, turn]);
@@ -1010,6 +1036,31 @@ export default function PlinkoPvpGame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
+  const finishAngleTurn = () => {
+    if (phaseRef.current !== "angles") return;
+
+    hapticSelection();
+
+    const p = turnRef.current;
+    const b = curBallRef.current;
+    const a = liveAngleRef.current;
+
+    setAngles((prev) => {
+      const next = prev.map((items) => [...items]);
+      next[p][b] = a;
+      return next;
+    });
+
+    setCurBall(0);
+    setLiveAngle(0);
+
+    if (p === 0) {
+      toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков · ${CFG.ANGLE_SECONDS} секунд`, "angles");
+    } else {
+      toHandoff(0, `Множители открыты · ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
+    }
+  };
+
   const confirmAngle = () => {
     hapticSelection();
 
@@ -1024,10 +1075,10 @@ export default function PlinkoPvpGame() {
     } else {
       if (turn === 0) {
         setCurBall(0); setLiveAngle(0);
-        toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков`, "angles");
+        toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков · ${CFG.ANGLE_SECONDS} секунд`, "angles");
       } else {
         setCurBall(0);
-        toHandoff(0, "Множители открыты · ваши 2 действия", "actions");
+        toHandoff(0, `Множители открыты · ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
       }
     }
   };
@@ -1103,16 +1154,18 @@ export default function PlinkoPvpGame() {
   };
 
   const finishActionTurn = () => {
+    if (phaseRef.current !== "actions") return;
+
     hapticSelection();
 
     setActionMode(null);
     setActionsLeft(CFG.ACTIONS_PER_TURN);
-    setPhase((ph) => {
-      if (ph !== "actions") return ph;
-      if (turn === 0) toHandoff(1, "Ваши 2 действия · 10 секунд", "actions");
-      else toHandoff(0, "Вскрытие — запуск шариков", "reveal");
-      return "handoff";
-    });
+
+    if (turnRef.current === 0) {
+      toHandoff(1, `Ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
+    } else {
+      toHandoff(0, "Вскрытие — запуск шариков", "reveal");
+    }
   };
 
   const proceedHandoff = () => {
@@ -1263,14 +1316,23 @@ export default function PlinkoPvpGame() {
         />
       </div>
 
-      <div className="pointer-events-none absolute left-3 right-3 top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2 pt-[calc(env(safe-area-inset-top,0px)+8px)]">
+      <div className="pointer-events-none absolute left-2 right-2 top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5 pt-[calc(env(safe-area-inset-top,0px)+2px)]">
         <div className="flex min-w-0 justify-start">
           <PlayerScoreCard player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
         </div>
 
-        <div className="flex h-12 items-center gap-2 rounded-[18px] border border-white/[0.08] bg-[#09090d]/78 px-3 shadow-[0_12px_28px_rgba(0,0,0,.28)] backdrop-blur-xl">
+        <div className="flex h-10 items-center gap-1.5 rounded-[16px] border border-white/[0.08] bg-[#09090d]/82 px-2 shadow-[0_10px_24px_rgba(0,0,0,.26)] backdrop-blur-xl">
           <BallCounter color={PLAYERS[0].color} value={ballCounters[0]} />
-          <div className="h-5 w-px bg-white/12" />
+          {(phase === "angles" || phase === "actions") ? (
+            <TurnTimer
+              total={phase === "angles" ? CFG.ANGLE_SECONDS : CFG.ACTION_SECONDS}
+              left={timeLeft}
+              color={activeColor}
+              label={phase === "angles" ? "углы" : "ход"}
+            />
+          ) : (
+            <div className="h-5 w-px bg-white/12" />
+          )}
           <BallCounter color={PLAYERS[1].color} value={ballCounters[1]} reverse />
         </div>
 
@@ -1283,7 +1345,7 @@ export default function PlinkoPvpGame() {
         <div
           className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl"
           style={{
-            top: "calc(env(safe-area-inset-top, 0px) + 66px)",
+            top: "calc(env(safe-area-inset-top, 0px) + 50px)",
             color: PLAYERS[lastGain.p].color,
           }}
         >
@@ -1510,6 +1572,38 @@ export default function PlinkoPvpGame() {
   );
 }
 
+type TurnTimerProps = {
+  total: number;
+  left: number;
+  color: string;
+  label: string;
+};
+
+function TurnTimer({ total, left, color, label }: TurnTimerProps) {
+  const safeTotal = Math.max(1, total);
+  const safeLeft = clamp(Math.ceil(left), 0, safeTotal);
+  const progress = clamp(safeLeft / safeTotal, 0, 1);
+  const degrees = Math.round(progress * 360);
+
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
+      <div
+        className="relative grid h-6 w-6 place-items-center rounded-full text-[9px] font-black tabular-nums text-white"
+        style={{
+          background: `conic-gradient(${color} ${degrees}deg, rgba(255,255,255,0.12) ${degrees}deg)`,
+          boxShadow: `0 0 13px ${color}38`,
+        }}
+      >
+        <span className="absolute inset-[3px] rounded-full bg-[#09090d]" />
+        <span className="relative leading-none">{safeLeft}</span>
+      </div>
+      <span className="text-[7px] font-black uppercase leading-none tracking-[0.13em] text-white/42">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 type PlayerScoreCardProps = {
   player: typeof PLAYERS[number];
   score: number;
@@ -1520,7 +1614,7 @@ type PlayerScoreCardProps = {
 function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScoreCardProps) {
   return (
     <div
-      className={`flex h-12 max-w-[130px] min-w-[92px] items-center gap-1.5 overflow-hidden rounded-[18px] border px-2 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
+      className={`flex h-10 max-w-[118px] min-w-[82px] items-center gap-1.5 overflow-hidden rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
       style={{
         borderColor: active ? player.color + "80" : "rgba(255,255,255,0.07)",
         background: active ? `linear-gradient(135deg, ${player.color}24, rgba(255,255,255,0.045))` : "rgba(12,13,20,0.72)",
@@ -1528,7 +1622,7 @@ function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScore
       }}
     >
       <div
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[9px] font-black text-[#050507]"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-[10px] border text-[8px] font-black text-[#050507]"
         style={{
           background: player.color,
           borderColor: "rgba(255,255,255,0.22)",
@@ -1539,7 +1633,7 @@ function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScore
       </div>
       <div
         className={`min-w-0 flex-1 truncate font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"}`}
-        style={{ color: player.color, fontSize: "clamp(12px, 3.7vw, 15px)", lineHeight: 1.22 }}
+        style={{ color: player.color, fontSize: "clamp(11px, 3.45vw, 14px)", lineHeight: 1.15 }}
       >
         {fmt(score)}
       </div>
@@ -1555,15 +1649,15 @@ type BallCounterProps = {
 
 function BallCounter({ color, value, reverse = false }: BallCounterProps) {
   return (
-    <div className={`flex items-center gap-1.5 ${reverse ? "flex-row-reverse" : ""}`}>
+    <div className={`flex items-center gap-1 ${reverse ? "flex-row-reverse" : ""}`}>
       <span
-        className="h-2 w-2 rounded-full"
+        className="h-1.5 w-1.5 rounded-full"
         style={{
           background: color,
           boxShadow: `0 0 10px ${color}66`,
         }}
       />
-      <span className="text-[12px] font-black leading-none tracking-[-0.04em] text-white/82 tabular-nums">
+      <span className="text-[10px] font-black leading-none tracking-[-0.04em] text-white/82 tabular-nums">
         {value}/{CFG.BALLS_PER_PLAYER}
       </span>
     </div>
