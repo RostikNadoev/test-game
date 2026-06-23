@@ -290,8 +290,8 @@ type ActionMode = "x2" | "half" | "wall" | null;
 type WallKey = string;
 
 const PLAYERS = [
-  { name: "Игрок 1", color: "#5BB7FF", soft: "rgba(47,140,255,0.12)", emoji: "I" },
-  { name: "Игрок 2", color: "#FFB45C", soft: "rgba(255,143,45,0.12)", emoji: "II" },
+  { name: "Игрок 1", nick: "@player_1", color: "#5BB7FF", soft: "rgba(47,140,255,0.12)", emoji: "I" },
+  { name: "Игрок 2", nick: "@player_2", color: "#FFB45C", soft: "rgba(255,143,45,0.12)", emoji: "II" },
 ];
 
 // цвет по «ценности» лунки
@@ -1316,12 +1316,15 @@ export default function PlinkoPvpGame() {
         />
       </div>
 
-      <div className="pointer-events-none absolute left-2 right-2 top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5 pt-[calc(env(safe-area-inset-top,0px)+2px)]">
+      <div
+        className="pointer-events-none absolute left-2 right-2 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5"
+        style={{ top: "max(calc(env(safe-area-inset-top, 0px) - 15px), 0px)" }}
+      >
         <div className="flex min-w-0 justify-start">
           <PlayerScoreCard player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
         </div>
 
-        <div className="flex h-10 items-center gap-1.5 rounded-[16px] border border-white/[0.08] bg-[#09090d]/82 px-2 shadow-[0_10px_24px_rgba(0,0,0,.26)] backdrop-blur-xl">
+        <div className="flex h-11 items-center gap-1.5 rounded-[16px] border border-white/[0.08] bg-[#09090d]/82 px-2 shadow-[0_10px_24px_rgba(0,0,0,.26)] backdrop-blur-xl">
           <BallCounter color={PLAYERS[0].color} value={ballCounters[0]} />
           {(phase === "angles" || phase === "actions") ? (
             <TurnTimer
@@ -1329,6 +1332,7 @@ export default function PlinkoPvpGame() {
               left={timeLeft}
               color={activeColor}
               label={phase === "angles" ? "углы" : "ход"}
+              meta={phase === "actions" ? `${actionsLeft}/${CFG.ACTIONS_PER_TURN}` : `${curBall + 1}/${CFG.BALLS_PER_PLAYER}`}
             />
           ) : (
             <div className="h-5 w-px bg-white/12" />
@@ -1345,7 +1349,7 @@ export default function PlinkoPvpGame() {
         <div
           className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl"
           style={{
-            top: "calc(env(safe-area-inset-top, 0px) + 50px)",
+            top: "calc(env(safe-area-inset-top, 0px) + 46px)",
             color: PLAYERS[lastGain.p].color,
           }}
         >
@@ -1470,17 +1474,13 @@ export default function PlinkoPvpGame() {
               </button>
             </div>
 
-            <div className="mt-1 flex items-center justify-center gap-2 text-[9px] font-bold text-white/36">
-              <span>{actionsLeft}/{CFG.ACTIONS_PER_TURN}</span>
-              <span className="h-1 w-1 rounded-full bg-white/20" />
-              <span>{timeLeft}s</span>
-              <span className="h-1 w-1 rounded-full bg-white/20" />
+            <div className="mt-1 flex items-center justify-center text-[9px] font-bold text-white/36">
               <span>
                 {actionMode === "wall"
-                  ? "между пегами"
+                  ? "Поставьте стенку между пегами"
                   : actionMode
-                  ? "по лунке"
-                  : "действие"}
+                  ? "Выберите лунку"
+                  : "Выберите действие"}
               </span>
             </div>
           </div>
@@ -1538,36 +1538,150 @@ export default function PlinkoPvpGame() {
       )}
 
       {phase === "result" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.64)] backdrop-blur-xl">
-            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/34">
-              Match result
-            </div>
-            {winner === -1 ? (
-              <div className="mt-2 text-[30px] font-black tracking-[-0.08em]">Ничья</div>
-            ) : (
-              <div
-                className="mt-2 text-[30px] font-black tracking-[-0.08em]"
-                style={{ color: PLAYERS[winner].color }}
-              >
-                {PLAYERS[winner].name} победил
-              </div>
-            )}
-            <div className="mt-4 flex items-center justify-center gap-5 text-[22px] font-black tracking-[-0.06em] tabular-nums">
-              <span style={{ color: PLAYERS[0].color }}>{fmt(scores[0])}</span>
-              <span className="text-white/24">:</span>
-              <span style={{ color: PLAYERS[1].color }}>{fmt(scores[1])}</span>
-            </div>
-            <button
-              type="button"
-              onClick={startGame}
-              className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
-            >
-              Играть снова
-            </button>
+        <ResultModal players={PLAYERS} scores={scores} winner={winner} onRestart={startGame} />
+      )}
+    </div>
+  );
+}
+
+type ResultModalProps = {
+  players: typeof PLAYERS;
+  scores: [number, number];
+  winner: number;
+  onRestart: () => void;
+};
+
+function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
+  const isTie = winner < 0;
+  const heroColor = isTie ? "#EAF4FF" : players[winner].color;
+  const title = isTie ? "Ничья" : `${players[winner].name} победил`;
+  const subtitle = isTie
+    ? "Матч закончился ровно — оба игрока удержались."
+    : `${players[winner].nick} забирает матч`;
+
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center px-5 text-center">
+      <div className="relative w-full max-w-[370px] overflow-hidden rounded-[34px] border border-white/[0.10] bg-[#09090d]/92 px-4 py-5 shadow-[0_28px_90px_rgba(0,0,0,0.70)] backdrop-blur-2xl">
+        <div
+          className="pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full blur-3xl"
+          style={{ background: `${heroColor}30` }}
+        />
+        <div
+          className="pointer-events-none absolute -right-24 top-12 h-52 w-52 rounded-full blur-3xl"
+          style={{ background: isTie ? "rgba(91,183,255,0.18)" : `${heroColor}22` }}
+        />
+
+        <div className="relative">
+          <div className="text-[9px] font-black uppercase tracking-[0.24em] text-white/36">
+            Match result
           </div>
+
+          <div className="mt-3 flex justify-center">
+            <div
+              className="grid h-16 w-16 place-items-center rounded-[24px] border text-[18px] font-black text-[#050507] shadow-[0_18px_38px_rgba(0,0,0,0.34)]"
+              style={{
+                background: heroColor,
+                borderColor: "rgba(255,255,255,0.28)",
+                boxShadow: `0 0 34px ${heroColor}44, 0 18px 38px rgba(0,0,0,0.34)`,
+              }}
+            >
+              {isTie ? "=" : players[winner].emoji}
+            </div>
+          </div>
+
+          <div
+            className="mt-3 text-[30px] font-black leading-none tracking-[-0.08em]"
+            style={{ color: heroColor }}
+          >
+            {title}
+          </div>
+          <div className="mx-auto mt-1 max-w-[250px] text-[11px] font-bold leading-snug text-white/46">
+            {subtitle}
+          </div>
+
+          <div className="mt-5 grid gap-2">
+            {players.map((player, idx) => (
+              <ResultPlayerCard
+                key={player.name}
+                player={player}
+                score={scores[idx]}
+                isWinner={!isTie && winner === idx}
+                isTie={isTie}
+              />
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={onRestart}
+            className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
+          >
+            Играть снова
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type ResultPlayerCardProps = {
+  player: typeof PLAYERS[number];
+  score: number;
+  isWinner: boolean;
+  isTie: boolean;
+};
+
+function ResultPlayerCard({ player, score, isWinner, isTie }: ResultPlayerCardProps) {
+  const big = isWinner || isTie;
+
+  return (
+    <div
+      className={`relative flex items-center gap-3 rounded-[24px] border px-3 text-left backdrop-blur-xl ${big ? "min-h-[88px]" : "min-h-[66px] opacity-72"}`}
+      style={{
+        borderColor: isWinner ? `${player.color}b8` : "rgba(255,255,255,0.08)",
+        background: isWinner
+          ? `linear-gradient(135deg, ${player.color}34, rgba(255,255,255,0.06))`
+          : "rgba(255,255,255,0.045)",
+        boxShadow: isWinner
+          ? `0 0 30px ${player.color}22, inset 0 1px 0 rgba(255,255,255,.09)`
+          : "inset 0 1px 0 rgba(255,255,255,.055)",
+      }}
+    >
+      {isWinner && (
+        <div
+          className="absolute right-3 top-2 rounded-full px-2 py-1 text-[7px] font-black uppercase tracking-[0.16em] text-[#050507]"
+          style={{ background: player.color }}
+        >
+          Winner
         </div>
       )}
+
+      <div
+        className={`${big ? "h-14 w-14 rounded-[20px] text-[15px]" : "h-11 w-11 rounded-[16px] text-[12px]"} grid shrink-0 place-items-center border font-black text-[#050507]`}
+        style={{
+          background: player.color,
+          borderColor: "rgba(255,255,255,0.24)",
+          boxShadow: `0 0 22px ${player.color}38`,
+        }}
+      >
+        {player.emoji}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-black tracking-[-0.04em] text-white">
+          {player.name}
+        </div>
+        <div className="mt-0.5 truncate text-[10px] font-bold tracking-[-0.02em] text-white/40">
+          {player.nick}
+        </div>
+      </div>
+
+      <div
+        className={`${big ? "text-[30px]" : "text-[22px]"} shrink-0 font-black leading-none tracking-[-0.07em] tabular-nums`}
+        style={{ color: player.color }}
+      >
+        {fmt(score)}
+      </div>
     </div>
   );
 }
@@ -1577,18 +1691,19 @@ type TurnTimerProps = {
   left: number;
   color: string;
   label: string;
+  meta?: string;
 };
 
-function TurnTimer({ total, left, color, label }: TurnTimerProps) {
+function TurnTimer({ total, left, color, label, meta }: TurnTimerProps) {
   const safeTotal = Math.max(1, total);
   const safeLeft = clamp(Math.ceil(left), 0, safeTotal);
   const progress = clamp(safeLeft / safeTotal, 0, 1);
   const degrees = Math.round(progress * 360);
 
   return (
-    <div className="flex h-7 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
+    <div className="flex h-8 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
       <div
-        className="relative grid h-6 w-6 place-items-center rounded-full text-[9px] font-black tabular-nums text-white"
+        className="relative grid h-7 w-7 place-items-center rounded-full text-[10px] font-black tabular-nums text-white"
         style={{
           background: `conic-gradient(${color} ${degrees}deg, rgba(255,255,255,0.12) ${degrees}deg)`,
           boxShadow: `0 0 13px ${color}38`,
@@ -1597,8 +1712,15 @@ function TurnTimer({ total, left, color, label }: TurnTimerProps) {
         <span className="absolute inset-[3px] rounded-full bg-[#09090d]" />
         <span className="relative leading-none">{safeLeft}</span>
       </div>
-      <span className="text-[7px] font-black uppercase leading-none tracking-[0.13em] text-white/42">
-        {label}
+      <span className="grid gap-0.5 text-left leading-none">
+        <span className="text-[7px] font-black uppercase tracking-[0.13em] text-white/42">
+          {label}
+        </span>
+        {meta && (
+          <span className="text-[9px] font-black tracking-[-0.03em] text-white/74 tabular-nums">
+            {meta}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -1614,7 +1736,7 @@ type PlayerScoreCardProps = {
 function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScoreCardProps) {
   return (
     <div
-      className={`flex h-10 max-w-[118px] min-w-[82px] items-center gap-1.5 overflow-hidden rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
+      className={`flex h-11 max-w-[122px] min-w-[84px] items-center gap-1.5 overflow-visible rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
       style={{
         borderColor: active ? player.color + "80" : "rgba(255,255,255,0.07)",
         background: active ? `linear-gradient(135deg, ${player.color}24, rgba(255,255,255,0.045))` : "rgba(12,13,20,0.72)",
@@ -1622,7 +1744,7 @@ function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScore
       }}
     >
       <div
-        className="grid h-6 w-6 shrink-0 place-items-center rounded-[10px] border text-[8px] font-black text-[#050507]"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[8px] font-black text-[#050507]"
         style={{
           background: player.color,
           borderColor: "rgba(255,255,255,0.22)",
@@ -1632,8 +1754,8 @@ function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScore
         {player.emoji}
       </div>
       <div
-        className={`min-w-0 flex-1 truncate font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"}`}
-        style={{ color: player.color, fontSize: "clamp(11px, 3.45vw, 14px)", lineHeight: 1.15 }}
+        className={`min-w-0 flex-1 whitespace-nowrap font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"}`}
+        style={{ color: player.color, fontSize: "clamp(11px, 3.45vw, 14px)", lineHeight: 1.35 }}
       >
         {fmt(score)}
       </div>
