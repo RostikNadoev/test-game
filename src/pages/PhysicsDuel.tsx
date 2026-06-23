@@ -75,9 +75,15 @@ const CUBE_MASS = 1;
 const INV_M = 1 / CUBE_MASS;
 const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6); // square plate inertia about center
 
+// Invisible left boundary at the start of the map.
+// It blocks the launch-pad cliff without drawing any visible wall.
+const START_WALL_X = 0;
+const START_WALL_BOUNCE = 0.08;
+const START_WALL_SPIN_DAMP = 0.35;
+
 const DPR_CAP = 1.5;
 
-const LEVEL = 21; // vertical height of one staircase "level"; gentler climb, no deep pits
+const LEVEL = 18; // vertical height of one staircase "level"; lower = shallower pits/steps
 const PX_PER_M = 42; // world px per displayed "meter"
 const WORLD_LEN = 9000; // generate staircase until this world x is covered
 
@@ -140,41 +146,40 @@ function generateStairs(seed: number): Stairs {
   let topY = 540;
   const MIN_TOP = -3200; // highest the climb may reach; gentler than before
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 8 + Math.floor(rnd() * 5);
+  let nextSafeIn = 6 + Math.floor(rnd() * 4);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: still compact, but friendlier than v4. Most ledges are only a
-    // little wider than the cube, while rare recovery zones give a fair place to
-    // stabilize after a risky climb.
+    // Width: a bit friendlier now. Ledges are still compact, but not as
+    // punishing, and recovery zones appear more often. This reduces the
+    // feeling of random holes while keeping the climb risky.
     const wr = rnd();
     let width: number;
-    if (platform) width = 132 + rnd() * 22; // only the shared start is wide/stable
-    else if (safeZone) width = CUBE * (1.34 + rnd() * 0.12); // rare recovery ledge, not huge
-    else if (wr < 0.82) width = CUBE * (1.12 + rnd() * 0.07); // common: ~112–119% cube width
-    else if (wr < 0.97) width = CUBE * (1.21 + rnd() * 0.09); // a little forgiving
-    else width = CUBE * (1.34 + rnd() * 0.1); // tiny chance of a wider breather
+    if (platform) width = 146 + rnd() * 26; // wider shared start, safer first throws
+    else if (safeZone) width = CUBE * (1.48 + rnd() * 0.16); // clear recovery ledge
+    else if (wr < 0.7) width = CUBE * (1.18 + rnd() * 0.08); // common: ~118–126% cube width
+    else if (wr < 0.94) width = CUBE * (1.28 + rnd() * 0.12); // more forgiving
+    else width = CUBE * (1.45 + rnd() * 0.14); // occasional breather
 
-    // Height change. Still a climbing ladder, but NO deep pits. Downward steps are
-    // only one gentle level, and 3-level climbs are removed. This keeps the "fall"
-    // drama without creating giant holes two cubes deep.
+    // Height change: fewer sharp drops/pits. Two-level jumps are rarer, flats are
+    // more common, and downward steps almost never appear.
     const hr = rnd();
     let delta: number;
     if (platform) delta = 0; // flat launch pad
-    else if (safeZone) delta = rnd() < 0.82 ? -1 : 0; // recovery ledges are usually fair
-    else if (hr < 0.64) delta = -1; // up one level, main rhythm
-    else if (hr < 0.86) delta = -2; // up two levels, still challenging but gentler with LEVEL=23
-    else if (hr < 0.96) delta = 0; // short breather
-    else delta = 1; // rare one-level down step only; no deep pits
+    else if (safeZone) delta = rnd() < 0.62 ? 0 : -1; // recovery ledges are usually flat/fair
+    else if (hr < 0.56) delta = -1; // up one level, main rhythm
+    else if (hr < 0.68) delta = -2; // rare two-level climb
+    else if (hr < 0.985) delta = 0; // more short breathers, fewer holes
+    else delta = 1; // extremely rare one-level down step only
 
     topY += delta * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Crooked tops add danger, but keep safe zones flat enough to be readable.
-    const slope = !platform && !safeZone && rnd() < 0.22 ? (rnd() - 0.5) * 0.055 : 0;
+    // Crooked tops add danger, but keep them softer so fewer landings feel like pits.
+    const slope = !platform && !safeZone && rnd() < 0.16 ? (rnd() - 0.5) * 0.04 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -199,7 +204,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    if (safeZone) nextSafeIn = 10 + Math.floor(rnd() * 6);
+    if (safeZone) nextSafeIn = 7 + Math.floor(rnd() * 5);
     else nextSafeIn -= 1;
   }
 
@@ -615,6 +620,22 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       let maxImpact = 0;
       let impactX = 0;
       let impactY = 0;
+
+      // Invisible start wall: prevents both cubes from flying/rolling into the
+      // left-side cliff at the very beginning of the map. Nothing is rendered.
+      if (cube.x - half < START_WALL_X) {
+        const impact = Math.abs(cube.vx);
+        cube.x = START_WALL_X + half;
+        if (cube.vx < 0) cube.vx = -cube.vx * START_WALL_BOUNCE;
+        cube.av *= START_WALL_SPIN_DAMP;
+        cube.stillTimer = 0;
+
+        if (impact > maxImpact) {
+          maxImpact = impact;
+          impactX = START_WALL_X;
+          impactY = cube.y + half;
+        }
+      }
 
       for (let iter = 0; iter < SOLVER_ITERS; iter++) {
         const ca = Math.cos(cube.angle);

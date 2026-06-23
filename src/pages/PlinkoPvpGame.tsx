@@ -1318,7 +1318,7 @@ export default function PlinkoPvpGame() {
 
       <div
         className="pointer-events-none absolute left-2 right-2 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5"
-        style={{ top: "max(calc(env(safe-area-inset-top, 0px) - 22px), 0px)" }}
+        style={{ top: "max(calc(env(safe-area-inset-top, 0px) - 25px), 0px)" }}
       >
         <div className="flex min-w-0 justify-start">
           <PlayerScoreCard player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
