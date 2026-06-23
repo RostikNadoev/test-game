@@ -115,6 +115,7 @@ type CarState = {
   progress: number;
   lap: number;
   armed: boolean;
+  checkpoint: number;
 };
 
 type InputState = {
@@ -170,6 +171,18 @@ const CURB_WIDTH = 16;
 const RUNOFF = 70;
 const WALL = ROAD_HALF + CURB_WIDTH + RUNOFF;
 
+const PERF_DPR_CAP = 1.45;
+const MAX_PARTICLE_POOL = 88;
+const MAX_SKIDS = 120;
+const MAX_TRAILS = 8;
+
+// Invisible anti-cut gates. A lap counts only after these checkpoints
+// are crossed in order, even if the player manages to drive near the finish.
+const CHECKPOINTS = [0.12, 0.25, 0.38, 0.52, 0.67, 0.82] as const;
+
+const TUNNEL_FROM = 0.18;
+const TUNNEL_TO = 0.27;
+
 /* ----------------------------------------------------------------------------
  * Physics constants.
  * The sim runs on a FIXED step (STEP = 1/60), so every multiplier below is a
@@ -214,27 +227,32 @@ const VISUAL = {
 };
 
 const TRACK_NODES: Vec[] = [
-  { x: 400, y: 800 },
-  { x: 1800, y: 800 },
-  { x: 2400, y: 1400 },
-  { x: 3400, y: 1400 },
-  { x: 3800, y: 1900 },
-  { x: 3200, y: 2400 },
-  { x: 4200, y: 2800 },
-  { x: 5500, y: 2200 },
-  { x: 6000, y: 800 },
-  { x: 6200, y: 0 },
-  { x: 5500, y: -600 },
-  { x: 6500, y: -1000 },
-  { x: 5000, y: -2000 },
-  { x: 3500, y: -1800 },
-  { x: 2500, y: -2500 },
-  { x: 1000, y: -2000 },
-  { x: 200, y: -1000 },
-  { x: -800, y: -1500 },
-  { x: -1500, y: -500 },
-  { x: -800, y: 800 },
-  { x: 0, y: 800 },
+  { x: 0, y: 760 },
+  { x: 860, y: 720 },
+  { x: 1500, y: 260 },
+  { x: 2350, y: 360 },
+  { x: 3000, y: 920 },
+  { x: 3900, y: 880 },
+  { x: 4800, y: 420 },
+  { x: 5450, y: -250 },
+  { x: 5100, y: -1050 },
+  { x: 4200, y: -1320 },
+  { x: 3300, y: -980 },
+  { x: 3000, y: -250 },
+  { x: 3500, y: 430 },
+  { x: 4400, y: 780 },
+  { x: 5350, y: 420 },
+  { x: 6250, y: -520 },
+  { x: 6000, y: -1550 },
+  { x: 4850, y: -2200 },
+  { x: 3500, y: -1900 },
+  { x: 2550, y: -2520 },
+  { x: 1250, y: -2160 },
+  { x: 450, y: -1320 },
+  { x: -620, y: -1540 },
+  { x: -1450, y: -650 },
+  { x: -980, y: 520 },
+  { x: -260, y: 760 },
 ];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -356,6 +374,27 @@ function queryTrack(center: CenterPt[], total: number, x: number, y: number): Tr
   return best;
 }
 
+function sampleTrackPoint(center: CenterPt[], total: number, progress: number): Vec & { angle: number } {
+  const target = ((progress % 1) + 1) % 1 * total;
+
+  for (let i = 0; i < center.length; i += 1) {
+    const a = center[i];
+    const b = center[(i + 1) % center.length];
+    const endDist = i === center.length - 1 ? total : b.dist;
+
+    if (target >= a.dist && target <= endDist) {
+      const span = Math.max(1, endDist - a.dist);
+      const t = clamp((target - a.dist) / span, 0, 1);
+      const x = lerp(a.x, b.x, t);
+      const y = lerp(a.y, b.y, t);
+      return { x, y, angle: Math.atan2(b.y - a.y, b.x - a.x) };
+    }
+  }
+
+  const p = center[0];
+  return { x: p.x, y: p.y, angle: Math.atan2(p.ty, p.tx) };
+}
+
 function buildDecor(center: CenterPt[], total: number): Decor[] {
   const rnd = seeded(202607);
   const items: Decor[] = [];
@@ -390,7 +429,7 @@ function buildDecor(center: CenterPt[], total: number): Decor[] {
   };
 
   center.forEach((p, i) => {
-    if (i % 2 !== 0) return;
+    if (i % 4 !== 0) return;
 
     const side = i % 4 === 0 ? 1 : -1;
     const nx = -p.ty;
@@ -487,7 +526,7 @@ function buildDecor(center: CenterPt[], total: number): Decor[] {
       );
     }
 
-    for (let j = 0; j < 3; j += 1) {
+    for (let j = 0; j < 1; j += 1) {
       const dist = 190 + rnd() * 340;
       const s = rnd() > 0.5 ? 1 : -1;
       const ox = p.x + nx * dist * s + (rnd() - 0.5) * 80;
@@ -498,7 +537,7 @@ function buildDecor(center: CenterPt[], total: number): Decor[] {
     }
   });
 
-  for (let k = 0; k < 13; k += 1) {
+  for (let k = 0; k < 7; k += 1) {
     addDecor(
       2780 + rnd() * 420,
       1500 + k * 210,
@@ -522,8 +561,8 @@ function drawGround(
   zoom: number,
   now: number,
 ) {
-  const halfW = width / zoom / 2 + 500;
-  const halfH = height / zoom / 2 + 500;
+  const halfW = width / zoom / 2 + 360;
+  const halfH = height / zoom / 2 + 360;
 
   ctx.fillStyle = COLORS.grass;
   ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
@@ -534,7 +573,7 @@ function drawGround(
   ctx.fillStyle = grassGlow;
   ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2);
 
-  const gridStep = 260;
+  const gridStep = 340;
   ctx.strokeStyle = `rgba(157,124,255,${0.028 + Math.sin(now * 0.0016) * 0.01})`;
   ctx.lineWidth = 1 / zoom;
   ctx.beginPath();
@@ -572,7 +611,7 @@ function drawGround(
   ctx.fillRect(2280, 1300, 920, 190);
 
   ctx.fillStyle = 'rgba(242,199,102,0.07)';
-  for (let i = 0; i < 20; i += 1) {
+  for (let i = 0; i < 10; i += 1) {
     const y = -2600 + i * 360 + Math.sin(now * 0.001 + i) * 12;
     ctx.fillRect(2600, y, 420, 2);
   }
@@ -641,6 +680,56 @@ function drawCurbs(ctx: CanvasRenderingContext2D, center: CenterPt[], side: 1 | 
   }
 }
 
+function drawTunnel(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  const drawRangeStroke = (width: number, color: string) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    let started = false;
+
+    center.forEach((p) => {
+      const progress = p.dist / center[center.length - 1].dist;
+      if (progress < TUNNEL_FROM || progress > TUNNEL_TO) return;
+
+      if (!started) {
+        ctx.moveTo(p.x, p.y);
+        started = true;
+      } else {
+        ctx.lineTo(p.x, p.y);
+      }
+    });
+
+    if (started) ctx.stroke();
+  };
+
+  drawRangeStroke(ROAD_WIDTH + 82, 'rgba(0,0,0,0.50)');
+  drawRangeStroke(ROAD_WIDTH + 46, 'rgba(20,24,40,0.86)');
+  drawRangeStroke(ROAD_WIDTH + 8, 'rgba(82,255,229,0.10)');
+
+  for (let t = TUNNEL_FROM; t <= TUNNEL_TO; t += 0.018) {
+    const p = sampleTrackPoint(center, center[center.length - 1].dist, t);
+    const pulse = 0.35 + Math.sin(now * 0.006 + t * 80) * 0.2;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle + Math.PI / 2);
+    ctx.strokeStyle = `rgba(242,199,102,${pulse})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-ROAD_HALF - 22, 0);
+    ctx.lineTo(-ROAD_HALF - 8, 0);
+    ctx.moveTo(ROAD_HALF + 8, 0);
+    ctx.lineTo(ROAD_HALF + 22, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
 function drawTrack(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
   strokeLoop(ctx, center, ROAD_WIDTH + CURB_WIDTH * 2 + 52, 'rgba(82,255,229,0.045)');
   strokeLoop(ctx, center, ROAD_WIDTH + CURB_WIDTH * 2 + 30, 'rgba(157,124,255,0.035)');
@@ -655,6 +744,8 @@ function drawTrack(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numbe
 
   strokeLoop(ctx, center, 4, 'rgba(255,255,255,0.08)', [40, 54]);
   strokeLoop(ctx, center, 2, 'rgba(82,255,229,0.20)', [16, 90]);
+
+  drawTunnel(ctx, center, now);
 }
 
 function drawDirectionArrows(ctx: CanvasRenderingContext2D, center: CenterPt[], now: number) {
@@ -715,7 +806,7 @@ function drawFinish(ctx: CanvasRenderingContext2D, center: CenterPt[], now: numb
 }
 
 function drawDecor(ctx: CanvasRenderingContext2D, decor: Decor, car: CarState, now: number) {
-  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 1150) return;
+  if (Math.hypot(car.x - decor.x, car.y - decor.y) > 900) return;
 
   ctx.save();
   ctx.translate(decor.x, decor.y);
@@ -987,7 +1078,7 @@ function spawnParticle(
   angle: number,
   power: number,
 ) {
-  if (list.length > 130) list.splice(0, list.length - 110);
+  if (list.length > MAX_PARTICLE_POOL) list.splice(0, list.length - Math.floor(MAX_PARTICLE_POOL * 0.78));
 
   for (let i = 0; i < count; i += 1) {
     const a = angle + Math.PI + (Math.random() - 0.5) * 1.8;
@@ -1031,7 +1122,7 @@ function drawSkids(ctx: CanvasRenderingContext2D, list: Skid[], dt: number) {
     if (skid.life <= 0) list.splice(i, 1);
   }
 
-  if (list.length > 200) list.splice(0, list.length - 200);
+  if (list.length > MAX_SKIDS) list.splice(0, list.length - MAX_SKIDS);
 }
 
 function drawTrail(ctx: CanvasRenderingContext2D, list: Trail[], dt: number) {
@@ -1056,7 +1147,7 @@ function drawTrail(ctx: CanvasRenderingContext2D, list: Trail[], dt: number) {
     if (tr.life <= 0) list.splice(i, 1);
   }
 
-  if (list.length > 14) list.splice(0, list.length - 14);
+  if (list.length > MAX_TRAILS) list.splice(0, list.length - MAX_TRAILS);
 }
 
 function drawCar(
@@ -1072,78 +1163,115 @@ function drawCar(
 ) {
   const ghost = Boolean(opt.ghost);
   const drift = opt.drift || 0;
-  const accent = ghost ? COLORS.purple : COLORS.cyan;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
 
-  if (ghost) ctx.globalAlpha = 0.42;
+  if (ghost) ctx.globalAlpha = 0.5;
 
-  ctx.fillStyle = ghost
-    ? `rgba(157,124,255,${0.1 + drift * 0.18})`
-    : `rgba(82,255,229,${0.12 + drift * 0.28})`;
+  // Shadow under the car, not a glowing circle.
+  ctx.fillStyle = ghost ? 'rgba(47,31,86,0.34)' : 'rgba(0,0,0,0.34)';
   ctx.beginPath();
-  ctx.ellipse(-4, 0, 42 + drift * 8, 22 + drift * 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(-2, 7, 34, 18, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const wheel = (wx: number, wy: number) => {
-    ctx.fillStyle = '#050811';
-    rr(ctx, wx - 7, wy - 5, 14, 10, 3);
+  const wheel = (wx: number, wy: number, steer = 0) => {
+    ctx.save();
+    ctx.translate(wx, wy);
+    ctx.rotate(steer);
+    ctx.fillStyle = '#03050b';
+    rr(ctx, -8, -5, 16, 10, 3);
     ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(-5, -3, 10, 2);
+    ctx.restore();
   };
 
-  wheel(-15, -13);
-  wheel(-15, 13);
-  wheel(17, -13);
-  wheel(17, 13);
+  const steerVis = clamp(drift, 0, 1) * 0.16;
+  wheel(-17, -14, 0);
+  wheel(-17, 14, 0);
+  wheel(18, -14, steerVis);
+  wheel(18, 14, steerVis);
 
-  ctx.fillStyle = ghost ? '#17112e' : '#090d1a';
-  rr(ctx, -28, -14, 58, 28, 10);
-  ctx.fill();
-
-  const body = ctx.createLinearGradient(-28, -14, 30, 14);
-  body.addColorStop(0, ghost ? 'rgba(157,124,255,0.20)' : 'rgba(82,255,229,0.20)');
-  body.addColorStop(0.5, 'rgba(255,255,255,0.04)');
-  body.addColorStop(1, ghost ? 'rgba(157,124,255,0.42)' : 'rgba(82,255,229,0.40)');
+  // Main body.
+  const body = ctx.createLinearGradient(-31, -17, 32, 17);
+  body.addColorStop(0, ghost ? '#211546' : '#07101e');
+  body.addColorStop(0.44, ghost ? '#3a236e' : '#13243a');
+  body.addColorStop(1, ghost ? '#6849c9' : '#0b756f');
 
   ctx.fillStyle = body;
-  rr(ctx, -25, -12, 53, 24, 9);
+  rr(ctx, -31, -16, 64, 32, 11);
   ctx.fill();
 
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.7;
-  rr(ctx, -28, -14, 58, 28, 10);
+  ctx.strokeStyle = ghost ? 'rgba(157,124,255,0.72)' : 'rgba(82,255,229,0.78)';
+  ctx.lineWidth = 1.6;
+  rr(ctx, -31, -16, 64, 32, 11);
   ctx.stroke();
 
-  ctx.fillStyle = ghost ? 'rgba(157,124,255,0.35)' : 'rgba(82,255,229,0.30)';
-  rr(ctx, -3, -8, 16, 16, 5);
+  // Hood and roof.
+  ctx.fillStyle = ghost ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.08)';
+  rr(ctx, 5, -11, 18, 22, 6);
   ctx.fill();
 
-  ctx.fillStyle = accent;
-  ctx.fillRect(21, -10, 3.5, 20);
+  ctx.fillStyle = ghost ? 'rgba(157,124,255,0.22)' : 'rgba(82,255,229,0.18)';
+  rr(ctx, -12, -10, 18, 20, 6);
+  ctx.fill();
 
-  if (!ghost) {
-    ctx.fillStyle = '#eafffb';
-    ctx.fillRect(27, -9, 4, 5);
-    ctx.fillRect(27, 4, 4, 5);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fillRect(24, -10, 5, 7);
+  ctx.fillRect(24, 3, 5, 7);
 
-    const braking = (opt.brake || 0) > 0.05;
-    ctx.fillStyle = braking ? COLORS.red : 'rgba(242,199,102,0.56)';
-    ctx.fillRect(-30, -9, 4, 5);
-    ctx.fillRect(-30, 4, 4, 5);
+  const braking = (opt.brake || 0) > 0.05;
+  ctx.fillStyle = braking ? COLORS.red : 'rgba(242,199,102,0.62)';
+  ctx.fillRect(-32, -10, 5, 7);
+  ctx.fillRect(-32, 3, 5, 7);
 
-    if (drift > 0.5) {
-      ctx.strokeStyle = `rgba(82,255,229,${0.14 + drift * 0.22})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-31, -12);
-      ctx.lineTo(-45 - drift * 14, -17);
-      ctx.moveTo(-31, 12);
-      ctx.lineTo(-45 - drift * 14, 17);
-      ctx.stroke();
-    }
+  if (!ghost && drift > 0.45) {
+    ctx.strokeStyle = `rgba(82,255,229,${0.10 + drift * 0.18})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-31, -12);
+    ctx.lineTo(-43 - drift * 10, -16);
+    ctx.moveTo(-31, 12);
+    ctx.lineTo(-43 - drift * 10, 16);
+    ctx.stroke();
   }
+
+  ctx.restore();
+}
+
+function drawRivalChip(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  ctx.beginPath();
+  ctx.ellipse(0, 7, 19, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const grad = ctx.createRadialGradient(-5, -5, 2, 0, 0, 18);
+  grad.addColorStop(0, '#d9ccff');
+  grad.addColorStop(0.45, COLORS.purple);
+  grad.addColorStop(1, '#342064');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, 14, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.50)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  ctx.beginPath();
+  ctx.moveTo(7, 0);
+  ctx.lineTo(-5, -5);
+  ctx.lineTo(-2, 0);
+  ctx.lineTo(-5, 5);
+  ctx.closePath();
+  ctx.fill();
 
   ctx.restore();
 }
@@ -1356,20 +1484,38 @@ function stepCar(
   const driftVisual = clamp(slip / 0.6 + (input.drift ? 0.2 : 0), 0, 1);
   car.driftPower = lerp(car.driftPower, driftVisual * smooth(50, 220, finalSpeed), 0.2);
 
-  // ---- progress + lap counting ----
+  // ---- progress + lap counting with invisible anti-cut checkpoints ----
   const after = queryTrack(center, total, car.x, car.y);
   car.progress = after.progress;
 
   let crossedFinish = false;
+
+  const nextCheckpoint = CHECKPOINTS[car.checkpoint];
+  if (typeof nextCheckpoint === 'number') {
+    const crossedCheckpoint =
+      prevProgress <= nextCheckpoint
+        ? car.progress >= nextCheckpoint
+        : car.progress >= nextCheckpoint || car.progress < prevProgress;
+
+    if (crossedCheckpoint) {
+      car.checkpoint = Math.min(car.checkpoint + 1, CHECKPOINTS.length);
+    }
+  }
 
   if (car.progress > 0.45 && car.progress < 0.75) {
     car.armed = true;
   }
 
   if (car.armed && prevProgress > 0.9 && car.progress < 0.1) {
-    car.armed = false;
-    car.lap = Math.min(car.lap + 1, TOTAL_LAPS);
-    crossedFinish = true;
+    if (car.checkpoint >= CHECKPOINTS.length) {
+      car.armed = false;
+      car.checkpoint = 0;
+      car.lap = Math.min(car.lap + 1, TOTAL_LAPS);
+      crossedFinish = true;
+    } else {
+      // Finish line touched after a hard cut: do not count the lap.
+      car.armed = false;
+    }
   }
 
   return {
@@ -1381,10 +1527,16 @@ function stepCar(
   };
 }
 
-function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarState, width: number, ghost: GhostBuffer) {
-  const size = 78;
+function drawMini(
+  ctx: CanvasRenderingContext2D,
+  center: CenterPt[],
+  car: CarState,
+  width: number,
+  rival: { x: number; y: number } | null,
+) {
+  const size = 82;
   const x = width - size - 12;
-  const y = 64;
+  const y = 58;
 
   let minX = Infinity;
   let minY = Infinity;
@@ -1409,15 +1561,15 @@ function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarSta
 
   ctx.save();
 
-  ctx.fillStyle = 'rgba(5,6,16,0.58)';
-  rr(ctx, x, y, size, size, 18);
+  ctx.fillStyle = 'rgba(5,6,16,0.62)';
+  rr(ctx, x, y, size, size, 20);
   ctx.fill();
 
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(82,255,229,0.52)';
+  ctx.strokeStyle = 'rgba(82,255,229,0.50)';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -1430,20 +1582,19 @@ function drawMini(ctx: CanvasRenderingContext2D, center: CenterPt[], car: CarSta
   ctx.closePath();
   ctx.stroke();
 
-  if (ghost.active) {
-    const g = ghost.sample(performance.now());
-
-    if (g) {
-      ctx.fillStyle = COLORS.purple;
-      ctx.beginPath();
-      ctx.arc(mx(g.x), my(g.y), 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  if (rival) {
+    ctx.fillStyle = COLORS.purple;
+    ctx.beginPath();
+    ctx.arc(mx(rival.x), my(rival.y), 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
   ctx.fillStyle = COLORS.gold;
   ctx.beginPath();
-  ctx.arc(mx(car.x), my(car.y), 3, 0, Math.PI * 2);
+  ctx.arc(mx(car.x), my(car.y), 3.6, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -1482,6 +1633,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         progress: 0,
         lap: 1,
         armed: false,
+        checkpoint: 0,
       }),
       [startPose],
     );
@@ -1519,6 +1671,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     const popups = useRef<Popup[]>([]);
 
     const ghost = useRef(new GhostBuffer());
+    const rivalRace = useRef(0.04);
 
     const selfRec = useRef<
       {
@@ -1530,7 +1683,6 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       }[]
     >([]);
 
-    const bestRec = useRef<typeof selfRec.current | null>(null);
 
     const camera = useRef({
       x: startPose.x,
@@ -1569,13 +1721,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     const [started, setStarted] = useState(false);
     const [stickActive, setStickActive] = useState(false);
     const [hud, setHud] = useState({
-      speed: 0,
+      position: 1,
       lap: 1,
-      drift: 0,
-      combo: 0,
-      banked: 0,
       lapTime: 0,
-      best: Infinity,
     });
 
     const doReset = useCallback(() => {
@@ -1586,6 +1734,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       trail.current = [];
       popups.current = [];
       selfRec.current = [];
+      rivalRace.current = 0.04;
 
       timing.current = {
         lapStart: performance.now(),
@@ -1646,7 +1795,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       if (!canvas || !wrap) return;
 
       const resize = () => {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = Math.min(window.devicePixelRatio || 1, PERF_DPR_CAP);
         const w = Math.max(1, wrap.clientWidth);
         const h = Math.max(1, wrap.clientHeight);
 
@@ -1815,21 +1964,21 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
         let guard = 0;
 
-        while (acc.current >= STEP && guard < 5) {
+        while (acc.current >= STEP && guard < 4) {
           const result = stepCar(car.current, inp, center, total);
           const c = car.current;
 
           acc.current -= STEP;
           guard += 1;
 
-          if (result.speed > 70 && c.driftPower > 0.16) {
+          if (result.speed > 115 && c.driftPower > 0.22) {
             const rx = -Math.sin(c.angle);
             const ry = Math.cos(c.angle);
 
             const backX = c.x - Math.cos(c.angle) * 21;
             const backY = c.y - Math.sin(c.angle) * 21;
 
-            if (c.driftPower > 0.22) {
+            if (c.driftPower > 0.38) {
               skids.current.push(
                 {
                   x1: backX - rx * 10,
@@ -1850,16 +1999,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
               );
             }
 
-            if (Math.random() > 0.6) {
-              spawnParticle(particles.current, backX, backY, 'smoke', 1, c.angle, 0.45 + c.driftPower * 0.85);
-            }
-
-            if (Math.random() > 0.84) {
-              spawnParticle(particles.current, backX, backY, 'glow', 1, c.angle, 0.5);
+            if (Math.random() > 0.86) {
+              spawnParticle(particles.current, backX, backY, 'smoke', 1, c.angle, 0.32 + c.driftPower * 0.55);
             }
           }
 
-          if (result.surface === 'off' && result.speed > 80 && Math.random() > 0.64) {
+          if (result.surface === 'off' && result.speed > 90 && Math.random() > 0.84) {
             spawnParticle(
               particles.current,
               c.x - Math.cos(c.angle) * 18,
@@ -1873,61 +2018,13 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
           if (result.hardHit) {
             camera.current.shake = Math.max(camera.current.shake, 0.5);
-            spawnParticle(particles.current, c.x, c.y, 'spark', 5, c.angle, 1.2);
+            spawnParticle(particles.current, c.x, c.y, 'spark', 3, c.angle, 1.0);
             combo.current.score = 0;
           }
 
-          const cm = combo.current;
-
-          if (c.driftPower > 0.32 && result.speed > 115) {
-            cm.ms += STEP * 1000;
-            cm.score += result.speed * c.driftPower * STEP * 0.68;
-            cm.idle = 0;
-          } else {
-            cm.idle += STEP * 1000;
-
-            if (cm.idle > 430 && cm.score > 28) {
-              const mult = 1 + Math.floor(cm.ms / 1600);
-              const gained = Math.round(cm.score * mult);
-
-              cm.banked += gained;
-
-              popups.current.push({
-                x: c.x,
-                y: c.y - 34,
-                life: 1.1,
-                text: `+${gained}${mult > 1 ? ` ×${mult}` : ''}`,
-                big: mult > 1,
-              });
-
-              cm.score = 0;
-              cm.ms = 0;
-            }
-          }
-
-          const recT = now - timing.current.lapStart;
-          const rec = selfRec.current;
-
-          if (rec.length === 0 || recT - rec[rec.length - 1].t > 40) {
-            rec.push({
-              t: recT,
-              x: c.x,
-              y: c.y,
-              angle: c.angle,
-              drift: c.driftPower,
-            });
-          }
-
+          // Drift scoring/popups are intentionally removed: this is a clean 1v1 race.
           if (result.crossedFinish) {
-            const lapMs = now - timing.current.lapStart;
-
-            if (lapMs < timing.current.best) {
-              timing.current.best = lapMs;
-              bestRec.current = selfRec.current.slice();
-            }
-
             timing.current.lapStart = now;
-            selfRec.current = [];
           }
         }
 
@@ -1950,6 +2047,16 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         const speed = Math.hypot(c.vx, c.vy);
         const cam = camera.current;
         const dtSec = Math.min(frameMs / 1000, 0.05);
+
+        rivalRace.current = Math.min(TOTAL_LAPS, rivalRace.current + dtSec * 0.026);
+        const fallbackProgress = rivalRace.current % 1;
+        const fallbackRival = sampleTrackPoint(center, total, fallbackProgress);
+        const remoteRival = ghost.current.sample(now);
+        const rival = remoteRival ?? { ...fallbackRival, drift: 0 };
+        const rivalTrack = queryTrack(center, total, rival.x, rival.y);
+        const playerRace = (c.lap - 1) + c.progress;
+        const rivalRaceScore = remoteRival ? (c.lap - 1) + rivalTrack.progress : rivalRace.current;
+        const position = playerRace >= rivalRaceScore ? 1 : 2;
 
         const camK = 1 - Math.exp(-dtSec / 0.16);
 
@@ -1999,66 +2106,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         drawTrail(ctx, trail.current, dt);
         drawParticles(ctx, particles.current, dt);
 
-        if (ghost.current.active) {
-          const g = ghost.current.sample(now);
-
-          if (g) {
-            drawCar(ctx, g.x, g.y, g.angle, {
-              ghost: true,
-              drift: g.drift,
-            });
-
-            if (g.drift > 0.4 && Math.random() > 0.75) {
-              spawnParticle(particles.current, g.x, g.y, 'smoke', 1, g.angle, 0.4);
-            }
-          }
-        } else if (selfGhost && bestRec.current && bestRec.current.length > 1) {
-          const rec = bestRec.current;
-          const tt = now - timing.current.lapStart;
-
-          if (tt <= rec[rec.length - 1].t) {
-            let lo = 0;
-            let hi = rec.length - 1;
-
-            while (lo < hi - 1) {
-              const mid = (lo + hi) >> 1;
-
-              if (rec[mid].t < tt) lo = mid;
-              else hi = mid;
-            }
-
-            const a = rec[lo];
-            const b = rec[hi];
-            const kRec = (tt - a.t) / (b.t - a.t || 1);
-
-            drawCar(ctx, lerp(a.x, b.x, kRec), lerp(a.y, b.y, kRec), a.angle + angleDiff(b.angle, a.angle) * kRec, {
-              ghost: true,
-              drift: lerp(a.drift, b.drift, kRec),
-            });
-          }
-        }
+        drawRivalChip(ctx, rival.x, rival.y, rival.angle);
 
         drawCar(ctx, c.x, c.y, c.angle, {
           drift: c.driftPower,
           brake: input.current.brake,
         });
-
-        for (let i = popups.current.length - 1; i >= 0; i -= 1) {
-          const pop = popups.current[i];
-
-          ctx.save();
-          ctx.globalAlpha = clamp(pop.life, 0, 1);
-          ctx.fillStyle = pop.big ? COLORS.gold : 'rgba(242,199,102,0.86)';
-          ctx.font = `800 ${pop.big ? 26 : 19}px ui-monospace, monospace`;
-          ctx.textAlign = 'center';
-          ctx.fillText(pop.text, pop.x, pop.y);
-          ctx.restore();
-
-          pop.y -= 36 * dt;
-          pop.life -= dt;
-
-          if (pop.life <= 0) popups.current.splice(i, 1);
-        }
 
         ctx.restore();
 
@@ -2077,19 +2130,15 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         ctx.fillStyle = vignette;
         ctx.fillRect(0, 0, v.w, v.h);
 
-        drawMini(ctx, center, c, v.w, ghost.current);
+        drawMini(ctx, center, c, v.w, rival);
 
         if (now - hudT.current > 90) {
           hudT.current = now;
 
           setHud({
-            speed: Math.round(speed * 0.42),
+            position,
             lap: c.lap,
-            drift: c.driftPower,
-            combo: Math.round(combo.current.score * (1 + Math.floor(combo.current.ms / 1600))),
-            banked: combo.current.banked,
             lapTime: now - timing.current.lapStart,
-            best: timing.current.best,
           });
         }
 
@@ -2201,11 +2250,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         <canvas ref={canvasRef} className="block h-full w-full" style={{ touchAction: 'none' }} />
 
         <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2">
-          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-[18px] border border-white/[0.07] bg-[#050610]/65 shadow-[0_14px_40px_rgba(0,0,0,0.4)] backdrop-blur-md">
+          <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#050610]/72 shadow-[0_14px_40px_rgba(0,0,0,0.42)] backdrop-blur-md">
             <div className="px-3 py-1.5 text-center">
-              <div className="text-lg font-extrabold leading-none tabular-nums text-white">
-                {hud.speed}
-                <span className="ml-0.5 align-top text-[8px] font-semibold text-white/40">км/ч</span>
+              <div className="text-[7px] font-semibold uppercase tracking-[0.22em] text-white/35">позиция</div>
+              <div className="text-sm font-extrabold leading-none tabular-nums text-[#F2C766]">
+                {hud.position}/2
               </div>
             </div>
 
@@ -2222,34 +2271,8 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
                 {fmtTime(hud.lapTime)}
               </div>
             </div>
-
-            <div className="px-3 py-1.5 text-center">
-              <div className="text-[7px] font-semibold uppercase tracking-[0.22em] text-white/35">очки</div>
-              <div className="text-sm font-extrabold leading-none tabular-nums text-[#F2C766]">
-                {hud.banked}
-              </div>
-            </div>
           </div>
         </div>
-
-        {Number.isFinite(hud.best) && (
-          <div className="pointer-events-none absolute left-1/2 top-[52px] -translate-x-1/2 rounded-full border border-white/[0.07] bg-[#050610]/55 px-3 py-0.5 text-[10px] tabular-nums text-[#9D7CFF] backdrop-blur-md">
-            лучший {fmtTime(hud.best)}
-          </div>
-        )}
-
-        {hud.combo > 30 && (
-          <div className="pointer-events-none absolute left-1/2 top-[84px] -translate-x-1/2 text-center">
-            <div
-              className="text-xl font-extrabold uppercase tracking-tight text-[#F2C766] drop-shadow-[0_0_14px_rgba(242,199,102,0.55)]"
-              style={{
-                transform: `scale(${1 + Math.min(hud.drift, 1) * 0.18})`,
-              }}
-            >
-              занос {hud.combo}
-            </div>
-          </div>
-        )}
 
         <button
           type="button"
@@ -2290,7 +2313,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
               }}
             >
               <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-white/25">
-                занос ↓
+                ручник ↓
               </div>
 
               <div
