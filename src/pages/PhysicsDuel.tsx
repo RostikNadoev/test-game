@@ -146,40 +146,40 @@ function generateStairs(seed: number): Stairs {
   let topY = 540;
   const MIN_TOP = -3200; // highest the climb may reach; gentler than before
   const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 6 + Math.floor(rnd() * 4);
+  let nextSafeIn = 8 + Math.floor(rnd() * 5);
 
   while (x < WORLD_LEN) {
     const platform = steps.length < 2; // first couple of steps: calm shared launch pad
     const safeZone = !platform && nextSafeIn <= 0;
 
-    // Width: a bit friendlier now. Ledges are still compact, but not as
-    // punishing, and recovery zones appear more often. This reduces the
-    // feeling of random holes while keeping the climb risky.
+    // Width: harder again. Most ledges are now narrow, wide breathers are rare,
+    // and recovery zones are not huge. This keeps the start wall fix, but brings
+    // back the skill requirement of precise landings.
     const wr = rnd();
     let width: number;
-    if (platform) width = 146 + rnd() * 26; // wider shared start, safer first throws
-    else if (safeZone) width = CUBE * (1.48 + rnd() * 0.16); // clear recovery ledge
-    else if (wr < 0.7) width = CUBE * (1.18 + rnd() * 0.08); // common: ~118–126% cube width
-    else if (wr < 0.94) width = CUBE * (1.28 + rnd() * 0.12); // more forgiving
-    else width = CUBE * (1.45 + rnd() * 0.14); // occasional breather
+    if (platform) width = 132 + rnd() * 20; // still safe at start, but not oversized
+    else if (safeZone) width = CUBE * (1.28 + rnd() * 0.1); // recovery ledge, smaller than before
+    else if (wr < 0.58) width = CUBE * (1.02 + rnd() * 0.07); // very common: tight ledges
+    else if (wr < 0.86) width = CUBE * (1.1 + rnd() * 0.08); // narrow but fair
+    else if (wr < 0.97) width = CUBE * (1.22 + rnd() * 0.1); // occasional medium ledge
+    else width = CUBE * (1.36 + rnd() * 0.1); // rare wide breather
 
-    // Height change: fewer sharp drops/pits. Two-level jumps are rarer, flats are
-    // more common, and downward steps almost never appear.
+    // Height change: still avoids ugly deep pits, but less flat than the easy version.
     const hr = rnd();
     let delta: number;
     if (platform) delta = 0; // flat launch pad
-    else if (safeZone) delta = rnd() < 0.62 ? 0 : -1; // recovery ledges are usually flat/fair
-    else if (hr < 0.56) delta = -1; // up one level, main rhythm
-    else if (hr < 0.68) delta = -2; // rare two-level climb
-    else if (hr < 0.985) delta = 0; // more short breathers, fewer holes
+    else if (safeZone) delta = rnd() < 0.52 ? 0 : -1; // recovery is fair, not free
+    else if (hr < 0.61) delta = -1; // up one level, main rhythm
+    else if (hr < 0.76) delta = -2; // some two-level climbs for challenge
+    else if (hr < 0.985) delta = 0; // breathers, but less dominant
     else delta = 1; // extremely rare one-level down step only
 
     topY += delta * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Crooked tops add danger, but keep them softer so fewer landings feel like pits.
-    const slope = !platform && !safeZone && rnd() < 0.16 ? (rnd() - 0.5) * 0.04 : 0;
+    // Crooked tops add danger again, but without turning the map into deep holes.
+    const slope = !platform && !safeZone && rnd() < 0.2 ? (rnd() - 0.5) * 0.048 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -204,7 +204,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    if (safeZone) nextSafeIn = 7 + Math.floor(rnd() * 5);
+    if (safeZone) nextSafeIn = 9 + Math.floor(rnd() * 6);
     else nextSafeIn -= 1;
   }
 
