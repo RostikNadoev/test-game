@@ -157,12 +157,12 @@ function generateStairs(seed: number): Stairs {
     // back the skill requirement of precise landings.
     const wr = rnd();
     let width: number;
-    if (platform) width = 132 + rnd() * 20; // still safe at start, but not oversized
-    else if (safeZone) width = CUBE * (1.28 + rnd() * 0.1); // recovery ledge, smaller than before
-    else if (wr < 0.58) width = CUBE * (1.02 + rnd() * 0.07); // very common: tight ledges
-    else if (wr < 0.86) width = CUBE * (1.1 + rnd() * 0.08); // narrow but fair
-    else if (wr < 0.97) width = CUBE * (1.22 + rnd() * 0.1); // occasional medium ledge
-    else width = CUBE * (1.36 + rnd() * 0.1); // rare wide breather
+    if (platform) width = 128 + rnd() * 18; // safe start, but a bit tighter
+    else if (safeZone) width = CUBE * (1.2 + rnd() * 0.1); // recovery ledge, no longer wide
+    else if (wr < 0.66) width = CUBE * (1.0 + rnd() * 0.07); // very common: tight ledges
+    else if (wr < 0.91) width = CUBE * (1.08 + rnd() * 0.08); // narrow but fair
+    else if (wr < 0.99) width = CUBE * (1.18 + rnd() * 0.08); // rare medium ledge
+    else width = CUBE * (1.3 + rnd() * 0.08); // very rare wide breather
 
     // Height change: still avoids ugly deep pits, but less flat than the easy version.
     const hr = rnd();
