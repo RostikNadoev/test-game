@@ -3175,3 +3175,252 @@ img {
   }
 }
 
+/* =========================================================
+   Solo games v3 overrides
+   Add this block to the END of src/index.css, after the v2 solo styles.
+   It makes /solo cleaner and makes solo game pages empty game mounts.
+   ========================================================= */
+
+.solo-page-v3 {
+  padding-top: 8px !important;
+}
+
+.solo-hero-v2,
+.solo-games-v2-list,
+.solo-bottom-note,
+.solo-back-v2,
+.solo-game-stage,
+.solo-game-workspace {
+  display: none !important;
+}
+
+.solo-hero-v3 {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 30px;
+  min-height: 150px;
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+.solo-hero-v3::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.solo-artwork-v3 {
+  --solo-accent: #57ffe0;
+  --solo-accent-soft: rgba(87, 255, 224, 0.13);
+
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  color: white;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.13), transparent 26%),
+    radial-gradient(circle at 28% 24%, var(--solo-accent-soft), transparent 44%),
+    radial-gradient(circle at 88% 78%, var(--solo-accent-soft), transparent 43%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012)),
+    rgba(8, 14, 25, 0.74);
+}
+
+.solo-artwork-v3-hero {
+  height: 154px;
+  border-radius: 30px;
+}
+
+.solo-artwork-v3-card {
+  aspect-ratio: 2.28 / 1;
+  border-radius: 27px;
+}
+
+.solo-artwork-v3 img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.08) contrast(1.04);
+}
+
+.solo-artwork-v3-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+}
+
+.solo-artwork-v3-placeholder::before {
+  content: '';
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--solo-accent-soft), transparent 70%);
+  filter: blur(1px);
+}
+
+.solo-artwork-v3-placeholder::after {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: 23px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.052), transparent 42%),
+    rgba(255, 255, 255, 0.012);
+}
+
+.solo-artwork-v3-placeholder span {
+  position: relative;
+  z-index: 2;
+  font-size: 56px;
+  line-height: 1;
+  filter: drop-shadow(0 15px 22px rgba(0, 0, 0, 0.4));
+  transform: translateY(-1px);
+}
+
+.solo-artwork-v3-hero .solo-artwork-v3-placeholder span {
+  font-size: 62px;
+}
+
+.solo-artwork-v3-glass {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.095), transparent 28%, transparent 72%, rgba(255, 255, 255, 0.03)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.18) 100%);
+}
+
+.solo-hero-v3-count {
+  position: absolute;
+  z-index: 6;
+  left: 14px;
+  bottom: 13px;
+  display: inline-flex;
+  height: 42px;
+  align-items: center;
+  gap: 7px;
+  border-radius: 18px;
+  padding: 0 13px;
+  color: white;
+  background: rgba(4, 9, 17, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.solo-hero-v3-count span {
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.solo-hero-v3-count small {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.solo-games-v3-list {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.solo-game-v3-card {
+  --solo-accent: #57ffe0;
+  --solo-accent-soft: rgba(87, 255, 224, 0.13);
+
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 29px;
+  padding: 0;
+  color: white;
+  text-align: left;
+  background: transparent;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+  animation: soloCardIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--solo-delay);
+}
+
+.solo-game-v3-card::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.solo-game-v3-title {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 52px 14px 13px;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.52));
+}
+
+.solo-game-v3-title h2 {
+  overflow: hidden;
+  color: white;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 8px 18px rgba(0, 0, 0, 0.42);
+}
+
+.solo-game-clean-page {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+.solo-game-clean-mount {
+  position: relative;
+  width: 100%;
+  min-height: calc(100dvh - 112px - var(--telegram-top-offset));
+  overflow: hidden;
+  background: transparent;
+}
+
+@media (max-height: 690px) {
+  .solo-artwork-v3-hero {
+    height: 136px;
+  }
+
+  .solo-artwork-v3-card {
+    aspect-ratio: 2.55 / 1;
+  }
+}
