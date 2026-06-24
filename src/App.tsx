@@ -8,7 +8,11 @@ import { Home } from './pages/Home';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { SoloGames } from './pages/SoloGames';
-import { SoloGamePlaceholder } from './pages/SoloGamePlaceholder';
+import { FruitCascadeSoloGame } from './pages/solo/FruitCascadeSoloGame';
+import { Royal5x5SoloGame } from './pages/solo/Royal5x5SoloGame';
+import { CrystalMinesSoloGame } from './pages/solo/CrystalMinesSoloGame';
+import { TurboTowerSoloGame } from './pages/solo/TurboTowerSoloGame';
+import { NeonScratchSoloGame } from './pages/solo/NeonScratchSoloGame';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
@@ -30,7 +34,7 @@ const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
 const SOLO_ROUTE_PREFIX = '/solo';
 
 const APP_LOADER_FALLBACK_MS = 3600;
-const SOLO_PAGE_LOADER_MS = 760;
+const SOLO_PAGE_LOADER_MS = 620;
 
 type TelegramWebApp = {
   ready?: () => void;
@@ -199,7 +203,7 @@ function AppShell() {
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-    const themeColor = isSoloRoute ? '#07111f' : '#09090d';
+    const themeColor = isSoloRoute ? '#060b14' : '#09090d';
 
     tg?.setHeaderColor?.(themeColor);
     tg?.setBackgroundColor?.(themeColor);
@@ -245,21 +249,27 @@ function AppShell() {
     <div
       className={[
         'relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden pt-[var(--telegram-top-offset)]',
-        isSoloRoute ? 'solo-app-shell bg-[#07111f]' : 'bg-[#09090d]',
+        isSoloRoute ? 'solo-app-shell bg-[#060b14]' : 'bg-[#09090d]',
       ].join(' ')}
     >
       <Header />
 
       <main
-        className={`relative z-10 w-full min-w-0 flex-1 overflow-x-hidden ${
-          isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24'
-        }`}
+        className={[
+          'relative z-10 w-full min-w-0 flex-1 overflow-x-hidden',
+          isSoloRoute ? 'solo-main' : '',
+          isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24',
+        ].join(' ')}
       >
         {shouldMountRoutes ? (
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/solo" element={<SoloGames />} />
-            <Route path="/solo/:gameSlug" element={<SoloGamePlaceholder />} />
+            <Route path="/solo/fruit-cascade" element={<FruitCascadeSoloGame />} />
+            <Route path="/solo/royal-5x5" element={<Royal5x5SoloGame />} />
+            <Route path="/solo/crystal-mines" element={<CrystalMinesSoloGame />} />
+            <Route path="/solo/turbo-tower" element={<TurboTowerSoloGame />} />
+            <Route path="/solo/neon-scratch" element={<NeonScratchSoloGame />} />
 
             <Route path="/game/plinko_pvp/play" element={<PlinkoPvpGame />} />
             <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
@@ -283,7 +293,7 @@ function AppShell() {
         ) : shouldShowSoloLoader ? (
           <SoloPageLoader />
         ) : (
-          <div className={isSoloRoute ? 'h-full w-full bg-[#07111f]' : 'h-full w-full bg-[#09090d]'} />
+          <div className={isSoloRoute ? 'h-full w-full bg-transparent' : 'h-full w-full bg-[#09090d]'} />
         )}
       </main>
 
