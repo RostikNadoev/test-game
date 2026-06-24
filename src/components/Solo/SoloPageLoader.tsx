@@ -2,30 +2,19 @@ import { type CSSProperties } from 'react';
 
 export const SoloPageLoader = () => {
   return (
-    <div className="solo-loader-page">
-      <div className="solo-loader-orb" aria-hidden="true">
-        <span />
+    <div className="solo-loader-page-v2">
+      <div className="solo-loader-mark" aria-hidden="true">
         <span />
         <span />
       </div>
 
-      <p className="solo-loader-kicker">
-        Loading solo zone
-      </p>
-
-      <div className="solo-loader-stack" aria-hidden="true">
+      <div className="solo-loader-list" aria-hidden="true">
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             key={index}
-            className="solo-loader-card"
-            style={{ '--loader-delay': `${index * 70}ms` } as CSSProperties}
-          >
-            <span />
-            <div>
-              <i />
-              <b />
-            </div>
-          </div>
+            className="solo-loader-line"
+            style={{ '--loader-delay': `${index * 60}ms` } as CSSProperties}
+          />
         ))}
       </div>
     </div>
