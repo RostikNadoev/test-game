@@ -1,9 +1,10 @@
 import { type CSSProperties } from 'react';
-import { Home, Trophy, User } from 'lucide-react';
+import { Gamepad2, Home, Trophy, User } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 const navItems = [
   { to: '/', icon: Home, label: 'Home' },
+  { to: '/solo', icon: Gamepad2, label: 'Solo' },
   { to: '/rating', icon: Trophy, label: 'Rating' },
   { to: '/profile', icon: User, label: 'Profile' },
 ];
@@ -26,11 +27,14 @@ export const BottomNav = () => {
 
       <div
         className="bottom-dock"
-        style={{ '--active-index': activeIndex } as CSSProperties}
+        style={{
+          '--active-index': activeIndex,
+          '--nav-count': navItems.length,
+        } as CSSProperties}
       >
         <span className="nav-active-bg" />
 
-        <div className="relative z-10 grid grid-cols-3">
+        <div className="relative z-10 grid grid-cols-4">
           {navItems.map((item) => {
             const Icon = item.icon;
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Loader2, UserRound, Wallet } from 'lucide-react';
 import { useAuth } from '../../auth/AuthProvider';
 import { WalletModal } from '../Wallet/WalletModal';
@@ -11,6 +12,9 @@ const getInitials = (name?: string) => {
   if (!name) return 'TG';
   return name.replace('@', '').slice(0, 2).toUpperCase();
 };
+
+const isSoloPath = (pathname: string) =>
+  pathname === '/solo' || pathname.startsWith('/solo/');
 
 const GameCoinIcon = ({ className = '' }: { className?: string }) => {
   return (
@@ -80,18 +84,20 @@ const GameCoinIcon = ({ className = '' }: { className?: string }) => {
 };
 
 export const Header = () => {
+  const location = useLocation();
   const { user, isLoading, error } = useAuth();
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const isSoloSection = isSoloPath(location.pathname);
 
   return (
     <>
       <header className="relative z-50 shrink-0 px-4 pt-[calc(var(--telegram-top-offset)+12px)] pb-1">
-        <div className="app-panel header-panel rounded-[23px] px-3 py-2">
+        <div className={`app-panel header-panel rounded-[23px] px-3 py-2 ${isSoloSection ? 'solo-header-panel' : ''}`}>
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1">
               {isLoading ? (
                 <div className="flex items-center gap-2">
-                  <div className="avatar-box">
+                  <div className={`avatar-box ${isSoloSection ? 'solo-avatar-box' : ''}`}>
                     <Loader2 size={14} className="animate-spin text-slate-300" />
                   </div>
 
@@ -106,7 +112,7 @@ export const Header = () => {
                 </div>
               ) : user ? (
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <div className="avatar-box overflow-hidden">
+                  <div className={`avatar-box overflow-hidden ${isSoloSection ? 'solo-avatar-box' : ''}`}>
                     {user.photo_url ? (
                       <img
                         src={user.photo_url}
@@ -124,9 +130,18 @@ export const Header = () => {
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-safe truncate text-[12px] font-bold text-white">
-                      {user.tg_user || 'Player'}
-                    </p>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p className="text-safe truncate text-[12px] font-bold text-white">
+                        {user.tg_user || 'Player'}
+                      </p>
+
+                      {isSoloSection && (
+                        <span className="solo-header-badge">
+                          Solo
+                        </span>
+                      )}
+                    </div>
+
                     <p className="text-safe truncate text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
                       ID {user.telegram_id}
                     </p>
@@ -134,7 +149,7 @@ export const Header = () => {
                 </div>
               ) : (
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <div className="avatar-box border-red-400/15 bg-red-400/10">
+                  <div className={`avatar-box border-red-400/15 bg-red-400/10 ${isSoloSection ? 'solo-avatar-box' : ''}`}>
                     <UserRound size={15} className="text-red-300" />
                   </div>
 
@@ -151,7 +166,7 @@ export const Header = () => {
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
-              <div className="balance-pill balance-ton">
+              <div className={`balance-pill balance-ton ${isSoloSection ? 'solo-balance-ton' : ''}`}>
                 <img
                   src={tonIcon}
                   alt=""
@@ -163,7 +178,7 @@ export const Header = () => {
                 </span>
               </div>
 
-              <div className="balance-pill balance-game">
+              <div className={`balance-pill balance-game ${isSoloSection ? 'solo-balance-game' : ''}`}>
                 <GameCoinIcon className="h-[17px] w-[17px] shrink-0" />
                 <span className="text-safe text-[10px] font-bold tabular-nums text-white">
                   {formatNumber(user?.balance_game ?? 0)}
@@ -174,7 +189,7 @@ export const Header = () => {
                 type="button"
                 onClick={() => setIsWalletOpen(true)}
                 aria-label="Open wallet"
-                className="pressable wallet-button"
+                className={`pressable wallet-button ${isSoloSection ? 'solo-wallet-button' : ''}`}
               >
                 <Wallet size={15} className="text-slate-300" />
               </button>

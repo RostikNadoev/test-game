@@ -1,11 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
 import { GameIntroOverlay } from './components/GameIntroOverlay';
+import { SoloPageLoader } from './components/Solo/SoloPageLoader';
 import { Home } from './pages/Home';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
+import { SoloGames } from './pages/SoloGames';
+import { SoloGamePlaceholder } from './pages/SoloGamePlaceholder';
 import { RaceGame } from './pages/RaceGame';
 import { AirHockeyGame } from './pages/AirHockeyGame';
 import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
@@ -23,9 +26,11 @@ import PlinkoPvpGame from './pages/PlinkoPvpGame';
 import { GAME_TITLE_BY_PLAY_PATH, LOCKED_GAME_ROUTES } from './data/games';
 import appLoaderGif from './assets/app-loader.gif';
 
-const FOOTER_ROUTES = ['/', '/profile', '/rating'];
+const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
+const SOLO_ROUTE_PREFIX = '/solo';
 
 const APP_LOADER_FALLBACK_MS = 3600;
+const SOLO_PAGE_LOADER_MS = 760;
 
 type TelegramWebApp = {
   ready?: () => void;
@@ -48,6 +53,10 @@ type TelegramWebApp = {
 
 function getTelegramWebApp() {
   return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+}
+
+function isSoloPath(pathname: string) {
+  return pathname === SOLO_ROUTE_PREFIX || pathname.startsWith(`${SOLO_ROUTE_PREFIX}/`);
 }
 
 async function getGifDurationMs(src: string) {
@@ -138,13 +147,17 @@ function AppShell() {
 
   const [introCompletedPath, setIntroCompletedPath] = useState<string | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [soloLoadingPath, setSoloLoadingPath] = useState<string | null>(null);
+  const previousPathRef = useRef(location.pathname);
 
+  const isSoloRoute = isSoloPath(location.pathname);
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const gameIntroTitle = GAME_TITLE_BY_PLAY_PATH[location.pathname] || null;
 
   const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
-  const shouldMountRoutes = !shouldShowGameIntro;
+  const shouldShowSoloLoader = soloLoadingPath === location.pathname;
+  const shouldMountRoutes = !shouldShowGameIntro && !shouldShowSoloLoader;
 
   useEffect(() => {
     if (!gameIntroTitle) {
@@ -152,19 +165,45 @@ function AppShell() {
     }
   }, [gameIntroTitle]);
 
+  useLayoutEffect(() => {
+    const previousPath = previousPathRef.current;
+    const wasSoloRoute = isSoloPath(previousPath);
+    const enteredSoloHub = location.pathname === SOLO_ROUTE_PREFIX && !wasSoloRoute;
+
+    previousPathRef.current = location.pathname;
+
+    if (!enteredSoloHub) {
+      return;
+    }
+
+    setSoloLoadingPath(location.pathname);
+
+    const timer = window.setTimeout(() => {
+      setSoloLoadingPath(null);
+    }, SOLO_PAGE_LOADER_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [location.pathname]);
+
   useEffect(() => {
     const tg = getTelegramWebApp();
 
     tg?.ready?.();
     tg?.expand?.();
     tg?.disableVerticalSwipes?.();
-    tg?.setHeaderColor?.('#09090d');
-    tg?.setBackgroundColor?.('#09090d');
 
     if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
       tg?.lockOrientation?.();
     }
   }, []);
+
+  useEffect(() => {
+    const tg = getTelegramWebApp();
+    const themeColor = isSoloRoute ? '#07111f' : '#09090d';
+
+    tg?.setHeaderColor?.(themeColor);
+    tg?.setBackgroundColor?.(themeColor);
+  }, [isSoloRoute]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -203,7 +242,12 @@ function AppShell() {
   }
 
   return (
-    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden bg-[#09090d] pt-[var(--telegram-top-offset)]">
+    <div
+      className={[
+        'relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden pt-[var(--telegram-top-offset)]',
+        isSoloRoute ? 'solo-app-shell bg-[#07111f]' : 'bg-[#09090d]',
+      ].join(' ')}
+    >
       <Header />
 
       <main
@@ -214,6 +258,8 @@ function AppShell() {
         {shouldMountRoutes ? (
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/solo" element={<SoloGames />} />
+            <Route path="/solo/:gameSlug" element={<SoloGamePlaceholder />} />
 
             <Route path="/game/plinko_pvp/play" element={<PlinkoPvpGame />} />
             <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
@@ -234,8 +280,10 @@ function AppShell() {
             <Route path="/rating" element={<Rating />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+        ) : shouldShowSoloLoader ? (
+          <SoloPageLoader />
         ) : (
-          <div className="h-full w-full bg-[#09090d]" />
+          <div className={isSoloRoute ? 'h-full w-full bg-[#07111f]' : 'h-full w-full bg-[#09090d]'} />
         )}
       </main>
 
