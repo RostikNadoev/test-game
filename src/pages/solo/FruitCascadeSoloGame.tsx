@@ -23,20 +23,21 @@ type SymbolId =
 interface SymbolDef {
   id: SymbolId;
   name: string;
-  /** payout per symbol in a cluster, multiplied by cluster size factor */
+  /** payout per symbol in a cluster, multiplied by cluster size + cascade */
   pay: number;
   weight: number; // spawn likelihood
   glow: string; // accent color used for glow/halo
 }
 
+/* Payouts bumped ~30% and weights nudged so medium clusters land more often. */
 const SYMBOLS: Record<SymbolId, SymbolDef> = {
-  cherry: { id: 'cherry', name: 'Cherry', pay: 0.4, weight: 22, glow: '#ff4d6d' },
-  lemon: { id: 'lemon', name: 'Lemon', pay: 0.5, weight: 20, glow: '#ffe14d' },
-  orange: { id: 'orange', name: 'Orange', pay: 0.6, weight: 18, glow: '#ff9a3d' },
-  grape: { id: 'grape', name: 'Grape', pay: 0.9, weight: 15, glow: '#b06bff' },
-  strawberry: { id: 'strawberry', name: 'Strawberry', pay: 1.2, weight: 13, glow: '#ff5c7a' },
-  watermelon: { id: 'watermelon', name: 'Watermelon', pay: 1.8, weight: 9, glow: '#3ddc84' },
-  wild: { id: 'wild', name: 'Golden Star', pay: 5, weight: 3, glow: '#ffd34d' },
+  cherry: { id: 'cherry', name: 'Cherry', pay: 0.52, weight: 21, glow: '#ff4d6d' },
+  lemon: { id: 'lemon', name: 'Lemon', pay: 0.66, weight: 20, glow: '#ffe14d' },
+  orange: { id: 'orange', name: 'Orange', pay: 0.8, weight: 18, glow: '#ff9a3d' },
+  grape: { id: 'grape', name: 'Grape', pay: 1.2, weight: 15, glow: '#b06bff' },
+  strawberry: { id: 'strawberry', name: 'Strawberry', pay: 1.6, weight: 13, glow: '#ff5c7a' },
+  watermelon: { id: 'watermelon', name: 'Watermelon', pay: 2.4, weight: 9, glow: '#3ddc84' },
+  wild: { id: 'wild', name: 'Golden Star', pay: 6.5, weight: 4, glow: '#ffd34d' },
 };
 
 const SYMBOL_ORDER: SymbolId[] = [
@@ -51,13 +52,23 @@ const SYMBOL_ORDER: SymbolId[] = [
 
 const BET_STEPS = [0.2, 0.5, 1, 2, 5, 10, 20, 50];
 
+/* Cascade pacing (ms) — bigger, more dramatic pauses. */
+const T_HIGHLIGHT = 540;
+const T_POP = 680;
+const T_PAUSE_BEFORE_DROP = 200;
+const T_DROP = 760;
+const T_PAUSE_AFTER = 320;
+
 /* ----------------------------------------------------------------------------
  * SVG symbols — detailed, gradient-rich, casino depth.
  * Each is rendered inside a 0..100 viewBox.
  * --------------------------------------------------------------------------*/
 
+let GRAD_SEQ = 1;
+
 const SymbolSVG = ({ id, size = 56 }: { id: SymbolId; size?: number }) => {
-  const uid = useMemo(() => Math.random().toString(36).slice(2, 8), []);
+  // stable per-instance id (no Math.random in render path)
+  const uid = useMemo(() => `g${GRAD_SEQ++}`, []);
   const g = (n: string) => `${id}-${n}-${uid}`;
 
   switch (id) {
@@ -231,8 +242,15 @@ interface Cell {
   fallDelay: number; // ms used for stagger
 }
 
+interface WinToast {
+  id: number;
+  amount: number;
+}
+
 let CELL_SEQ = 1;
 const nextId = () => CELL_SEQ++;
+let TOAST_SEQ = 1;
+const nextToastId = () => TOAST_SEQ++;
 
 const WEIGHT_TABLE: SymbolId[] = (() => {
   const t: SymbolId[] = [];
@@ -336,12 +354,13 @@ const LoadingScreen = ({ progress }: { progress: number }) => {
 };
 
 /* ----------------------------------------------------------------------------
- * Info modal
+ * Info modal — compact bottom sheet
  * --------------------------------------------------------------------------*/
 
 const InfoModal = ({ onClose, bet }: { onClose: () => void; bet: number }) => (
   <div className="fc-modal-overlay" onClick={onClose}>
     <div className="fc-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="fc-modal-grip" />
       <div className="fc-modal-head">
         <h2>How to Play</h2>
         <button className="fc-modal-close" onClick={onClose} aria-label="Close">
@@ -350,39 +369,31 @@ const InfoModal = ({ onClose, bet }: { onClose: () => void; bet: number }) => (
       </div>
       <div className="fc-modal-body">
         <section>
-          <h3>The basics</h3>
+          <h3>Basics</h3>
           <p>
-            Spin to drop fruit onto a 6×5 field. Land <b>{MIN_CLUSTER} or more</b> identical fruits
-            touching each other (up, down, left or right) to win.
+            Land <b>{MIN_CLUSTER}+</b> matching fruits touching each other (up, down, left, right)
+            to win.
           </p>
         </section>
         <section>
-          <h3>Cascades</h3>
+          <h3>Cascades &amp; multiplier</h3>
           <p>
-            Winning fruits burst and disappear. New fruit falls in to fill the gaps — and if that
-            creates another win, it pays again. Cascades keep chaining for as long as new clusters
-            form.
+            Winning fruits burst and new fruit drops in. Each new win in the same spin raises the
+            multiplier <b>×1, ×2, ×3…</b>
           </p>
         </section>
         <section>
-          <h3>Multiplier</h3>
-          <p>
-            Every cascade in a single spin raises the multiplier: <b>×1, ×2, ×3…</b> Longer chains
-            mean bigger payouts.
-          </p>
-        </section>
-        <section>
-          <h3>Golden Star is wild</h3>
-          <p>The golden star joins any cluster as a matching fruit and pays the most on its own.</p>
+          <h3>Wild</h3>
+          <p>The golden star joins any cluster and pays the most on its own.</p>
         </section>
         <section>
           <h3>Paytable</h3>
-          <p className="fc-pay-note">Per fruit in a cluster, at current bet {bet.toFixed(2)}.</p>
+          <p className="fc-pay-note">Per fruit in a cluster at bet {bet.toFixed(2)}.</p>
           <div className="fc-pay-grid">
             {SYMBOL_ORDER.map((s) => (
               <div className="fc-pay-row" key={s}>
                 <div className="fc-pay-sym">
-                  <SymbolSVG id={s} size={34} />
+                  <SymbolSVG id={s} size={26} />
                 </div>
                 <div className="fc-pay-name">{SYMBOLS[s].name}</div>
                 <div className="fc-pay-val">{(SYMBOLS[s].pay * (bet / 10)).toFixed(2)}</div>
@@ -396,35 +407,52 @@ const InfoModal = ({ onClose, bet }: { onClose: () => void; bet: number }) => (
 );
 
 /* ----------------------------------------------------------------------------
- * Floating win text + big win overlay
+ * Big win overlay
  * --------------------------------------------------------------------------*/
 
-const FloatingWin = ({ amount }: { amount: number }) => (
-  <div className="fc-float-win" key={amount + Math.random()}>
-    +{amount.toFixed(2)}
-  </div>
-);
+type BigTier = null | 'big' | 'mega' | 'epic';
 
-type BigTier = null | 'big' | 'mega';
+const TIER_LABEL: Record<Exclude<BigTier, null>, string> = {
+  big: 'BIG WIN',
+  mega: 'MEGA WIN',
+  epic: 'EPIC WIN',
+};
 
-const BigWinOverlay = ({ tier, amount }: { tier: BigTier; amount: number }) => {
-  if (!tier) return null;
+const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount: number }) => {
+  const [shown, setShown] = useState(0);
+
+  // animated count-up
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const dur = 1100;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(amount * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [amount]);
+
   return (
     <div className="fc-bigwin-overlay">
+      <div className="fc-bigwin-pulse" />
       <div className="fc-confetti">
-        {Array.from({ length: 28 }).map((_, i) => (
+        {Array.from({ length: 34 }).map((_, i) => (
           <span
             key={i}
             style={{
-              left: `${(i * 37) % 100}%`,
-              animationDelay: `${(i % 7) * 0.12}s`,
+              left: `${(i * 29) % 100}%`,
+              animationDelay: `${(i % 9) * 0.1}s`,
               background: ['#ffd34d', '#ff5c7a', '#3ddc84', '#b06bff', '#3da8ff'][i % 5],
             }}
           />
         ))}
       </div>
-      <div className={`fc-bigwin-text ${tier}`}>{tier === 'mega' ? 'MEGA WIN' : 'BIG WIN'}</div>
-      <div className="fc-bigwin-amount">{amount.toFixed(2)}</div>
+      <div className={`fc-bigwin-text ${tier}`}>{TIER_LABEL[tier]}</div>
+      <div className="fc-bigwin-amount">{shown.toFixed(2)}</div>
     </div>
   );
 };
@@ -450,25 +478,36 @@ const InnerGame = () => {
 
   const [winCells, setWinCells] = useState<Set<number>>(new Set());
   const [multiplier, setMultiplier] = useState(1);
-  const [floatWins, setFloatWins] = useState<number[]>([]);
-  const [spinWin, setSpinWin] = useState(0);
+  const [toasts, setToasts] = useState<WinToast[]>([]);
+  const [displayWin, setDisplayWin] = useState(0); // smooth, persistent total
+  const [boardFlash, setBoardFlash] = useState(false);
   const [bigTier, setBigTier] = useState<BigTier>(null);
-  const [lastWin, setLastWin] = useState(0);
+  const [bigAmount, setBigAmount] = useState(0);
 
   const autoRef = useRef(auto);
   autoRef.current = auto;
   const spinningRef = useRef(spinning);
   spinningRef.current = spinning;
+  const balanceRef = useRef(balance);
+  balanceRef.current = balance;
+
+  /* mount: add global class so the casino background covers the whole page */
+  useEffect(() => {
+    document.body.classList.add('fruit-cascade-active');
+    document.documentElement.classList.add('fruit-cascade-active');
+    return () => {
+      document.body.classList.remove('fruit-cascade-active');
+      document.documentElement.classList.remove('fruit-cascade-active');
+    };
+  }, []);
 
   /* loading sequence */
   useEffect(() => {
-    let frame = 0;
     const total = 2100;
     const start = performance.now();
     let raf = 0;
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / total);
-      // ease-out
       const eased = 1 - Math.pow(1 - t, 2.2);
       setLoadPct(eased * 100);
       if (t < 1) {
@@ -476,40 +515,62 @@ const InnerGame = () => {
       } else {
         setTimeout(() => setLoading(false), 220);
       }
-      frame++;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const pushFloat = useCallback((amount: number) => {
-    setFloatWins((f) => [...f, amount]);
-    setTimeout(() => setFloatWins((f) => f.slice(1)), 1100);
+  /* smooth count-up for the win bar whenever displayWin target changes */
+  const winTargetRef = useRef(0);
+  const [winShown, setWinShown] = useState(0);
+  useEffect(() => {
+    winTargetRef.current = displayWin;
+    let raf = 0;
+    const animate = () => {
+      setWinShown((prev) => {
+        const target = winTargetRef.current;
+        const diff = target - prev;
+        if (Math.abs(diff) < 0.01) return target;
+        return prev + diff * 0.18;
+      });
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, [displayWin]);
+
+  const pushToast = useCallback((amount: number) => {
+    const id = nextToastId();
+    setToasts((t) => [...t, { id, amount }]);
+    setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+    }, 1150);
   }, []);
 
   const spin = useCallback(async () => {
     if (spinningRef.current) return;
-    if (balance < bet) {
+    if (balanceRef.current < bet) {
       setAuto(false);
       return;
     }
 
     setSpinning(true);
     setBalance((b) => +(b - bet).toFixed(2));
-    setSpinWin(0);
-    setLastWin(0);
+    setDisplayWin(0);
+    setWinShown(0);
     setBigTier(null);
     setMultiplier(1);
     setWinCells(new Set());
+    setToasts([]);
 
-    // fresh drop
+    // fresh drop with staggered delays
     const fresh = Array.from({ length: CELL_COUNT }, (_, i) =>
-      makeCell('falling', (i % COLS) * 30 + Math.floor(i / COLS) * 18),
+      makeCell('falling', (i % COLS) * 36 + Math.floor(i / COLS) * 26),
     );
     setBoard(fresh);
-    await sleep(520);
+    await sleep(T_DROP);
     setBoard((b) => b.map((c) => ({ ...c, state: 'idle' })));
-    await sleep(120);
+    await sleep(T_PAUSE_BEFORE_DROP);
 
     let current = fresh.map((c) => ({ ...c, state: 'idle' as const }));
     let totalWin = 0;
@@ -520,31 +581,42 @@ const InnerGame = () => {
       if (clusters.length === 0) break;
 
       cascade++;
-      const mult = cascade;
+      const mult = cascade; // ×1, ×2, ×3 ...
       setMultiplier(mult);
 
       const winning = new Set<number>();
       let stepWin = 0;
       for (const group of clusters) {
-        // base symbol = first non-wild in group
-        const baseIdx = group.find((g) => current[g].sym !== 'wild') ?? group[0];
+        const baseIdx = group.find((gi) => current[gi].sym !== 'wild') ?? group[0];
         const baseSym = current[baseIdx].sym;
-        const sizeFactor = 1 + (group.length - MIN_CLUSTER) * 0.35;
-        const clusterPay = SYMBOLS[baseSym].pay * sizeFactor * (bet / 10) * group.length;
+        const wildCount = group.filter((gi) => current[gi].sym === 'wild').length;
+        // size factor a touch steeper; wilds add a bonus contribution
+        const sizeFactor = 1 + (group.length - MIN_CLUSTER) * 0.42;
+        const wildBonus = 1 + wildCount * 0.25;
+        const clusterPay =
+          SYMBOLS[baseSym].pay * sizeFactor * wildBonus * (bet / 10) * group.length;
         stepWin += clusterPay;
-        group.forEach((g) => winning.add(g));
+        group.forEach((gi) => winning.add(gi));
       }
       stepWin = +(stepWin * mult).toFixed(2);
       totalWin += stepWin;
 
-      // highlight + pop
+      // highlight winners
       setWinCells(new Set(winning));
-      setBoard(current.map((c, i) => (winning.has(i) ? { ...c, state: 'pop' } : c)));
-      pushFloat(stepWin);
-      setSpinWin((w) => +(w + stepWin).toFixed(2));
-      await sleep(520);
+      await sleep(T_HIGHLIGHT);
 
-      // collapse columns: remove winning, drop survivors, add new on top
+      // pop / burst (+ board flash for larger cascades)
+      setBoard(current.map((c, i) => (winning.has(i) ? { ...c, state: 'pop' } : c)));
+      if (winning.size >= 8 || mult >= 3) {
+        setBoardFlash(true);
+        setTimeout(() => setBoardFlash(false), 280);
+      }
+      pushToast(stepWin);
+      setDisplayWin((w) => +(w + stepWin).toFixed(2));
+      await sleep(T_POP);
+      await sleep(T_PAUSE_BEFORE_DROP);
+
+      // collapse columns: survivors fall, new spawn on top
       const next: Cell[] = current.map((c) => ({ ...c }));
       for (let c = 0; c < COLS; c++) {
         const colCells: Cell[] = [];
@@ -555,9 +627,8 @@ const InnerGame = () => {
         const missing = ROWS - colCells.length;
         const rebuilt: Cell[] = [];
         for (let m = 0; m < missing; m++) {
-          rebuilt.push(makeCell('falling', m * 40));
+          rebuilt.push(makeCell('falling', m * 52));
         }
-        // place from top: new fallers first, then survivors
         const columnTopToBottom = [...rebuilt, ...colCells.reverse()];
         for (let r = 0; r < ROWS; r++) {
           const cell = columnTopToBottom[r];
@@ -569,24 +640,26 @@ const InnerGame = () => {
       }
       setWinCells(new Set());
       setBoard(next);
-      await sleep(360);
+      await sleep(T_DROP);
       setBoard((b) => b.map((c) => ({ ...c, state: 'idle' })));
       current = next.map((c) => ({ ...c, state: 'idle' as const }));
-      await sleep(120);
+      await sleep(T_PAUSE_AFTER);
     }
 
     totalWin = +totalWin.toFixed(2);
     if (totalWin > 0) {
       setBalance((b) => +(b + totalWin).toFixed(2));
-      setLastWin(totalWin);
+      setDisplayWin(totalWin); // keep total visible until next spin
       const ratio = totalWin / bet;
-      if (ratio >= 25) {
-        setBigTier('mega');
-        await sleep(2600);
-        setBigTier(null);
-      } else if (ratio >= 10) {
-        setBigTier('big');
-        await sleep(2200);
+      let tier: BigTier = null;
+      if (ratio >= 35) tier = 'epic';
+      else if (ratio >= 18) tier = 'mega';
+      else if (ratio >= 8) tier = 'big';
+
+      if (tier) {
+        setBigAmount(totalWin);
+        setBigTier(tier);
+        await sleep(tier === 'epic' ? 3000 : tier === 'mega' ? 2600 : 2200);
         setBigTier(null);
       }
     }
@@ -595,17 +668,16 @@ const InnerGame = () => {
     setSpinning(false);
 
     if (autoRef.current) {
-      await sleep(400);
+      await sleep(450);
       if (autoRef.current && !spinningRef.current) {
-        // guard against insufficient funds
-        setBalance((b) => {
-          if (b < bet) setAuto(false);
-          return b;
-        });
-        spin();
+        if (balanceRef.current < bet) {
+          setAuto(false);
+        } else {
+          spin();
+        }
       }
     }
-  }, [balance, bet, pushFloat]);
+  }, [bet, pushToast]);
 
   // kick off auto when toggled on while idle
   useEffect(() => {
@@ -623,6 +695,7 @@ const InnerGame = () => {
     return (
       <div className="fc-root">
         <StyleBlock />
+        <div className="fc-ambient" />
         <LoadingScreen progress={loadPct} />
       </div>
     );
@@ -632,11 +705,12 @@ const InnerGame = () => {
     <div className="fc-root">
       <StyleBlock />
 
-      {/* ambient background */}
-      <div className="fc-bg-orbs">
+      {/* fixed ambient layer that fills the whole viewport */}
+      <div className="fc-ambient">
         <span className="fc-orb fc-orb1" />
         <span className="fc-orb fc-orb2" />
         <span className="fc-orb fc-orb3" />
+        <span className="fc-grain" />
       </div>
 
       {/* header */}
@@ -656,7 +730,8 @@ const InnerGame = () => {
 
       {/* board */}
       <main className="fc-board-wrap">
-        <div className="fc-board-frame">
+        <div className={`fc-board-frame ${boardFlash ? 'flash' : ''}`}>
+          <div className="fc-frame-glow" />
           <div className="fc-sheen" />
           <div className="fc-board" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
             {board.map((cell, i) => {
@@ -679,23 +754,32 @@ const InnerGame = () => {
                   <div className="fc-cell-inner">
                     <SymbolSVG id={cell.sym} size={42} />
                   </div>
+                  {isWin && (
+                    <div className="fc-sparkles">
+                      {Array.from({ length: 6 }).map((_, s) => (
+                        <span key={s} style={{ ['--a' as string]: `${s * 60}deg` }} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* floating wins */}
+          {/* floating win toasts */}
           <div className="fc-float-layer">
-            {floatWins.map((w, i) => (
-              <FloatingWin amount={w} key={i} />
+            {toasts.map((t) => (
+              <div className="fc-float-win" key={t.id}>
+                +{t.amount.toFixed(2)}
+              </div>
             ))}
           </div>
         </div>
 
         {/* win bar */}
-        <div className="fc-winbar" data-on={spinWin > 0}>
+        <div className="fc-winbar" data-on={winShown > 0.01}>
           <span className="fc-winbar-label">WIN</span>
-          <span className="fc-winbar-amount">{(spinWin || lastWin).toFixed(2)}</span>
+          <span className="fc-winbar-amount">{winShown.toFixed(2)}</span>
         </div>
       </main>
 
@@ -743,15 +827,13 @@ const InnerGame = () => {
             aria-label="Spin"
           >
             <span className="fc-spin-ring" />
+            <span className="fc-spin-glow" />
             <span className="fc-spin-core">
               {spinning ? (
                 <span className="fc-spin-loader" />
               ) : (
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M12 4V2L8 5l4 3V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"
-                    fill="#1a1024"
-                  />
+                  <path d="M12 4V2L8 5l4 3V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" fill="#1a1024" />
                 </svg>
               )}
             </span>
@@ -769,7 +851,7 @@ const InnerGame = () => {
         </div>
       </footer>
 
-      {bigTier && <BigWinOverlay tier={bigTier} amount={lastWin} />}
+      {bigTier && <BigWinOverlay tier={bigTier} amount={bigAmount} />}
       {showInfo && <InfoModal onClose={() => setShowInfo(false)} bet={bet} />}
     </div>
   );
@@ -781,6 +863,28 @@ const InnerGame = () => {
 
 const StyleBlock = () => (
   <style>{`
+  /* ---- global page take-over while game is mounted ---- */
+  html.fruit-cascade-active,
+  body.fruit-cascade-active,
+  body.fruit-cascade-active #root{
+    background:#0b0716 !important;
+  }
+  body.fruit-cascade-active{
+    background:
+      radial-gradient(120% 70% at 50% -5%, #2a1448 0%, rgba(42,20,72,0) 55%),
+      radial-gradient(100% 50% at 50% 105%, #1a0e30 0%, rgba(26,14,48,0) 60%),
+      linear-gradient(180deg,#0b0716 0%,#120a26 50%,#0a0614 100%) !important;
+    background-attachment:fixed !important;
+  }
+  /* neutralize any app header strip so the scene reads as one */
+  body.fruit-cascade-active header,
+  body.fruit-cascade-active [class*="header"],
+  body.fruit-cascade-active [class*="Header"]{
+    background:transparent !important;
+    box-shadow:none !important;
+    border-color:transparent !important;
+  }
+
   .fc-root{
     position:relative;
     width:100%;
@@ -792,24 +896,28 @@ const StyleBlock = () => (
     padding:10px 12px calc(18px + env(safe-area-inset-bottom,0px));
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     color:#f4eefe;
-    background:
-      radial-gradient(120% 80% at 50% -10%, #2a1448 0%, rgba(42,20,72,0) 55%),
-      radial-gradient(100% 60% at 50% 110%, #1a0e30 0%, rgba(26,14,48,0) 60%),
-      linear-gradient(180deg,#0b0716 0%,#120a26 50%,#0a0614 100%);
-    overflow:hidden;
     box-sizing:border-box;
     user-select:none;
     -webkit-tap-highlight-color:transparent;
+    z-index:0;
   }
   .fc-root *{box-sizing:border-box;}
 
-  /* ambient orbs */
-  .fc-bg-orbs{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;}
-  .fc-orb{position:absolute;border-radius:50%;filter:blur(42px);opacity:.5;}
-  .fc-orb1{width:200px;height:200px;background:#7a2bff;top:-40px;left:-50px;animation:fcFloat 9s ease-in-out infinite;}
-  .fc-orb2{width:180px;height:180px;background:#ff7a1a;bottom:60px;right:-50px;animation:fcFloat 11s ease-in-out infinite reverse;}
-  .fc-orb3{width:160px;height:160px;background:#1f7bff;top:40%;left:30%;opacity:.3;animation:fcFloat 13s ease-in-out infinite;}
-  @keyframes fcFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(16px,-20px)}}
+  /* fixed ambient layer fills the entire viewport (behind header too) */
+  .fc-ambient{
+    position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+    background:
+      radial-gradient(120% 70% at 50% -5%, #2a1448 0%, rgba(42,20,72,0) 55%),
+      radial-gradient(100% 50% at 50% 105%, #1a0e30 0%, rgba(26,14,48,0) 60%),
+      linear-gradient(180deg,#0b0716 0%,#120a26 50%,#0a0614 100%);
+  }
+  .fc-orb{position:absolute;border-radius:50%;filter:blur(46px);opacity:.5;}
+  .fc-orb1{width:220px;height:220px;background:#7a2bff;top:-40px;left:-60px;animation:fcFloat 9s ease-in-out infinite;}
+  .fc-orb2{width:200px;height:200px;background:#ff7a1a;bottom:80px;right:-60px;animation:fcFloat 11s ease-in-out infinite reverse;}
+  .fc-orb3{width:180px;height:180px;background:#1f7bff;top:42%;left:28%;opacity:.28;animation:fcFloat 13s ease-in-out infinite;}
+  .fc-grain{position:absolute;inset:0;opacity:.05;mix-blend-mode:overlay;
+    background-image:radial-gradient(rgba(255,255,255,.6) .5px,transparent .5px);background-size:3px 3px;}
+  @keyframes fcFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(16px,-22px)}}
 
   /* header */
   .fc-header{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
@@ -830,23 +938,35 @@ const StyleBlock = () => (
   /* board frame */
   .fc-board-wrap{position:relative;z-index:2;flex:1;display:flex;flex-direction:column;justify-content:center;}
   .fc-board-frame{
-    position:relative;border-radius:22px;padding:12px;
+    position:relative;border-radius:24px;padding:13px;
     background:
-      linear-gradient(180deg,rgba(40,22,70,.7),rgba(20,12,38,.8));
-    border:1px solid rgba(255,210,120,.28);
+      linear-gradient(180deg,rgba(46,26,82,.72),rgba(18,10,34,.85));
+    border:1px solid rgba(255,210,120,.32);
     box-shadow:
-      0 0 0 2px rgba(255,200,90,.18),
-      0 0 28px rgba(120,40,200,.45),
-      inset 0 0 24px rgba(0,0,0,.5);
+      0 0 0 2px rgba(255,200,90,.2),
+      0 10px 40px rgba(120,40,200,.45),
+      inset 0 0 30px rgba(0,0,0,.55);
     overflow:hidden;
+    transition:box-shadow .25s;
   }
+  .fc-board-frame.flash{box-shadow:
+      0 0 0 2px rgba(255,235,160,.9),
+      0 0 50px rgba(255,200,90,.7),
+      inset 0 0 60px rgba(255,210,120,.35);}
   .fc-board-frame::before{
-    content:'';position:absolute;inset:4px;border-radius:18px;
-    border:1px solid rgba(255,210,120,.22);pointer-events:none;
+    content:'';position:absolute;inset:4px;border-radius:19px;
+    border:1px solid rgba(255,210,120,.24);pointer-events:none;z-index:4;
   }
+  /* animated gold corner highlights */
+  .fc-frame-glow{position:absolute;inset:-1px;border-radius:24px;pointer-events:none;z-index:1;
+    background:conic-gradient(from 0deg,transparent 0deg,rgba(255,210,120,.5) 40deg,transparent 80deg,
+      transparent 180deg,rgba(170,130,255,.4) 220deg,transparent 260deg,transparent 360deg);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;padding:1.5px;opacity:.8;
+    animation:fcSpinSlow 8s linear infinite;}
   .fc-sheen{
     position:absolute;top:0;left:-60%;width:50%;height:100%;
-    background:linear-gradient(100deg,transparent,rgba(255,255,255,.16),transparent);
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.18),transparent);
     transform:skewX(-18deg);animation:fcSheen 5.5s ease-in-out infinite;pointer-events:none;z-index:3;
   }
   @keyframes fcSheen{0%{left:-60%}45%{left:160%}100%{left:160%}}
@@ -855,67 +975,94 @@ const StyleBlock = () => (
   .fc-cell{
     position:relative;aspect-ratio:1;border-radius:13px;
     display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(circle at 35% 28%,rgba(80,55,130,.55),rgba(24,14,42,.85));
+    background:radial-gradient(circle at 35% 28%,rgba(84,58,138,.6),rgba(22,13,40,.88));
     border:1px solid rgba(150,110,220,.22);
     box-shadow:inset 0 1px 2px rgba(255,255,255,.08),inset 0 -3px 8px rgba(0,0,0,.5);
-    overflow:hidden;
+    overflow:visible;
   }
   .fc-cell-inner{display:flex;align-items:center;justify-content:center;width:100%;height:100%;
     filter:drop-shadow(0 3px 5px rgba(0,0,0,.55));transition:transform .2s;}
-  .fc-cell.falling .fc-cell-inner{animation:fcDrop .5s cubic-bezier(.34,1.56,.5,1) backwards;}
+  .fc-cell.falling .fc-cell-inner{animation:fcDrop .76s cubic-bezier(.3,1.4,.45,1) backwards;}
   @keyframes fcDrop{
-    0%{transform:translateY(-160%) scale(.7);opacity:0;}
-    60%{opacity:1;}
-    78%{transform:translateY(8%) scale(1.04);}
+    0%{transform:translateY(-220%) scale(.7);opacity:0;}
+    55%{opacity:1;}
+    72%{transform:translateY(12%) scale(1.05);}
+    85%{transform:translateY(-4%) scale(.99);}
     100%{transform:translateY(0) scale(1);}
   }
   .fc-cell.win{
     border-color:var(--glow);
-    box-shadow:0 0 16px var(--glow),inset 0 0 14px color-mix(in srgb,var(--glow) 40%,transparent);
+    box-shadow:0 0 18px var(--glow),inset 0 0 16px color-mix(in srgb,var(--glow) 45%,transparent);
     animation:fcWinPulse .5s ease-in-out infinite alternate;
+    z-index:3;
   }
-  @keyframes fcWinPulse{from{filter:brightness(1)}to{filter:brightness(1.4)}}
-  .fc-cell.pop .fc-cell-inner{animation:fcPop .5s ease-out forwards;}
+  @keyframes fcWinPulse{from{filter:brightness(1)}to{filter:brightness(1.45)}}
+  .fc-cell.win .fc-cell-inner{animation:fcWinBob .55s ease-in-out infinite alternate;}
+  @keyframes fcWinBob{from{transform:scale(1)}to{transform:scale(1.14)}}
+
+  /* premium pop / burst */
+  .fc-cell.pop{z-index:5;}
+  .fc-cell.pop .fc-cell-inner{animation:fcPop .68s cubic-bezier(.5,.1,.3,1) forwards;}
   .fc-cell.pop::after{
+    content:'';position:absolute;inset:-4px;border-radius:50%;
+    border:3px solid var(--glow);
+    box-shadow:0 0 18px var(--glow);
+    animation:fcRing .68s ease-out forwards;
+  }
+  .fc-cell.pop::before{
     content:'';position:absolute;inset:0;border-radius:13px;
-    background:radial-gradient(circle,var(--glow),transparent 70%);
-    animation:fcBurst .5s ease-out forwards;
+    background:radial-gradient(circle,var(--glow),transparent 68%);
+    animation:fcBurst .68s ease-out forwards;z-index:-1;
   }
   @keyframes fcPop{
     0%{transform:scale(1)}
-    35%{transform:scale(1.3) rotate(8deg)}
-    100%{transform:scale(0) rotate(40deg);opacity:0;}
+    25%{transform:scale(1.32) rotate(6deg);filter:brightness(1.6)}
+    100%{transform:scale(0) rotate(48deg);opacity:0;}
   }
-  @keyframes fcBurst{0%{opacity:.9;transform:scale(.4)}100%{opacity:0;transform:scale(1.6)}}
+  @keyframes fcBurst{0%{opacity:.95;transform:scale(.35)}100%{opacity:0;transform:scale(1.7)}}
+  @keyframes fcRing{0%{opacity:1;transform:scale(.4)}100%{opacity:0;transform:scale(1.8)}}
+
+  /* sparkle particles around winning cells */
+  .fc-sparkles{position:absolute;inset:0;pointer-events:none;z-index:6;}
+  .fc-sparkles span{position:absolute;top:50%;left:50%;width:5px;height:5px;border-radius:50%;
+    background:radial-gradient(circle,#fff,var(--glow));
+    box-shadow:0 0 6px var(--glow);
+    transform:translate(-50%,-50%) rotate(var(--a)) translateY(-4px);
+    animation:fcSpark 1s ease-out infinite;}
+  @keyframes fcSpark{
+    0%{opacity:0;transform:translate(-50%,-50%) rotate(var(--a)) translateY(-2px) scale(.4);}
+    40%{opacity:1;}
+    100%{opacity:0;transform:translate(-50%,-50%) rotate(var(--a)) translateY(-20px) scale(1);}
+  }
 
   /* floating wins */
-  .fc-float-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:6;}
+  .fc-float-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:7;}
   .fc-float-win{position:absolute;font-weight:900;font-size:30px;
     color:#fff;text-shadow:0 0 14px #ffd34d,0 2px 4px rgba(0,0,0,.6);
     background:linear-gradient(90deg,#fff2b0,#ffce4d);-webkit-background-clip:text;background-clip:text;
-    animation:fcFloatUp 1.1s ease-out forwards;}
+    animation:fcFloatUp 1.15s ease-out forwards;}
   @keyframes fcFloatUp{
     0%{transform:translateY(20px) scale(.5);opacity:0;}
-    25%{transform:translateY(0) scale(1.15);opacity:1;}
+    22%{transform:translateY(0) scale(1.15);opacity:1;}
     70%{opacity:1;}
-    100%{transform:translateY(-70px) scale(1);opacity:0;}
+    100%{transform:translateY(-72px) scale(1);opacity:0;}
   }
 
   /* win bar */
   .fc-winbar{margin-top:12px;display:flex;align-items:center;justify-content:center;gap:10px;
-    padding:8px 16px;border-radius:14px;min-height:42px;
-    background:linear-gradient(180deg,rgba(40,24,70,.6),rgba(20,12,38,.6));
-    border:1px solid rgba(150,110,220,.2);transition:.3s;}
-  .fc-winbar[data-on="true"]{border-color:rgba(255,200,90,.5);box-shadow:0 0 18px rgba(255,180,60,.4);}
+    padding:8px 16px;border-radius:14px;min-height:44px;
+    background:linear-gradient(180deg,rgba(42,26,74,.62),rgba(20,12,38,.62));
+    border:1px solid rgba(150,110,220,.2);transition:border-color .3s,box-shadow .3s;}
+  .fc-winbar[data-on="true"]{border-color:rgba(255,200,90,.55);box-shadow:0 0 20px rgba(255,180,60,.4);}
   .fc-winbar-label{font-size:12px;letter-spacing:2px;color:#a98fe0;font-weight:700;}
-  .fc-winbar-amount{font-size:22px;font-weight:900;
+  .fc-winbar-amount{font-size:23px;font-weight:900;
     background:linear-gradient(90deg,#ffe9a8,#ffb347);-webkit-background-clip:text;background-clip:text;color:transparent;}
 
   /* controls */
   .fc-controls{position:relative;z-index:2;margin-top:12px;}
   .fc-stat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;}
   .fc-stat{display:flex;flex-direction:column;flex:1;padding:8px 14px;border-radius:14px;
-    background:linear-gradient(180deg,rgba(40,24,70,.55),rgba(20,12,38,.65));
+    background:linear-gradient(180deg,rgba(42,26,74,.58),rgba(20,12,38,.68));
     border:1px solid rgba(150,110,220,.2);}
   .fc-stat-right{align-items:flex-end;}
   .fc-stat-label{font-size:10px;letter-spacing:1.5px;color:#9a82d0;font-weight:600;text-transform:uppercase;}
@@ -931,32 +1078,36 @@ const StyleBlock = () => (
   .fc-bet-ctrl{display:flex;align-items:center;gap:6px;flex:1;justify-content:flex-start;}
   .fc-bet-btn{width:42px;height:42px;border-radius:12px;font-size:24px;font-weight:800;line-height:1;
     color:#ffd9a0;cursor:pointer;
-    background:linear-gradient(180deg,rgba(60,36,100,.8),rgba(30,18,52,.9));
+    background:linear-gradient(180deg,rgba(62,38,104,.82),rgba(30,18,52,.92));
     border:1px solid rgba(255,200,100,.3);transition:transform .1s,opacity .2s;}
   .fc-bet-btn:active:not(:disabled){transform:scale(.88);}
   .fc-bet-btn:disabled{opacity:.35;cursor:default;}
   .fc-bet-display{min-width:54px;text-align:center;font-weight:800;font-size:15px;color:#fff;}
 
-  .fc-spin{position:relative;width:84px;height:84px;border-radius:50%;border:none;cursor:pointer;
+  .fc-spin{position:relative;width:86px;height:86px;border-radius:50%;border:none;cursor:pointer;
     background:transparent;flex:0 0 auto;}
   .fc-spin:disabled{cursor:default;}
+  .fc-spin-glow{position:absolute;inset:-8px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,180,60,.5),transparent 70%);
+    animation:fcPulse 2s ease-in-out infinite;}
   .fc-spin-ring{position:absolute;inset:0;border-radius:50%;
     background:conic-gradient(from 0deg,#ffd34d,#ff7a1a,#ff4d6d,#b06bff,#3da8ff,#ffd34d);
     animation:fcSpinSlow 4s linear infinite;
-    box-shadow:0 0 22px rgba(255,170,60,.65);}
+    box-shadow:0 0 24px rgba(255,170,60,.7);}
   .fc-spin-core{position:absolute;inset:5px;border-radius:50%;display:flex;align-items:center;justify-content:center;
     background:radial-gradient(circle at 38% 30%,#ffe9a8,#ffb347 55%,#e07e10);
     box-shadow:inset 0 2px 6px rgba(255,255,255,.6),inset 0 -4px 10px rgba(120,50,0,.6);
     transition:transform .12s;}
   .fc-spin:not(:disabled):active .fc-spin-core{transform:scale(.9);}
   .fc-spin.spinning .fc-spin-ring{animation-duration:.8s;}
+  .fc-spin:disabled .fc-spin-glow{opacity:.3;}
   .fc-spin-loader{width:24px;height:24px;border-radius:50%;border:3px solid rgba(26,16,36,.3);
     border-top-color:#1a1024;animation:fcSpinSlow .7s linear infinite;}
 
   .fc-auto{display:flex;flex-direction:column;align-items:center;gap:3px;justify-content:center;
     width:64px;height:58px;border-radius:16px;font-size:11px;font-weight:800;letter-spacing:1px;cursor:pointer;
     color:#bfa6ff;flex:0 0 auto;
-    background:linear-gradient(180deg,rgba(50,30,90,.7),rgba(26,16,44,.85));
+    background:linear-gradient(180deg,rgba(52,32,92,.72),rgba(26,16,44,.88));
     border:1px solid rgba(150,110,220,.3);transition:.2s;}
   .fc-auto-dot{width:9px;height:9px;border-radius:50%;background:#6a5a9a;transition:.2s;}
   .fc-auto:active:not(:disabled){transform:scale(.92);}
@@ -990,57 +1141,65 @@ const StyleBlock = () => (
   .fc-loader-pct{margin-top:10px;font-size:13px;font-weight:700;color:#ffd9a0;}
 
   /* big win */
-  .fc-bigwin-overlay{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:radial-gradient(circle at 50% 45%,rgba(40,18,70,.85),rgba(8,4,16,.95));animation:fcFade .3s ease;}
+  .fc-bigwin-overlay{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 45%,rgba(40,18,70,.86),rgba(8,4,16,.96));animation:fcFade .3s ease;}
   @keyframes fcFade{from{opacity:0}to{opacity:1}}
-  .fc-bigwin-text{font-size:46px;font-weight:900;letter-spacing:2px;
+  .fc-bigwin-pulse{position:absolute;width:320px;height:320px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,190,70,.35),transparent 65%);
+    animation:fcBigPulse 1.4s ease-in-out infinite;}
+  @keyframes fcBigPulse{0%,100%{transform:scale(.85);opacity:.6}50%{transform:scale(1.25);opacity:1}}
+  .fc-bigwin-text{position:relative;font-size:46px;font-weight:900;letter-spacing:2px;
     background:linear-gradient(90deg,#ffe9a8,#ffb347,#ff4d6d);-webkit-background-clip:text;background-clip:text;color:transparent;
     text-shadow:0 0 40px rgba(255,180,60,.6);animation:fcBigPop .6s cubic-bezier(.34,1.56,.6,1);}
-  .fc-bigwin-text.mega{font-size:54px;background:linear-gradient(90deg,#9fffc4,#ffd34d,#ff5c7a,#b06bff);
+  .fc-bigwin-text.mega{font-size:52px;background:linear-gradient(90deg,#9fffc4,#ffd34d,#ff5c7a,#b06bff);
     -webkit-background-clip:text;background-clip:text;}
+  .fc-bigwin-text.epic{font-size:56px;background:linear-gradient(90deg,#3da8ff,#b06bff,#ffd34d,#ff5c7a,#3ddc84);
+    -webkit-background-clip:text;background-clip:text;animation:fcBigPop .6s cubic-bezier(.34,1.56,.6,1),fcGlow 1.4s ease-in-out infinite;}
   @keyframes fcBigPop{0%{transform:scale(0) rotate(-12deg);opacity:0}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
-  .fc-bigwin-amount{margin-top:14px;font-size:40px;font-weight:900;color:#fff;text-shadow:0 0 24px #ffd34d;
+  .fc-bigwin-amount{position:relative;margin-top:14px;font-size:42px;font-weight:900;color:#fff;text-shadow:0 0 24px #ffd34d;
     animation:fcCountIn .5s ease .2s backwards;}
   @keyframes fcCountIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
   .fc-confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none;}
-  .fc-confetti span{position:absolute;top:-10px;width:9px;height:14px;border-radius:2px;
-    animation:fcConfetti 2.4s linear infinite;}
-  @keyframes fcConfetti{0%{transform:translateY(-10px) rotate(0);opacity:1}100%{transform:translateY(110vh) rotate(540deg);opacity:0}}
+  .fc-confetti span{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;
+    animation:fcConfetti 2.6s linear infinite;}
+  @keyframes fcConfetti{0%{transform:translateY(-12px) rotate(0);opacity:1}100%{transform:translateY(110vh) rotate(560deg);opacity:0}}
 
-  /* modal */
-  .fc-modal-overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center;
-    background:rgba(6,3,14,.7);backdrop-filter:blur(4px);animation:fcFade .25s ease;padding:0;}
-  .fc-modal{width:100%;max-width:480px;max-height:88vh;border-radius:24px 24px 0 0;overflow:hidden;
+  /* modal — compact bottom sheet */
+  .fc-modal-overlay{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(6,3,14,.72);backdrop-filter:blur(4px);animation:fcFade .25s ease;}
+  .fc-modal{width:100%;max-width:480px;max-height:min(78vh,620px);border-radius:22px 22px 0 0;overflow:hidden;
     display:flex;flex-direction:column;
     background:linear-gradient(180deg,#1c1130,#120a22);
     border:1px solid rgba(255,200,90,.3);border-bottom:none;
-    box-shadow:0 -8px 40px rgba(120,40,200,.4);animation:fcSlideUp .35s cubic-bezier(.2,.8,.3,1);}
+    box-shadow:0 -8px 40px rgba(120,40,200,.4);animation:fcSlideUp .32s cubic-bezier(.2,.8,.3,1);}
   @keyframes fcSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-  .fc-modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;
+  .fc-modal-grip{width:40px;height:4px;border-radius:4px;background:rgba(180,150,240,.4);margin:8px auto 0;}
+  .fc-modal-head{display:flex;align-items:center;justify-content:space-between;padding:8px 18px 10px;
     border-bottom:1px solid rgba(150,110,220,.2);}
-  .fc-modal-head h2{margin:0;font-size:20px;font-weight:900;
+  .fc-modal-head h2{margin:0;font-size:17px;font-weight:900;
     background:linear-gradient(90deg,#ffe9a8,#ffb347);-webkit-background-clip:text;background-clip:text;color:transparent;}
-  .fc-modal-close{width:34px;height:34px;border-radius:50%;border:1px solid rgba(150,110,220,.3);
-    background:rgba(60,36,100,.5);color:#cbb6f0;font-size:15px;cursor:pointer;transition:transform .1s;}
+  .fc-modal-close{width:30px;height:30px;border-radius:50%;border:1px solid rgba(150,110,220,.3);
+    background:rgba(60,36,100,.5);color:#cbb6f0;font-size:13px;cursor:pointer;transition:transform .1s;}
   .fc-modal-close:active{transform:scale(.9);}
-  .fc-modal-body{padding:6px 20px 28px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
-  .fc-modal-body section{margin-top:18px;}
-  .fc-modal-body h3{margin:0 0 6px;font-size:14px;font-weight:800;color:#ffd9a0;letter-spacing:.5px;}
-  .fc-modal-body p{margin:0;font-size:13.5px;line-height:1.55;color:#c9bce8;}
+  .fc-modal-body{padding:4px 18px 22px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .fc-modal-body section{margin-top:12px;}
+  .fc-modal-body h3{margin:0 0 3px;font-size:12.5px;font-weight:800;color:#ffd9a0;letter-spacing:.4px;}
+  .fc-modal-body p{margin:0;font-size:12.5px;line-height:1.45;color:#c9bce8;}
   .fc-modal-body b{color:#fff;}
-  .fc-pay-note{margin-bottom:10px!important;font-size:12px!important;color:#9a82d0!important;}
-  .fc-pay-grid{display:flex;flex-direction:column;gap:8px;}
-  .fc-pay-row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:14px;
-    background:linear-gradient(180deg,rgba(50,30,90,.45),rgba(24,14,42,.6));
-    border:1px solid rgba(150,110,220,.18);}
-  .fc-pay-sym{flex:0 0 auto;width:34px;height:34px;display:flex;align-items:center;justify-content:center;
-    filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));}
-  .fc-pay-name{flex:1;font-size:14px;font-weight:700;color:#f0e8ff;}
-  .fc-pay-val{font-size:15px;font-weight:900;
+  .fc-pay-note{margin-bottom:7px!important;font-size:11px!important;color:#9a82d0!important;}
+  .fc-pay-grid{display:flex;flex-direction:column;gap:5px;}
+  .fc-pay-row{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:11px;
+    background:linear-gradient(180deg,rgba(52,32,92,.42),rgba(24,14,42,.6));
+    border:1px solid rgba(150,110,220,.16);}
+  .fc-pay-sym{flex:0 0 auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));}
+  .fc-pay-name{flex:1;font-size:12.5px;font-weight:700;color:#f0e8ff;}
+  .fc-pay-val{font-size:13px;font-weight:900;
     background:linear-gradient(90deg,#ffe9a8,#ffb347);-webkit-background-clip:text;background-clip:text;color:transparent;}
 
   @media (prefers-reduced-motion: reduce){
-    .fc-sheen,.fc-orb,.fc-logo-star,.fc-spin-ring,.fc-confetti span,.fc-orbit{animation:none!important;}
+    .fc-sheen,.fc-orb,.fc-logo-star,.fc-spin-ring,.fc-spin-glow,.fc-confetti span,
+    .fc-orbit,.fc-frame-glow,.fc-sparkles span,.fc-bigwin-pulse{animation:none!important;}
   }
   `}</style>
 );
