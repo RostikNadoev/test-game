@@ -3424,3 +3424,41 @@ img {
     aspect-ratio: 2.55 / 1;
   }
 }
+
+
+/* Fruit Cascade: фон должен идти под хедером и по всей странице */
+html.fruit-cascade-active,
+body.fruit-cascade-active,
+body.fruit-cascade-active #root,
+body.fruit-cascade-active .solo-app-shell,
+body.fruit-cascade-active .fruit-cascade-app-shell,
+body.fruit-cascade-active .solo-main,
+body.fruit-cascade-active .fruit-cascade-main {
+  background:
+    radial-gradient(105% 58% at 50% -10%, rgba(123, 54, 255, 0.46), transparent 58%),
+    radial-gradient(90% 48% at 8% 18%, rgba(47, 140, 255, 0.20), transparent 55%),
+    radial-gradient(95% 58% at 98% 88%, rgba(255, 143, 45, 0.22), transparent 58%),
+    linear-gradient(180deg, #10081f 0%, #160b2b 46%, #090611 100%) !important;
+}
+
+body.fruit-cascade-active .fruit-cascade-app-shell,
+body.fruit-cascade-active .fruit-cascade-main {
+  background-color: transparent !important;
+}
+
+body.fruit-cascade-active .fruit-cascade-main {
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+}
+
+body.fruit-cascade-active .header-panel {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 211, 77, 0.12), transparent 36%),
+    radial-gradient(circle at 92% 0%, rgba(176, 107, 255, 0.14), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.026)),
+    rgba(18, 10, 36, 0.62) !important;
+  border-color: rgba(255, 214, 122, 0.13) !important;
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}

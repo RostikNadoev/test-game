@@ -32,6 +32,7 @@ import appLoaderGif from './assets/app-loader.gif';
 
 const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
 const SOLO_ROUTE_PREFIX = '/solo';
+const FRUIT_CASCADE_ROUTE = '/solo/fruit-cascade';
 
 const APP_LOADER_FALLBACK_MS = 3600;
 const SOLO_PAGE_LOADER_MS = 620;
@@ -155,6 +156,7 @@ function AppShell() {
   const previousPathRef = useRef(location.pathname);
 
   const isSoloRoute = isSoloPath(location.pathname);
+  const isFruitCascadeRoute = location.pathname === FRUIT_CASCADE_ROUTE;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const gameIntroTitle = GAME_TITLE_BY_PLAY_PATH[location.pathname] || null;
@@ -203,11 +205,11 @@ function AppShell() {
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-    const themeColor = isSoloRoute ? '#060b14' : '#09090d';
+    const themeColor = isFruitCascadeRoute ? '#10081f' : isSoloRoute ? '#060b14' : '#09090d';
 
     tg?.setHeaderColor?.(themeColor);
     tg?.setBackgroundColor?.(themeColor);
-  }, [isSoloRoute]);
+  }, [isFruitCascadeRoute, isSoloRoute]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -250,6 +252,7 @@ function AppShell() {
       className={[
         'relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden pt-[var(--telegram-top-offset)]',
         isSoloRoute ? 'solo-app-shell bg-[#060b14]' : 'bg-[#09090d]',
+        isFruitCascadeRoute ? 'fruit-cascade-app-shell' : '',
       ].join(' ')}
     >
       <Header />
@@ -258,7 +261,8 @@ function AppShell() {
         className={[
           'relative z-10 w-full min-w-0 flex-1 overflow-x-hidden',
           isSoloRoute ? 'solo-main' : '',
-          isLockedGameRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24',
+          isFruitCascadeRoute ? 'fruit-cascade-main' : '',
+          isLockedGameRoute || isFruitCascadeRoute ? 'overflow-hidden pb-0' : 'overflow-y-auto pb-24',
         ].join(' ')}
       >
         {shouldMountRoutes ? (
