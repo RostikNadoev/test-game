@@ -2,10 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 /* ============================================================================
- * Fruit Cascade — free demo cascade slot for Telegram/mobile.
+ * Fruit Cascade — cascade slot for Telegram/mobile.
  * Single-file component: no external css, no deps.
- * Optimized: no endless RAF loops, transform-only animations, light SVG symbols.
- * ==========================================================================*/
+ * ========================================================================== */
 
 const COLS = 6;
 const ROWS = 5;
@@ -13,12 +12,10 @@ const CELL_COUNT = COLS * ROWS;
 const MIN_CLUSTER = 5;
 const MAX_CASCADES = 10;
 
-const DROP_MS = 560;
-const HIGHLIGHT_MS = 260;
-const POP_MS = 250;
-const AFTER_DROP_MS = 120;
-
-const BET_STEPS = [0.2, 0.5, 1, 2, 5, 10, 20, 50];
+const DROP_MS = 520;
+const HIGHLIGHT_MS = 230;
+const POP_MS = 220;
+const AFTER_DROP_MS = 95;
 
 type SymbolId = 'cherry' | 'lemon' | 'orange' | 'grape' | 'strawberry' | 'watermelon' | 'wild';
 type CellPhase = 'idle' | 'drop' | 'win' | 'pop';
@@ -74,7 +71,15 @@ const SYMBOLS: Record<SymbolId, SymbolDef> = {
   wild: { id: 'wild', name: 'Wild Star', pay: 6.8, weight: 3, glow: '#ffd34d' },
 };
 
-const SYMBOL_ORDER: SymbolId[] = ['cherry', 'lemon', 'orange', 'grape', 'strawberry', 'watermelon', 'wild'];
+const SYMBOL_ORDER: SymbolId[] = [
+  'cherry',
+  'lemon',
+  'orange',
+  'grape',
+  'strawberry',
+  'watermelon',
+  'wild',
+];
 
 const WEIGHT_TABLE: SymbolId[] = SYMBOL_ORDER.flatMap((sym) =>
   Array.from({ length: SYMBOLS[sym].weight }, () => sym),
@@ -88,6 +93,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(r
 const randomSym = () => WEIGHT_TABLE[Math.floor(Math.random() * WEIGHT_TABLE.length)];
 const boardIndex = (row: number, col: number) => row * COLS + col;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 
@@ -100,17 +106,17 @@ const makeCell = (phase: CellPhase = 'idle', delay = 0, drop = 0): Cell => ({
   phase,
   delay,
   drop,
-  rot: Math.round((Math.random() - 0.5) * 14),
+  rot: Math.round((Math.random() - 0.5) * 10),
 });
 
 const makeBoard = (phase: CellPhase = 'idle'): Cell[] =>
   Array.from({ length: CELL_COUNT }, (_, index) => {
     const row = Math.floor(index / COLS);
     const col = index % COLS;
-    return makeCell(phase, col * 24 + row * 34, phase === 'drop' ? row + 2 : 0);
+    return makeCell(phase, col * 18 + row * 24, phase === 'drop' ? row + 2 : 0);
   });
 
-const injectDemoCluster = (board: Cell[], chance = 0.42) => {
+const injectStarterCluster = (board: Cell[], chance = 0.42) => {
   if (Math.random() > chance) return board;
 
   const next = board.map((cell) => ({ ...cell }));
@@ -118,6 +124,7 @@ const injectDemoCluster = (board: Cell[], chance = 0.42) => {
   const sym = symPool[Math.floor(Math.random() * symPool.length)];
   const startRow = Math.floor(Math.random() * (ROWS - 1));
   const startCol = Math.floor(Math.random() * (COLS - 2));
+
   const shape = [
     [0, 0],
     [0, 1],
@@ -144,11 +151,13 @@ const findClusters = (board: Cell[]) => {
     for (let row = 0; row < ROWS; row += 1) {
       for (let col = 0; col < COLS; col += 1) {
         const start = boardIndex(row, col);
+
         if (visited[start]) continue;
         if (board[start].sym !== targetSym && board[start].sym !== 'wild') continue;
 
         const stack = [start];
         const group: number[] = [];
+
         visited[start] = true;
 
         while (stack.length > 0) {
@@ -157,6 +166,7 @@ const findClusters = (board: Cell[]) => {
 
           const currentRow = Math.floor(current / COLS);
           const currentCol = current % COLS;
+
           const neighbors = [
             [currentRow - 1, currentCol],
             [currentRow + 1, currentCol],
@@ -166,17 +176,22 @@ const findClusters = (board: Cell[]) => {
 
           neighbors.forEach(([nextRow, nextCol]) => {
             if (nextRow < 0 || nextRow >= ROWS || nextCol < 0 || nextCol >= COLS) return;
+
             const nextIndex = boardIndex(nextRow, nextCol);
+
             if (visited[nextIndex]) return;
             if (board[nextIndex].sym !== targetSym && board[nextIndex].sym !== 'wild') return;
+
             visited[nextIndex] = true;
             stack.push(nextIndex);
           });
         }
 
         const realSymbols = group.filter((index) => board[index].sym === targetSym).length;
+
         if (group.length >= MIN_CLUSTER && realSymbols > 0) {
           const key = [...group].sort((a, b) => a - b).join('-');
+
           if (!usedKeys.has(key)) {
             usedKeys.add(key);
             result.push(group);
@@ -208,7 +223,14 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#1f8b38" />
             </linearGradient>
           </defs>
-          <path d="M48 20C37 34 31 48 31 62M49 20C64 32 70 46 68 62" fill="none" stroke={`url(#${gid('s')})`} strokeWidth="5" strokeLinecap="round" />
+
+          <path
+            d="M48 20C37 34 31 48 31 62M49 20C64 32 70 46 68 62"
+            fill="none"
+            stroke={`url(#${gid('s')})`}
+            strokeWidth="5"
+            strokeLinecap="round"
+          />
           <path d="M49 20c8-11 24-11 34-4-9 7-24 9-34 4Z" fill="#40b852" />
           <circle cx="30" cy="70" r="18" fill={`url(#${gid('a')})`} />
           <circle cx="68" cy="70" r="19" fill={`url(#${gid('a')})`} />
@@ -216,6 +238,7 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
           <ellipse cx="62" cy="62" rx="5" ry="3" fill="#fff" opacity="0.58" />
         </svg>
       );
+
     case 'lemon':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -226,11 +249,28 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#d99d00" />
             </radialGradient>
           </defs>
-          <ellipse cx="50" cy="52" rx="35" ry="27" transform="rotate(-18 50 52)" fill={`url(#${gid('a')})`} />
-          <ellipse cx="37" cy="42" rx="8" ry="4" transform="rotate(-18 37 42)" fill="#fff" opacity="0.55" />
+
+          <ellipse
+            cx="50"
+            cy="52"
+            rx="35"
+            ry="27"
+            transform="rotate(-18 50 52)"
+            fill={`url(#${gid('a')})`}
+          />
+          <ellipse
+            cx="37"
+            cy="42"
+            rx="8"
+            ry="4"
+            transform="rotate(-18 37 42)"
+            fill="#fff"
+            opacity="0.55"
+          />
           <path d="M79 45c4-2 7-1 9 2-4 3-7 3-9-2Z" fill="#b98200" opacity="0.55" />
         </svg>
       );
+
     case 'orange':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -241,12 +281,14 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#cf5b00" />
             </radialGradient>
           </defs>
+
           <circle cx="50" cy="55" r="33" fill={`url(#${gid('a')})`} />
           <path d="M49 28c8-9 18-9 25-4-7 6-17 7-25 4Z" fill="#45b950" />
           <ellipse cx="38" cy="43" rx="8" ry="5" fill="#fff" opacity="0.5" />
           <circle cx="50" cy="55" r="3" fill="#b54d00" opacity="0.35" />
         </svg>
       );
+
     case 'grape':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -257,9 +299,26 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#51169c" />
             </radialGradient>
           </defs>
-          <path d="M50 18c-6 7-5 13 0 18" fill="none" stroke="#8a5a2a" strokeWidth="4" strokeLinecap="round" />
+
+          <path
+            d="M50 18c-6 7-5 13 0 18"
+            fill="none"
+            stroke="#8a5a2a"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
           <path d="M48 22c9-8 20-8 27-2-9 4-19 4-27 2Z" fill="#40b852" />
-          {[[38, 41], [54, 41], [46, 52], [62, 52], [34, 56], [42, 66], [58, 66], [50, 76]].map(([cx, cy], index) => (
+
+          {[
+            [38, 41],
+            [54, 41],
+            [46, 52],
+            [62, 52],
+            [34, 56],
+            [42, 66],
+            [58, 66],
+            [50, 76],
+          ].map(([cx, cy], index) => (
             <g key={index}>
               <circle cx={cx} cy={cy} r="10" fill={`url(#${gid('a')})`} />
               <ellipse cx={cx - 3} cy={cy - 3} rx="2.5" ry="1.7" fill="#fff" opacity="0.56" />
@@ -267,6 +326,7 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
           ))}
         </svg>
       );
+
     case 'strawberry':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -277,13 +337,37 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#990b2b" />
             </radialGradient>
           </defs>
-          <path d="M50 87C27 75 22 53 30 39c10-10 30-10 40 0 8 14 3 36-20 48Z" fill={`url(#${gid('a')})`} />
-          <path d="M34 30c5 5 11 7 16 7s11-2 16-7c-2 8-8 12-16 12s-14-4-16-12Z" fill="#40b852" />
-          {[[42, 50], [57, 51], [49, 61], [63, 64], [37, 64], [52, 74]].map(([x, y], index) => (
-            <ellipse key={index} cx={x} cy={y} rx="1.8" ry="3" fill="#ffe66d" transform={`rotate(20 ${x} ${y})`} />
+
+          <path
+            d="M50 87C27 75 22 53 30 39c10-10 30-10 40 0 8 14 3 36-20 48Z"
+            fill={`url(#${gid('a')})`}
+          />
+          <path
+            d="M34 30c5 5 11 7 16 7s11-2 16-7c-2 8-8 12-16 12s-14-4-16-12Z"
+            fill="#40b852"
+          />
+
+          {[
+            [42, 50],
+            [57, 51],
+            [49, 61],
+            [63, 64],
+            [37, 64],
+            [52, 74],
+          ].map(([x, y], index) => (
+            <ellipse
+              key={index}
+              cx={x}
+              cy={y}
+              rx="1.8"
+              ry="3"
+              fill="#ffe66d"
+              transform={`rotate(20 ${x} ${y})`}
+            />
           ))}
         </svg>
       );
+
     case 'watermelon':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -297,14 +381,32 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#e32949" />
             </linearGradient>
           </defs>
+
           <path d="M14 40a38 38 0 0 0 72 0Z" fill={`url(#${gid('a')})`} />
           <path d="M20 42a32 32 0 0 0 60 0Z" fill="#eafff0" />
           <path d="M24 44a28 28 0 0 0 52 0Z" fill={`url(#${gid('b')})`} />
-          {[[40, 53], [50, 59], [60, 53], [35, 61], [65, 61], [50, 48]].map(([x, y], index) => (
-            <ellipse key={index} cx={x} cy={y} rx="1.8" ry="3" fill="#211017" transform={`rotate(15 ${x} ${y})`} />
+
+          {[
+            [40, 53],
+            [50, 59],
+            [60, 53],
+            [35, 61],
+            [65, 61],
+            [50, 48],
+          ].map(([x, y], index) => (
+            <ellipse
+              key={index}
+              cx={x}
+              cy={y}
+              rx="1.8"
+              ry="3"
+              fill="#211017"
+              transform={`rotate(15 ${x} ${y})`}
+            />
           ))}
         </svg>
       );
+
     case 'wild':
       return (
         <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
@@ -315,10 +417,18 @@ const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
               <stop offset="1" stopColor="#bf7600" />
             </radialGradient>
           </defs>
-          <path d="M50 10l10 28 30 2-23 19 8 29-25-17-25 17 8-29-23-19 30-2Z" fill={`url(#${gid('a')})`} stroke="#fff0a0" strokeWidth="2.5" strokeLinejoin="round" />
+
+          <path
+            d="M50 10l10 28 30 2-23 19 8 29-25-17-25 17 8-29-23-19 30-2Z"
+            fill={`url(#${gid('a')})`}
+            stroke="#fff0a0"
+            strokeWidth="2.5"
+            strokeLinejoin="round"
+          />
           <path d="M50 23l6 17-6 17-6-17Z" fill="#fff" opacity="0.5" />
         </svg>
       );
+
     default:
       return null;
   }
@@ -331,12 +441,16 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
     <div className="fc-load-halo" />
     <div className="fc-load-ring fc-load-ring-a" />
     <div className="fc-load-ring fc-load-ring-b" />
+
     <div className="fc-load-star">
       <SymbolSVG id="wild" size={76} />
     </div>
+
     <div className="fc-load-title">FRUIT CASCADE</div>
-    <div className="fc-load-subtitle">FREE DEMO SLOT</div>
-    <div className="fc-load-bar"><span style={{ width: `${progress}%` }} /></div>
+
+    <div className="fc-load-bar">
+      <span style={{ width: `${progress}%` }} />
+    </div>
   </div>
 );
 
@@ -346,28 +460,44 @@ const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount:
   useEffect(() => {
     let raf = 0;
     const start = performance.now();
-    const duration = 980;
+    const duration = 900;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
+
       setShown(roundMoney(amount * eased));
-      if (t < 1) raf = requestAnimationFrame(tick);
+
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      }
     };
 
     raf = requestAnimationFrame(tick);
+
     return () => cancelAnimationFrame(raf);
   }, [amount]);
 
   return (
     <div className="fc-bigwin">
       <div className="fc-bigwin-burst" />
+
       <div className="fc-confetti" aria-hidden="true">
-        {Array.from({ length: 22 }, (_, index) => (
-          <span key={index} style={{ left: `${(index * 37) % 100}%`, animationDelay: `${(index % 8) * 0.08}s` }} />
+        {Array.from({ length: 18 }, (_, index) => (
+          <span
+            key={index}
+            style={{
+              left: `${(index * 37) % 100}%`,
+              animationDelay: `${(index % 8) * 0.08}s`,
+            }}
+          />
         ))}
       </div>
-      <div className={`fc-bigwin-label ${tier}`}>{tier === 'epic' ? 'EPIC WIN' : tier === 'mega' ? 'MEGA WIN' : 'BIG WIN'}</div>
+
+      <div className={`fc-bigwin-label ${tier}`}>
+        {tier === 'epic' ? 'EPIC WIN' : tier === 'mega' ? 'MEGA WIN' : 'BIG WIN'}
+      </div>
+
       <div className="fc-bigwin-value">{formatMoney(shown)}</div>
     </div>
   );
@@ -377,24 +507,38 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
   <div className="fc-modal-layer" onClick={onClose}>
     <div className="fc-modal" onClick={(event) => event.stopPropagation()}>
       <div className="fc-modal-grip" />
+
       <div className="fc-modal-head">
         <div>
           <p>INFO</p>
           <h2>Fruit Cascade</h2>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close">×</button>
+
+        <button type="button" onClick={onClose} aria-label="Close">
+          X
+        </button>
       </div>
+
       <div className="fc-modal-body">
         <section>
           <h3>Как играется</h3>
-          <p>Собери {MIN_CLUSTER}+ одинаковых фруктов рядом по сторонам. Выигрышные символы лопаются, сверху падают новые, а множитель растёт на каждом каскаде.</p>
+          <p>
+            Собери {MIN_CLUSTER}+ одинаковых фруктов рядом по сторонам. Выигрышные символы
+            лопаются, сверху падают новые, а множитель растёт на каждом каскаде.
+          </p>
         </section>
+
         <section>
-          <h3>Демо-ставка</h3>
-          <p>Баланс не списывается. Ставка нужна только для размера демо-выигрыша и будущего подключения экономики.</p>
+          <h3>Ставка</h3>
+          <p>
+            Выбери размер ставки целым числом от 1 и нажми Spin. Чем выше ставка, тем больше
+            итоговый выигрыш.
+          </p>
         </section>
+
         <section>
           <h3>Выплаты при ставке {formatMoney(bet)}</h3>
+
           <div className="fc-paytable">
             {SYMBOL_ORDER.map((symbol) => (
               <div className="fc-pay-row" key={symbol}>
@@ -424,11 +568,8 @@ const StyleBlock = () => (
         radial-gradient(90% 48% at 8% 18%, rgba(47, 140, 255, .20), transparent 55%),
         radial-gradient(95% 58% at 98% 88%, rgba(255, 143, 45, .22), transparent 58%),
         linear-gradient(180deg, #10081f 0%, #160b2b 46%, #090611 100%) !important;
-    }
-
-    body.fruit-cascade-active .solo-app-shell,
-    body.fruit-cascade-active .fruit-cascade-app-shell {
-      isolation: isolate;
+      background-attachment: fixed !important;
+      background-repeat: no-repeat !important;
     }
 
     body.fruit-cascade-active .solo-main,
@@ -443,7 +584,9 @@ const StyleBlock = () => (
         linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.026)),
         rgba(18, 10, 36, .62) !important;
       border-color: rgba(255, 214, 122, .13) !important;
-      box-shadow: 0 16px 38px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.08) !important;
+      box-shadow:
+        0 16px 38px rgba(0,0,0,.26),
+        inset 0 1px 0 rgba(255,255,255,.08) !important;
     }
 
     .fc-root {
@@ -460,52 +603,12 @@ const StyleBlock = () => (
       font-family: 'Supercell', Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       contain: layout paint style;
       transform: translateZ(0);
+      background: transparent;
     }
 
     .fc-root * {
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
-    }
-
-    .fc-ambient {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      overflow: hidden;
-      background:
-        radial-gradient(105% 58% at 50% -10%, rgba(123, 54, 255, .46), transparent 58%),
-        radial-gradient(90% 48% at 8% 18%, rgba(47, 140, 255, .20), transparent 55%),
-        radial-gradient(95% 58% at 98% 88%, rgba(255, 143, 45, .22), transparent 58%),
-        linear-gradient(180deg, #10081f 0%, #160b2b 46%, #090611 100%);
-    }
-
-    .fc-ambient::before,
-    .fc-ambient::after {
-      content: '';
-      position: absolute;
-      width: 230px;
-      height: 230px;
-      border-radius: 999px;
-      filter: blur(34px);
-      opacity: .44;
-      transform: translateZ(0);
-      animation: fcAmbientFloat 9s ease-in-out infinite;
-    }
-
-    .fc-ambient::before { left: -80px; top: 4%; background: #7a2bff; }
-    .fc-ambient::after { right: -95px; bottom: 10%; background: #ff8f2d; animation-delay: -3s; }
-
-    .fc-grain {
-      position: absolute;
-      inset: 0;
-      opacity: .045;
-      background-image: radial-gradient(rgba(255,255,255,.72) .55px, transparent .55px);
-      background-size: 3px 3px;
-    }
-
-    @keyframes fcAmbientFloat {
-      50% { transform: translate3d(18px, -20px, 0) scale(1.04); }
     }
 
     .fc-content {
@@ -534,9 +637,13 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,.86);
-      background: linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.028)), rgba(27, 15, 52, .68);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.028)),
+        rgba(27, 15, 52, .68);
       border: 1px solid rgba(255,255,255,.085);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 9px 20px rgba(0,0,0,.22);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.1),
+        0 9px 20px rgba(0,0,0,.22);
       transform: translateZ(0);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
@@ -545,12 +652,36 @@ const StyleBlock = () => (
     .fc-info-btn:active,
     .fc-bet-btn:active,
     .fc-auto-btn:active,
-    .fc-spin-btn:active { transform: scale(.94) translateZ(0); filter: brightness(1.08); }
+    .fc-spin-btn:active {
+      transform: scale(.94) translateZ(0);
+      filter: brightness(1.08);
+    }
 
-    .fc-title-block { min-width: 0; text-align: center; }
-    .fc-kicker { margin: 0 0 2px; font-size: 8px; line-height: 1.25; letter-spacing: .18em; color: rgba(255, 218, 151, .72); }
-    .fc-title { margin: 0; font-size: 20px; line-height: 1.05; letter-spacing: .02em; color: #fff4c9; text-shadow: 0 3px 15px rgba(255, 168, 57, .34); }
-    .fc-title span { color: #cda7ff; }
+    .fc-title-block {
+      min-width: 0;
+      text-align: center;
+    }
+
+    .fc-kicker {
+      margin: 0 0 2px;
+      font-size: 8px;
+      line-height: 1.25;
+      letter-spacing: .18em;
+      color: rgba(255, 218, 151, .72);
+    }
+
+    .fc-title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.05;
+      letter-spacing: .02em;
+      color: #fff4c9;
+      text-shadow: 0 3px 15px rgba(255, 168, 57, .34);
+    }
+
+    .fc-title span {
+      color: #cda7ff;
+    }
 
     .fc-board-area {
       min-height: 0;
@@ -574,33 +705,23 @@ const StyleBlock = () => (
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.08),
         inset 0 -12px 30px rgba(0,0,0,.22),
-        0 20px 46px rgba(0,0,0,.34),
-        0 0 26px rgba(126, 64, 255, .16);
+        0 16px 34px rgba(0,0,0,.30),
+        0 0 20px rgba(126, 64, 255, .13);
       transform: translateZ(0);
       contain: layout paint style;
     }
 
     .fc-board-frame.flash {
-      animation: fcBoardFlash .32s ease-out;
+      animation: fcBoardFlash .26s ease-out;
     }
 
     @keyframes fcBoardFlash {
-      50% { box-shadow: inset 0 0 34px rgba(255,211,77,.26), 0 0 36px rgba(255,211,77,.22), 0 20px 46px rgba(0,0,0,.34); }
-    }
-
-    .fc-board-frame::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,.12) 44%, transparent 64%);
-      transform: translateX(-130%) skewX(-18deg) translateZ(0);
-      animation: fcSheen 5.4s ease-in-out infinite;
-      z-index: 4;
-    }
-
-    @keyframes fcSheen {
-      42%, 100% { transform: translateX(160%) skewX(-18deg) translateZ(0); }
+      50% {
+        box-shadow:
+          inset 0 0 28px rgba(255,211,77,.23),
+          0 0 26px rgba(255,211,77,.18),
+          0 16px 34px rgba(0,0,0,.30);
+      }
     }
 
     .fc-board {
@@ -625,7 +746,9 @@ const StyleBlock = () => (
         linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)),
         rgba(32, 18, 58, .74);
       border: 1px solid rgba(255,255,255,.075);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.11), inset 0 -6px 10px rgba(0,0,0,.18);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.10),
+        inset 0 -5px 9px rgba(0,0,0,.16);
       transform: translateZ(0);
       will-change: transform, opacity;
       contain: layout paint style;
@@ -638,7 +761,6 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: center;
       transform: rotate(var(--rot)) translateZ(0);
-      filter: drop-shadow(0 5px 5px rgba(0,0,0,.28));
       will-change: transform, opacity;
     }
 
@@ -648,32 +770,55 @@ const StyleBlock = () => (
     }
 
     @keyframes fcDropPhysics {
-      0% { transform: translate3d(0, calc(var(--drop) * -112%), 0) rotate(calc(var(--rot) - 6deg)) scale(.96); opacity: .2; }
-      64% { transform: translate3d(0, 7%, 0) rotate(calc(var(--rot) + 2deg)) scale(1.04, .96); opacity: 1; }
-      82% { transform: translate3d(0, -3%, 0) rotate(var(--rot)) scale(.985, 1.02); }
-      100% { transform: translate3d(0, 0, 0) rotate(var(--rot)) scale(1); opacity: 1; }
+      0% {
+        transform: translate3d(0, calc(var(--drop) * -112%), 0) rotate(calc(var(--rot) - 5deg)) scale(.97);
+        opacity: .22;
+      }
+
+      66% {
+        transform: translate3d(0, 6%, 0) rotate(calc(var(--rot) + 2deg)) scale(1.035, .97);
+        opacity: 1;
+      }
+
+      84% {
+        transform: translate3d(0, -2.5%, 0) rotate(var(--rot)) scale(.99, 1.015);
+      }
+
+      100% {
+        transform: translate3d(0, 0, 0) rotate(var(--rot)) scale(1);
+        opacity: 1;
+      }
     }
 
     .fc-cell.win {
       z-index: 3;
-      animation: fcWinPulse .26s ease-in-out infinite alternate;
-      border-color: color-mix(in srgb, var(--glow) 60%, white 18%);
+      border-color: var(--glow);
+      animation: fcWinMark .24s ease-out both;
     }
 
     .fc-cell.win::after {
       content: '';
       position: absolute;
-      inset: -4px;
+      inset: -3px;
       border-radius: inherit;
-      opacity: .9;
+      opacity: .74;
       pointer-events: none;
-      background: radial-gradient(circle, color-mix(in srgb, var(--glow) 58%, transparent), transparent 68%);
+      background: radial-gradient(circle, var(--glow), transparent 68%);
       transform: translateZ(0);
     }
 
-    @keyframes fcWinPulse {
-      from { transform: translateZ(0) scale(1); }
-      to { transform: translateZ(0) scale(1.045); }
+    @keyframes fcWinMark {
+      0% {
+        transform: translateZ(0) scale(1);
+      }
+
+      55% {
+        transform: translateZ(0) scale(1.04);
+      }
+
+      100% {
+        transform: translateZ(0) scale(1.015);
+      }
     }
 
     .fc-cell.pop .fc-cell-inner {
@@ -681,9 +826,20 @@ const StyleBlock = () => (
     }
 
     @keyframes fcPop {
-      0% { transform: rotate(var(--rot)) scale(1); opacity: 1; }
-      45% { transform: rotate(var(--rot)) scale(1.2); opacity: 1; }
-      100% { transform: rotate(var(--rot)) scale(.25); opacity: 0; }
+      0% {
+        transform: rotate(var(--rot)) scale(1);
+        opacity: 1;
+      }
+
+      45% {
+        transform: rotate(var(--rot)) scale(1.14);
+        opacity: 1;
+      }
+
+      100% {
+        transform: rotate(var(--rot)) scale(.25);
+        opacity: 0;
+      }
     }
 
     .fc-particles {
@@ -697,8 +853,8 @@ const StyleBlock = () => (
       position: absolute;
       left: 50%;
       top: 50%;
-      width: 5px;
-      height: 5px;
+      width: 4px;
+      height: 4px;
       border-radius: 999px;
       background: var(--glow);
       animation: fcSpark ${POP_MS}ms ease-out both;
@@ -706,7 +862,10 @@ const StyleBlock = () => (
     }
 
     @keyframes fcSpark {
-      to { opacity: 0; transform: rotate(var(--a)) translateX(25px) scale(.35); }
+      to {
+        opacity: 0;
+        transform: rotate(var(--a)) translateX(21px) scale(.35);
+      }
     }
 
     .fc-winline {
@@ -716,14 +875,35 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)), rgba(20, 11, 39, .78);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)),
+        rgba(20, 11, 39, .78);
       border: 1px solid rgba(255,255,255,.075);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 9px 22px rgba(0,0,0,.24);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.08),
+        0 8px 18px rgba(0,0,0,.21);
     }
 
-    .fc-win-caption { font-size: 9px; letter-spacing: .16em; color: rgba(210,190,245,.66); }
-    .fc-win-value { font-size: 19px; line-height: 1; color: #fff3c0; text-shadow: 0 0 16px rgba(255,190,77,.24); }
-    .fc-win-mult { min-width: 45px; text-align: right; font-size: 16px; color: #9fffc4; text-shadow: 0 0 14px rgba(61,220,132,.28); }
+    .fc-win-caption {
+      font-size: 9px;
+      letter-spacing: .16em;
+      color: rgba(210,190,245,.66);
+    }
+
+    .fc-win-value {
+      font-size: 19px;
+      line-height: 1;
+      color: #fff3c0;
+      text-shadow: 0 0 13px rgba(255,190,77,.22);
+    }
+
+    .fc-win-mult {
+      min-width: 45px;
+      text-align: right;
+      font-size: 16px;
+      color: #9fffc4;
+      text-shadow: 0 0 12px rgba(61,220,132,.24);
+    }
 
     .fc-toast-layer {
       position: absolute;
@@ -742,13 +922,16 @@ const StyleBlock = () => (
       color: #1a1024;
       font-size: 12px;
       background: linear-gradient(180deg, #fff3bd, #ffb347);
-      box-shadow: 0 7px 18px rgba(255, 179, 71, .28);
-      animation: fcToast .9s ease-out both;
+      box-shadow: 0 7px 16px rgba(255, 179, 71, .24);
+      animation: fcToast .82s ease-out both;
       white-space: nowrap;
     }
 
     @keyframes fcToast {
-      to { transform: translate(-50%, -110%) translateZ(0) scale(1.08); opacity: 0; }
+      to {
+        transform: translate(-50%, -105%) translateZ(0) scale(1.06);
+        opacity: 0;
+      }
     }
 
     .fc-controls {
@@ -766,9 +949,13 @@ const StyleBlock = () => (
       gap: 7px;
       border-radius: 22px;
       padding: 8px;
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)), rgba(17, 9, 34, .76);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)),
+        rgba(17, 9, 34, .76);
       border: 1px solid rgba(255,255,255,.075);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 12px 24px rgba(0,0,0,.24);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.09),
+        0 10px 20px rgba(0,0,0,.22);
     }
 
     .fc-bet-btn {
@@ -777,16 +964,37 @@ const StyleBlock = () => (
       color: #fff1ba;
       font-size: 22px;
       line-height: 1;
-      background: radial-gradient(circle at 30% 0%, rgba(255,255,255,.14), transparent 40%), linear-gradient(180deg, rgba(255,179,71,.24), rgba(255,255,255,.035));
+      background:
+        radial-gradient(circle at 30% 0%, rgba(255,255,255,.14), transparent 40%),
+        linear-gradient(180deg, rgba(255,179,71,.24), rgba(255,255,255,.035));
       border: 1px solid rgba(255,211,77,.18);
       transition: transform .1s ease, opacity .1s ease, filter .1s ease;
     }
 
-    .fc-bet-btn:disabled { opacity: .38; }
-    .fc-bet-value { text-align: center; min-width: 0; }
-    .fc-bet-label { display: block; margin-bottom: 2px; font-size: 8px; line-height: 1.2; letter-spacing: .17em; color: rgba(210,190,245,.58); }
-    .fc-bet-number { display: block; font-size: 18px; line-height: 1.1; color: #fff; }
-    .fc-bet-demo { display: block; margin-top: 1px; font-size: 7px; line-height: 1.25; letter-spacing: .12em; color: rgba(159,255,196,.68); }
+    .fc-bet-btn:disabled {
+      opacity: .38;
+    }
+
+    .fc-bet-value {
+      text-align: center;
+      min-width: 0;
+    }
+
+    .fc-bet-label {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 8px;
+      line-height: 1.2;
+      letter-spacing: .17em;
+      color: rgba(210,190,245,.58);
+    }
+
+    .fc-bet-number {
+      display: block;
+      font-size: 19px;
+      line-height: 1.1;
+      color: #fff;
+    }
 
     .fc-main-actions {
       display: grid;
@@ -806,7 +1014,9 @@ const StyleBlock = () => (
       font-size: 10px;
       letter-spacing: .08em;
       color: rgba(220,202,255,.72);
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.024)), rgba(22, 12, 42, .74);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.024)),
+        rgba(22, 12, 42, .74);
       border: 1px solid rgba(255,255,255,.075);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
@@ -822,11 +1032,19 @@ const StyleBlock = () => (
       color: #082011;
       background: linear-gradient(180deg, #b7ffd0, #3ddc84);
       border-color: rgba(159,255,196,.72);
-      box-shadow: 0 0 18px rgba(61,220,132,.24);
+      box-shadow: 0 0 16px rgba(61,220,132,.20);
     }
 
-    .fc-auto-btn.on .fc-auto-dot { background: #082011; animation: fcAutoBlink 1s ease-in-out infinite; }
-    @keyframes fcAutoBlink { 50% { opacity: .34; } }
+    .fc-auto-btn.on .fc-auto-dot {
+      background: #082011;
+      animation: fcAutoBlink 1s ease-in-out infinite;
+    }
+
+    @keyframes fcAutoBlink {
+      50% {
+        opacity: .34;
+      }
+    }
 
     .fc-spin-btn {
       position: relative;
@@ -838,18 +1056,22 @@ const StyleBlock = () => (
       transition: transform .1s ease, filter .1s ease;
     }
 
-    .fc-spin-btn:disabled { opacity: .82; }
+    .fc-spin-btn:disabled {
+      opacity: .82;
+    }
 
     .fc-spin-ring {
       position: absolute;
       inset: 0;
       border-radius: inherit;
       background: conic-gradient(from 0deg, #ffd34d, #ff7a1a, #ff4d6d, #b06bff, #3da8ff, #ffd34d);
-      box-shadow: 0 0 24px rgba(255, 179, 71, .42);
-      animation: fcSpin 4s linear infinite;
+      box-shadow: 0 0 21px rgba(255, 179, 71, .34);
+      animation: fcSpin 4.5s linear infinite;
     }
 
-    .fc-spin-btn.spinning .fc-spin-ring { animation-duration: .8s; }
+    .fc-spin-btn.spinning .fc-spin-ring {
+      animation-duration: .82s;
+    }
 
     .fc-spin-core {
       position: absolute;
@@ -861,7 +1083,9 @@ const StyleBlock = () => (
       color: #1a1024;
       font-size: 17px;
       background: radial-gradient(circle at 38% 28%, #fff6c2, #ffbe4f 56%, #d8730d);
-      box-shadow: inset 0 2px 7px rgba(255,255,255,.58), inset 0 -6px 11px rgba(90,42,0,.38);
+      box-shadow:
+        inset 0 2px 7px rgba(255,255,255,.54),
+        inset 0 -6px 11px rgba(90,42,0,.34);
     }
 
     .fc-spin-loader {
@@ -873,21 +1097,37 @@ const StyleBlock = () => (
       animation: fcSpin .68s linear infinite;
     }
 
-    @keyframes fcSpin { to { transform: rotate(360deg); } }
+    @keyframes fcSpin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
 
-    .fc-demo-pill {
+    .fc-sound-pill {
       height: 58px;
       border-radius: 19px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.024)), rgba(22, 12, 42, .74);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.024)),
+        rgba(22, 12, 42, .74);
       border: 1px solid rgba(255,255,255,.075);
+      color: rgba(220,202,255,.72);
     }
 
-    .fc-demo-pill span:first-child { font-size: 8px; letter-spacing: .16em; color: rgba(210,190,245,.58); }
-    .fc-demo-pill span:last-child { margin-top: 2px; font-size: 12px; color: #9fffc4; }
+    .fc-sound-pill span:first-child {
+      font-size: 8px;
+      letter-spacing: .16em;
+      color: rgba(210,190,245,.58);
+    }
+
+    .fc-sound-pill span:last-child {
+      margin-top: 2px;
+      font-size: 12px;
+      color: #fff3c0;
+    }
 
     .fc-loading-screen {
       position: absolute;
@@ -915,15 +1155,59 @@ const StyleBlock = () => (
       border: 2px solid rgba(255,255,255,.10);
     }
 
-    .fc-load-ring-a { width: 220px; height: 220px; border-top-color: #ffd34d; animation: fcSpin 2.2s linear infinite; }
-    .fc-load-ring-b { width: 178px; height: 178px; border-bottom-color: #b06bff; animation: fcSpin 1.6s linear infinite reverse; }
-    .fc-load-star { position: relative; filter: drop-shadow(0 0 15px rgba(255,211,77,.45)); animation: fcPulse 1.5s ease-in-out infinite; }
-    .fc-load-title { position: relative; margin-top: 24px; font-size: 25px; line-height: 1; color: #fff3bd; text-shadow: 0 0 20px rgba(255,190,77,.30); }
-    .fc-load-subtitle { position: relative; margin-top: 8px; font-size: 9px; letter-spacing: .20em; color: rgba(220,202,255,.68); }
-    .fc-load-bar { position: relative; overflow: hidden; width: 210px; height: 8px; margin-top: 22px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); }
-    .fc-load-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffd34d, #ff7a1a, #ff4d6d); transition: width .1s ease; }
+    .fc-load-ring-a {
+      width: 220px;
+      height: 220px;
+      border-top-color: #ffd34d;
+      animation: fcSpin 2.2s linear infinite;
+    }
 
-    @keyframes fcPulse { 50% { transform: scale(1.08); opacity: .78; } }
+    .fc-load-ring-b {
+      width: 178px;
+      height: 178px;
+      border-bottom-color: #b06bff;
+      animation: fcSpin 1.6s linear infinite reverse;
+    }
+
+    .fc-load-star {
+      position: relative;
+      animation: fcPulse 1.5s ease-in-out infinite;
+    }
+
+    .fc-load-title {
+      position: relative;
+      margin-top: 24px;
+      font-size: 25px;
+      line-height: 1;
+      color: #fff3bd;
+      text-shadow: 0 0 18px rgba(255,190,77,.26);
+    }
+
+    .fc-load-bar {
+      position: relative;
+      overflow: hidden;
+      width: 210px;
+      height: 8px;
+      margin-top: 22px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .fc-load-bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #ffd34d, #ff7a1a, #ff4d6d);
+      transition: width .1s ease;
+    }
+
+    @keyframes fcPulse {
+      50% {
+        transform: scale(1.08);
+        opacity: .78;
+      }
+    }
 
     .fc-bigwin {
       position: fixed;
@@ -934,10 +1218,18 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: center;
       background: radial-gradient(circle at 50% 45%, rgba(32, 15, 65, .86), rgba(7, 4, 14, .96));
-      animation: fcFade .22s ease-out both;
+      animation: fcFade .18s ease-out both;
     }
 
-    @keyframes fcFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fcFade {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
 
     .fc-bigwin-burst {
       position: absolute;
@@ -948,7 +1240,12 @@ const StyleBlock = () => (
       animation: fcBigPulse 1.2s ease-in-out infinite;
     }
 
-    @keyframes fcBigPulse { 50% { transform: scale(1.16); opacity: .75; } }
+    @keyframes fcBigPulse {
+      50% {
+        transform: scale(1.16);
+        opacity: .75;
+      }
+    }
 
     .fc-bigwin-label {
       position: relative;
@@ -956,16 +1253,30 @@ const StyleBlock = () => (
       line-height: .95;
       letter-spacing: .03em;
       color: #fff1ba;
-      text-shadow: 0 0 28px rgba(255,190,77,.48);
-      animation: fcBigPop .45s cubic-bezier(.22, 1.35, .31, 1) both;
+      text-shadow: 0 0 24px rgba(255,190,77,.44);
+      animation: fcBigPop .42s cubic-bezier(.22, 1.35, .31, 1) both;
     }
 
-    .fc-bigwin-label.mega { font-size: 48px; color: #d2b6ff; }
-    .fc-bigwin-label.epic { font-size: 51px; color: #9fffc4; }
+    .fc-bigwin-label.mega {
+      font-size: 48px;
+      color: #d2b6ff;
+    }
+
+    .fc-bigwin-label.epic {
+      font-size: 51px;
+      color: #9fffc4;
+    }
 
     @keyframes fcBigPop {
-      from { transform: scale(.35) rotate(-8deg); opacity: 0; }
-      to { transform: scale(1); opacity: 1; }
+      from {
+        transform: scale(.35) rotate(-8deg);
+        opacity: 0;
+      }
+
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
     }
 
     .fc-bigwin-value {
@@ -973,15 +1284,40 @@ const StyleBlock = () => (
       margin-top: 12px;
       font-size: 39px;
       color: #fff;
-      text-shadow: 0 0 21px rgba(255,211,77,.48);
+      text-shadow: 0 0 18px rgba(255,211,77,.44);
     }
 
-    .fc-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-    .fc-confetti span { position: absolute; top: -14px; width: 8px; height: 12px; border-radius: 2px; background: #ffd34d; animation: fcConfetti 2.1s linear infinite; }
-    .fc-confetti span:nth-child(3n) { background: #ff5c7a; }
-    .fc-confetti span:nth-child(3n + 1) { background: #3ddc84; }
+    .fc-confetti {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
 
-    @keyframes fcConfetti { to { transform: translate3d(0, 110vh, 0) rotate(460deg); opacity: 0; } }
+    .fc-confetti span {
+      position: absolute;
+      top: -14px;
+      width: 8px;
+      height: 12px;
+      border-radius: 2px;
+      background: #ffd34d;
+      animation: fcConfetti 2s linear infinite;
+    }
+
+    .fc-confetti span:nth-child(3n) {
+      background: #ff5c7a;
+    }
+
+    .fc-confetti span:nth-child(3n + 1) {
+      background: #3ddc84;
+    }
+
+    @keyframes fcConfetti {
+      to {
+        transform: translate3d(0, 110vh, 0) rotate(460deg);
+        opacity: 0;
+      }
+    }
 
     .fc-modal-layer {
       position: fixed;
@@ -1012,40 +1348,159 @@ const StyleBlock = () => (
       animation: fcSlideUp .24s ease-out both;
     }
 
-    @keyframes fcSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    @keyframes fcSlideUp {
+      from {
+        transform: translateY(100%);
+      }
 
-    .fc-modal-grip { width: 42px; height: 4px; border-radius: 999px; margin: 9px auto 0; background: rgba(255,255,255,.22); }
-    .fc-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px 11px; border-bottom: 1px solid rgba(255,255,255,.07); }
-    .fc-modal-head p { margin: 0 0 2px; font-size: 8px; letter-spacing: .18em; color: rgba(210,190,245,.58); }
-    .fc-modal-head h2 { margin: 0; font-size: 17px; color: #fff3bd; }
-    .fc-modal-head button { width: 34px; height: 34px; border-radius: 999px; color: #fff; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.08); font-size: 20px; }
-    .fc-modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px 20px; }
-    .fc-modal-body section + section { margin-top: 14px; }
-    .fc-modal-body h3 { margin: 0 0 5px; font-size: 12px; color: #ffd891; }
-    .fc-modal-body p { margin: 0; font-size: 12px; line-height: 1.5; color: rgba(239,231,255,.78); }
-    .fc-paytable { display: grid; gap: 5px; }
-    .fc-pay-row { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 12px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.055); }
-    .fc-pay-row span { font-size: 12px; color: rgba(239,231,255,.86); }
-    .fc-pay-row b { font-size: 12px; color: #fff3bd; }
+      to {
+        transform: translateY(0);
+      }
+    }
+
+    .fc-modal-grip {
+      width: 42px;
+      height: 4px;
+      border-radius: 999px;
+      margin: 9px auto 0;
+      background: rgba(255,255,255,.22);
+    }
+
+    .fc-modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px 11px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+
+    .fc-modal-head p {
+      margin: 0 0 2px;
+      font-size: 8px;
+      letter-spacing: .18em;
+      color: rgba(210,190,245,.58);
+    }
+
+    .fc-modal-head h2 {
+      margin: 0;
+      font-size: 17px;
+      color: #fff3bd;
+    }
+
+    .fc-modal-head button {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.08);
+      font-size: 16px;
+    }
+
+    .fc-modal-body {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px 16px 20px;
+    }
+
+    .fc-modal-body section + section {
+      margin-top: 14px;
+    }
+
+    .fc-modal-body h3 {
+      margin: 0 0 5px;
+      font-size: 12px;
+      color: #ffd891;
+    }
+
+    .fc-modal-body p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: rgba(239,231,255,.78);
+    }
+
+    .fc-paytable {
+      display: grid;
+      gap: 5px;
+    }
+
+    .fc-pay-row {
+      display: grid;
+      grid-template-columns: 30px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.045);
+      border: 1px solid rgba(255,255,255,.055);
+    }
+
+    .fc-pay-row span {
+      font-size: 12px;
+      color: rgba(239,231,255,.86);
+    }
+
+    .fc-pay-row b {
+      font-size: 12px;
+      color: #fff3bd;
+    }
 
     @media (max-height: 720px) {
-      .fc-root { padding-top: 2px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
-      .fc-top { padding-bottom: 5px; }
-      .fc-title { font-size: 18px; }
-      .fc-board-frame { padding: 10px; border-radius: 22px; }
-      .fc-cell { border-radius: 13px; }
-      .fc-controls { gap: 6px; padding-top: 6px; }
-      .fc-spin-btn { width: 76px; height: 76px; }
-      .fc-bet-card { padding: 6px; }
-      .fc-main-actions { grid-template-columns: 68px 1fr 68px; gap: 8px; }
-      .fc-auto-btn, .fc-demo-pill { height: 52px; border-radius: 17px; }
-      .fc-winline { height: 39px; }
+      .fc-root {
+        padding-top: 2px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .fc-top {
+        padding-bottom: 5px;
+      }
+
+      .fc-title {
+        font-size: 18px;
+      }
+
+      .fc-board-frame {
+        padding: 10px;
+        border-radius: 22px;
+      }
+
+      .fc-cell {
+        border-radius: 13px;
+      }
+
+      .fc-controls {
+        gap: 6px;
+        padding-top: 6px;
+      }
+
+      .fc-spin-btn {
+        width: 76px;
+        height: 76px;
+      }
+
+      .fc-bet-card {
+        padding: 6px;
+      }
+
+      .fc-main-actions {
+        grid-template-columns: 68px 1fr 68px;
+        gap: 8px;
+      }
+
+      .fc-auto-btn,
+      .fc-sound-pill {
+        height: 52px;
+        border-radius: 17px;
+      }
+
+      .fc-winline {
+        height: 39px;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .fc-ambient::before,
-      .fc-ambient::after,
-      .fc-board-frame::before,
       .fc-spin-ring,
       .fc-load-ring,
       .fc-load-star,
@@ -1062,18 +1517,19 @@ const StyleBlock = () => (
   `}</style>
 );
 
-const cellStyle = (cell: Cell): CSSProperties => ({
-  '--delay': `${cell.delay}ms`,
-  '--drop': cell.drop,
-  '--rot': `${cell.rot}deg`,
-  '--glow': SYMBOLS[cell.sym].glow,
-} as CSSProperties);
+const cellStyle = (cell: Cell): CSSProperties =>
+  ({
+    '--delay': `${cell.delay}ms`,
+    '--drop': cell.drop,
+    '--rot': `${cell.rot}deg`,
+    '--glow': SYMBOLS[cell.sym].glow,
+  }) as CSSProperties;
 
 export const FruitCascadeSoloGame = () => {
   const [loading, setLoading] = useState(true);
   const [loadPct, setLoadPct] = useState(0);
   const [board, setBoard] = useState<Cell[]>(() => makeBoard());
-  const [betIndex, setBetIndex] = useState(2);
+  const [bet, setBet] = useState(1);
   const [spinning, setSpinning] = useState(false);
   const [auto, setAuto] = useState(false);
   const [muted, setMuted] = useState(() => localStorage.getItem('fruit-cascade-muted') === '1');
@@ -1087,7 +1543,6 @@ export const FruitCascadeSoloGame = () => {
   const [bigTier, setBigTier] = useState<BigTier>(null);
   const [bigAmount, setBigAmount] = useState(0);
 
-  const bet = BET_STEPS[betIndex];
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
   const spinningRef = useRef(spinning);
@@ -1107,7 +1562,9 @@ export const FruitCascadeSoloGame = () => {
     else tgHaptics?.selectionChanged?.();
 
     if ('vibrate' in navigator) {
-      const pattern: VibratePattern = kind === 'big' ? [35, 30, 45] : kind === 'win' ? 22 : kind === 'spin' ? 14 : 8;
+      const pattern: VibratePattern =
+        kind === 'big' ? [35, 30, 45] : kind === 'win' ? 22 : kind === 'spin' ? 14 : 8;
+
       navigator.vibrate(pattern);
     }
   }, []);
@@ -1116,78 +1573,110 @@ export const FruitCascadeSoloGame = () => {
     if (audioRef.current) return audioRef.current;
 
     const AudioCtor = window.AudioContext || (window as BrowserWithAudio).webkitAudioContext;
+
     if (!AudioCtor) return null;
 
     audioRef.current = new AudioCtor();
+
     return audioRef.current;
   }, []);
 
-  const playSound = useCallback((kind: 'tap' | 'spin' | 'pop' | 'drop' | 'win' | 'big') => {
-    if (mutedRef.current) return;
+  const playSound = useCallback(
+    (kind: 'tap' | 'spin' | 'pop' | 'drop' | 'win' | 'big') => {
+      if (mutedRef.current) return;
 
-    const ctx = getAudioContext();
-    if (!ctx) return;
+      const ctx = getAudioContext();
 
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
-    }
+      if (!ctx) return;
 
-    const now = ctx.currentTime;
-    const playTone = (frequency: number, startOffset: number, duration: number, volume: number, type: OscillatorType = 'sine') => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(frequency, now + startOffset);
-      gain.gain.setValueAtTime(0.0001, now + startOffset);
-      gain.gain.exponentialRampToValueAtTime(volume, now + startOffset + 0.014);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + startOffset);
-      osc.stop(now + startOffset + duration + 0.02);
-    };
+      if (ctx.state === 'suspended') {
+        void ctx.resume();
+      }
 
-    if (kind === 'tap') playTone(520, 0, 0.07, 0.025);
-    if (kind === 'spin') {
-      playTone(180, 0, 0.12, 0.025, 'triangle');
-      playTone(260, 0.05, 0.16, 0.022, 'triangle');
-    }
-    if (kind === 'drop') playTone(160, 0, 0.08, 0.018, 'triangle');
-    if (kind === 'pop') {
-      playTone(620, 0, 0.06, 0.023, 'square');
-      playTone(820, 0.035, 0.07, 0.018, 'sine');
-    }
-    if (kind === 'win') {
-      playTone(520, 0, 0.09, 0.026);
-      playTone(720, 0.08, 0.11, 0.024);
-      playTone(960, 0.17, 0.13, 0.022);
-    }
-    if (kind === 'big') {
-      [440, 660, 880, 1170].forEach((freq, index) => playTone(freq, index * 0.1, 0.18, 0.028));
-    }
-  }, [getAudioContext]);
+      const now = ctx.currentTime;
+
+      const playTone = (
+        frequency: number,
+        startOffset: number,
+        duration: number,
+        volume: number,
+        type: OscillatorType = 'sine',
+      ) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, now + startOffset);
+
+        gain.gain.setValueAtTime(0.0001, now + startOffset);
+        gain.gain.exponentialRampToValueAtTime(volume, now + startOffset + 0.014);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now + startOffset);
+        osc.stop(now + startOffset + duration + 0.02);
+      };
+
+      if (kind === 'tap') playTone(520, 0, 0.07, 0.025);
+
+      if (kind === 'spin') {
+        playTone(180, 0, 0.12, 0.025, 'triangle');
+        playTone(260, 0.05, 0.16, 0.022, 'triangle');
+      }
+
+      if (kind === 'drop') {
+        playTone(160, 0, 0.08, 0.018, 'triangle');
+      }
+
+      if (kind === 'pop') {
+        playTone(620, 0, 0.06, 0.023, 'square');
+        playTone(820, 0.035, 0.07, 0.018, 'sine');
+      }
+
+      if (kind === 'win') {
+        playTone(520, 0, 0.09, 0.026);
+        playTone(720, 0.08, 0.11, 0.024);
+        playTone(960, 0.17, 0.13, 0.022);
+      }
+
+      if (kind === 'big') {
+        [440, 660, 880, 1170].forEach((freq, index) => {
+          playTone(freq, index * 0.1, 0.18, 0.028);
+        });
+      }
+    },
+    [getAudioContext],
+  );
 
   const animateWinNumber = useCallback((target: number) => {
     const from = winShownRef.current;
     const start = performance.now();
-    const duration = 360;
+    const duration = 320;
     let raf = 0;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
       const value = roundMoney(from + (target - from) * eased);
+
       winShownRef.current = value;
       setWinShown(value);
-      if (t < 1) raf = requestAnimationFrame(tick);
+
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      }
     };
 
     raf = requestAnimationFrame(tick);
+
     return () => cancelAnimationFrame(raf);
   }, []);
 
   const pushToast = useCallback((value: number) => {
     const id = toastSeq++;
+
     setToasts((items) => [
       ...items,
       {
@@ -1200,7 +1689,7 @@ export const FruitCascadeSoloGame = () => {
 
     window.setTimeout(() => {
       setToasts((items) => items.filter((item) => item.id !== id));
-    }, 940);
+    }, 860);
   }, []);
 
   const collapseBoard = useCallback((current: Cell[], winning: Set<number>) => {
@@ -1211,23 +1700,29 @@ export const FruitCascadeSoloGame = () => {
 
       for (let row = ROWS - 1; row >= 0; row -= 1) {
         const currentIndex = boardIndex(row, col);
-        if (!winning.has(currentIndex)) survivors.push({ cell: current[currentIndex], row });
+
+        if (!winning.has(currentIndex)) {
+          survivors.push({ cell: current[currentIndex], row });
+        }
       }
 
       let writeRow = ROWS - 1;
+
       survivors.forEach(({ cell, row }) => {
         const distance = Math.max(0, writeRow - row);
+
         next[boardIndex(writeRow, col)] = {
           ...cell,
           phase: distance > 0 ? 'drop' : 'idle',
           drop: distance,
-          delay: distance > 0 ? col * 16 + (ROWS - writeRow) * 12 : 0,
+          delay: distance > 0 ? col * 12 + (ROWS - writeRow) * 9 : 0,
         };
+
         writeRow -= 1;
       });
 
       for (let row = writeRow; row >= 0; row -= 1) {
-        next[boardIndex(row, col)] = makeCell('drop', col * 16 + row * 26, row + 2);
+        next[boardIndex(row, col)] = makeCell('drop', col * 12 + row * 19, row + 2);
       }
     }
 
@@ -1249,19 +1744,27 @@ export const FruitCascadeSoloGame = () => {
     haptic('spin');
     playSound('spin');
 
-    const freshBoard = injectDemoCluster(makeBoard('drop'));
-    setBoard(freshBoard);
-    await sleep(DROP_MS + 90);
+    const freshBoard = injectStarterCluster(makeBoard('drop'));
 
-    let current = freshBoard.map((cell) => ({ ...cell, phase: 'idle' as CellPhase, delay: 0, drop: 0 }));
+    setBoard(freshBoard);
+    await sleep(DROP_MS + 70);
+
+    let current = freshBoard.map((cell) => ({
+      ...cell,
+      phase: 'idle' as CellPhase,
+      delay: 0,
+      drop: 0,
+    }));
+
     setBoard(current);
-    await sleep(70);
+    await sleep(55);
 
     let totalWin = 0;
     let cascade = 0;
 
     while (cascade < MAX_CASCADES) {
       const clusters = findClusters(current);
+
       if (clusters.length === 0) break;
 
       cascade += 1;
@@ -1276,7 +1779,9 @@ export const FruitCascadeSoloGame = () => {
         const wildCount = group.filter((index) => current[index].sym === 'wild').length;
         const sizeBoost = 1 + Math.max(0, group.length - MIN_CLUSTER) * 0.42;
         const wildBoost = 1 + wildCount * 0.24;
+
         stepWin += SYMBOLS[baseSym].pay * group.length * sizeBoost * wildBoost * (bet / 10) * cascade;
+
         group.forEach((index) => winning.add(index));
       });
 
@@ -1285,41 +1790,59 @@ export const FruitCascadeSoloGame = () => {
 
       setWinCells(winning);
       setBoard(current.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'win' } : cell)));
+
       haptic('win');
       playSound('win');
       pushToast(stepWin);
       setWinValue(totalWin);
       animateWinNumber(totalWin);
+
       await sleep(HIGHLIGHT_MS);
 
-      setBoard((prev) => prev.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'pop' } : cell)));
+      setBoard((prev) =>
+        prev.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'pop' } : cell)),
+      );
+
       setBoardFlash(true);
       haptic('pop');
       playSound('pop');
-      window.setTimeout(() => setBoardFlash(false), 280);
+
+      window.setTimeout(() => setBoardFlash(false), 240);
+
       await sleep(POP_MS);
 
       const next = collapseBoard(current, winning);
+
       setWinCells(new Set());
       setBoard(next);
       playSound('drop');
-      await sleep(DROP_MS + 35);
 
-      current = next.map((cell) => ({ ...cell, phase: 'idle' as CellPhase, delay: 0, drop: 0 }));
+      await sleep(DROP_MS + 20);
+
+      current = next.map((cell) => ({
+        ...cell,
+        phase: 'idle' as CellPhase,
+        delay: 0,
+        drop: 0,
+      }));
+
       setBoard(current);
+
       await sleep(AFTER_DROP_MS);
     }
 
     if (totalWin > 0) {
       const ratio = totalWin / bet;
-      const tier: BigTier = ratio >= 32 ? 'epic' : ratio >= 17 ? 'mega' : ratio >= 8 ? 'big' : null;
+      const tier: BigTier = ratio >= 14 ? 'epic' : ratio >= 7 ? 'mega' : ratio >= 3 ? 'big' : null;
 
       if (tier) {
         setBigAmount(totalWin);
         setBigTier(tier);
         haptic('big');
         playSound('big');
-        await sleep(tier === 'epic' ? 2450 : tier === 'mega' ? 2150 : 1850);
+
+        await sleep(tier === 'epic' ? 2200 : tier === 'mega' ? 1950 : 1650);
+
         setBigTier(null);
       }
     }
@@ -1335,6 +1858,7 @@ export const FruitCascadeSoloGame = () => {
     return () => {
       document.documentElement.classList.remove('fruit-cascade-active');
       document.body.classList.remove('fruit-cascade-active');
+
       audioRef.current?.close().catch(() => undefined);
       audioRef.current = null;
     };
@@ -1347,20 +1871,23 @@ export const FruitCascadeSoloGame = () => {
   useEffect(() => {
     let raf = 0;
     const start = performance.now();
-    const duration = 920;
+    const duration = 760;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 2.5);
+
       setLoadPct(eased * 100);
+
       if (t < 1) {
         raf = requestAnimationFrame(tick);
       } else {
-        window.setTimeout(() => setLoading(false), 120);
+        window.setTimeout(() => setLoading(false), 90);
       }
     };
 
     raf = requestAnimationFrame(tick);
+
     return () => cancelAnimationFrame(raf);
   }, []);
 
@@ -1369,16 +1896,18 @@ export const FruitCascadeSoloGame = () => {
 
     const timer = window.setTimeout(() => {
       void spin();
-    }, 330);
+    }, 300);
 
     return () => window.clearTimeout(timer);
   }, [auto, spinning, spin]);
 
   const changeBet = (direction: -1 | 1) => {
     if (spinning) return;
+
     haptic('tap');
     playSound('tap');
-    setBetIndex((index) => Math.max(0, Math.min(BET_STEPS.length - 1, index + direction)));
+
+    setBet((value) => Math.max(1, value + direction));
   };
 
   const toggleMute = () => {
@@ -1390,7 +1919,6 @@ export const FruitCascadeSoloGame = () => {
     return (
       <div className="fc-root">
         <StyleBlock />
-        <div className="fc-ambient"><span className="fc-grain" /></div>
         <LoadingScreen progress={loadPct} />
       </div>
     );
@@ -1399,19 +1927,32 @@ export const FruitCascadeSoloGame = () => {
   return (
     <div className="fc-root">
       <StyleBlock />
-      <div className="fc-ambient"><span className="fc-grain" /></div>
 
       <div className="fc-content">
         <div className="fc-top">
-          <button type="button" className="fc-info-btn" onClick={() => setShowInfo(true)} aria-label="Info">i</button>
+          <button
+            type="button"
+            className="fc-info-btn"
+            onClick={() => setShowInfo(true)}
+            aria-label="Info"
+          >
+            i
+          </button>
 
           <div className="fc-title-block">
-            <p className="fc-kicker">SOLO FREE SLOT</p>
-            <h1 className="fc-title">FRUIT <span>CASCADE</span></h1>
+            <p className="fc-kicker">SOLO SLOT</p>
+            <h1 className="fc-title">
+              FRUIT <span>CASCADE</span>
+            </h1>
           </div>
 
-          <button type="button" className="fc-icon-btn" onClick={toggleMute} aria-label={muted ? 'Turn sound on' : 'Turn sound off'}>
-            {muted ? '🔇' : '🔊'}
+          <button
+            type="button"
+            className="fc-icon-btn"
+            onClick={toggleMute}
+            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+          >
+            {muted ? 'OFF' : 'ON'}
           </button>
         </div>
 
@@ -1430,10 +1971,14 @@ export const FruitCascadeSoloGame = () => {
                     <div className="fc-cell-inner">
                       <SymbolSVG id={cell.sym} size={46} />
                     </div>
+
                     {cell.phase === 'pop' && (
                       <div className="fc-particles">
-                        {Array.from({ length: 5 }, (_, spark) => (
-                          <span key={spark} style={{ '--a': `${spark * 72}deg` } as CSSProperties} />
+                        {Array.from({ length: 4 }, (_, spark) => (
+                          <span
+                            key={spark}
+                            style={{ '--a': `${spark * 90}deg` } as CSSProperties}
+                          />
                         ))}
                       </div>
                     )}
@@ -1447,7 +1992,12 @@ export const FruitCascadeSoloGame = () => {
                 <div
                   className="fc-toast"
                   key={toast.id}
-                  style={{ '--x': `${toast.x}%`, '--y': `${toast.y}%` } as CSSProperties}
+                  style={
+                    {
+                      '--x': `${toast.x}%`,
+                      '--y': `${toast.y}%`,
+                    } as CSSProperties
+                  }
                 >
                   +{formatMoney(toast.value)}
                 </div>
@@ -1458,43 +2008,81 @@ export const FruitCascadeSoloGame = () => {
           <div className="fc-winline">
             <span className="fc-win-caption">WIN</span>
             <strong className="fc-win-value">{formatMoney(winShown || winValue)}</strong>
-            <span className="fc-win-mult">×{multiplier}</span>
+            <span className="fc-win-mult">X{multiplier}</span>
           </div>
         </main>
 
         <footer className="fc-controls">
           <div className="fc-bet-card">
-            <button type="button" className="fc-bet-btn" disabled={spinning || betIndex === 0} onClick={() => changeBet(-1)} aria-label="Decrease bet">−</button>
+            <button
+              type="button"
+              className="fc-bet-btn"
+              disabled={spinning || bet <= 1}
+              onClick={() => changeBet(-1)}
+              aria-label="Decrease bet"
+            >
+              -
+            </button>
+
             <div className="fc-bet-value">
               <span className="fc-bet-label">BET</span>
               <span className="fc-bet-number">{formatMoney(bet)}</span>
-              <span className="fc-bet-demo">FREE DEMO</span>
             </div>
-            <button type="button" className="fc-bet-btn" disabled={spinning || betIndex === BET_STEPS.length - 1} onClick={() => changeBet(1)} aria-label="Increase bet">+</button>
+
+            <button
+              type="button"
+              className="fc-bet-btn"
+              disabled={spinning}
+              onClick={() => changeBet(1)}
+              aria-label="Increase bet"
+            >
+              +
+            </button>
           </div>
 
           <div className="fc-main-actions">
-            <button type="button" className={`fc-auto-btn ${auto ? 'on' : ''}`} onClick={() => { haptic('tap'); playSound('tap'); setAuto((value) => !value); }} aria-label="Auto spin">
+            <button
+              type="button"
+              className={`fc-auto-btn ${auto ? 'on' : ''}`}
+              onClick={() => {
+                haptic('tap');
+                playSound('tap');
+                setAuto((value) => !value);
+              }}
+              aria-label="Auto spin"
+            >
               <span className="fc-auto-dot" />
               AUTO
             </button>
 
-            <button type="button" className={`fc-spin-btn ${spinning ? 'spinning' : ''}`} disabled={spinning} onClick={() => void spin()} aria-label="Spin">
+            <button
+              type="button"
+              className={`fc-spin-btn ${spinning ? 'spinning' : ''}`}
+              disabled={spinning}
+              onClick={() => void spin()}
+              aria-label="Spin"
+            >
               <span className="fc-spin-ring" />
               <span className="fc-spin-core">
                 {spinning ? <span className="fc-spin-loader" /> : 'SPIN'}
               </span>
             </button>
 
-            <div className="fc-demo-pill">
-              <span>MODE</span>
-              <span>FREE</span>
-            </div>
+            <button
+              type="button"
+              className="fc-sound-pill"
+              onClick={toggleMute}
+              aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+            >
+              <span>SOUND</span>
+              <span>{muted ? 'OFF' : 'ON'}</span>
+            </button>
           </div>
         </footer>
       </div>
 
       {bigTier && <BigWinOverlay tier={bigTier} amount={bigAmount} />}
+
       {showInfo && <InfoModal bet={bet} onClose={() => setShowInfo(false)} />}
     </div>
   );
