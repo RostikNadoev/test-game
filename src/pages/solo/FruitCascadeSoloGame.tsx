@@ -54,9 +54,9 @@ const BET_STEPS = [0.2, 0.5, 1, 2, 5, 10, 20, 50];
 
 /* Cascade pacing (ms) — bigger, more dramatic pauses. */
 const T_HIGHLIGHT = 540;
-const T_POP = 680;
-const T_PAUSE_BEFORE_DROP = 200;
-const T_DROP = 760;
+const T_POP = 480;
+const T_PAUSE_BEFORE_DROP = 170;
+const T_DROP = 820;
 const T_PAUSE_AFTER = 320;
 
 /* ----------------------------------------------------------------------------
@@ -565,7 +565,7 @@ const InnerGame = () => {
 
     // fresh drop with staggered delays
     const fresh = Array.from({ length: CELL_COUNT }, (_, i) =>
-      makeCell('falling', (i % COLS) * 36 + Math.floor(i / COLS) * 26),
+      makeCell('falling', (i % COLS) * 28 + Math.floor(i / COLS) * 34),
     );
     setBoard(fresh);
     await sleep(T_DROP);
@@ -627,14 +627,18 @@ const InnerGame = () => {
         const missing = ROWS - colCells.length;
         const rebuilt: Cell[] = [];
         for (let m = 0; m < missing; m++) {
-          rebuilt.push(makeCell('falling', m * 52));
+          rebuilt.push(makeCell('falling', c * 24 + m * 62));
         }
         const columnTopToBottom = [...rebuilt, ...colCells.reverse()];
         for (let r = 0; r < ROWS; r++) {
           const cell = columnTopToBottom[r];
+          const shouldAnimateDrop = missing > 0;
+          const distanceDelay = Math.max(0, missing - r) * 40;
+
           next[idx(r, c)] = {
             ...cell,
-            state: winning.has(idx(r, c)) ? 'falling' : cell.state,
+            state: shouldAnimateDrop ? 'falling' : 'idle',
+            fallDelay: shouldAnimateDrop ? c * 24 + r * 18 + distanceDelay : 0,
           };
         }
       }
@@ -981,14 +985,16 @@ const StyleBlock = () => (
     overflow:visible;
   }
   .fc-cell-inner{display:flex;align-items:center;justify-content:center;width:100%;height:100%;
-    filter:drop-shadow(0 3px 5px rgba(0,0,0,.55));transition:transform .2s;}
-  .fc-cell.falling .fc-cell-inner{animation:fcDrop .76s cubic-bezier(.3,1.4,.45,1) backwards;}
+    filter:drop-shadow(0 3px 5px rgba(0,0,0,.55));transition:transform .2s;
+    transform-origin:center bottom;will-change:transform,opacity,filter;}
+  .fc-cell.falling .fc-cell-inner{animation:fcDrop .82s cubic-bezier(.16,.92,.24,1) backwards;}
   @keyframes fcDrop{
-    0%{transform:translateY(-220%) scale(.7);opacity:0;}
-    55%{opacity:1;}
-    72%{transform:translateY(12%) scale(1.05);}
-    85%{transform:translateY(-4%) scale(.99);}
-    100%{transform:translateY(0) scale(1);}
+    0%{transform:translate3d(0,-265%,0) scale(.9) rotate(-3deg);opacity:0;filter:blur(2px) drop-shadow(0 10px 12px rgba(0,0,0,.35));}
+    24%{opacity:1;filter:blur(.8px) drop-shadow(0 8px 10px rgba(0,0,0,.45));}
+    62%{transform:translate3d(0,16%,0) scale(1.045) rotate(2deg);opacity:1;filter:blur(0) drop-shadow(0 4px 7px rgba(0,0,0,.56));}
+    76%{transform:translate3d(0,-7%,0) scale(.985) rotate(-1.2deg);}
+    88%{transform:translate3d(0,3%,0) scale(1.012) rotate(.5deg);}
+    100%{transform:translate3d(0,0,0) scale(1) rotate(0);opacity:1;filter:blur(0) drop-shadow(0 3px 5px rgba(0,0,0,.55));}
   }
   .fc-cell.win{
     border-color:var(--glow);
@@ -1002,25 +1008,26 @@ const StyleBlock = () => (
 
   /* premium pop / burst */
   .fc-cell.pop{z-index:5;}
-  .fc-cell.pop .fc-cell-inner{animation:fcPop .68s cubic-bezier(.5,.1,.3,1) forwards;}
+  .fc-cell.pop .fc-cell-inner{animation:fcPop .48s cubic-bezier(.28,.02,.24,1) forwards;}
   .fc-cell.pop::after{
-    content:'';position:absolute;inset:-4px;border-radius:50%;
+    content:'';position:absolute;inset:-5px;border-radius:50%;
     border:3px solid var(--glow);
-    box-shadow:0 0 18px var(--glow);
-    animation:fcRing .68s ease-out forwards;
+    box-shadow:0 0 20px var(--glow),0 0 34px color-mix(in srgb,var(--glow) 55%,transparent);
+    animation:fcRing .5s ease-out forwards;
   }
   .fc-cell.pop::before{
-    content:'';position:absolute;inset:0;border-radius:13px;
-    background:radial-gradient(circle,var(--glow),transparent 68%);
-    animation:fcBurst .68s ease-out forwards;z-index:-1;
+    content:'';position:absolute;inset:-2px;border-radius:14px;
+    background:radial-gradient(circle,var(--glow),rgba(255,255,255,.32) 18%,transparent 70%);
+    animation:fcBurst .5s ease-out forwards;z-index:-1;
   }
   @keyframes fcPop{
-    0%{transform:scale(1)}
-    25%{transform:scale(1.32) rotate(6deg);filter:brightness(1.6)}
-    100%{transform:scale(0) rotate(48deg);opacity:0;}
+    0%{transform:scale(1) rotate(0);opacity:1;filter:brightness(1)}
+    24%{transform:scale(1.36) rotate(5deg);opacity:1;filter:brightness(1.8)}
+    58%{transform:scale(.92) rotate(-10deg);opacity:.86;filter:brightness(1.45)}
+    100%{transform:scale(0) rotate(44deg);opacity:0;filter:brightness(2)}
   }
-  @keyframes fcBurst{0%{opacity:.95;transform:scale(.35)}100%{opacity:0;transform:scale(1.7)}}
-  @keyframes fcRing{0%{opacity:1;transform:scale(.4)}100%{opacity:0;transform:scale(1.8)}}
+  @keyframes fcBurst{0%{opacity:1;transform:scale(.3)}100%{opacity:0;transform:scale(1.55)}}
+  @keyframes fcRing{0%{opacity:1;transform:scale(.32)}100%{opacity:0;transform:scale(1.65)}}
 
   /* sparkle particles around winning cells */
   .fc-sparkles{position:absolute;inset:0;pointer-events:none;z-index:6;}
