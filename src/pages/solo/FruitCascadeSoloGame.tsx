@@ -1,9 +1,17 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+
+import cherryImg from '../../assets/solo/fruit/cherry.webp';
+import lemonImg from '../../assets/solo/fruit/lemon.webp';
+import melonImg from '../../assets/solo/fruit/melon.webp';
+import orangeImg from '../../assets/solo/fruit/orange.webp';
+import starImg from '../../assets/solo/fruit/star.webp';
+import strawberryImg from '../../assets/solo/fruit/strawberry.webp';
+import wineImg from '../../assets/solo/fruit/wine.webp';
 
 /* ============================================================================
  * Fruit Cascade — cascade slot for Telegram/mobile.
- * Single-file component: no external css, no deps.
+ * Uses external WEBP fruit assets from assets/solo/fruit.
  * ========================================================================== */
 
 const COLS = 6;
@@ -12,10 +20,12 @@ const CELL_COUNT = COLS * ROWS;
 const MIN_CLUSTER = 5;
 const MAX_CASCADES = 10;
 
-const DROP_MS = 520;
-const HIGHLIGHT_MS = 230;
-const POP_MS = 220;
-const AFTER_DROP_MS = 95;
+const DROP_MS = 510;
+const HIGHLIGHT_MS = 220;
+const POP_MS = 210;
+const AFTER_DROP_MS = 90;
+
+const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
 
 type SymbolId = 'cherry' | 'lemon' | 'orange' | 'grape' | 'strawberry' | 'watermelon' | 'wild';
 type CellPhase = 'idle' | 'drop' | 'win' | 'pop';
@@ -71,6 +81,16 @@ const SYMBOLS: Record<SymbolId, SymbolDef> = {
   wild: { id: 'wild', name: 'Wild Star', pay: 6.8, weight: 3, glow: '#ffd34d' },
 };
 
+const SYMBOL_IMAGES: Record<SymbolId, string> = {
+  cherry: cherryImg,
+  lemon: lemonImg,
+  orange: orangeImg,
+  grape: wineImg,
+  strawberry: strawberryImg,
+  watermelon: melonImg,
+  wild: starImg,
+};
+
 const SYMBOL_ORDER: SymbolId[] = [
   'cherry',
   'lemon',
@@ -87,7 +107,6 @@ const WEIGHT_TABLE: SymbolId[] = SYMBOL_ORDER.flatMap((sym) =>
 
 let cellSeq = 1;
 let toastSeq = 1;
-let gradientSeq = 1;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 const randomSym = () => WEIGHT_TABLE[Math.floor(Math.random() * WEIGHT_TABLE.length)];
@@ -113,7 +132,8 @@ const makeBoard = (phase: CellPhase = 'idle'): Cell[] =>
   Array.from({ length: CELL_COUNT }, (_, index) => {
     const row = Math.floor(index / COLS);
     const col = index % COLS;
-    return makeCell(phase, col * 18 + row * 24, phase === 'drop' ? row + 2 : 0);
+
+    return makeCell(phase, col * 16 + row * 22, phase === 'drop' ? row + 2 : 0);
   });
 
 const injectStarterCluster = (board: Cell[], chance = 0.42) => {
@@ -204,237 +224,113 @@ const findClusters = (board: Cell[]) => {
   return result;
 };
 
-const SymbolSVG = memo(({ id, size = 48 }: { id: SymbolId; size?: number }) => {
-  const uid = useMemo(() => `fcg-${gradientSeq++}`, []);
-  const gid = (name: string) => `${uid}-${id}-${name}`;
+const SymbolIcon = memo(
+  ({
+    id,
+    size = 48,
+    className = '',
+  }: {
+    id: SymbolId;
+    size?: number;
+    className?: string;
+  }) => (
+    <img
+      src={SYMBOL_IMAGES[id]}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      className={`fc-symbol-img ${className}`}
+      style={{ width: size, height: size }}
+    />
+  ),
+);
 
-  switch (id) {
-    case 'cherry':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="35%" cy="30%" r="70%">
-              <stop stopColor="#ff8fa3" />
-              <stop offset="0.55" stopColor="#ec2853" />
-              <stop offset="1" stopColor="#8e0a2c" />
-            </radialGradient>
-            <linearGradient id={gid('s')} x1="0" x2="1" y1="0" y2="1">
-              <stop stopColor="#85ef72" />
-              <stop offset="1" stopColor="#1f8b38" />
-            </linearGradient>
-          </defs>
+SymbolIcon.displayName = 'SymbolIcon';
 
-          <path
-            d="M48 20C37 34 31 48 31 62M49 20C64 32 70 46 68 62"
-            fill="none"
-            stroke={`url(#${gid('s')})`}
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-          <path d="M49 20c8-11 24-11 34-4-9 7-24 9-34 4Z" fill="#40b852" />
-          <circle cx="30" cy="70" r="18" fill={`url(#${gid('a')})`} />
-          <circle cx="68" cy="70" r="19" fill={`url(#${gid('a')})`} />
-          <ellipse cx="25" cy="63" rx="5" ry="3" fill="#fff" opacity="0.64" />
-          <ellipse cx="62" cy="62" rx="5" ry="3" fill="#fff" opacity="0.58" />
-        </svg>
-      );
+const InfoIcon = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M12 21.25C6.89 21.25 2.75 17.11 2.75 12S6.89 2.75 12 2.75 21.25 6.89 21.25 12 17.11 21.25 12 21.25Z"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <path
+      d="M12 10.6V16.4"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M12 7.45H12.01"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-    case 'lemon':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="35%" cy="30%" r="75%">
-              <stop stopColor="#fff9b7" />
-              <stop offset="0.55" stopColor="#ffe241" />
-              <stop offset="1" stopColor="#d99d00" />
-            </radialGradient>
-          </defs>
+const VolumeOnIcon = ({ size = 19 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M4 9.4V14.6H7.25L12.2 18.4V5.6L7.25 9.4H4Z"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M15.4 8.35C16.35 9.3 16.9 10.58 16.9 12C16.9 13.42 16.35 14.7 15.4 15.65"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M18.05 5.85C19.62 7.43 20.5 9.6 20.5 12C20.5 14.4 19.62 16.57 18.05 18.15"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-          <ellipse
-            cx="50"
-            cy="52"
-            rx="35"
-            ry="27"
-            transform="rotate(-18 50 52)"
-            fill={`url(#${gid('a')})`}
-          />
-          <ellipse
-            cx="37"
-            cy="42"
-            rx="8"
-            ry="4"
-            transform="rotate(-18 37 42)"
-            fill="#fff"
-            opacity="0.55"
-          />
-          <path d="M79 45c4-2 7-1 9 2-4 3-7 3-9-2Z" fill="#b98200" opacity="0.55" />
-        </svg>
-      );
+const VolumeOffIcon = ({ size = 19 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M4 9.4V14.6H7.25L12.2 18.4V5.6L7.25 9.4H4Z"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M16 9L20 15"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M20 9L16 15"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-    case 'orange':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="35%" cy="30%" r="75%">
-              <stop stopColor="#ffd08a" />
-              <stop offset="0.52" stopColor="#ff952c" />
-              <stop offset="1" stopColor="#cf5b00" />
-            </radialGradient>
-          </defs>
-
-          <circle cx="50" cy="55" r="33" fill={`url(#${gid('a')})`} />
-          <path d="M49 28c8-9 18-9 25-4-7 6-17 7-25 4Z" fill="#45b950" />
-          <ellipse cx="38" cy="43" rx="8" ry="5" fill="#fff" opacity="0.5" />
-          <circle cx="50" cy="55" r="3" fill="#b54d00" opacity="0.35" />
-        </svg>
-      );
-
-    case 'grape':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="35%" cy="30%" r="75%">
-              <stop stopColor="#dca9ff" />
-              <stop offset="0.56" stopColor="#8b3cf2" />
-              <stop offset="1" stopColor="#51169c" />
-            </radialGradient>
-          </defs>
-
-          <path
-            d="M50 18c-6 7-5 13 0 18"
-            fill="none"
-            stroke="#8a5a2a"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          <path d="M48 22c9-8 20-8 27-2-9 4-19 4-27 2Z" fill="#40b852" />
-
-          {[
-            [38, 41],
-            [54, 41],
-            [46, 52],
-            [62, 52],
-            [34, 56],
-            [42, 66],
-            [58, 66],
-            [50, 76],
-          ].map(([cx, cy], index) => (
-            <g key={index}>
-              <circle cx={cx} cy={cy} r="10" fill={`url(#${gid('a')})`} />
-              <ellipse cx={cx - 3} cy={cy - 3} rx="2.5" ry="1.7" fill="#fff" opacity="0.56" />
-            </g>
-          ))}
-        </svg>
-      );
-
-    case 'strawberry':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="36%" cy="32%" r="76%">
-              <stop stopColor="#ff91a8" />
-              <stop offset="0.54" stopColor="#ef2e52" />
-              <stop offset="1" stopColor="#990b2b" />
-            </radialGradient>
-          </defs>
-
-          <path
-            d="M50 87C27 75 22 53 30 39c10-10 30-10 40 0 8 14 3 36-20 48Z"
-            fill={`url(#${gid('a')})`}
-          />
-          <path
-            d="M34 30c5 5 11 7 16 7s11-2 16-7c-2 8-8 12-16 12s-14-4-16-12Z"
-            fill="#40b852"
-          />
-
-          {[
-            [42, 50],
-            [57, 51],
-            [49, 61],
-            [63, 64],
-            [37, 64],
-            [52, 74],
-          ].map(([x, y], index) => (
-            <ellipse
-              key={index}
-              cx={x}
-              cy={y}
-              rx="1.8"
-              ry="3"
-              fill="#ffe66d"
-              transform={`rotate(20 ${x} ${y})`}
-            />
-          ))}
-        </svg>
-      );
-
-    case 'watermelon':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <linearGradient id={gid('a')} x1="0" x2="0" y1="0" y2="1">
-              <stop stopColor="#69df72" />
-              <stop offset="1" stopColor="#227c33" />
-            </linearGradient>
-            <linearGradient id={gid('b')} x1="0" x2="0" y1="0" y2="1">
-              <stop stopColor="#ff7e93" />
-              <stop offset="1" stopColor="#e32949" />
-            </linearGradient>
-          </defs>
-
-          <path d="M14 40a38 38 0 0 0 72 0Z" fill={`url(#${gid('a')})`} />
-          <path d="M20 42a32 32 0 0 0 60 0Z" fill="#eafff0" />
-          <path d="M24 44a28 28 0 0 0 52 0Z" fill={`url(#${gid('b')})`} />
-
-          {[
-            [40, 53],
-            [50, 59],
-            [60, 53],
-            [35, 61],
-            [65, 61],
-            [50, 48],
-          ].map(([x, y], index) => (
-            <ellipse
-              key={index}
-              cx={x}
-              cy={y}
-              rx="1.8"
-              ry="3"
-              fill="#211017"
-              transform={`rotate(15 ${x} ${y})`}
-            />
-          ))}
-        </svg>
-      );
-
-    case 'wild':
-      return (
-        <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
-          <defs>
-            <radialGradient id={gid('a')} cx="38%" cy="30%" r="72%">
-              <stop stopColor="#fff7be" />
-              <stop offset="0.48" stopColor="#ffd24d" />
-              <stop offset="1" stopColor="#bf7600" />
-            </radialGradient>
-          </defs>
-
-          <path
-            d="M50 10l10 28 30 2-23 19 8 29-25-17-25 17 8-29-23-19 30-2Z"
-            fill={`url(#${gid('a')})`}
-            stroke="#fff0a0"
-            strokeWidth="2.5"
-            strokeLinejoin="round"
-          />
-          <path d="M50 23l6 17-6 17-6-17Z" fill="#fff" opacity="0.5" />
-        </svg>
-      );
-
-    default:
-      return null;
-  }
-});
-
-SymbolSVG.displayName = 'SymbolSVG';
+const CloseIcon = ({ size = 17 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M6.75 6.75L17.25 17.25"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+    />
+    <path
+      d="M17.25 6.75L6.75 17.25"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 const LoadingScreen = ({ progress }: { progress: number }) => (
   <div className="fc-loading-screen">
@@ -443,7 +339,7 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
     <div className="fc-load-ring fc-load-ring-b" />
 
     <div className="fc-load-star">
-      <SymbolSVG id="wild" size={76} />
+      <SymbolIcon id="wild" size={82} />
     </div>
 
     <div className="fc-load-title">FRUIT CASCADE</div>
@@ -515,7 +411,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         </div>
 
         <button type="button" onClick={onClose} aria-label="Close">
-          X
+          <CloseIcon />
         </button>
       </div>
 
@@ -531,8 +427,8 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         <section>
           <h3>Ставка</h3>
           <p>
-            Выбери размер ставки целым числом от 1 и нажми Spin. Чем выше ставка, тем больше
-            итоговый выигрыш.
+            Выбери размер ставки целым числом от 1 и нажми Spin. Для быстрого изменения можно
+            использовать кнопки -10, -1, +1, +10 или готовые значения под ставкой.
           </p>
         </section>
 
@@ -542,7 +438,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
           <div className="fc-paytable">
             {SYMBOL_ORDER.map((symbol) => (
               <div className="fc-pay-row" key={symbol}>
-                <SymbolSVG id={symbol} size={25} />
+                <SymbolIcon id={symbol} size={30} />
                 <span>{SYMBOLS[symbol].name}</span>
                 <b>{formatMoney(SYMBOLS[symbol].pay * (bet / 10))}</b>
               </div>
@@ -611,6 +507,18 @@ const StyleBlock = () => (
       -webkit-tap-highlight-color: transparent;
     }
 
+    .fc-symbol-img {
+      display: block;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+      -webkit-user-drag: none;
+      transform: translateZ(0);
+      filter:
+        drop-shadow(0 4px 4px rgba(0, 0, 0, .28))
+        drop-shadow(0 0 8px rgba(255, 255, 255, .08));
+    }
+
     .fc-content {
       position: relative;
       z-index: 1;
@@ -636,8 +544,9 @@ const StyleBlock = () => (
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255,255,255,.86);
+      color: rgba(255,255,255,.88);
       background:
+        radial-gradient(circle at 30% 0%, rgba(255,255,255,.13), transparent 42%),
         linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.028)),
         rgba(27, 15, 52, .68);
       border: 1px solid rgba(255,255,255,.085);
@@ -651,8 +560,10 @@ const StyleBlock = () => (
     .fc-icon-btn:active,
     .fc-info-btn:active,
     .fc-bet-btn:active,
+    .fc-bet-chip:active,
     .fc-auto-btn:active,
-    .fc-spin-btn:active {
+    .fc-spin-btn:active,
+    .fc-sound-pill:active {
       transform: scale(.94) translateZ(0);
       filter: brightness(1.08);
     }
@@ -755,8 +666,8 @@ const StyleBlock = () => (
     }
 
     .fc-cell-inner {
-      width: 86%;
-      height: 86%;
+      width: 89%;
+      height: 89%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -801,7 +712,7 @@ const StyleBlock = () => (
       position: absolute;
       inset: -3px;
       border-radius: inherit;
-      opacity: .74;
+      opacity: .62;
       pointer-events: none;
       background: radial-gradient(circle, var(--glow), transparent 68%);
       transform: translateZ(0);
@@ -944,8 +855,6 @@ const StyleBlock = () => (
 
     .fc-bet-card {
       display: grid;
-      grid-template-columns: 54px 1fr 54px;
-      align-items: center;
       gap: 7px;
       border-radius: 22px;
       padding: 8px;
@@ -958,11 +867,18 @@ const StyleBlock = () => (
         0 10px 20px rgba(0,0,0,.22);
     }
 
+    .fc-bet-row {
+      display: grid;
+      grid-template-columns: 45px 42px 1fr 42px 45px;
+      align-items: center;
+      gap: 6px;
+    }
+
     .fc-bet-btn {
-      height: 44px;
-      border-radius: 16px;
+      height: 42px;
+      border-radius: 15px;
       color: #fff1ba;
-      font-size: 22px;
+      font-size: 14px;
       line-height: 1;
       background:
         radial-gradient(circle at 30% 0%, rgba(255,255,255,.14), transparent 40%),
@@ -971,29 +887,71 @@ const StyleBlock = () => (
       transition: transform .1s ease, opacity .1s ease, filter .1s ease;
     }
 
+    .fc-bet-btn.main {
+      font-size: 20px;
+    }
+
     .fc-bet-btn:disabled {
       opacity: .38;
     }
 
     .fc-bet-value {
+      height: 42px;
       text-align: center;
       min-width: 0;
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(255, 211, 77, .12), transparent 50%),
+        rgba(255, 255, 255, .035);
+      border: 1px solid rgba(255, 255, 255, .055);
     }
 
     .fc-bet-label {
       display: block;
       margin-bottom: 2px;
-      font-size: 8px;
-      line-height: 1.2;
+      font-size: 7px;
+      line-height: 1.1;
       letter-spacing: .17em;
       color: rgba(210,190,245,.58);
     }
 
     .fc-bet-number {
       display: block;
-      font-size: 19px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 17px;
       line-height: 1.1;
       color: #fff;
+    }
+
+    .fc-bet-chip-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .fc-bet-chip {
+      height: 29px;
+      border-radius: 12px;
+      color: rgba(255, 255, 255, .78);
+      font-size: 9px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.022)),
+        rgba(255,255,255,.035);
+      border: 1px solid rgba(255,255,255,.06);
+      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
+    }
+
+    .fc-bet-chip.active {
+      color: #1a1024;
+      background: linear-gradient(180deg, #fff3bd, #ffb347);
+      border-color: rgba(255, 211, 77, .45);
+      box-shadow: 0 0 14px rgba(255, 179, 71, .18);
     }
 
     .fc-main-actions {
@@ -1108,6 +1066,7 @@ const StyleBlock = () => (
       border-radius: 19px;
       display: flex;
       flex-direction: column;
+      gap: 4px;
       align-items: center;
       justify-content: center;
       background:
@@ -1115,18 +1074,13 @@ const StyleBlock = () => (
         rgba(22, 12, 42, .74);
       border: 1px solid rgba(255,255,255,.075);
       color: rgba(220,202,255,.72);
+      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
-    .fc-sound-pill span:first-child {
-      font-size: 8px;
-      letter-spacing: .16em;
-      color: rgba(210,190,245,.58);
-    }
-
-    .fc-sound-pill span:last-child {
-      margin-top: 2px;
-      font-size: 12px;
-      color: #fff3c0;
+    .fc-sound-pill span {
+      font-size: 9px;
+      letter-spacing: .1em;
+      color: rgba(255,255,255,.72);
     }
 
     .fc-loading-screen {
@@ -1395,7 +1349,9 @@ const StyleBlock = () => (
       color: #fff;
       background: rgba(255,255,255,.07);
       border: 1px solid rgba(255,255,255,.08);
-      font-size: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .fc-modal-body {
@@ -1428,7 +1384,7 @@ const StyleBlock = () => (
 
     .fc-pay-row {
       display: grid;
-      grid-template-columns: 30px 1fr auto;
+      grid-template-columns: 34px 1fr auto;
       align-items: center;
       gap: 8px;
       padding: 5px 8px;
@@ -1482,6 +1438,30 @@ const StyleBlock = () => (
 
       .fc-bet-card {
         padding: 6px;
+      }
+
+      .fc-bet-row {
+        grid-template-columns: 42px 38px 1fr 38px 42px;
+        gap: 5px;
+      }
+
+      .fc-bet-btn {
+        height: 38px;
+        border-radius: 14px;
+        font-size: 12px;
+      }
+
+      .fc-bet-btn.main {
+        font-size: 18px;
+      }
+
+      .fc-bet-value {
+        height: 38px;
+      }
+
+      .fc-bet-chip {
+        height: 26px;
+        font-size: 8px;
       }
 
       .fc-main-actions {
@@ -1715,14 +1695,14 @@ export const FruitCascadeSoloGame = () => {
           ...cell,
           phase: distance > 0 ? 'drop' : 'idle',
           drop: distance,
-          delay: distance > 0 ? col * 12 + (ROWS - writeRow) * 9 : 0,
+          delay: distance > 0 ? col * 11 + (ROWS - writeRow) * 8 : 0,
         };
 
         writeRow -= 1;
       });
 
       for (let row = writeRow; row >= 0; row -= 1) {
-        next[boardIndex(row, col)] = makeCell('drop', col * 12 + row * 19, row + 2);
+        next[boardIndex(row, col)] = makeCell('drop', col * 11 + row * 18, row + 2);
       }
     }
 
@@ -1747,7 +1727,7 @@ export const FruitCascadeSoloGame = () => {
     const freshBoard = injectStarterCluster(makeBoard('drop'));
 
     setBoard(freshBoard);
-    await sleep(DROP_MS + 70);
+    await sleep(DROP_MS + 65);
 
     let current = freshBoard.map((cell) => ({
       ...cell,
@@ -1757,7 +1737,7 @@ export const FruitCascadeSoloGame = () => {
     }));
 
     setBoard(current);
-    await sleep(55);
+    await sleep(50);
 
     let totalWin = 0;
     let cascade = 0;
@@ -1807,7 +1787,7 @@ export const FruitCascadeSoloGame = () => {
       haptic('pop');
       playSound('pop');
 
-      window.setTimeout(() => setBoardFlash(false), 240);
+      window.setTimeout(() => setBoardFlash(false), 230);
 
       await sleep(POP_MS);
 
@@ -1817,7 +1797,7 @@ export const FruitCascadeSoloGame = () => {
       setBoard(next);
       playSound('drop');
 
-      await sleep(DROP_MS + 20);
+      await sleep(DROP_MS + 18);
 
       current = next.map((cell) => ({
         ...cell,
@@ -1871,7 +1851,7 @@ export const FruitCascadeSoloGame = () => {
   useEffect(() => {
     let raf = 0;
     const start = performance.now();
-    const duration = 760;
+    const duration = 740;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
@@ -1901,13 +1881,22 @@ export const FruitCascadeSoloGame = () => {
     return () => window.clearTimeout(timer);
   }, [auto, spinning, spin]);
 
-  const changeBet = (direction: -1 | 1) => {
+  const changeBet = (delta: number) => {
     if (spinning) return;
 
     haptic('tap');
     playSound('tap');
 
-    setBet((value) => Math.max(1, value + direction));
+    setBet((value) => Math.max(1, value + delta));
+  };
+
+  const chooseBet = (value: number) => {
+    if (spinning) return;
+
+    haptic('tap');
+    playSound('tap');
+
+    setBet(value);
   };
 
   const toggleMute = () => {
@@ -1936,7 +1925,7 @@ export const FruitCascadeSoloGame = () => {
             onClick={() => setShowInfo(true)}
             aria-label="Info"
           >
-            i
+            <InfoIcon />
           </button>
 
           <div className="fc-title-block">
@@ -1952,7 +1941,7 @@ export const FruitCascadeSoloGame = () => {
             onClick={toggleMute}
             aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
           >
-            {muted ? 'OFF' : 'ON'}
+            {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
           </button>
         </div>
 
@@ -1969,7 +1958,7 @@ export const FruitCascadeSoloGame = () => {
                     style={cellStyle(cell)}
                   >
                     <div className="fc-cell-inner">
-                      <SymbolSVG id={cell.sym} size={46} />
+                      <SymbolIcon id={cell.sym} size={48} />
                     </div>
 
                     {cell.phase === 'pop' && (
@@ -2014,30 +2003,66 @@ export const FruitCascadeSoloGame = () => {
 
         <footer className="fc-controls">
           <div className="fc-bet-card">
-            <button
-              type="button"
-              className="fc-bet-btn"
-              disabled={spinning || bet <= 1}
-              onClick={() => changeBet(-1)}
-              aria-label="Decrease bet"
-            >
-              -
-            </button>
+            <div className="fc-bet-row">
+              <button
+                type="button"
+                className="fc-bet-btn"
+                disabled={spinning || bet <= 1}
+                onClick={() => changeBet(-10)}
+                aria-label="Decrease bet by 10"
+              >
+                -10
+              </button>
 
-            <div className="fc-bet-value">
-              <span className="fc-bet-label">BET</span>
-              <span className="fc-bet-number">{formatMoney(bet)}</span>
+              <button
+                type="button"
+                className="fc-bet-btn main"
+                disabled={spinning || bet <= 1}
+                onClick={() => changeBet(-1)}
+                aria-label="Decrease bet"
+              >
+                -
+              </button>
+
+              <div className="fc-bet-value">
+                <span className="fc-bet-label">BET</span>
+                <span className="fc-bet-number">{formatMoney(bet)}</span>
+              </div>
+
+              <button
+                type="button"
+                className="fc-bet-btn main"
+                disabled={spinning}
+                onClick={() => changeBet(1)}
+                aria-label="Increase bet"
+              >
+                +
+              </button>
+
+              <button
+                type="button"
+                className="fc-bet-btn"
+                disabled={spinning}
+                onClick={() => changeBet(10)}
+                aria-label="Increase bet by 10"
+              >
+                +10
+              </button>
             </div>
 
-            <button
-              type="button"
-              className="fc-bet-btn"
-              disabled={spinning}
-              onClick={() => changeBet(1)}
-              aria-label="Increase bet"
-            >
-              +
-            </button>
+            <div className="fc-bet-chip-row">
+              {QUICK_BETS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`fc-bet-chip ${bet === value ? 'active' : ''}`}
+                  disabled={spinning}
+                  onClick={() => chooseBet(value)}
+                >
+                  {formatMoney(value)}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="fc-main-actions">
@@ -2074,7 +2099,7 @@ export const FruitCascadeSoloGame = () => {
               onClick={toggleMute}
               aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
             >
-              <span>SOUND</span>
+              {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
               <span>{muted ? 'OFF' : 'ON'}</span>
             </button>
           </div>
