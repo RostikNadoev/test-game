@@ -259,9 +259,9 @@ const StyleBlock = () => (
 
     .at-title-img {
       display: block;
-      width: min(100%, 340px);
+      width: min(100%, 380px);
       height: auto;
-      max-height: 60px;
+      max-height: 75px;
       margin: 0 auto;
       object-fit: contain;
       pointer-events: none;
@@ -284,8 +284,8 @@ const StyleBlock = () => (
     }
 
     .at-logo-img {
-      width: min(58%, 44px) !important;
-      height: min(58%, 44px) !important;
+      width: min(66%, 48px) !important;
+      height: min(66%, 48px) !important;
       opacity: .94;
       filter:
         drop-shadow(0 3px 5px rgba(0,0,0,.36))
@@ -1339,8 +1339,8 @@ const StyleBlock = () => (
       }
 
       .at-logo-img {
-        width: min(54%, 38px) !important;
-        height: min(54%, 38px) !important;
+        width: min(62%, 42px) !important;
+        height: min(62%, 42px) !important;
       }
 
       .at-symbol-img {
