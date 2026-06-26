@@ -287,9 +287,21 @@ const StyleBlock = () => (
       background-repeat: no-repeat !important;
     }
 
+    body.apple-trail-active .solo-app-shell,
+    body.apple-trail-active .royal-apple-app-shell {
+      overflow: hidden !important;
+      background-color: transparent !important;
+    }
+
     body.apple-trail-active .solo-main,
     body.apple-trail-active .royal-apple-main {
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 0 !important;
+      height: auto !important;
+      padding-bottom: 0 !important;
       overflow: hidden !important;
+      background-color: transparent !important;
     }
 
     body.apple-trail-active .header-panel {
@@ -314,13 +326,14 @@ const StyleBlock = () => (
 
     .at-root {
       position: relative;
-      min-height: 100%;
+      min-height: 0;
       height: 100%;
       width: 100%;
       max-width: 480px;
       margin: 0 auto;
-      padding: 13px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+      padding: 12px 12px calc(7px + env(safe-area-inset-bottom, 0px));
       display: flex;
+      flex: 1 1 0;
       flex-direction: column;
       overflow: hidden;
       color: #fff;
@@ -340,10 +353,11 @@ const StyleBlock = () => (
       z-index: 1;
       min-height: 0;
       height: 100%;
-      flex: 1;
+      flex: 1 1 0;
       display: flex;
       flex-direction: column;
       gap: 8px;
+      overflow: hidden;
     }
 
     .at-loading {
@@ -534,16 +548,18 @@ const StyleBlock = () => (
     }
 
     .at-main-layout {
-      flex: 1 1 auto;
-      min-height: 392px;
+      flex: 1 1 0;
+      min-height: 0;
       display: grid;
       grid-template-columns: 1fr 58px;
       gap: 7px;
       align-items: stretch;
+      overflow: hidden;
     }
 
     .at-board-shell {
       position: relative;
+      min-height: 0;
       overflow: hidden;
       border-radius: 25px;
       padding: 9px;
@@ -721,6 +737,7 @@ const StyleBlock = () => (
     }
 
     .at-side-panel {
+      min-height: 0;
       border-radius: 20px;
       padding: 6px 4px;
       background:
@@ -734,10 +751,11 @@ const StyleBlock = () => (
       display: flex;
       flex-direction: column;
       gap: 4px;
-      min-width: 0;
+      overflow: hidden;
     }
 
     .at-side-title {
+      flex: 0 0 auto;
       text-align: center;
       color: rgba(255, 210, 158, .68);
       font-size: 6.5px;
@@ -747,8 +765,8 @@ const StyleBlock = () => (
     }
 
     .at-mult-pill {
-      flex: 1;
-      min-height: 30px;
+      flex: 1 1 0;
+      min-height: 0;
       border-radius: 12px;
       display: flex;
       align-items: center;
@@ -786,7 +804,7 @@ const StyleBlock = () => (
     }
 
     .at-result-bar {
-      min-height: 50px;
+      min-height: 48px;
       flex: 0 0 auto;
       border-radius: 20px;
       padding: 6px;
@@ -878,6 +896,7 @@ const StyleBlock = () => (
       flex: 0 0 auto;
       display: grid;
       gap: 6px;
+      min-height: 0;
     }
 
     .at-bet-card {
@@ -973,13 +992,13 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: clamp(92px, 11.5dvh, 116px);
+      min-height: 88px;
     }
 
     .at-main-btn {
       position: relative;
-      width: 96px;
-      height: 96px;
+      width: 90px;
+      height: 90px;
       border-radius: 999px;
       color: #231006;
       background: transparent;
@@ -1246,8 +1265,8 @@ const StyleBlock = () => (
 
     @media (max-height: 760px) {
       .at-root {
-        padding-top: 10px;
-        padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+        padding-top: 9px;
+        padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
       }
 
       .at-content {
@@ -1265,8 +1284,8 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        flex: 1 1 auto;
-        min-height: 356px;
+        flex: 1 1 0;
+        min-height: 0;
         grid-template-columns: 1fr 54px;
         gap: 6px;
       }
@@ -1303,13 +1322,12 @@ const StyleBlock = () => (
       }
 
       .at-mult-pill {
-        min-height: 29px;
         border-radius: 10px;
         font-size: 9.8px;
       }
 
       .at-result-bar {
-        min-height: 46px;
+        min-height: 45px;
       }
 
       .at-result-value {
@@ -1349,12 +1367,12 @@ const StyleBlock = () => (
       }
 
       .at-start-row {
-        min-height: 82px;
+        min-height: 78px;
       }
 
       .at-main-btn {
-        width: 84px;
-        height: 84px;
+        width: 82px;
+        height: 82px;
       }
 
       .at-main-title {
@@ -1363,6 +1381,103 @@ const StyleBlock = () => (
 
       .at-main-subtitle {
         font-size: 5.8px;
+      }
+    }
+
+    @media (max-height: 690px) {
+      .at-root {
+        padding-top: 7px;
+        padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .at-content {
+        gap: 5px;
+      }
+
+      .at-top {
+        grid-template-columns: 36px 1fr 36px;
+      }
+
+      .at-icon-btn {
+        width: 35px;
+        height: 35px;
+        border-radius: 15px;
+      }
+
+      .at-title {
+        font-size: 20px;
+      }
+
+      .at-main-layout {
+        grid-template-columns: 1fr 50px;
+        gap: 5px;
+      }
+
+      .at-board-shell {
+        padding: 7px;
+        border-radius: 20px;
+      }
+
+      .at-board {
+        gap: 4px;
+      }
+
+      .at-row-cells {
+        gap: 4px;
+      }
+
+      .at-tile {
+        border-radius: 13px;
+      }
+
+      .at-side-panel {
+        padding: 4px 3px;
+        gap: 3px;
+      }
+
+      .at-side-title {
+        font-size: 5.8px;
+      }
+
+      .at-mult-pill {
+        font-size: 9px;
+        border-radius: 9px;
+      }
+
+      .at-result-bar {
+        min-height: 42px;
+        padding: 5px;
+      }
+
+      .at-result-label {
+        font-size: 6px;
+      }
+
+      .at-result-value {
+        font-size: 14px;
+      }
+
+      .at-cash-btn {
+        height: 27px;
+        font-size: 10px;
+      }
+
+      .at-current-mult {
+        font-size: 6.4px;
+      }
+
+      .at-bet-field,
+      .at-bet-quick {
+        height: 35px;
+      }
+
+      .at-start-row {
+        min-height: 70px;
+      }
+
+      .at-main-btn {
+        width: 74px;
+        height: 74px;
       }
     }
 
