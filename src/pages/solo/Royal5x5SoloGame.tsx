@@ -58,7 +58,14 @@ const getCashoutMultiplier = (openedRows: number) => {
 const AppleIcon = ({ size = 52 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <defs>
-      <radialGradient id="appleBodyGradient" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(35 28) rotate(48) scale(62)">
+      <radialGradient
+        id="appleBodyGradient"
+        cx="0"
+        cy="0"
+        r="1"
+        gradientUnits="userSpaceOnUse"
+        gradientTransform="translate(35 28) rotate(48) scale(62)"
+      >
         <stop stopColor="#ffffff" />
         <stop offset="0.2" stopColor="#ff9f4e" />
         <stop offset="0.52" stopColor="#f83b25" />
@@ -77,12 +84,7 @@ const AppleIcon = ({ size = 52 }: { size?: number }) => (
       stroke="#ffcf82"
       strokeWidth="2.5"
     />
-    <path
-      d="M51 26C51 18 55 13 61 10"
-      stroke="#7d4218"
-      strokeWidth="5"
-      strokeLinecap="round"
-    />
+    <path d="M51 26C51 18 55 13 61 10" stroke="#7d4218" strokeWidth="5" strokeLinecap="round" />
     <path
       d="M58 14C69 7 82 10 88 19C78 25 66 26 58 14Z"
       fill="url(#appleLeafGradient)"
@@ -97,12 +99,26 @@ const AppleIcon = ({ size = 52 }: { size?: number }) => (
 const BombIcon = ({ size = 52 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <defs>
-      <radialGradient id="bombBodyGradient" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(34 28) rotate(48) scale(68)">
+      <radialGradient
+        id="bombBodyGradient"
+        cx="0"
+        cy="0"
+        r="1"
+        gradientUnits="userSpaceOnUse"
+        gradientTransform="translate(34 28) rotate(48) scale(68)"
+      >
         <stop stopColor="#5e6075" />
         <stop offset="0.48" stopColor="#171826" />
         <stop offset="1" stopColor="#05050a" />
       </radialGradient>
-      <radialGradient id="bombSparkGradient" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(78 15) scale(24)">
+      <radialGradient
+        id="bombSparkGradient"
+        cx="0"
+        cy="0"
+        r="1"
+        gradientUnits="userSpaceOnUse"
+        gradientTransform="translate(78 15) scale(24)"
+      >
         <stop stopColor="#ffffff" />
         <stop offset="0.25" stopColor="#fff075" />
         <stop offset="0.58" stopColor="#ff6d1c" />
@@ -118,7 +134,7 @@ const BombIcon = ({ size = 52 }: { size?: number }) => (
   </svg>
 );
 
-const QuestionIcon = ({ size = 38 }: { size?: number }) => (
+const QuestionIcon = ({ size = 34 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <path
       d="M50 81C44 81 39 76 39 70C39 64 44 59 50 59C56 59 61 64 61 70C61 76 56 81 50 81Z"
@@ -236,7 +252,7 @@ const StyleBlock = () => (
       width: 100%;
       max-width: 480px;
       margin: 0 auto;
-      padding: 4px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+      padding: 11px 12px calc(9px + env(safe-area-inset-bottom, 0px));
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -259,20 +275,20 @@ const StyleBlock = () => (
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
 
     .at-top {
       display: grid;
-      grid-template-columns: 46px 1fr 46px;
+      grid-template-columns: 42px 1fr 42px;
       align-items: center;
-      gap: 9px;
+      gap: 8px;
     }
 
     .at-icon-btn {
-      width: 44px;
-      height: 44px;
-      border-radius: 18px;
+      width: 40px;
+      height: 40px;
+      border-radius: 17px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -284,7 +300,7 @@ const StyleBlock = () => (
       border: 1px solid rgba(255, 174, 88, .16);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.1),
-        0 10px 22px rgba(0,0,0,.24);
+        0 9px 19px rgba(0,0,0,.22);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
@@ -306,7 +322,7 @@ const StyleBlock = () => (
 
     .at-title {
       margin: 0;
-      font-size: 27px;
+      font-size: 25px;
       line-height: .92;
       letter-spacing: .03em;
       color: #ffefaa;
@@ -327,17 +343,20 @@ const StyleBlock = () => (
     .at-subtitle {
       margin: 3px 0 0;
       color: rgba(201, 255, 98, .78);
-      font-size: 8px;
-      letter-spacing: .18em;
+      font-size: 7.5px;
+      letter-spacing: .14em;
       text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .at-main-layout {
       min-height: 0;
       flex: 1;
       display: grid;
-      grid-template-columns: 1fr 78px;
-      gap: 8px;
+      grid-template-columns: 1fr 62px;
+      gap: 7px;
       align-items: stretch;
     }
 
@@ -369,49 +388,15 @@ const StyleBlock = () => (
     }
 
     .at-row {
-      display: grid;
-      grid-template-columns: 34px 1fr;
-      gap: 7px;
+      display: block;
       min-height: 0;
-      align-items: center;
-    }
-
-    .at-row-badge {
-      position: relative;
-      width: 34px;
-      height: 34px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      color: rgba(255,255,255,.72);
-      font-size: 13px;
-      background:
-        radial-gradient(circle at 35% 0%, rgba(255,255,255,.12), transparent 45%),
-        rgba(39, 17, 35, .82);
-      border: 1px solid rgba(255, 174, 88, .18);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.08),
-        0 6px 12px rgba(0,0,0,.18);
-    }
-
-    .at-row-badge.active {
-      color: #1d1009;
-      background: linear-gradient(180deg, #fff1a7, #ffb548);
-      box-shadow:
-        0 0 16px rgba(255, 181, 72, .35),
-        inset 0 1px 0 rgba(255,255,255,.55);
-    }
-
-    .at-row-badge.done {
-      color: #09200d;
-      background: linear-gradient(180deg, #c9ff62, #58de46);
-      box-shadow: 0 0 15px rgba(93, 225, 69, .25);
     }
 
     .at-row-cells {
       display: grid;
       grid-template-columns: repeat(${COLS}, minmax(0, 1fr));
       gap: 6px;
+      height: 100%;
       min-height: 0;
     }
 
@@ -419,7 +404,7 @@ const StyleBlock = () => (
       position: relative;
       min-width: 0;
       aspect-ratio: 1;
-      border-radius: 16px;
+      border-radius: 17px;
       display: grid;
       place-items: center;
       overflow: hidden;
@@ -439,14 +424,15 @@ const StyleBlock = () => (
         opacity .18s ease,
         box-shadow .18s ease;
       contain: layout paint style;
+      perspective: 800px;
     }
 
     .at-tile.available {
       cursor: pointer;
-      border-color: rgba(255, 207, 94, .36);
+      border-color: rgba(255, 207, 94, .42);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.10),
-        0 0 14px rgba(255, 207, 94, .12),
+        0 0 14px rgba(255, 207, 94, .14),
         inset 0 -5px 10px rgba(0,0,0,.18);
     }
 
@@ -454,19 +440,15 @@ const StyleBlock = () => (
       content: '';
       position: absolute;
       inset: 2px;
-      border-radius: 14px;
+      border-radius: 15px;
       pointer-events: none;
-      border: 1px solid rgba(255, 226, 122, .18);
+      border: 1px solid rgba(255, 226, 122, .20);
       opacity: .75;
     }
 
     .at-tile.locked {
-      opacity: .58;
-      filter: saturate(.78) brightness(.86);
-    }
-
-    .at-tile.revealed {
-      animation: atFlip .25s ease-out both;
+      opacity: .62;
+      filter: saturate(.82) brightness(.9);
     }
 
     .at-tile.apple {
@@ -486,15 +468,18 @@ const StyleBlock = () => (
         radial-gradient(circle at 50% 22%, rgba(255,68,68,.22), transparent 43%),
         linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
         rgba(42, 12, 22, .88);
-      animation: atBombShake .38s ease-out both;
       box-shadow:
         0 0 24px rgba(255, 38, 56, .26),
         inset 0 1px 0 rgba(255,255,255,.10);
     }
 
+    .at-tile.bomb.picked-bomb {
+      animation: atBombShake .38s ease-out both;
+    }
+
     .at-tile.dimmed {
-      opacity: .48;
-      filter: saturate(.7) brightness(.72);
+      opacity: .46;
+      filter: saturate(.72) brightness(.72);
     }
 
     .at-tile-content {
@@ -503,59 +488,75 @@ const StyleBlock = () => (
       display: grid;
       place-items: center;
       transform: translateZ(0);
+      backface-visibility: hidden;
+      will-change: transform, opacity;
     }
 
     .at-tile.hidden-tile .at-tile-content {
       opacity: .86;
     }
 
-    .at-tile.apple .at-tile-content {
-      animation: atApplePop .32s cubic-bezier(.22, 1.25, .28, 1) both;
+    .at-tile.revealed .at-tile-content {
+      animation: atTileFlip .42s cubic-bezier(.18, .92, .24, 1.12) both;
     }
 
-    .at-tile.bomb .at-tile-content {
-      animation: atBombPop .34s cubic-bezier(.22, 1.25, .28, 1) both;
+    .at-tile.final-reveal {
+      animation: atFinalRevealTile .42s cubic-bezier(.18, .92, .24, 1.12) both;
+      animation-delay: var(--reveal-delay);
     }
 
-    @keyframes atFlip {
+    .at-tile.apple .at-tile-content svg,
+    .at-tile.bomb .at-tile-content svg {
+      animation: atIconPop .32s cubic-bezier(.22, 1.25, .28, 1) both;
+    }
+
+    @keyframes atTileFlip {
       0% {
-        transform: scale(.93) rotateX(22deg) translateZ(0);
+        transform: rotateY(82deg) scale(.86) translateZ(0);
+        opacity: .15;
+      }
+
+      62% {
+        transform: rotateY(-8deg) scale(1.06) translateZ(0);
+        opacity: 1;
       }
 
       100% {
-        transform: scale(1) rotateX(0) translateZ(0);
+        transform: rotateY(0) scale(1) translateZ(0);
+        opacity: 1;
       }
     }
 
-    @keyframes atApplePop {
+    @keyframes atFinalRevealTile {
+      0% {
+        transform: scale(.94) rotateY(72deg) translateZ(0);
+        opacity: .5;
+      }
+
+      70% {
+        transform: scale(1.04) rotateY(-7deg) translateZ(0);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1) rotateY(0) translateZ(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes atIconPop {
       0% {
         transform: scale(.35) translateZ(0);
         opacity: 0;
       }
 
       80% {
-        transform: scale(1.12) translateZ(0);
+        transform: scale(1.1) translateZ(0);
         opacity: 1;
       }
 
       100% {
         transform: scale(1) translateZ(0);
-      }
-    }
-
-    @keyframes atBombPop {
-      0% {
-        transform: scale(.35) rotate(-12deg) translateZ(0);
-        opacity: 0;
-      }
-
-      80% {
-        transform: scale(1.12) rotate(8deg) translateZ(0);
-        opacity: 1;
-      }
-
-      100% {
-        transform: scale(1) rotate(0) translateZ(0);
       }
     }
 
@@ -582,8 +583,8 @@ const StyleBlock = () => (
     }
 
     .at-side-panel {
-      border-radius: 24px;
-      padding: 8px;
+      border-radius: 21px;
+      padding: 7px 5px;
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 207, 94, .10), transparent 38%),
         linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.024)),
@@ -594,28 +595,28 @@ const StyleBlock = () => (
         0 14px 28px rgba(0,0,0,.24);
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 5px;
       min-width: 0;
     }
 
     .at-side-title {
       text-align: center;
       color: rgba(255, 210, 158, .68);
-      font-size: 8px;
-      letter-spacing: .12em;
+      font-size: 7px;
+      letter-spacing: .09em;
       text-transform: uppercase;
-      padding: 2px 0;
+      padding: 1px 0;
     }
 
     .at-mult-pill {
       flex: 1;
-      min-height: 40px;
-      border-radius: 14px;
+      min-height: 34px;
+      border-radius: 13px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,.52);
-      font-size: 15px;
+      font-size: 12.5px;
       background:
         linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.018)),
         rgba(255,255,255,.026);
@@ -641,18 +642,18 @@ const StyleBlock = () => (
       background: linear-gradient(180deg, #fff1a8, #ffb548);
       border-color: rgba(255, 229, 129, .78);
       box-shadow:
-        0 0 18px rgba(255, 186, 72, .34),
+        0 0 17px rgba(255, 186, 72, .32),
         inset 0 1px 0 rgba(255,255,255,.52);
-      transform: scale(1.035);
+      transform: scale(1.03);
     }
 
     .at-result-bar {
-      min-height: 62px;
-      border-radius: 24px;
-      padding: 8px;
+      min-height: 52px;
+      border-radius: 22px;
+      padding: 7px;
       display: grid;
-      grid-template-columns: 1fr minmax(124px, .82fr);
-      gap: 8px;
+      grid-template-columns: 1fr minmax(118px, .78fr);
+      gap: 7px;
       background:
         radial-gradient(circle at 82% 50%, rgba(119, 255, 91, .12), transparent 38%),
         linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.024)),
@@ -665,8 +666,8 @@ const StyleBlock = () => (
 
     .at-result-card {
       min-width: 0;
-      padding: 8px 11px;
-      border-radius: 18px;
+      padding: 7px 10px;
+      border-radius: 16px;
       background: rgba(255,255,255,.035);
       border: 1px solid rgba(255,255,255,.055);
       display: flex;
@@ -676,16 +677,16 @@ const StyleBlock = () => (
 
     .at-result-label {
       color: rgba(255, 210, 158, .62);
-      font-size: 8px;
-      letter-spacing: .14em;
+      font-size: 7px;
+      letter-spacing: .13em;
       text-transform: uppercase;
       line-height: 1.2;
     }
 
     .at-result-value {
-      margin-top: 5px;
+      margin-top: 4px;
       color: #ffd15f;
-      font-size: 21px;
+      font-size: 18px;
       line-height: 1;
       text-shadow: 0 0 14px rgba(255, 203, 89, .24);
       font-variant-numeric: tabular-nums;
@@ -693,15 +694,15 @@ const StyleBlock = () => (
 
     .at-cash-wrap {
       display: grid;
-      gap: 5px;
+      gap: 4px;
       min-width: 0;
     }
 
     .at-cash-btn {
-      height: 39px;
-      border-radius: 17px;
+      height: 34px;
+      border-radius: 15px;
       color: #082009;
-      font-size: 15px;
+      font-size: 13px;
       background:
         radial-gradient(circle at 35% 0%, rgba(255,255,255,.42), transparent 44%),
         linear-gradient(180deg, #a5ff72, #38b936);
@@ -725,8 +726,8 @@ const StyleBlock = () => (
     .at-current-mult {
       text-align: center;
       color: rgba(255, 238, 180, .62);
-      font-size: 9px;
-      line-height: 1.25;
+      font-size: 8px;
+      line-height: 1.2;
     }
 
     .at-current-mult b {
@@ -735,72 +736,72 @@ const StyleBlock = () => (
 
     .at-controls {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
 
     .at-bet-card {
       display: grid;
-      gap: 7px;
-      border-radius: 22px;
-      padding: 8px;
+      gap: 5px;
+      border-radius: 20px;
+      padding: 6px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)),
+        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.023)),
         rgba(31, 13, 30, .80);
-      border: 1px solid rgba(255, 174, 88, .18);
+      border: 1px solid rgba(255, 174, 88, .16);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.09),
-        0 10px 20px rgba(0,0,0,.22);
+        inset 0 1px 0 rgba(255,255,255,.08),
+        0 8px 17px rgba(0,0,0,.19);
     }
 
     .at-bet-row {
       display: grid;
-      grid-template-columns: 45px 42px 1fr 42px 45px;
+      grid-template-columns: 40px 35px 1fr 35px 40px;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .at-bet-btn {
-      height: 42px;
-      border-radius: 15px;
+      height: 34px;
+      border-radius: 13px;
       color: #fff1ba;
-      font-size: 14px;
+      font-size: 10px;
       line-height: 1;
       background:
-        radial-gradient(circle at 30% 0%, rgba(255,255,255,.14), transparent 40%),
-        linear-gradient(180deg, rgba(255,179,71,.24), rgba(255,255,255,.035));
-      border: 1px solid rgba(255,211,77,.18);
+        radial-gradient(circle at 30% 0%, rgba(255,255,255,.13), transparent 40%),
+        linear-gradient(180deg, rgba(255,179,71,.22), rgba(255,255,255,.032));
+      border: 1px solid rgba(255,211,77,.16);
       transition: transform .1s ease, opacity .1s ease, filter .1s ease;
     }
 
     .at-bet-btn.main {
-      font-size: 20px;
+      font-size: 17px;
     }
 
     .at-bet-btn:disabled {
-      opacity: .38;
+      opacity: .36;
     }
 
     .at-bet-value {
-      height: 42px;
+      height: 34px;
       text-align: center;
       min-width: 0;
-      border-radius: 15px;
+      border-radius: 13px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       background:
-        radial-gradient(circle at 50% 0%, rgba(255, 211, 77, .12), transparent 50%),
-        rgba(255, 255, 255, .035);
-      border: 1px solid rgba(255, 255, 255, .055);
+        radial-gradient(circle at 50% 0%, rgba(255, 211, 77, .10), transparent 50%),
+        rgba(255, 255, 255, .032);
+      border: 1px solid rgba(255, 255, 255, .052);
     }
 
     .at-bet-label {
-      margin-bottom: 2px;
-      color: rgba(255, 210, 158, .60);
-      font-size: 7px;
-      line-height: 1.1;
-      letter-spacing: .17em;
+      margin-bottom: 1px;
+      color: rgba(255, 210, 158, .58);
+      font-size: 6.5px;
+      line-height: 1;
+      letter-spacing: .15em;
       text-transform: uppercase;
     }
 
@@ -809,66 +810,66 @@ const StyleBlock = () => (
       overflow: hidden;
       text-overflow: ellipsis;
       color: #fff;
-      font-size: 17px;
-      line-height: 1.1;
+      font-size: 14px;
+      line-height: 1;
       font-variant-numeric: tabular-nums;
     }
 
     .at-bet-chip-row {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 4px;
     }
 
     .at-bet-chip {
-      height: 29px;
-      border-radius: 12px;
-      color: rgba(255, 255, 255, .78);
-      font-size: 9px;
+      height: 23px;
+      border-radius: 10px;
+      color: rgba(255, 255, 255, .75);
+      font-size: 7px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.022)),
-        rgba(255,255,255,.035);
-      border: 1px solid rgba(255,255,255,.06);
+        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.019)),
+        rgba(255,255,255,.032);
+      border: 1px solid rgba(255,255,255,.055);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
     .at-bet-chip.active {
       color: #1a1024;
       background: linear-gradient(180deg, #fff3bd, #ffb347);
-      border-color: rgba(255, 211, 77, .45);
-      box-shadow: 0 0 14px rgba(255, 179, 71, .18);
+      border-color: rgba(255, 211, 77, .42);
+      box-shadow: 0 0 12px rgba(255, 179, 71, .16);
     }
 
     .at-bottom-actions {
       display: grid;
-      grid-template-columns: 76px 1fr 76px;
+      grid-template-columns: 67px 1fr 67px;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .at-side-btn {
-      height: 62px;
-      border-radius: 21px;
+      height: 52px;
+      border-radius: 18px;
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
       align-items: center;
       justify-content: center;
       color: rgba(220,202,255,.72);
       background:
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.024)),
+        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.022)),
         rgba(27, 14, 38, .78);
-      border: 1px solid rgba(255,255,255,.075);
+      border: 1px solid rgba(255,255,255,.07);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.08),
-        0 9px 20px rgba(0,0,0,.20);
+        inset 0 1px 0 rgba(255,255,255,.075),
+        0 8px 17px rgba(0,0,0,.18);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
     .at-side-btn span {
-      color: rgba(255,255,255,.72);
-      font-size: 9px;
-      letter-spacing: .1em;
+      color: rgba(255,255,255,.70);
+      font-size: 8px;
+      letter-spacing: .09em;
     }
 
     .at-side-btn.on {
@@ -879,8 +880,8 @@ const StyleBlock = () => (
     }
 
     .at-auto-dot {
-      width: 10px;
-      height: 10px;
+      width: 9px;
+      height: 9px;
       border-radius: 999px;
       background: rgba(220,202,255,.34);
     }
@@ -899,8 +900,8 @@ const StyleBlock = () => (
     .at-main-btn {
       position: relative;
       justify-self: center;
-      width: 98px;
-      height: 98px;
+      width: 84px;
+      height: 84px;
       border-radius: 999px;
       color: #231006;
       background: transparent;
@@ -917,14 +918,14 @@ const StyleBlock = () => (
       border-radius: inherit;
       background: conic-gradient(from 0deg, #fff1a8, #ffb548, #ff5b2d, #ff2b58, #fff1a8);
       box-shadow:
-        0 0 23px rgba(255, 181, 72, .42),
-        0 0 34px rgba(255, 52, 44, .20);
+        0 0 20px rgba(255, 181, 72, .38),
+        0 0 30px rgba(255, 52, 44, .18);
       animation: atSpin 5s linear infinite;
     }
 
     .at-main-core {
       position: absolute;
-      inset: 7px;
+      inset: 6px;
       border-radius: inherit;
       display: flex;
       flex-direction: column;
@@ -938,15 +939,15 @@ const StyleBlock = () => (
     }
 
     .at-main-title {
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1;
     }
 
     .at-main-subtitle {
-      margin-top: 4px;
-      font-size: 7.5px;
-      line-height: 1.18;
-      letter-spacing: .09em;
+      margin-top: 3px;
+      font-size: 6.4px;
+      line-height: 1.15;
+      letter-spacing: .08em;
       color: rgba(35, 16, 6, .78);
       text-transform: uppercase;
     }
@@ -1167,12 +1168,16 @@ const StyleBlock = () => (
 
     @media (max-height: 760px) {
       .at-root {
-        padding-top: 2px;
-        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+        padding-top: 8px;
+        padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .at-content {
+        gap: 6px;
       }
 
       .at-title {
-        font-size: 23px;
+        font-size: 22px;
       }
 
       .at-subtitle {
@@ -1180,8 +1185,8 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        grid-template-columns: 1fr 72px;
-        gap: 7px;
+        grid-template-columns: 1fr 56px;
+        gap: 6px;
       }
 
       .at-board-shell {
@@ -1189,15 +1194,8 @@ const StyleBlock = () => (
         border-radius: 22px;
       }
 
-      .at-row {
-        grid-template-columns: 30px 1fr;
-        gap: 6px;
-      }
-
-      .at-row-badge {
-        width: 30px;
-        height: 30px;
-        font-size: 12px;
+      .at-board {
+        gap: 5px;
       }
 
       .at-row-cells {
@@ -1208,69 +1206,68 @@ const StyleBlock = () => (
         border-radius: 14px;
       }
 
+      .at-mult-pill {
+        min-height: 31px;
+        border-radius: 12px;
+        font-size: 11px;
+      }
+
       .at-result-bar {
-        min-height: 56px;
-        border-radius: 21px;
+        min-height: 50px;
       }
 
       .at-result-value {
-        font-size: 18px;
+        font-size: 17px;
       }
 
       .at-cash-btn {
-        height: 36px;
-        font-size: 13px;
-      }
-
-      .at-bet-card {
-        padding: 6px;
-      }
-
-      .at-bet-row {
-        grid-template-columns: 42px 38px 1fr 38px 42px;
-        gap: 5px;
-      }
-
-      .at-bet-btn {
-        height: 38px;
-        border-radius: 14px;
+        height: 32px;
         font-size: 12px;
       }
 
-      .at-bet-btn.main {
-        font-size: 18px;
+      .at-bet-card {
+        padding: 5px;
+      }
+
+      .at-bet-row {
+        grid-template-columns: 38px 34px 1fr 34px 38px;
+        gap: 4px;
+      }
+
+      .at-bet-btn {
+        height: 32px;
       }
 
       .at-bet-value {
-        height: 38px;
+        height: 32px;
       }
 
       .at-bet-chip {
-        height: 26px;
-        font-size: 8px;
+        height: 21px;
+        font-size: 6.5px;
       }
 
       .at-bottom-actions {
-        grid-template-columns: 70px 1fr 70px;
-        gap: 8px;
+        grid-template-columns: 62px 1fr 62px;
+        gap: 7px;
       }
 
       .at-side-btn {
-        height: 54px;
-        border-radius: 18px;
+        height: 48px;
+        border-radius: 17px;
       }
 
       .at-main-btn {
-        width: 84px;
-        height: 84px;
+        width: 78px;
+        height: 78px;
       }
 
       .at-main-title {
-        font-size: 14px;
+        font-size: 13px;
       }
 
       .at-main-subtitle {
-        font-size: 6.8px;
+        font-size: 6px;
       }
     }
 
@@ -1281,26 +1278,31 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        grid-template-columns: 1fr 66px;
+        grid-template-columns: 1fr 52px;
       }
 
       .at-side-title {
-        font-size: 7px;
+        font-size: 6.5px;
       }
 
       .at-mult-pill {
-        min-height: 35px;
-        font-size: 13px;
+        min-height: 29px;
+        font-size: 10px;
+      }
+
+      .at-bet-chip {
+        font-size: 6px;
       }
     }
 
     @media (prefers-reduced-motion: reduce) {
       .at-main-ring,
       .at-side-btn.on .at-auto-dot,
-      .at-tile.revealed,
-      .at-tile.bomb,
-      .at-tile.apple .at-tile-content,
-      .at-tile.bomb .at-tile-content,
+      .at-tile.revealed .at-tile-content,
+      .at-tile.final-reveal,
+      .at-tile.bomb.picked-bomb,
+      .at-tile.apple .at-tile-content svg,
+      .at-tile.bomb .at-tile-content svg,
       .at-final-card {
         animation: none !important;
       }
@@ -1426,6 +1428,7 @@ export const Royal5x5SoloGame = () => {
   const [muted, setMuted] = useState(() => localStorage.getItem('apple-trail-muted') === '1');
   const [showInfo, setShowInfo] = useState(false);
   const [showFinal, setShowFinal] = useState(false);
+  const [finalReveal, setFinalReveal] = useState(false);
 
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
@@ -1558,6 +1561,7 @@ export const Royal5x5SoloGame = () => {
     setCurrentRow(0);
     setLastWin(0);
     setShowFinal(false);
+    setFinalReveal(false);
   }, []);
 
   const startRound = () => {
@@ -1571,17 +1575,32 @@ export const Royal5x5SoloGame = () => {
   };
 
   const endRound = useCallback(
-    (nextPhase: GamePhase, win: number) => {
+    (nextPhase: GamePhase, win: number, openedRows: number) => {
       setPhase(nextPhase);
       setLastWin(win);
       setRevealed(revealAllCells());
-      setShowFinal(true);
+      setFinalReveal(true);
+      setShowFinal(false);
+
+      const finalDelay = 820;
+
+      window.setTimeout(() => {
+        if (nextPhase === 'completed') {
+          haptic('win');
+          playSound('win');
+        }
+
+        setShowFinal(true);
+      }, finalDelay);
 
       window.setTimeout(() => {
         setShowFinal(false);
-      }, nextPhase === 'lost' ? 1250 : 1550);
+        setFinalReveal(false);
+      }, finalDelay + (nextPhase === 'lost' ? 1250 : 1550));
+
+      setCurrentRow(openedRows);
     },
-    [],
+    [haptic, playSound],
   );
 
   const pickTile = (row: number, col: number) => {
@@ -1611,8 +1630,8 @@ export const Royal5x5SoloGame = () => {
       playSound('bomb');
 
       window.setTimeout(() => {
-        endRound('lost', 0);
-      }, 360);
+        endRound('lost', 0, currentRow);
+      }, 420);
 
       return;
     }
@@ -1626,16 +1645,15 @@ export const Royal5x5SoloGame = () => {
       const win = roundMoney(bet * MULTIPLIERS[ROWS - 1]);
 
       window.setTimeout(() => {
-        haptic('win');
-        playSound('win');
-        setCurrentRow(nextRow);
-        endRound('completed', win);
-      }, 320);
+        endRound('completed', win, nextRow);
+      }, 360);
 
       return;
     }
 
-    setCurrentRow(nextRow);
+    window.setTimeout(() => {
+      setCurrentRow(nextRow);
+    }, 170);
   };
 
   const cashout = () => {
@@ -1645,7 +1663,7 @@ export const Royal5x5SoloGame = () => {
 
     haptic('cash');
     playSound('cash');
-    endRound('cashed', win);
+    endRound('cashed', win, currentRow);
   };
 
   const changeBet = (delta: number) => {
@@ -1740,21 +1758,9 @@ export const Royal5x5SoloGame = () => {
             <div className="at-board">
               {Array.from({ length: ROWS }, (_, visualIndex) => {
                 const row = ROWS - 1 - visualIndex;
-                const isActiveRow = phase === 'playing' && row === currentRow;
-                const isDoneRow = row < currentRow;
 
                 return (
                   <div className="at-row" key={row}>
-                    <div
-                      className={[
-                        'at-row-badge',
-                        isActiveRow ? 'active' : '',
-                        isDoneRow ? 'done' : '',
-                      ].join(' ')}
-                    >
-                      {row + 1}
-                    </div>
-
                     <div className="at-row-cells">
                       {Array.from({ length: COLS }, (_, col) => {
                         const key = makeCellKey(row, col);
@@ -1768,6 +1774,7 @@ export const Royal5x5SoloGame = () => {
                           phase !== 'playing' &&
                           !isPicked &&
                           !(phase === 'lost' && isBomb);
+                        const revealDelay = `${(ROWS - 1 - row) * 54 + col * 34}ms`;
 
                         return (
                           <button
@@ -1780,21 +1787,24 @@ export const Royal5x5SoloGame = () => {
                               isAvailable ? 'available' : '',
                               isLocked ? 'locked' : '',
                               isRevealed ? 'revealed' : 'hidden-tile',
+                              finalReveal && isRevealed ? 'final-reveal' : '',
                               isRevealed && isBomb ? 'bomb' : '',
                               isRevealed && !isBomb ? 'apple' : '',
+                              isBomb && isPicked && phase === 'lost' ? 'picked-bomb' : '',
                               shouldDim ? 'dimmed' : '',
                             ].join(' ')}
+                            style={{ '--reveal-delay': revealDelay } as CSSProperties}
                             aria-label={`Row ${row + 1}, tile ${col + 1}`}
                           >
                             <span className="at-tile-content">
                               {isRevealed ? (
                                 isBomb ? (
-                                  <BombIcon size={52} />
+                                  <BombIcon size={54} />
                                 ) : (
-                                  <AppleIcon size={52} />
+                                  <AppleIcon size={54} />
                                 )
                               ) : (
-                                <QuestionIcon size={34} />
+                                <QuestionIcon size={32} />
                               )}
                             </span>
                           </button>
@@ -1851,9 +1861,8 @@ export const Royal5x5SoloGame = () => {
             </button>
 
             <div className="at-current-mult">
-              Текущий множитель: <b>X{phase === 'playing' ? cashMultiplier : getCashoutMultiplier(currentRow)}</b>
-              <br />
-              Следующий: <b>X{nextMultiplier}</b>
+              Сейчас: <b>X{phase === 'playing' ? cashMultiplier : getCashoutMultiplier(currentRow)}</b>
+              {' '} / Далее: <b>X{nextMultiplier}</b>
             </div>
           </div>
         </div>
@@ -1941,7 +1950,7 @@ export const Royal5x5SoloGame = () => {
               <span className="at-main-core">
                 <span className="at-main-title">{phase === 'playing' ? 'TAKE' : 'START'}</span>
                 <span className="at-main-subtitle">
-                  {phase === 'playing' ? 'Забрать' : 'Выбрать яблоко'}
+                  {phase === 'playing' ? 'Забрать' : 'Выбрать'}
                 </span>
               </span>
             </button>
