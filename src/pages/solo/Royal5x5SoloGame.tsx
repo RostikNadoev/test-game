@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
+import trailImg from '../../assets/solo/apples/trail.webp';
+import logoImg from '../../assets/solo/apples/logo.webp';
+import appleImg from '../../assets/solo/apples/apple.webp';
+import bombImg from '../../assets/solo/apples/bomb.webp';
+
 const ROWS = 7;
 const COLS = 5;
 const MIN_BET = 1;
@@ -53,164 +58,46 @@ const sanitizeBetInput = (value: string) => {
   return onlyDigits.replace(/^0+(\d)/, '$1');
 };
 
-const AppleIcon = ({ size = 52 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
-    <defs>
-      <radialGradient
-        id="appleBodyGradient"
-        cx="0"
-        cy="0"
-        r="1"
-        gradientUnits="userSpaceOnUse"
-        gradientTransform="translate(35 28) rotate(48) scale(62)"
-      >
-        <stop stopColor="#ffffff" />
-        <stop offset="0.2" stopColor="#ff9f4e" />
-        <stop offset="0.52" stopColor="#f83b25" />
-        <stop offset="1" stopColor="#8f0e15" />
-      </radialGradient>
-
-      <linearGradient
-        id="appleLeafGradient"
-        x1="50"
-        y1="12"
-        x2="82"
-        y2="30"
-        gradientUnits="userSpaceOnUse"
-      >
-        <stop stopColor="#c9ff62" />
-        <stop offset="0.5" stopColor="#59d02f" />
-        <stop offset="1" stopColor="#176f20" />
-      </linearGradient>
-    </defs>
-
-    <path
-      d="M48 27C39 18 24 20 17 34C8 52 17 83 38 88C44 90 47 86 50 86C53 86 56 90 62 88C83 83 92 52 83 34C76 20 61 18 52 27C51 28 49 28 48 27Z"
-      fill="url(#appleBodyGradient)"
-      stroke="#ffcf82"
-      strokeWidth="2.5"
-    />
-
-    <path
-      d="M51 26C51 18 55 13 61 10"
-      stroke="#7d4218"
-      strokeWidth="5"
-      strokeLinecap="round"
-    />
-
-    <path
-      d="M58 14C69 7 82 10 88 19C78 25 66 26 58 14Z"
-      fill="url(#appleLeafGradient)"
-      stroke="#c8ff70"
-      strokeWidth="1.5"
-    />
-
-    <ellipse
-      cx="34"
-      cy="39"
-      rx="10"
-      ry="6"
-      fill="white"
-      opacity="0.46"
-      transform="rotate(-25 34 39)"
-    />
-
-    <ellipse
-      cx="43"
-      cy="51"
-      rx="4"
-      ry="2.5"
-      fill="white"
-      opacity="0.22"
-      transform="rotate(-20 43 51)"
-    />
-  </svg>
+const AssetImage = ({
+  src,
+  size,
+  className = '',
+  alt = '',
+}: {
+  src: string;
+  size: number;
+  className?: string;
+  alt?: string;
+}) => (
+  <img
+    src={src}
+    alt={alt}
+    aria-hidden={alt ? undefined : true}
+    draggable={false}
+    className={`at-asset-img ${className}`}
+    style={{ width: size, height: size }}
+  />
 );
 
-const BombIcon = ({ size = 52 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
-    <defs>
-      <radialGradient
-        id="bombBodyGradient"
-        cx="0"
-        cy="0"
-        r="1"
-        gradientUnits="userSpaceOnUse"
-        gradientTransform="translate(34 28) rotate(48) scale(68)"
-      >
-        <stop stopColor="#5e6075" />
-        <stop offset="0.48" stopColor="#171826" />
-        <stop offset="1" stopColor="#05050a" />
-      </radialGradient>
-
-      <radialGradient
-        id="bombSparkGradient"
-        cx="0"
-        cy="0"
-        r="1"
-        gradientUnits="userSpaceOnUse"
-        gradientTransform="translate(78 15) scale(24)"
-      >
-        <stop stopColor="#ffffff" />
-        <stop offset="0.25" stopColor="#fff075" />
-        <stop offset="0.58" stopColor="#ff6d1c" />
-        <stop offset="1" stopColor="#ff2555" />
-      </radialGradient>
-    </defs>
-
-    <circle
-      cx="48"
-      cy="56"
-      r="31"
-      fill="url(#bombBodyGradient)"
-      stroke="#8f91a5"
-      strokeWidth="2.2"
-    />
-
-    <path
-      d="M63 32C67 24 72 19 80 15"
-      stroke="#8f91a5"
-      strokeWidth="5"
-      strokeLinecap="round"
-    />
-
-    <path
-      d="M75 11L80 17L88 13L84 21L91 27L82 26L78 35L75 26L66 25L73 20Z"
-      fill="url(#bombSparkGradient)"
-    />
-
-    <ellipse
-      cx="35"
-      cy="43"
-      rx="10"
-      ry="7"
-      fill="white"
-      opacity="0.14"
-      transform="rotate(-30 35 43)"
-    />
-
-    <path
-      d="M38 56H58"
-      stroke="#07070c"
-      strokeWidth="4"
-      strokeLinecap="round"
-      opacity="0.48"
-    />
-  </svg>
+const TrailTitle = ({ loading = false }: { loading?: boolean }) => (
+  <img
+    src={trailImg}
+    alt="Apple Trail"
+    draggable={false}
+    className={loading ? 'at-title-img at-title-img-loading' : 'at-title-img'}
+  />
 );
 
-const QuestionIcon = ({ size = 32 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
-    <path
-      d="M50 81C44 81 39 76 39 70C39 64 44 59 50 59C56 59 61 64 61 70C61 76 56 81 50 81Z"
-      fill="#ffe3a5"
-    />
+const AppleIcon = ({ size = 56 }: { size?: number }) => (
+  <AssetImage src={appleImg} size={size} className="at-symbol-img at-apple-img" />
+);
 
-    <path
-      d="M31 35C33 23 43 16 56 18C69 20 77 29 76 41C75 50 69 56 59 61C55 63 53 66 53 70H42C42 61 46 55 55 50C62 46 65 43 65 39C66 34 62 30 55 29C48 28 43 31 42 38L31 35Z"
-      fill="#ffe3a5"
-    />
-  </svg>
+const BombIcon = ({ size = 56 }: { size?: number }) => (
+  <AssetImage src={bombImg} size={size} className="at-symbol-img at-bomb-img" />
+);
+
+const QuestionIcon = ({ size = 42 }: { size?: number }) => (
+  <AssetImage src={logoImg} size={size} className="at-logo-img" />
 );
 
 const InfoIcon = ({ size = 18 }: { size?: number }) => (
@@ -360,6 +247,67 @@ const StyleBlock = () => (
       overflow: hidden;
     }
 
+    .at-asset-img {
+      display: block;
+      object-fit: contain;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      transform: translateZ(0);
+      backface-visibility: hidden;
+    }
+
+    .at-title-img {
+      display: block;
+      width: min(100%, 340px);
+      height: auto;
+      max-height: 60px;
+      margin: 0 auto;
+      object-fit: contain;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      filter:
+        drop-shadow(0 5px 0 rgba(90, 18, 10, .72))
+        drop-shadow(0 9px 14px rgba(0, 0, 0, .42))
+        drop-shadow(0 0 18px rgba(95, 255, 84, .18));
+      transform: translateZ(0);
+    }
+
+    .at-title-img-loading {
+      width: min(78vw, 365px);
+      max-height: 88px;
+      filter:
+        drop-shadow(0 6px 0 rgba(90, 18, 10, .72))
+        drop-shadow(0 12px 24px rgba(0, 0, 0, .46))
+        drop-shadow(0 0 22px rgba(95, 255, 84, .24));
+    }
+
+    .at-logo-img {
+      width: min(58%, 44px) !important;
+      height: min(58%, 44px) !important;
+      opacity: .94;
+      filter:
+        drop-shadow(0 3px 5px rgba(0,0,0,.36))
+        drop-shadow(0 0 8px rgba(255, 196, 83, .14));
+    }
+
+    .at-symbol-img {
+      width: min(84%, 60px) !important;
+      height: min(84%, 60px) !important;
+      filter:
+        drop-shadow(0 5px 5px rgba(0,0,0,.30))
+        drop-shadow(0 0 10px rgba(255,255,255,.08));
+    }
+
+    .at-bomb-img {
+      width: min(82%, 58px) !important;
+      height: min(82%, 58px) !important;
+      filter:
+        drop-shadow(0 5px 5px rgba(0,0,0,.34))
+        drop-shadow(0 0 12px rgba(255, 67, 67, .15));
+    }
+
     .at-loading {
       position: absolute;
       inset: 0;
@@ -426,26 +374,6 @@ const StyleBlock = () => (
     .at-loading-bomb {
       bottom: -8px;
       left: 44px;
-    }
-
-    .at-loading-title {
-      position: relative;
-      margin-top: 28px;
-      color: #ffefaa;
-      font-size: 28px;
-      line-height: .9;
-      text-shadow:
-        0 3px 0 #7a1c13,
-        0 8px 18px rgba(0,0,0,.46),
-        0 0 22px rgba(105,255,83,.2);
-    }
-
-    .at-loading-title span {
-      color: #ff6538;
-      text-shadow:
-        0 3px 0 #6b120e,
-        0 8px 18px rgba(0,0,0,.46),
-        0 0 20px rgba(255,96,45,.28);
     }
 
     .at-loading-bar {
@@ -527,26 +455,6 @@ const StyleBlock = () => (
       text-align: center;
     }
 
-    .at-title {
-      margin: 0;
-      font-size: 25px;
-      line-height: .92;
-      letter-spacing: .03em;
-      color: #ffefaa;
-      text-shadow:
-        0 3px 0 #7a1c13,
-        0 7px 12px rgba(0, 0, 0, .58),
-        0 0 24px rgba(105, 255, 83, .22);
-    }
-
-    .at-title span {
-      color: #ff6538;
-      text-shadow:
-        0 3px 0 #6b120e,
-        0 7px 12px rgba(0, 0, 0, .58),
-        0 0 20px rgba(255, 96, 45, .30);
-    }
-
     .at-main-layout {
       flex: 1 1 0;
       min-height: 0;
@@ -613,11 +521,11 @@ const StyleBlock = () => (
         inset 0 -5px 10px rgba(0,0,0,.18);
       transform: translateZ(0);
       transition:
-        transform .12s ease,
-        border-color .18s ease,
-        filter .18s ease,
-        opacity .18s ease,
-        box-shadow .18s ease;
+        transform .18s ease,
+        border-color .22s ease,
+        filter .22s ease,
+        opacity .22s ease,
+        box-shadow .22s ease;
       contain: layout paint style;
       perspective: 900px;
     }
@@ -627,7 +535,7 @@ const StyleBlock = () => (
       border-color: rgba(255, 207, 94, .44);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.10),
-        0 0 13px rgba(255, 207, 94, .12),
+        0 0 15px rgba(255, 207, 94, .14),
         inset 0 -5px 10px rgba(0,0,0,.18);
     }
 
@@ -665,7 +573,7 @@ const StyleBlock = () => (
       border-radius: inherit;
       transform-style: preserve-3d;
       transform: rotateY(0deg) translateZ(0);
-      transition: transform .62s cubic-bezier(.18, .82, .22, 1);
+      transition: transform .74s cubic-bezier(.16, .86, .18, 1);
       will-change: transform;
     }
 
@@ -707,11 +615,6 @@ const StyleBlock = () => (
         radial-gradient(circle at 50% 20%, var(--tile-glow), transparent 44%),
         linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.024)),
         rgba(50, 24, 41, .82);
-    }
-
-    .at-card-back svg {
-      transform: translateZ(0);
-      opacity: 1;
     }
 
     @keyframes atBombShake {
@@ -778,11 +681,11 @@ const StyleBlock = () => (
         rgba(255,255,255,.026);
       border: 1px solid rgba(255,255,255,.052);
       transition:
-        transform .18s ease,
-        color .18s ease,
-        background .18s ease,
-        box-shadow .18s ease,
-        border-color .18s ease;
+        transform .24s ease,
+        color .24s ease,
+        background .24s ease,
+        box-shadow .24s ease,
+        border-color .24s ease;
     }
 
     .at-mult-pill.reached {
@@ -867,7 +770,7 @@ const StyleBlock = () => (
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.46),
         0 0 14px rgba(103, 255, 76, .18);
-      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
+      transition: transform .12s ease, filter .12s ease, opacity .12s ease;
     }
 
     .at-cash-btn:disabled {
@@ -975,7 +878,7 @@ const StyleBlock = () => (
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.44),
         0 0 12px rgba(255, 179, 71, .14);
-      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
+      transition: transform .12s ease, filter .12s ease, opacity .12s ease;
     }
 
     .at-bet-quick:disabled {
@@ -999,40 +902,53 @@ const StyleBlock = () => (
       position: relative;
       width: 90px;
       height: 90px;
+      padding: 0;
+      border: 0;
       border-radius: 999px;
       color: #231006;
-      background: transparent;
-      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
+      background:
+        radial-gradient(circle at 38% 25%, #fff8c8 0%, #ffd45e 42%, #ff922f 68%, #d84827 100%);
+      box-shadow:
+        inset 0 2px 7px rgba(255,255,255,.58),
+        inset 0 -7px 13px rgba(111, 39, 3, .28),
+        0 0 18px rgba(255, 181, 72, .26),
+        0 8px 18px rgba(0,0,0,.25);
+      overflow: hidden;
+      isolation: isolate;
+      transition: transform .12s ease, filter .12s ease, opacity .12s ease;
+      transform: translateZ(0);
     }
 
     .at-main-btn:disabled {
       opacity: .62;
+      filter: saturate(.86);
     }
 
     .at-main-ring {
       position: absolute;
       inset: 0;
+      z-index: 0;
       border-radius: inherit;
-      background: conic-gradient(from 0deg, #fff1a8, #ffb548, #ff5b2d, #ff2b58, #fff1a8);
-      box-shadow:
-        0 0 20px rgba(255, 181, 72, .38),
-        0 0 30px rgba(255, 52, 44, .18);
-      animation: atSpin 5s linear infinite;
+      background:
+        radial-gradient(circle at 35% 20%, rgba(255,255,255,.52), transparent 38%),
+        linear-gradient(135deg, rgba(255,255,255,.18), transparent 45%);
+      opacity: .82;
     }
 
     .at-main-core {
       position: absolute;
       inset: 6px;
+      z-index: 1;
       border-radius: inherit;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       background:
-        radial-gradient(circle at 38% 28%, #fff6c2, #ffca58 56%, #e26e17);
+        radial-gradient(circle at 38% 25%, #fff8c8 0%, #ffd45e 54%, #f09428 100%);
       box-shadow:
-        inset 0 2px 7px rgba(255,255,255,.54),
-        inset 0 -7px 12px rgba(90,42,0,.34);
+        inset 0 2px 7px rgba(255,255,255,.52),
+        inset 0 -6px 11px rgba(95, 40, 0, .25);
     }
 
     .at-main-title {
@@ -1047,12 +963,6 @@ const StyleBlock = () => (
       letter-spacing: .08em;
       color: rgba(35, 16, 6, .78);
       text-transform: uppercase;
-    }
-
-    @keyframes atSpin {
-      to {
-        transform: rotate(360deg);
-      }
     }
 
     .at-final-layer {
@@ -1273,8 +1183,8 @@ const StyleBlock = () => (
         gap: 6px;
       }
 
-      .at-title {
-        font-size: 22px;
+      .at-title-img {
+        max-height: 54px;
       }
 
       .at-icon-btn {
@@ -1284,8 +1194,6 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        flex: 1 1 0;
-        min-height: 0;
         grid-template-columns: 1fr 54px;
         gap: 6px;
       }
@@ -1404,8 +1312,8 @@ const StyleBlock = () => (
         border-radius: 15px;
       }
 
-      .at-title {
-        font-size: 20px;
+      .at-title-img {
+        max-height: 46px;
       }
 
       .at-main-layout {
@@ -1428,6 +1336,16 @@ const StyleBlock = () => (
 
       .at-tile {
         border-radius: 13px;
+      }
+
+      .at-logo-img {
+        width: min(54%, 38px) !important;
+        height: min(54%, 38px) !important;
+      }
+
+      .at-symbol-img {
+        width: min(82%, 54px) !important;
+        height: min(82%, 54px) !important;
       }
 
       .at-side-panel {
@@ -1497,7 +1415,6 @@ const StyleBlock = () => (
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .at-main-ring,
       .at-card-inner,
       .at-tile.bomb.picked-bomb,
       .at-final-card,
@@ -1526,9 +1443,7 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
       </div>
     </div>
 
-    <div className="at-loading-title">
-      APPLE <span>TRAIL</span>
-    </div>
+    <TrailTitle loading />
 
     <div className="at-loading-bar">
       <span style={{ width: `${progress}%` }} />
@@ -1679,7 +1594,7 @@ export const Royal5x5SoloGame = () => {
     else tgHaptics?.selectionChanged?.();
 
     if ('vibrate' in navigator) {
-      const pattern: VibratePattern =
+      const pattern: number | number[] =
         kind === 'bomb'
           ? [35, 28, 55]
           : kind === 'cash' || kind === 'win'
@@ -1801,10 +1716,10 @@ export const Royal5x5SoloGame = () => {
         return next;
       });
 
-      await sleep(112);
+      await sleep(138);
     }
 
-    await sleep(560);
+    await sleep(680);
 
     if (revealRunRef.current !== runId) return;
 
@@ -1892,7 +1807,7 @@ export const Royal5x5SoloGame = () => {
 
       window.setTimeout(() => {
         void endRound('lost', 0, currentRow);
-      }, 650);
+      }, 760);
 
       return;
     }
@@ -1907,14 +1822,14 @@ export const Royal5x5SoloGame = () => {
 
       window.setTimeout(() => {
         void endRound('completed', win, nextRow);
-      }, 650);
+      }, 760);
 
       return;
     }
 
     window.setTimeout(() => {
       setCurrentRow(nextRow);
-    }, 340);
+    }, 430);
   };
 
   const cashout = () => {
@@ -2031,9 +1946,7 @@ export const Royal5x5SoloGame = () => {
           </button>
 
           <div className="at-title-wrap">
-            <h1 className="at-title">
-              APPLE <span>TRAIL</span>
-            </h1>
+            <TrailTitle />
           </div>
 
           <button
@@ -2100,11 +2013,11 @@ export const Royal5x5SoloGame = () => {
                           >
                             <span className="at-card-inner">
                               <span className="at-card-face at-card-front">
-                                <QuestionIcon size={32} />
+                                <QuestionIcon size={44} />
                               </span>
 
                               <span className="at-card-face at-card-back">
-                                {isBomb ? <BombIcon size={53} /> : <AppleIcon size={53} />}
+                                {isBomb ? <BombIcon size={58} /> : <AppleIcon size={60} />}
                               </span>
                             </span>
                           </button>
