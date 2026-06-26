@@ -30,6 +30,9 @@ const getTelegramHaptics = () =>
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
+const waitFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 const formatMoney = (value: number) =>
@@ -47,8 +50,7 @@ const getCashoutMultiplier = (openedRows: number) => {
 
 const sanitizeBetInput = (value: string) => {
   const onlyDigits = value.replace(/[^\d]/g, '');
-  const withoutLeadingZero = onlyDigits.replace(/^0+(\d)/, '$1');
-  return withoutLeadingZero;
+  return onlyDigits.replace(/^0+(\d)/, '$1');
 };
 
 const AppleIcon = ({ size = 52 }: { size?: number }) => (
@@ -313,6 +315,7 @@ const StyleBlock = () => (
     .at-root {
       position: relative;
       min-height: 100%;
+      height: 100%;
       width: 100%;
       max-width: 480px;
       margin: 0 auto;
@@ -336,10 +339,137 @@ const StyleBlock = () => (
       position: relative;
       z-index: 1;
       min-height: 0;
+      height: 100%;
       flex: 1;
       display: flex;
       flex-direction: column;
       gap: 7px;
+    }
+
+    .at-loading {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .at-loading-glow {
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle, rgba(255, 185, 64, .24), transparent 62%),
+        radial-gradient(circle at 35% 40%, rgba(128, 255, 84, .15), transparent 44%),
+        radial-gradient(circle at 65% 60%, rgba(255, 48, 66, .16), transparent 42%);
+      animation: atLoadPulse 1.4s ease-in-out infinite;
+    }
+
+    .at-loading-orbit {
+      position: relative;
+      width: 154px;
+      height: 154px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 220, 123, .16);
+      animation: atLoadSpin 2s linear infinite;
+    }
+
+    .at-loading-orbit::before,
+    .at-loading-orbit::after {
+      content: '';
+      position: absolute;
+      inset: 13px;
+      border-radius: inherit;
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .at-loading-apple,
+    .at-loading-bomb {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      width: 66px;
+      height: 66px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.052);
+      border: 1px solid rgba(255,255,255,.08);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.08),
+        0 14px 30px rgba(0,0,0,.25);
+      animation: atLoadCounterSpin 2s linear infinite;
+    }
+
+    .at-loading-apple {
+      top: -8px;
+      left: 44px;
+    }
+
+    .at-loading-bomb {
+      bottom: -8px;
+      left: 44px;
+    }
+
+    .at-loading-title {
+      position: relative;
+      margin-top: 28px;
+      color: #ffefaa;
+      font-size: 28px;
+      line-height: .9;
+      text-shadow:
+        0 3px 0 #7a1c13,
+        0 8px 18px rgba(0,0,0,.46),
+        0 0 22px rgba(105,255,83,.2);
+    }
+
+    .at-loading-title span {
+      color: #ff6538;
+      text-shadow:
+        0 3px 0 #6b120e,
+        0 8px 18px rgba(0,0,0,.46),
+        0 0 20px rgba(255,96,45,.28);
+    }
+
+    .at-loading-bar {
+      position: relative;
+      overflow: hidden;
+      width: 210px;
+      height: 8px;
+      margin-top: 20px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .at-loading-bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #c9ff62, #fff1a8, #ff6538);
+      transition: width .08s linear;
+    }
+
+    @keyframes atLoadPulse {
+      50% {
+        transform: scale(1.08);
+        opacity: .78;
+      }
+    }
+
+    @keyframes atLoadSpin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes atLoadCounterSpin {
+      to {
+        transform: rotate(-360deg);
+      }
     }
 
     .at-top {
@@ -404,13 +534,12 @@ const StyleBlock = () => (
     }
 
     .at-main-layout {
-      height: clamp(314px, 43.5dvh, 395px);
-      flex: 0 0 auto;
+      flex: 1 1 auto;
+      min-height: 0;
       display: grid;
       grid-template-columns: 1fr 56px;
       gap: 7px;
       align-items: stretch;
-      min-height: 0;
     }
 
     .at-board-shell {
@@ -518,7 +647,7 @@ const StyleBlock = () => (
       border-radius: inherit;
       transform-style: preserve-3d;
       transform: rotateY(0deg) translateZ(0);
-      transition: transform .46s cubic-bezier(.18, .92, .24, 1.08);
+      transition: transform .62s cubic-bezier(.18, .82, .22, 1);
       will-change: transform;
     }
 
@@ -562,21 +691,9 @@ const StyleBlock = () => (
         rgba(50, 24, 41, .82);
     }
 
-    .at-tile.revealed .at-card-back svg {
-      animation: atIconPop .28s cubic-bezier(.22, 1.18, .28, 1) both;
-      animation-delay: .18s;
-    }
-
-    @keyframes atIconPop {
-      0% {
-        transform: scale(.65) translateZ(0);
-        opacity: .4;
-      }
-
-      100% {
-        transform: scale(1) translateZ(0);
-        opacity: 1;
-      }
+    .at-card-back svg {
+      transform: translateZ(0);
+      opacity: 1;
     }
 
     @keyframes atBombShake {
@@ -854,13 +971,13 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 76px;
+      min-height: clamp(84px, 10.2dvh, 104px);
     }
 
     .at-main-btn {
       position: relative;
-      width: 86px;
-      height: 86px;
+      width: 92px;
+      height: 92px;
       border-radius: 999px;
       color: #231006;
       background: transparent;
@@ -1146,7 +1263,6 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        height: clamp(292px, 40.5dvh, 356px);
         grid-template-columns: 1fr 52px;
         gap: 6px;
       }
@@ -1229,12 +1345,12 @@ const StyleBlock = () => (
       }
 
       .at-start-row {
-        min-height: 68px;
+        min-height: 76px;
       }
 
       .at-main-btn {
-        width: 74px;
-        height: 74px;
+        width: 80px;
+        height: 80px;
       }
 
       .at-main-title {
@@ -1265,13 +1381,40 @@ const StyleBlock = () => (
       .at-main-ring,
       .at-card-inner,
       .at-tile.bomb.picked-bomb,
-      .at-tile.revealed .at-card-back svg,
-      .at-final-card {
+      .at-final-card,
+      .at-loading-orbit,
+      .at-loading-apple,
+      .at-loading-bomb,
+      .at-loading-glow {
         animation: none !important;
         transition: none !important;
       }
     }
   `}</style>
+);
+
+const LoadingScreen = ({ progress }: { progress: number }) => (
+  <div className="at-loading">
+    <div className="at-loading-glow" />
+
+    <div className="at-loading-orbit">
+      <div className="at-loading-apple">
+        <AppleIcon size={50} />
+      </div>
+
+      <div className="at-loading-bomb">
+        <BombIcon size={48} />
+      </div>
+    </div>
+
+    <div className="at-loading-title">
+      APPLE <span>TRAIL</span>
+    </div>
+
+    <div className="at-loading-bar">
+      <span style={{ width: `${progress}%` }} />
+    </div>
+  </div>
 );
 
 const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
@@ -1379,6 +1522,8 @@ const FinalOverlay = ({
 };
 
 export const Royal5x5SoloGame = () => {
+  const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [phase, setPhase] = useState<GamePhase>('idle');
   const [bet, setBet] = useState(1);
   const [betInput, setBetInput] = useState('1');
@@ -1396,11 +1541,9 @@ export const Royal5x5SoloGame = () => {
 
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
-  const phaseRef = useRef<GamePhase>(phase);
   const revealRunRef = useRef(0);
 
   mutedRef.current = muted;
-  phaseRef.current = phase;
 
   const cashMultiplier = getCashoutMultiplier(currentRow);
   const nextMultiplier = phase === 'playing' ? MULTIPLIERS[currentRow] ?? cashMultiplier : cashMultiplier;
@@ -1527,6 +1670,8 @@ export const Royal5x5SoloGame = () => {
 
       const row = ROWS - 1 - visualIndex;
 
+      await waitFrame();
+
       setRevealed((prev) => {
         const next = new Set(prev);
 
@@ -1537,10 +1682,10 @@ export const Royal5x5SoloGame = () => {
         return next;
       });
 
-      await sleep(58);
+      await sleep(112);
     }
 
-    await sleep(430);
+    await sleep(560);
 
     if (revealRunRef.current !== runId) return;
 
@@ -1628,7 +1773,7 @@ export const Royal5x5SoloGame = () => {
 
       window.setTimeout(() => {
         void endRound('lost', 0, currentRow);
-      }, 520);
+      }, 650);
 
       return;
     }
@@ -1643,14 +1788,14 @@ export const Royal5x5SoloGame = () => {
 
       window.setTimeout(() => {
         void endRound('completed', win, nextRow);
-      }, 520);
+      }, 650);
 
       return;
     }
 
     window.setTimeout(() => {
       setCurrentRow(nextRow);
-    }, 250);
+    }, 340);
   };
 
   const cashout = () => {
@@ -1718,6 +1863,38 @@ export const Royal5x5SoloGame = () => {
   useEffect(() => {
     localStorage.setItem('apple-trail-muted', muted ? '1' : '0');
   }, [muted]);
+
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const duration = 2000;
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 2.4);
+
+      setLoadProgress(eased * 100);
+
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        setLoading(false);
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="at-root">
+        <StyleBlock />
+        <LoadingScreen progress={loadProgress} />
+      </div>
+    );
+  }
 
   return (
     <div className="at-root">
