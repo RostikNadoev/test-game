@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 const ROWS = 7;
 const COLS = 5;
 const MIN_BET = 1;
-const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
+const QUICK_BETS = [10, 100];
 const MULTIPLIERS = [1.1, 1.3, 1.6, 2, 3, 5, 10];
 
 type GamePhase = 'idle' | 'playing' | 'cashed' | 'lost' | 'completed';
@@ -28,6 +28,8 @@ type BrowserWithAudio = Window &
 const getTelegramHaptics = () =>
   (window as BrowserWithAudio).Telegram?.WebApp?.HapticFeedback;
 
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 const formatMoney = (value: number) =>
@@ -38,21 +40,15 @@ const makeCellKey = (row: number, col: number) => `${row}:${col}`;
 const makeBombs = () =>
   Array.from({ length: ROWS }, () => Math.floor(Math.random() * COLS));
 
-const revealAllCells = () => {
-  const next = new Set<string>();
-
-  for (let row = 0; row < ROWS; row += 1) {
-    for (let col = 0; col < COLS; col += 1) {
-      next.add(makeCellKey(row, col));
-    }
-  }
-
-  return next;
-};
-
 const getCashoutMultiplier = (openedRows: number) => {
   if (openedRows <= 0) return 1;
   return MULTIPLIERS[Math.min(openedRows - 1, MULTIPLIERS.length - 1)];
+};
+
+const sanitizeBetInput = (value: string) => {
+  const onlyDigits = value.replace(/[^\d]/g, '');
+  const withoutLeadingZero = onlyDigits.replace(/^0+(\d)/, '$1');
+  return withoutLeadingZero;
 };
 
 const AppleIcon = ({ size = 52 }: { size?: number }) => (
@@ -71,7 +67,15 @@ const AppleIcon = ({ size = 52 }: { size?: number }) => (
         <stop offset="0.52" stopColor="#f83b25" />
         <stop offset="1" stopColor="#8f0e15" />
       </radialGradient>
-      <linearGradient id="appleLeafGradient" x1="50" y1="12" x2="82" y2="30" gradientUnits="userSpaceOnUse">
+
+      <linearGradient
+        id="appleLeafGradient"
+        x1="50"
+        y1="12"
+        x2="82"
+        y2="30"
+        gradientUnits="userSpaceOnUse"
+      >
         <stop stopColor="#c9ff62" />
         <stop offset="0.5" stopColor="#59d02f" />
         <stop offset="1" stopColor="#176f20" />
@@ -84,15 +88,40 @@ const AppleIcon = ({ size = 52 }: { size?: number }) => (
       stroke="#ffcf82"
       strokeWidth="2.5"
     />
-    <path d="M51 26C51 18 55 13 61 10" stroke="#7d4218" strokeWidth="5" strokeLinecap="round" />
+
+    <path
+      d="M51 26C51 18 55 13 61 10"
+      stroke="#7d4218"
+      strokeWidth="5"
+      strokeLinecap="round"
+    />
+
     <path
       d="M58 14C69 7 82 10 88 19C78 25 66 26 58 14Z"
       fill="url(#appleLeafGradient)"
       stroke="#c8ff70"
       strokeWidth="1.5"
     />
-    <ellipse cx="34" cy="39" rx="10" ry="6" fill="white" opacity="0.46" transform="rotate(-25 34 39)" />
-    <ellipse cx="43" cy="51" rx="4" ry="2.5" fill="white" opacity="0.22" transform="rotate(-20 43 51)" />
+
+    <ellipse
+      cx="34"
+      cy="39"
+      rx="10"
+      ry="6"
+      fill="white"
+      opacity="0.46"
+      transform="rotate(-25 34 39)"
+    />
+
+    <ellipse
+      cx="43"
+      cy="51"
+      rx="4"
+      ry="2.5"
+      fill="white"
+      opacity="0.22"
+      transform="rotate(-20 43 51)"
+    />
   </svg>
 );
 
@@ -111,6 +140,7 @@ const BombIcon = ({ size = 52 }: { size?: number }) => (
         <stop offset="0.48" stopColor="#171826" />
         <stop offset="1" stopColor="#05050a" />
       </radialGradient>
+
       <radialGradient
         id="bombSparkGradient"
         cx="0"
@@ -126,20 +156,54 @@ const BombIcon = ({ size = 52 }: { size?: number }) => (
       </radialGradient>
     </defs>
 
-    <circle cx="48" cy="56" r="31" fill="url(#bombBodyGradient)" stroke="#8f91a5" strokeWidth="2.2" />
-    <path d="M63 32C67 24 72 19 80 15" stroke="#8f91a5" strokeWidth="5" strokeLinecap="round" />
-    <path d="M75 11L80 17L88 13L84 21L91 27L82 26L78 35L75 26L66 25L73 20Z" fill="url(#bombSparkGradient)" />
-    <ellipse cx="35" cy="43" rx="10" ry="7" fill="white" opacity="0.14" transform="rotate(-30 35 43)" />
-    <path d="M38 56H58" stroke="#07070c" strokeWidth="4" strokeLinecap="round" opacity="0.48" />
+    <circle
+      cx="48"
+      cy="56"
+      r="31"
+      fill="url(#bombBodyGradient)"
+      stroke="#8f91a5"
+      strokeWidth="2.2"
+    />
+
+    <path
+      d="M63 32C67 24 72 19 80 15"
+      stroke="#8f91a5"
+      strokeWidth="5"
+      strokeLinecap="round"
+    />
+
+    <path
+      d="M75 11L80 17L88 13L84 21L91 27L82 26L78 35L75 26L66 25L73 20Z"
+      fill="url(#bombSparkGradient)"
+    />
+
+    <ellipse
+      cx="35"
+      cy="43"
+      rx="10"
+      ry="7"
+      fill="white"
+      opacity="0.14"
+      transform="rotate(-30 35 43)"
+    />
+
+    <path
+      d="M38 56H58"
+      stroke="#07070c"
+      strokeWidth="4"
+      strokeLinecap="round"
+      opacity="0.48"
+    />
   </svg>
 );
 
-const QuestionIcon = ({ size = 34 }: { size?: number }) => (
+const QuestionIcon = ({ size = 32 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <path
       d="M50 81C44 81 39 76 39 70C39 64 44 59 50 59C56 59 61 64 61 70C61 76 56 81 50 81Z"
       fill="#ffe3a5"
     />
+
     <path
       d="M31 35C33 23 43 16 56 18C69 20 77 29 76 41C75 50 69 56 59 61C55 63 53 66 53 70H42C42 61 46 55 55 50C62 46 65 43 65 39C66 34 62 30 55 29C48 28 43 31 42 38L31 35Z"
       fill="#ffe3a5"
@@ -252,7 +316,7 @@ const StyleBlock = () => (
       width: 100%;
       max-width: 480px;
       margin: 0 auto;
-      padding: 11px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+      padding: 13px 12px calc(9px + env(safe-area-inset-bottom, 0px));
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -283,6 +347,7 @@ const StyleBlock = () => (
       grid-template-columns: 42px 1fr 42px;
       align-items: center;
       gap: 8px;
+      flex: 0 0 auto;
     }
 
     .at-icon-btn {
@@ -306,11 +371,9 @@ const StyleBlock = () => (
 
     .at-icon-btn:active,
     .at-tile:active,
-    .at-bet-btn:active,
-    .at-bet-chip:active,
+    .at-bet-quick:active,
     .at-cash-btn:active,
-    .at-main-btn:active,
-    .at-side-btn:active {
+    .at-main-btn:active {
       transform: scale(.95) translateZ(0);
       filter: brightness(1.08);
     }
@@ -340,31 +403,21 @@ const StyleBlock = () => (
         0 0 20px rgba(255, 96, 45, .30);
     }
 
-    .at-subtitle {
-      margin: 3px 0 0;
-      color: rgba(201, 255, 98, .78);
-      font-size: 7.5px;
-      letter-spacing: .14em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
     .at-main-layout {
-      min-height: 0;
-      flex: 1;
+      height: clamp(314px, 43.5dvh, 395px);
+      flex: 0 0 auto;
       display: grid;
-      grid-template-columns: 1fr 62px;
+      grid-template-columns: 1fr 56px;
       gap: 7px;
       align-items: stretch;
+      min-height: 0;
     }
 
     .at-board-shell {
       position: relative;
       overflow: hidden;
-      border-radius: 25px;
-      padding: 9px;
+      border-radius: 24px;
+      padding: 8px;
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 207, 94, .12), transparent 36%),
         linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.026)),
@@ -373,8 +426,8 @@ const StyleBlock = () => (
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.08),
         inset 0 -12px 30px rgba(0,0,0,.24),
-        0 16px 34px rgba(0,0,0,.30),
-        0 0 24px rgba(108, 255, 83, .08);
+        0 14px 30px rgba(0,0,0,.26),
+        0 0 20px rgba(108, 255, 83, .07);
       contain: layout paint style;
       transform: translateZ(0);
     }
@@ -382,7 +435,7 @@ const StyleBlock = () => (
     .at-board {
       display: grid;
       grid-template-rows: repeat(${ROWS}, minmax(0, 1fr));
-      gap: 6px;
+      gap: 5px;
       height: 100%;
       min-height: 0;
     }
@@ -395,7 +448,7 @@ const StyleBlock = () => (
     .at-row-cells {
       display: grid;
       grid-template-columns: repeat(${COLS}, minmax(0, 1fr));
-      gap: 6px;
+      gap: 5px;
       height: 100%;
       min-height: 0;
     }
@@ -404,15 +457,10 @@ const StyleBlock = () => (
       position: relative;
       min-width: 0;
       aspect-ratio: 1;
-      border-radius: 17px;
-      display: grid;
-      place-items: center;
+      border-radius: 16px;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 35% 10%, rgba(255,255,255,.12), transparent 40%),
-        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.022)),
-        rgba(59, 23, 48, .78);
       border: 1px solid rgba(255, 156, 91, .17);
+      background: rgba(59, 23, 48, .78);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.08),
         inset 0 -5px 10px rgba(0,0,0,.18);
@@ -424,26 +472,16 @@ const StyleBlock = () => (
         opacity .18s ease,
         box-shadow .18s ease;
       contain: layout paint style;
-      perspective: 800px;
+      perspective: 900px;
     }
 
     .at-tile.available {
       cursor: pointer;
-      border-color: rgba(255, 207, 94, .42);
+      border-color: rgba(255, 207, 94, .44);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.10),
-        0 0 14px rgba(255, 207, 94, .14),
+        0 0 13px rgba(255, 207, 94, .12),
         inset 0 -5px 10px rgba(0,0,0,.18);
-    }
-
-    .at-tile.available::after {
-      content: '';
-      position: absolute;
-      inset: 2px;
-      border-radius: 15px;
-      pointer-events: none;
-      border: 1px solid rgba(255, 226, 122, .20);
-      opacity: .75;
     }
 
     .at-tile.locked {
@@ -452,111 +490,92 @@ const StyleBlock = () => (
     }
 
     .at-tile.apple {
-      border-color: rgba(186, 255, 94, .55);
-      background:
-        radial-gradient(circle at 50% 20%, rgba(201,255,98,.18), transparent 42%),
-        linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.024)),
-        rgba(50, 24, 41, .82);
+      border-color: rgba(186, 255, 94, .52);
       box-shadow:
-        0 0 17px rgba(129, 255, 94, .18),
+        0 0 14px rgba(129, 255, 94, .14),
         inset 0 1px 0 rgba(255,255,255,.10);
     }
 
     .at-tile.bomb {
-      border-color: rgba(255, 64, 64, .58);
-      background:
-        radial-gradient(circle at 50% 22%, rgba(255,68,68,.22), transparent 43%),
-        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
-        rgba(42, 12, 22, .88);
+      border-color: rgba(255, 64, 64, .56);
       box-shadow:
-        0 0 24px rgba(255, 38, 56, .26),
+        0 0 18px rgba(255, 38, 56, .18),
         inset 0 1px 0 rgba(255,255,255,.10);
     }
 
     .at-tile.bomb.picked-bomb {
-      animation: atBombShake .38s ease-out both;
+      animation: atBombShake .34s ease-out both;
     }
 
     .at-tile.dimmed {
-      opacity: .46;
-      filter: saturate(.72) brightness(.72);
+      opacity: .42;
+      filter: saturate(.68) brightness(.70);
     }
 
-    .at-tile-content {
-      position: relative;
-      z-index: 2;
+    .at-card-inner {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      transform-style: preserve-3d;
+      transform: rotateY(0deg) translateZ(0);
+      transition: transform .46s cubic-bezier(.18, .92, .24, 1.08);
+      will-change: transform;
+    }
+
+    .at-tile.revealed .at-card-inner {
+      transform: rotateY(180deg) translateZ(0);
+    }
+
+    .at-card-face {
+      position: absolute;
+      inset: 0;
       display: grid;
       place-items: center;
-      transform: translateZ(0);
+      border-radius: inherit;
+      overflow: hidden;
       backface-visibility: hidden;
-      will-change: transform, opacity;
+      transform: translateZ(0);
     }
 
-    .at-tile.hidden-tile .at-tile-content {
-      opacity: .86;
+    .at-card-front {
+      background:
+        radial-gradient(circle at 35% 10%, rgba(255,255,255,.12), transparent 40%),
+        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.022)),
+        rgba(59, 23, 48, .78);
     }
 
-    .at-tile.revealed .at-tile-content {
-      animation: atTileFlip .42s cubic-bezier(.18, .92, .24, 1.12) both;
+    .at-card-front::after {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      border-radius: 14px;
+      pointer-events: none;
+      border: 1px solid rgba(255, 226, 122, .14);
+      opacity: .72;
     }
 
-    .at-tile.final-reveal {
-      animation: atFinalRevealTile .42s cubic-bezier(.18, .92, .24, 1.12) both;
-      animation-delay: var(--reveal-delay);
+    .at-card-back {
+      transform: rotateY(180deg) translateZ(0);
+      background:
+        radial-gradient(circle at 50% 20%, var(--tile-glow), transparent 44%),
+        linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.024)),
+        rgba(50, 24, 41, .82);
     }
 
-    .at-tile.apple .at-tile-content svg,
-    .at-tile.bomb .at-tile-content svg {
-      animation: atIconPop .32s cubic-bezier(.22, 1.25, .28, 1) both;
-    }
-
-    @keyframes atTileFlip {
-      0% {
-        transform: rotateY(82deg) scale(.86) translateZ(0);
-        opacity: .15;
-      }
-
-      62% {
-        transform: rotateY(-8deg) scale(1.06) translateZ(0);
-        opacity: 1;
-      }
-
-      100% {
-        transform: rotateY(0) scale(1) translateZ(0);
-        opacity: 1;
-      }
-    }
-
-    @keyframes atFinalRevealTile {
-      0% {
-        transform: scale(.94) rotateY(72deg) translateZ(0);
-        opacity: .5;
-      }
-
-      70% {
-        transform: scale(1.04) rotateY(-7deg) translateZ(0);
-        opacity: 1;
-      }
-
-      100% {
-        transform: scale(1) rotateY(0) translateZ(0);
-        opacity: 1;
-      }
+    .at-tile.revealed .at-card-back svg {
+      animation: atIconPop .28s cubic-bezier(.22, 1.18, .28, 1) both;
+      animation-delay: .18s;
     }
 
     @keyframes atIconPop {
       0% {
-        transform: scale(.35) translateZ(0);
-        opacity: 0;
-      }
-
-      80% {
-        transform: scale(1.1) translateZ(0);
-        opacity: 1;
+        transform: scale(.65) translateZ(0);
+        opacity: .4;
       }
 
       100% {
         transform: scale(1) translateZ(0);
+        opacity: 1;
       }
     }
 
@@ -583,44 +602,44 @@ const StyleBlock = () => (
     }
 
     .at-side-panel {
-      border-radius: 21px;
-      padding: 7px 5px;
+      border-radius: 20px;
+      padding: 6px 4px;
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 207, 94, .10), transparent 38%),
-        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.024)),
+        linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.022)),
         rgba(22, 13, 31, .82);
-      border: 1px solid rgba(255, 174, 88, .18);
+      border: 1px solid rgba(255, 174, 88, .16);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.08),
-        0 14px 28px rgba(0,0,0,.24);
+        0 12px 24px rgba(0,0,0,.22);
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
       min-width: 0;
     }
 
     .at-side-title {
       text-align: center;
       color: rgba(255, 210, 158, .68);
-      font-size: 7px;
-      letter-spacing: .09em;
+      font-size: 6.5px;
+      letter-spacing: .08em;
       text-transform: uppercase;
       padding: 1px 0;
     }
 
     .at-mult-pill {
       flex: 1;
-      min-height: 34px;
-      border-radius: 13px;
+      min-height: 30px;
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255,255,255,.52);
-      font-size: 12.5px;
+      font-size: 10.5px;
       background:
         linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.018)),
         rgba(255,255,255,.026);
-      border: 1px solid rgba(255,255,255,.055);
+      border: 1px solid rgba(255,255,255,.052);
       transition:
         transform .18s ease,
         color .18s ease,
@@ -631,45 +650,46 @@ const StyleBlock = () => (
 
     .at-mult-pill.reached {
       color: #b9ff74;
-      border-color: rgba(139, 255, 91, .26);
+      border-color: rgba(139, 255, 91, .24);
       background:
-        radial-gradient(circle at 50% 0%, rgba(121, 255, 93, .12), transparent 48%),
-        rgba(36, 72, 30, .22);
+        radial-gradient(circle at 50% 0%, rgba(121, 255, 93, .11), transparent 48%),
+        rgba(36, 72, 30, .20);
     }
 
     .at-mult-pill.active {
       color: #201005;
       background: linear-gradient(180deg, #fff1a8, #ffb548);
-      border-color: rgba(255, 229, 129, .78);
+      border-color: rgba(255, 229, 129, .76);
       box-shadow:
-        0 0 17px rgba(255, 186, 72, .32),
-        inset 0 1px 0 rgba(255,255,255,.52);
-      transform: scale(1.03);
+        0 0 15px rgba(255, 186, 72, .28),
+        inset 0 1px 0 rgba(255,255,255,.50);
+      transform: scale(1.025);
     }
 
     .at-result-bar {
-      min-height: 52px;
-      border-radius: 22px;
-      padding: 7px;
+      min-height: 48px;
+      flex: 0 0 auto;
+      border-radius: 20px;
+      padding: 6px;
       display: grid;
-      grid-template-columns: 1fr minmax(118px, .78fr);
-      gap: 7px;
+      grid-template-columns: 1fr minmax(112px, .72fr);
+      gap: 6px;
       background:
-        radial-gradient(circle at 82% 50%, rgba(119, 255, 91, .12), transparent 38%),
-        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.024)),
+        radial-gradient(circle at 82% 50%, rgba(119, 255, 91, .11), transparent 38%),
+        linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.022)),
         rgba(24, 11, 30, .78);
-      border: 1px solid rgba(255, 174, 88, .15);
+      border: 1px solid rgba(255, 174, 88, .14);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.08),
-        0 10px 22px rgba(0,0,0,.21);
+        0 8px 18px rgba(0,0,0,.18);
     }
 
     .at-result-card {
       min-width: 0;
-      padding: 7px 10px;
-      border-radius: 16px;
-      background: rgba(255,255,255,.035);
-      border: 1px solid rgba(255,255,255,.055);
+      padding: 6px 9px;
+      border-radius: 15px;
+      background: rgba(255,255,255,.032);
+      border: 1px solid rgba(255,255,255,.052);
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -677,57 +697,58 @@ const StyleBlock = () => (
 
     .at-result-label {
       color: rgba(255, 210, 158, .62);
-      font-size: 7px;
-      letter-spacing: .13em;
+      font-size: 6.5px;
+      letter-spacing: .12em;
       text-transform: uppercase;
-      line-height: 1.2;
+      line-height: 1.1;
     }
 
     .at-result-value {
-      margin-top: 4px;
+      margin-top: 3px;
       color: #ffd15f;
-      font-size: 18px;
+      font-size: 17px;
       line-height: 1;
-      text-shadow: 0 0 14px rgba(255, 203, 89, .24);
+      text-shadow: 0 0 12px rgba(255, 203, 89, .22);
       font-variant-numeric: tabular-nums;
     }
 
     .at-cash-wrap {
       display: grid;
-      gap: 4px;
+      gap: 3px;
       min-width: 0;
     }
 
     .at-cash-btn {
-      height: 34px;
-      border-radius: 15px;
+      height: 31px;
+      border-radius: 14px;
       color: #082009;
-      font-size: 13px;
+      font-size: 12px;
       background:
         radial-gradient(circle at 35% 0%, rgba(255,255,255,.42), transparent 44%),
         linear-gradient(180deg, #a5ff72, #38b936);
-      border: 1px solid rgba(196, 255, 133, .68);
+      border: 1px solid rgba(196, 255, 133, .66);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.48),
-        0 0 16px rgba(103, 255, 76, .22);
+        inset 0 1px 0 rgba(255,255,255,.46),
+        0 0 14px rgba(103, 255, 76, .18);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
     .at-cash-btn:disabled {
-      opacity: .46;
-      color: rgba(255,255,255,.36);
+      opacity: .42;
+      color: rgba(255,255,255,.34);
       background:
-        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
-        rgba(255,255,255,.04);
-      border-color: rgba(255,255,255,.06);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018)),
+        rgba(255,255,255,.035);
+      border-color: rgba(255,255,255,.055);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
     }
 
     .at-current-mult {
       text-align: center;
-      color: rgba(255, 238, 180, .62);
-      font-size: 8px;
-      line-height: 1.2;
+      color: rgba(255, 238, 180, .60);
+      font-size: 7.4px;
+      line-height: 1.15;
+      white-space: nowrap;
     }
 
     .at-current-mult b {
@@ -735,61 +756,36 @@ const StyleBlock = () => (
     }
 
     .at-controls {
+      flex: 0 0 auto;
       display: grid;
       gap: 6px;
     }
 
     .at-bet-card {
       display: grid;
-      gap: 5px;
-      border-radius: 20px;
+      grid-template-columns: 1fr 54px 54px;
+      gap: 6px;
+      align-items: center;
+      border-radius: 19px;
       padding: 6px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.023)),
+        linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.021)),
         rgba(31, 13, 30, .80);
-      border: 1px solid rgba(255, 174, 88, .16);
+      border: 1px solid rgba(255, 174, 88, .15);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.08),
-        0 8px 17px rgba(0,0,0,.19);
+        inset 0 1px 0 rgba(255,255,255,.075),
+        0 7px 15px rgba(0,0,0,.17);
     }
 
-    .at-bet-row {
-      display: grid;
-      grid-template-columns: 40px 35px 1fr 35px 40px;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .at-bet-btn {
-      height: 34px;
-      border-radius: 13px;
-      color: #fff1ba;
-      font-size: 10px;
-      line-height: 1;
-      background:
-        radial-gradient(circle at 30% 0%, rgba(255,255,255,.13), transparent 40%),
-        linear-gradient(180deg, rgba(255,179,71,.22), rgba(255,255,255,.032));
-      border: 1px solid rgba(255,211,77,.16);
-      transition: transform .1s ease, opacity .1s ease, filter .1s ease;
-    }
-
-    .at-bet-btn.main {
-      font-size: 17px;
-    }
-
-    .at-bet-btn:disabled {
-      opacity: .36;
-    }
-
-    .at-bet-value {
-      height: 34px;
-      text-align: center;
+    .at-bet-field {
+      height: 42px;
       min-width: 0;
-      border-radius: 13px;
-      display: flex;
-      flex-direction: column;
+      border-radius: 15px;
+      display: grid;
+      grid-template-columns: auto 1fr;
       align-items: center;
-      justify-content: center;
+      gap: 8px;
+      padding: 0 11px;
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 211, 77, .10), transparent 50%),
         rgba(255, 255, 255, .032);
@@ -797,111 +793,74 @@ const StyleBlock = () => (
     }
 
     .at-bet-label {
-      margin-bottom: 1px;
       color: rgba(255, 210, 158, .58);
-      font-size: 6.5px;
+      font-size: 7px;
       line-height: 1;
       letter-spacing: .15em;
       text-transform: uppercase;
     }
 
-    .at-bet-number {
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .at-bet-input {
+      width: 100%;
+      min-width: 0;
+      height: 100%;
+      border: 0;
+      outline: none;
+      background: transparent;
       color: #fff;
-      font-size: 14px;
-      line-height: 1;
+      text-align: right;
+      font-family: inherit;
+      font-size: 16px;
       font-variant-numeric: tabular-nums;
+      appearance: textfield;
     }
 
-    .at-bet-chip-row {
-      display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
-      gap: 4px;
+    .at-bet-input::-webkit-outer-spin-button,
+    .at-bet-input::-webkit-inner-spin-button {
+      margin: 0;
+      appearance: none;
     }
 
-    .at-bet-chip {
-      height: 23px;
-      border-radius: 10px;
-      color: rgba(255, 255, 255, .75);
-      font-size: 7px;
+    .at-bet-input:disabled {
+      opacity: .55;
+    }
+
+    .at-bet-quick {
+      height: 42px;
+      border-radius: 15px;
+      color: #1a1024;
+      font-size: 11px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.019)),
-        rgba(255,255,255,.032);
-      border: 1px solid rgba(255,255,255,.055);
+        radial-gradient(circle at 35% 0%, rgba(255,255,255,.42), transparent 44%),
+        linear-gradient(180deg, #fff3bd, #ffb347);
+      border: 1px solid rgba(255, 211, 77, .42);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.44),
+        0 0 12px rgba(255, 179, 71, .14);
       transition: transform .1s ease, filter .1s ease, opacity .1s ease;
     }
 
-    .at-bet-chip.active {
-      color: #1a1024;
-      background: linear-gradient(180deg, #fff3bd, #ffb347);
-      border-color: rgba(255, 211, 77, .42);
-      box-shadow: 0 0 12px rgba(255, 179, 71, .16);
+    .at-bet-quick:disabled {
+      opacity: .42;
+      color: rgba(255,255,255,.36);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018)),
+        rgba(255,255,255,.035);
+      border-color: rgba(255,255,255,.055);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
     }
 
-    .at-bottom-actions {
-      display: grid;
-      grid-template-columns: 67px 1fr 67px;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .at-side-btn {
-      height: 52px;
-      border-radius: 18px;
+    .at-start-row {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
       align-items: center;
       justify-content: center;
-      color: rgba(220,202,255,.72);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.022)),
-        rgba(27, 14, 38, .78);
-      border: 1px solid rgba(255,255,255,.07);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.075),
-        0 8px 17px rgba(0,0,0,.18);
-      transition: transform .1s ease, filter .1s ease, opacity .1s ease;
-    }
-
-    .at-side-btn span {
-      color: rgba(255,255,255,.70);
-      font-size: 8px;
-      letter-spacing: .09em;
-    }
-
-    .at-side-btn.on {
-      color: #082011;
-      background: linear-gradient(180deg, #b7ffd0, #3ddc84);
-      border-color: rgba(159,255,196,.72);
-      box-shadow: 0 0 16px rgba(61,220,132,.20);
-    }
-
-    .at-auto-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: rgba(220,202,255,.34);
-    }
-
-    .at-side-btn.on .at-auto-dot {
-      background: #082011;
-      animation: atAutoBlink 1s ease-in-out infinite;
-    }
-
-    @keyframes atAutoBlink {
-      50% {
-        opacity: .36;
-      }
+      min-height: 76px;
     }
 
     .at-main-btn {
       position: relative;
-      justify-self: center;
-      width: 84px;
-      height: 84px;
+      width: 86px;
+      height: 86px;
       border-radius: 999px;
       color: #231006;
       background: transparent;
@@ -909,7 +868,7 @@ const StyleBlock = () => (
     }
 
     .at-main-btn:disabled {
-      opacity: .82;
+      opacity: .62;
     }
 
     .at-main-ring {
@@ -945,7 +904,7 @@ const StyleBlock = () => (
 
     .at-main-subtitle {
       margin-top: 3px;
-      font-size: 6.4px;
+      font-size: 6.5px;
       line-height: 1.15;
       letter-spacing: .08em;
       color: rgba(35, 16, 6, .78);
@@ -1168,106 +1127,122 @@ const StyleBlock = () => (
 
     @media (max-height: 760px) {
       .at-root {
-        padding-top: 8px;
-        padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px));
+        padding-top: 10px;
+        padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
       }
 
       .at-content {
-        gap: 6px;
+        gap: 5px;
       }
 
       .at-title {
         font-size: 22px;
       }
 
-      .at-subtitle {
-        display: none;
+      .at-icon-btn {
+        width: 38px;
+        height: 38px;
+        border-radius: 16px;
       }
 
       .at-main-layout {
-        grid-template-columns: 1fr 56px;
+        height: clamp(292px, 40.5dvh, 356px);
+        grid-template-columns: 1fr 52px;
         gap: 6px;
       }
 
       .at-board-shell {
-        padding: 8px;
-        border-radius: 22px;
+        padding: 7px;
+        border-radius: 21px;
       }
 
       .at-board {
-        gap: 5px;
+        gap: 4px;
       }
 
       .at-row-cells {
-        gap: 5px;
+        gap: 4px;
       }
 
       .at-tile {
-        border-radius: 14px;
+        border-radius: 13px;
+      }
+
+      .at-card-front::after {
+        border-radius: 11px;
+      }
+
+      .at-side-panel {
+        border-radius: 18px;
+        padding: 5px 3px;
+        gap: 3px;
+      }
+
+      .at-side-title {
+        font-size: 6px;
       }
 
       .at-mult-pill {
-        min-height: 31px;
-        border-radius: 12px;
-        font-size: 11px;
+        min-height: 26px;
+        border-radius: 10px;
+        font-size: 9.5px;
       }
 
       .at-result-bar {
-        min-height: 50px;
+        min-height: 44px;
       }
 
       .at-result-value {
-        font-size: 17px;
+        font-size: 15px;
       }
 
       .at-cash-btn {
-        height: 32px;
-        font-size: 12px;
+        height: 28px;
+        font-size: 10.5px;
+      }
+
+      .at-current-mult {
+        font-size: 6.8px;
       }
 
       .at-bet-card {
         padding: 5px;
-      }
-
-      .at-bet-row {
-        grid-template-columns: 38px 34px 1fr 34px 38px;
-        gap: 4px;
-      }
-
-      .at-bet-btn {
-        height: 32px;
-      }
-
-      .at-bet-value {
-        height: 32px;
-      }
-
-      .at-bet-chip {
-        height: 21px;
-        font-size: 6.5px;
-      }
-
-      .at-bottom-actions {
-        grid-template-columns: 62px 1fr 62px;
-        gap: 7px;
-      }
-
-      .at-side-btn {
-        height: 48px;
         border-radius: 17px;
       }
 
+      .at-bet-field,
+      .at-bet-quick {
+        height: 36px;
+        border-radius: 13px;
+      }
+
+      .at-bet-label {
+        font-size: 6.4px;
+      }
+
+      .at-bet-input {
+        font-size: 14px;
+      }
+
+      .at-bet-quick {
+        font-size: 9.5px;
+      }
+
+      .at-start-row {
+        min-height: 68px;
+      }
+
       .at-main-btn {
-        width: 78px;
-        height: 78px;
+        width: 74px;
+        height: 74px;
       }
 
       .at-main-title {
-        font-size: 13px;
+        font-size: 12.5px;
       }
 
       .at-main-subtitle {
-        font-size: 6px;
+        font-size: 5.8px;
       }
     }
 
@@ -1278,33 +1253,22 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        grid-template-columns: 1fr 52px;
-      }
-
-      .at-side-title {
-        font-size: 6.5px;
+        grid-template-columns: 1fr 50px;
       }
 
       .at-mult-pill {
-        min-height: 29px;
-        font-size: 10px;
-      }
-
-      .at-bet-chip {
-        font-size: 6px;
+        font-size: 9px;
       }
     }
 
     @media (prefers-reduced-motion: reduce) {
       .at-main-ring,
-      .at-side-btn.on .at-auto-dot,
-      .at-tile.revealed .at-tile-content,
-      .at-tile.final-reveal,
+      .at-card-inner,
       .at-tile.bomb.picked-bomb,
-      .at-tile.apple .at-tile-content svg,
-      .at-tile.bomb .at-tile-content svg,
+      .at-tile.revealed .at-card-back svg,
       .at-final-card {
         animation: none !important;
+        transition: none !important;
       }
     }
   `}</style>
@@ -1330,7 +1294,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         <section>
           <h3>Как играется</h3>
           <p>
-            На каждом ряду выбери одно закрытое яблоко. Если внутри яблоко — проходишь выше и
+            На каждом ряду выбери одну закрытую плитку. Если внутри яблоко — проходишь выше и
             множитель растёт. Если попалась бомба — раунд проигран.
           </p>
         </section>
@@ -1352,8 +1316,8 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         <section>
           <h3>Ставка</h3>
           <p>
-            Текущая ставка: {formatMoney(bet)}. Кнопка запуска сейчас не привязана к беку и не
-            списывает баланс — это локальная механика для проверки игры.
+            Текущая ставка: {formatMoney(bet)}. Значение вводится целым числом. Сейчас кнопка
+            запуска не привязана к беку и не списывает баланс.
           </p>
         </section>
       </div>
@@ -1417,6 +1381,7 @@ const FinalOverlay = ({
 export const Royal5x5SoloGame = () => {
   const [phase, setPhase] = useState<GamePhase>('idle');
   const [bet, setBet] = useState(1);
+  const [betInput, setBetInput] = useState('1');
   const [bombs, setBombs] = useState<number[]>(() => makeBombs());
   const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
   const [pickedByRow, setPickedByRow] = useState<Array<number | null>>(() =>
@@ -1424,15 +1389,15 @@ export const Royal5x5SoloGame = () => {
   );
   const [currentRow, setCurrentRow] = useState(0);
   const [lastWin, setLastWin] = useState(0);
-  const [auto, setAuto] = useState(false);
   const [muted, setMuted] = useState(() => localStorage.getItem('apple-trail-muted') === '1');
   const [showInfo, setShowInfo] = useState(false);
   const [showFinal, setShowFinal] = useState(false);
-  const [finalReveal, setFinalReveal] = useState(false);
+  const [isRevealingAll, setIsRevealingAll] = useState(false);
 
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
   const phaseRef = useRef<GamePhase>(phase);
+  const revealRunRef = useRef(0);
 
   mutedRef.current = muted;
   phaseRef.current = phase;
@@ -1440,15 +1405,8 @@ export const Royal5x5SoloGame = () => {
   const cashMultiplier = getCashoutMultiplier(currentRow);
   const nextMultiplier = phase === 'playing' ? MULTIPLIERS[currentRow] ?? cashMultiplier : cashMultiplier;
   const cashoutValue = roundMoney(bet * cashMultiplier);
-  const canCashout = phase === 'playing' && currentRow > 0;
-
-  const statusLabel = useMemo(() => {
-    if (phase === 'idle') return 'Выбери ставку и начни раунд';
-    if (phase === 'playing') return `Выбери яблоко на ряду ${currentRow + 1}`;
-    if (phase === 'lost') return 'Бомба! Раунд проигран';
-    if (phase === 'completed') return 'Ты дошёл до верха';
-    return 'Выигрыш забран';
-  }, [currentRow, phase]);
+  const canCashout = phase === 'playing' && currentRow > 0 && !isRevealingAll;
+  const canStart = phase !== 'playing' && !isRevealingAll;
 
   const haptic = useCallback((kind: 'tap' | 'start' | 'apple' | 'bomb' | 'cash' | 'win') => {
     const tgHaptics = getTelegramHaptics();
@@ -1554,18 +1512,55 @@ export const Royal5x5SoloGame = () => {
     [getAudioContext],
   );
 
+  const setBetValue = useCallback((value: number) => {
+    const nextBet = Math.max(MIN_BET, Math.floor(value || MIN_BET));
+
+    setBet(nextBet);
+    setBetInput(String(nextBet));
+  }, []);
+
+  const revealAllByRows = useCallback(async (runId: number) => {
+    setIsRevealingAll(true);
+
+    for (let visualIndex = 0; visualIndex < ROWS; visualIndex += 1) {
+      if (revealRunRef.current !== runId) return;
+
+      const row = ROWS - 1 - visualIndex;
+
+      setRevealed((prev) => {
+        const next = new Set(prev);
+
+        for (let col = 0; col < COLS; col += 1) {
+          next.add(makeCellKey(row, col));
+        }
+
+        return next;
+      });
+
+      await sleep(58);
+    }
+
+    await sleep(430);
+
+    if (revealRunRef.current !== runId) return;
+
+    setIsRevealingAll(false);
+  }, []);
+
   const resetRound = useCallback(() => {
+    revealRunRef.current += 1;
+
     setBombs(makeBombs());
     setRevealed(new Set());
     setPickedByRow(Array.from({ length: ROWS }, () => null));
     setCurrentRow(0);
     setLastWin(0);
     setShowFinal(false);
-    setFinalReveal(false);
+    setIsRevealingAll(false);
   }, []);
 
   const startRound = () => {
-    if (phase === 'playing') return;
+    if (!canStart) return;
 
     haptic('start');
     playSound('start');
@@ -1575,36 +1570,38 @@ export const Royal5x5SoloGame = () => {
   };
 
   const endRound = useCallback(
-    (nextPhase: GamePhase, win: number, openedRows: number) => {
+    async (nextPhase: GamePhase, win: number, openedRows: number) => {
+      const runId = revealRunRef.current + 1;
+      revealRunRef.current = runId;
+
       setPhase(nextPhase);
       setLastWin(win);
-      setRevealed(revealAllCells());
-      setFinalReveal(true);
       setShowFinal(false);
-
-      const finalDelay = 820;
-
-      window.setTimeout(() => {
-        if (nextPhase === 'completed') {
-          haptic('win');
-          playSound('win');
-        }
-
-        setShowFinal(true);
-      }, finalDelay);
-
-      window.setTimeout(() => {
-        setShowFinal(false);
-        setFinalReveal(false);
-      }, finalDelay + (nextPhase === 'lost' ? 1250 : 1550));
-
       setCurrentRow(openedRows);
+
+      await revealAllByRows(runId);
+
+      if (revealRunRef.current !== runId) return;
+
+      if (nextPhase === 'completed') {
+        haptic('win');
+        playSound('win');
+      }
+
+      setShowFinal(true);
+
+      window.setTimeout(() => {
+        if (revealRunRef.current === runId) {
+          setShowFinal(false);
+        }
+      }, nextPhase === 'lost' ? 1250 : 1550);
     },
-    [haptic, playSound],
+    [haptic, playSound, revealAllByRows],
   );
 
   const pickTile = (row: number, col: number) => {
     if (phase !== 'playing') return;
+    if (isRevealingAll) return;
     if (row !== currentRow) return;
 
     const key = makeCellKey(row, col);
@@ -1630,8 +1627,8 @@ export const Royal5x5SoloGame = () => {
       playSound('bomb');
 
       window.setTimeout(() => {
-        endRound('lost', 0, currentRow);
-      }, 420);
+        void endRound('lost', 0, currentRow);
+      }, 520);
 
       return;
     }
@@ -1645,15 +1642,15 @@ export const Royal5x5SoloGame = () => {
       const win = roundMoney(bet * MULTIPLIERS[ROWS - 1]);
 
       window.setTimeout(() => {
-        endRound('completed', win, nextRow);
-      }, 360);
+        void endRound('completed', win, nextRow);
+      }, 520);
 
       return;
     }
 
     window.setTimeout(() => {
       setCurrentRow(nextRow);
-    }, 170);
+    }, 250);
   };
 
   const cashout = () => {
@@ -1663,24 +1660,40 @@ export const Royal5x5SoloGame = () => {
 
     haptic('cash');
     playSound('cash');
-    endRound('cashed', win, currentRow);
+
+    void endRound('cashed', win, currentRow);
   };
 
-  const changeBet = (delta: number) => {
-    if (phase === 'playing') return;
+  const handleBetInput = (value: string) => {
+    if (phase === 'playing' || isRevealingAll) return;
+
+    const cleaned = sanitizeBetInput(value);
+    setBetInput(cleaned);
+
+    const numeric = Number(cleaned);
+
+    if (Number.isFinite(numeric) && numeric >= MIN_BET) {
+      setBet(Math.floor(numeric));
+    }
+  };
+
+  const commitBetInput = () => {
+    const numeric = Number(betInput);
+
+    if (!Number.isFinite(numeric) || numeric < MIN_BET) {
+      setBetValue(MIN_BET);
+      return;
+    }
+
+    setBetValue(numeric);
+  };
+
+  const chooseQuickBet = (value: number) => {
+    if (phase === 'playing' || isRevealingAll) return;
 
     haptic('tap');
     playSound('tap');
-
-    setBet((value) => Math.max(MIN_BET, value + delta));
-  };
-
-  const chooseBet = (value: number) => {
-    if (phase === 'playing') return;
-
-    haptic('tap');
-    playSound('tap');
-    setBet(value);
+    setBetValue(value);
   };
 
   const toggleMute = () => {
@@ -1698,28 +1711,13 @@ export const Royal5x5SoloGame = () => {
 
       audioRef.current?.close().catch(() => undefined);
       audioRef.current = null;
+      revealRunRef.current += 1;
     };
   }, []);
 
   useEffect(() => {
     localStorage.setItem('apple-trail-muted', muted ? '1' : '0');
   }, [muted]);
-
-  useEffect(() => {
-    if (!auto || phase !== 'playing') return undefined;
-
-    const timer = window.setTimeout(() => {
-      const safeChoices = Array.from({ length: COLS }, (_, col) => col).filter(
-        (col) => col !== bombs[currentRow],
-      );
-
-      const selected = safeChoices[Math.floor(Math.random() * safeChoices.length)];
-
-      pickTile(currentRow, selected);
-    }, 620);
-
-    return () => window.clearTimeout(timer);
-  }, [auto, bombs, currentRow, phase]);
 
   return (
     <div className="at-root">
@@ -1740,7 +1738,6 @@ export const Royal5x5SoloGame = () => {
             <h1 className="at-title">
               APPLE <span>TRAIL</span>
             </h1>
-            <p className="at-subtitle">{statusLabel}</p>
           </div>
 
           <button
@@ -1767,14 +1764,18 @@ export const Royal5x5SoloGame = () => {
                         const isRevealed = revealed.has(key);
                         const isBomb = bombs[row] === col;
                         const isPicked = pickedByRow[row] === col;
-                        const isAvailable = phase === 'playing' && row === currentRow && !isRevealed;
-                        const isLocked = phase === 'playing' && row !== currentRow && !isRevealed;
+                        const isAvailable =
+                          phase === 'playing' &&
+                          row === currentRow &&
+                          !isRevealed &&
+                          !isRevealingAll;
+                        const isLocked =
+                          phase === 'playing' && row !== currentRow && !isRevealed;
                         const shouldDim =
                           isRevealed &&
                           phase !== 'playing' &&
                           !isPicked &&
                           !(phase === 'lost' && isBomb);
-                        const revealDelay = `${(ROWS - 1 - row) * 54 + col * 34}ms`;
 
                         return (
                           <button
@@ -1786,26 +1787,29 @@ export const Royal5x5SoloGame = () => {
                               'at-tile',
                               isAvailable ? 'available' : '',
                               isLocked ? 'locked' : '',
-                              isRevealed ? 'revealed' : 'hidden-tile',
-                              finalReveal && isRevealed ? 'final-reveal' : '',
+                              isRevealed ? 'revealed' : '',
                               isRevealed && isBomb ? 'bomb' : '',
                               isRevealed && !isBomb ? 'apple' : '',
                               isBomb && isPicked && phase === 'lost' ? 'picked-bomb' : '',
                               shouldDim ? 'dimmed' : '',
                             ].join(' ')}
-                            style={{ '--reveal-delay': revealDelay } as CSSProperties}
+                            style={
+                              {
+                                '--tile-glow': isBomb
+                                  ? 'rgba(255, 68, 68, .22)'
+                                  : 'rgba(201,255,98,.18)',
+                              } as CSSProperties
+                            }
                             aria-label={`Row ${row + 1}, tile ${col + 1}`}
                           >
-                            <span className="at-tile-content">
-                              {isRevealed ? (
-                                isBomb ? (
-                                  <BombIcon size={54} />
-                                ) : (
-                                  <AppleIcon size={54} />
-                                )
-                              ) : (
+                            <span className="at-card-inner">
+                              <span className="at-card-face at-card-front">
                                 <QuestionIcon size={32} />
-                              )}
+                              </span>
+
+                              <span className="at-card-face at-card-back">
+                                {isBomb ? <BombIcon size={53} /> : <AppleIcon size={53} />}
+                              </span>
                             </span>
                           </button>
                         );
@@ -1869,100 +1873,49 @@ export const Royal5x5SoloGame = () => {
 
         <footer className="at-controls">
           <div className="at-bet-card">
-            <div className="at-bet-row">
+            <label className="at-bet-field">
+              <span className="at-bet-label">Ставка</span>
+
+              <input
+                className="at-bet-input"
+                value={betInput}
+                disabled={phase === 'playing' || isRevealingAll}
+                onChange={(event) => handleBetInput(event.target.value)}
+                onBlur={commitBetInput}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                enterKeyHint="done"
+                aria-label="Bet"
+              />
+            </label>
+
+            {QUICK_BETS.map((value) => (
               <button
+                key={value}
                 type="button"
-                className="at-bet-btn"
-                disabled={phase === 'playing' || bet <= MIN_BET}
-                onClick={() => changeBet(-10)}
+                className="at-bet-quick"
+                disabled={phase === 'playing' || isRevealingAll}
+                onClick={() => chooseQuickBet(value)}
               >
-                -10
+                {value}
               </button>
-
-              <button
-                type="button"
-                className="at-bet-btn main"
-                disabled={phase === 'playing' || bet <= MIN_BET}
-                onClick={() => changeBet(-1)}
-              >
-                -
-              </button>
-
-              <div className="at-bet-value">
-                <span className="at-bet-label">Ставка</span>
-                <span className="at-bet-number">{formatMoney(bet)}</span>
-              </div>
-
-              <button
-                type="button"
-                className="at-bet-btn main"
-                disabled={phase === 'playing'}
-                onClick={() => changeBet(1)}
-              >
-                +
-              </button>
-
-              <button
-                type="button"
-                className="at-bet-btn"
-                disabled={phase === 'playing'}
-                onClick={() => changeBet(10)}
-              >
-                +10
-              </button>
-            </div>
-
-            <div className="at-bet-chip-row">
-              {QUICK_BETS.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`at-bet-chip ${bet === value ? 'active' : ''}`}
-                  disabled={phase === 'playing'}
-                  onClick={() => chooseBet(value)}
-                >
-                  {formatMoney(value)}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
 
-          <div className="at-bottom-actions">
-            <button
-              type="button"
-              className={`at-side-btn ${auto ? 'on' : ''}`}
-              onClick={() => {
-                haptic('tap');
-                playSound('tap');
-                setAuto((value) => !value);
-              }}
-            >
-              <span className="at-auto-dot" />
-              <span>AUTO</span>
-            </button>
-
+          <div className="at-start-row">
             <button
               type="button"
               className="at-main-btn"
-              onClick={phase === 'playing' ? cashout : startRound}
+              disabled={!canStart}
+              onClick={startRound}
             >
               <span className="at-main-ring" />
               <span className="at-main-core">
-                <span className="at-main-title">{phase === 'playing' ? 'TAKE' : 'START'}</span>
+                <span className="at-main-title">{phase === 'playing' ? 'PLAY' : 'START'}</span>
                 <span className="at-main-subtitle">
-                  {phase === 'playing' ? 'Забрать' : 'Выбрать'}
+                  {phase === 'playing' ? 'Идёт раунд' : 'Начать'}
                 </span>
               </span>
-            </button>
-
-            <button
-              type="button"
-              className="at-side-btn"
-              onClick={toggleMute}
-              aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
-            >
-              {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
-              <span>{muted ? 'OFF' : 'ON'}</span>
             </button>
           </div>
         </footer>
