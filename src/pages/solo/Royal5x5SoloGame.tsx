@@ -343,7 +343,7 @@ const StyleBlock = () => (
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 8px;
     }
 
     .at-loading {
@@ -535,9 +535,9 @@ const StyleBlock = () => (
 
     .at-main-layout {
       flex: 1 1 auto;
-      min-height: 0;
+      min-height: 392px;
       display: grid;
-      grid-template-columns: 1fr 56px;
+      grid-template-columns: 1fr 58px;
       gap: 7px;
       align-items: stretch;
     }
@@ -545,8 +545,8 @@ const StyleBlock = () => (
     .at-board-shell {
       position: relative;
       overflow: hidden;
-      border-radius: 24px;
-      padding: 8px;
+      border-radius: 25px;
+      padding: 9px;
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 207, 94, .12), transparent 36%),
         linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.026)),
@@ -564,7 +564,7 @@ const StyleBlock = () => (
     .at-board {
       display: grid;
       grid-template-rows: repeat(${ROWS}, minmax(0, 1fr));
-      gap: 5px;
+      gap: 6px;
       height: 100%;
       min-height: 0;
     }
@@ -577,7 +577,7 @@ const StyleBlock = () => (
     .at-row-cells {
       display: grid;
       grid-template-columns: repeat(${COLS}, minmax(0, 1fr));
-      gap: 5px;
+      gap: 6px;
       height: 100%;
       min-height: 0;
     }
@@ -585,8 +585,10 @@ const StyleBlock = () => (
     .at-tile {
       position: relative;
       min-width: 0;
-      aspect-ratio: 1;
-      border-radius: 16px;
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+      border-radius: 17px;
       overflow: hidden;
       border: 1px solid rgba(255, 156, 91, .17);
       background: rgba(59, 23, 48, .78);
@@ -784,7 +786,7 @@ const StyleBlock = () => (
     }
 
     .at-result-bar {
-      min-height: 48px;
+      min-height: 50px;
       flex: 0 0 auto;
       border-radius: 20px;
       padding: 6px;
@@ -971,13 +973,13 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: clamp(84px, 10.2dvh, 104px);
+      min-height: clamp(92px, 11.5dvh, 116px);
     }
 
     .at-main-btn {
       position: relative;
-      width: 92px;
-      height: 92px;
+      width: 96px;
+      height: 96px;
       border-radius: 999px;
       color: #231006;
       background: transparent;
@@ -1249,7 +1251,7 @@ const StyleBlock = () => (
       }
 
       .at-content {
-        gap: 5px;
+        gap: 6px;
       }
 
       .at-title {
@@ -1263,35 +1265,37 @@ const StyleBlock = () => (
       }
 
       .at-main-layout {
-        grid-template-columns: 1fr 52px;
+        flex: 1 1 auto;
+        min-height: 356px;
+        grid-template-columns: 1fr 54px;
         gap: 6px;
       }
 
       .at-board-shell {
-        padding: 7px;
-        border-radius: 21px;
+        padding: 8px;
+        border-radius: 22px;
       }
 
       .at-board {
-        gap: 4px;
+        gap: 5px;
       }
 
       .at-row-cells {
-        gap: 4px;
+        gap: 5px;
       }
 
       .at-tile {
-        border-radius: 13px;
+        border-radius: 14px;
       }
 
       .at-card-front::after {
-        border-radius: 11px;
+        border-radius: 12px;
       }
 
       .at-side-panel {
         border-radius: 18px;
         padding: 5px 3px;
-        gap: 3px;
+        gap: 4px;
       }
 
       .at-side-title {
@@ -1299,21 +1303,21 @@ const StyleBlock = () => (
       }
 
       .at-mult-pill {
-        min-height: 26px;
+        min-height: 29px;
         border-radius: 10px;
-        font-size: 9.5px;
+        font-size: 9.8px;
       }
 
       .at-result-bar {
-        min-height: 44px;
+        min-height: 46px;
       }
 
       .at-result-value {
-        font-size: 15px;
+        font-size: 16px;
       }
 
       .at-cash-btn {
-        height: 28px;
+        height: 29px;
         font-size: 10.5px;
       }
 
@@ -1328,7 +1332,7 @@ const StyleBlock = () => (
 
       .at-bet-field,
       .at-bet-quick {
-        height: 36px;
+        height: 38px;
         border-radius: 13px;
       }
 
@@ -1345,12 +1349,12 @@ const StyleBlock = () => (
       }
 
       .at-start-row {
-        min-height: 76px;
+        min-height: 82px;
       }
 
       .at-main-btn {
-        width: 80px;
-        height: 80px;
+        width: 84px;
+        height: 84px;
       }
 
       .at-main-title {
