@@ -1,43 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  Activity,
-  ArrowLeft,
-  Bot,
-  ChevronDown,
-  ChevronUp,
-  Clock3,
-  RefreshCcw,
-  ShieldCheck,
-  Target,
-  TrendingDown,
-  TrendingUp,
-  Trophy,
-  Zap,
-} from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronUp, RefreshCcw, Trophy } from 'lucide-react';
 
 type Direction = 'up' | 'down';
-type Phase = 'pick' | 'live' | 'roundResult' | 'finished';
-type Winner = 'player' | 'bot' | null;
+type Phase = 'choose' | 'live' | 'result' | 'gameOver';
+type MatchWinner = 'player' | 'bot' | null;
 
 type Scores = {
   player: number;
   bot: number;
 };
 
-type RoundPick = {
-  player: Direction;
-  bot: Direction;
+type Candle = {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 };
 
-type BinaryMarket = {
+type MarketRound = {
   symbol: string;
-  label: string;
-  startPrice: number;
+  payout: number;
+  strike: number;
   outcome: Direction;
-  prices: number[];
-  pulseLabel: string;
+  candles: Candle[];
 };
 
 type RoundResult = {
@@ -46,38 +32,25 @@ type RoundResult = {
   botPick: Direction;
   playerPoint: boolean;
   botPoint: boolean;
-  priceDelta: number;
-  priceDeltaPct: number;
+  delta: number;
+  deltaPct: number;
+  overtime: boolean;
   nextScores: Scores;
-  wasOvertime: boolean;
 };
 
 const TARGET_SCORE = 3;
-const EXPIRATION_SECONDS = 16;
-const MARKET_STEPS = 128;
-const TICK_MS = Math.round((EXPIRATION_SECONDS * 1000) / MARKET_STEPS);
+const CHOICE_MS = 6000;
+const PREVIEW_CANDLES = 18;
+const TOTAL_CANDLES = 52;
+const LIVE_STEP_MS = 430;
+const LIVE_MS = (TOTAL_CANDLES - PREVIEW_CANDLES) * LIVE_STEP_MS;
 const PAYOUT = 1.82;
 
+const PAIRS = ['TON/USD', 'BTC/USD', 'ETH/USD', 'SOL/USD', 'NOT/USD'];
+
 const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
-
-const SYMBOLS = [
-  { symbol: 'TON/USD', label: 'Toncoin OTC' },
-  { symbol: 'BTC/USD', label: 'Bitcoin OTC' },
-  { symbol: 'ETH/USD', label: 'Ethereum OTC' },
-  { symbol: 'SOL/USD', label: 'Solana OTC' },
-  { symbol: 'BNB/USD', label: 'BNB OTC' },
-];
-
-const PULSES = [
-  'market pressure is building',
-  'volatility spike detected',
-  'short candle battle',
-  'liquidity is moving fast',
-  'price is testing the strike',
-  'bot reads the same chart',
-];
-
 const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
+const randomDirection = (): Direction => (Math.random() > 0.5 ? 'up' : 'down');
 const oppositeDirection = (direction: Direction): Direction => (direction === 'up' ? 'down' : 'up');
 
 const formatPrice = (value: number) => {
@@ -90,1410 +63,1222 @@ const formatPrice = (value: number) => {
 const formatSigned = (value: number, digits = 2) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
 const formatPct = (value: number) => `${formatSigned(value, 2)}%`;
 
-const generateBinaryMarket = (): BinaryMarket => {
-  const pair = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
-  const startPrice = randomBetween(18.5, 184.5);
-  const outcome: Direction = Math.random() > 0.5 ? 'up' : 'down';
-  const finalMovePct = randomBetween(0.28, 1.85) * (outcome === 'up' ? 1 : -1);
-  const finalPrice = startPrice * (1 + finalMovePct / 100);
-  const prices: number[] = [startPrice];
-  let lastNoise = 0;
-
-  for (let step = 1; step <= MARKET_STEPS; step += 1) {
-    const progress = step / MARKET_STEPS;
-    const latePush = Math.pow(progress, 1.45);
-    const wave = Math.sin(progress * Math.PI * 4.1 + randomBetween(-0.15, 0.15));
-    const microWave = Math.sin(progress * Math.PI * 13.5) * randomBetween(0.0007, 0.0024);
-    const noise = lastNoise * 0.58 + randomBetween(-0.0032, 0.0032);
-    lastNoise = noise;
-
-    const trendPrice = startPrice + (finalPrice - startPrice) * latePush;
-    const noisy = trendPrice + startPrice * (wave * 0.0044 + microWave + noise * (1 - progress * 0.35));
-    prices.push(Math.max(0.001, noisy));
-  }
-
-  prices[MARKET_STEPS] = finalPrice;
+const makeCandle = (open: number, close: number, power = 1): Candle => {
+  const wick = Math.max(open, close) * randomBetween(0.0008, 0.0048) * power;
+  const top = Math.max(open, close) + wick * randomBetween(0.55, 1.25);
+  const bottom = Math.min(open, close) - wick * randomBetween(0.55, 1.25);
 
   return {
-    ...pair,
-    startPrice,
-    outcome,
-    prices,
-    pulseLabel: PULSES[Math.floor(Math.random() * PULSES.length)],
+    open,
+    close,
+    high: Math.max(top, open, close),
+    low: Math.max(0.0001, Math.min(bottom, open, close)),
   };
 };
 
-const DirectionBadge = ({ direction }: { direction: Direction }) => (
-  <span className={`vm-dir-badge vm-${direction}`}>
-    {direction === 'up' ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-    {direction === 'up' ? 'UP' : 'DOWN'}
-  </span>
-);
+const generateMarketRound = (): MarketRound => {
+  const symbol = PAIRS[Math.floor(Math.random() * PAIRS.length)];
+  const start = randomBetween(28, 184);
+  const candles: Candle[] = [];
+  let price = start;
+  let flow = randomBetween(-0.0012, 0.0012);
 
-const ScorePips = ({ score, side }: { score: number; side: 'player' | 'bot' }) => (
-  <div className={`vm-score-pips vm-score-${side}`}>
-    {Array.from({ length: TARGET_SCORE }).map((_, index) => (
-      <i key={index} className={index < Math.min(score, TARGET_SCORE) ? 'vm-pip-filled' : ''} />
-    ))}
-    {score > TARGET_SCORE && <b>+{score - TARGET_SCORE}</b>}
+  for (let i = 0; i < PREVIEW_CANDLES; i += 1) {
+    const open = price;
+    flow = flow * 0.68 + randomBetween(-0.0017, 0.0017);
+    const close = Math.max(0.001, open * (1 + flow + randomBetween(-0.0019, 0.0019)));
+    candles.push(makeCandle(open, close, 0.9));
+    price = close;
+  }
+
+  const strike = candles[candles.length - 1].close;
+  const outcome = randomDirection();
+  const finalMove = randomBetween(0.0035, 0.014) * (outcome === 'up' ? 1 : -1);
+  const finalClose = strike * (1 + finalMove);
+  const futureCount = TOTAL_CANDLES - PREVIEW_CANDLES;
+  let current = strike;
+  let microTrend = randomBetween(-0.0014, 0.0014);
+
+  for (let i = 1; i <= futureCount; i += 1) {
+    const progress = i / futureCount;
+    const open = current;
+    const expected = strike + (finalClose - strike) * Math.pow(progress, 1.35);
+    const wave = Math.sin(progress * Math.PI * 5.2) * strike * randomBetween(0.0007, 0.0022);
+    microTrend = microTrend * 0.58 + randomBetween(-0.0018, 0.0018);
+    const close = i === futureCount
+      ? finalClose
+      : Math.max(0.001, expected + wave + strike * microTrend * (1 - progress * 0.34));
+
+    candles.push(makeCandle(open, close, progress > 0.72 ? 1.18 : 1));
+    current = close;
+  }
+
+  const lastIndex = candles.length - 1;
+  const last = candles[lastIndex];
+  candles[lastIndex] = {
+    ...last,
+    close: finalClose,
+    high: Math.max(last.high, finalClose, last.open),
+    low: Math.min(last.low, finalClose, last.open),
+  };
+
+  return {
+    symbol,
+    payout: PAYOUT,
+    strike,
+    outcome,
+    candles,
+  };
+};
+
+const Avatar = ({ type }: { type: 'player' | 'bot' }) => (
+  <div className={`bo-avatar ${type === 'player' ? 'bo-avatar-player' : 'bo-avatar-bot'}`}>
+    {type === 'player' ? 'R' : 'B'}
   </div>
 );
 
-const PlayerCard = ({
-  title,
-  score,
-  pick,
-  active,
-  isBot,
-}: {
-  title: string;
-  score: number;
-  pick: Direction | null;
-  active: boolean;
-  isBot?: boolean;
-}) => (
-  <div className={`vm-player-card ${active ? 'vm-player-active' : ''}`}>
-    <div className="vm-player-top">
-      <div className="vm-avatar">{isBot ? <Bot size={18} /> : 'YOU'}</div>
-      <div className="vm-player-copy">
-        <span>{title}</span>
-        <b>{score}</b>
-      </div>
+const TopPlayer = ({ type, name }: { type: 'player' | 'bot'; name: string }) => (
+  <div className={`bo-player ${type === 'bot' ? 'bo-player-right' : ''}`}>
+    {type === 'player' && <Avatar type={type} />}
+    <div className="bo-player-copy">
+      <b>{name}</b>
+      <span>{type === 'player' ? 'YOU' : 'BOT'}</span>
     </div>
-
-    <ScorePips score={score} side={isBot ? 'bot' : 'player'} />
-
-    <div className="vm-player-pick">
-      {pick ? <DirectionBadge direction={pick} /> : <span className="vm-hidden-pick">WAITING</span>}
-    </div>
+    {type === 'bot' && <Avatar type={type} />}
   </div>
 );
 
-const EmptyChart = () => (
-  <div className="vm-chart-empty">
-    <div className="vm-chart-empty-orb">
-      <Activity size={34} />
-    </div>
-    <b>Choose direction</b>
-    <span>price starts after your trade</span>
-  </div>
-);
-
-const OptionChart = ({
+const CandleChart = ({
   market,
-  step,
+  visibleCount,
   phase,
+  playerPick,
+  botPick,
 }: {
-  market: BinaryMarket | null;
-  step: number;
+  market: MarketRound;
+  visibleCount: number;
   phase: Phase;
+  playerPick: Direction | null;
+  botPick: Direction | null;
 }) => {
-  const width = 460;
-  const height = 260;
-  const padX = 18;
-  const padY = 20;
+  const width = 420;
+  const height = 300;
+  const padLeft = 18;
+  const padRight = 64;
+  const padTop = 20;
+  const padBottom = 22;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const visibleCandles = market.candles.slice(0, Math.max(2, visibleCount));
+  const lastVisible = visibleCandles[visibleCandles.length - 1];
+  const allHigh = Math.max(...market.candles.map((candle) => candle.high), market.strike);
+  const allLow = Math.min(...market.candles.map((candle) => candle.low), market.strike);
+  const padding = Math.max((allHigh - allLow) * 0.18, market.strike * 0.0022);
+  const maxValue = allHigh + padding;
+  const minValue = Math.max(0.0001, allLow - padding);
+  const valueRange = Math.max(maxValue - minValue, 0.0001);
+  const stepX = plotWidth / Math.max(TOTAL_CANDLES - 1, 1);
+  const candleWidth = Math.max(3.2, Math.min(6.7, stepX * 0.66));
+  const activeX = padLeft + (visibleCandles.length - 1) * stepX;
+  const expiryX = padLeft + (TOTAL_CANDLES - 1) * stepX;
 
-  if (!market) return <EmptyChart />;
-
-  const visible = market.prices.slice(0, Math.max(2, step + 1));
-  const min = Math.min(...visible, market.startPrice * 0.991);
-  const max = Math.max(...visible, market.startPrice * 1.009);
-  const range = Math.max(max - min, 0.00001);
-  const current = visible[visible.length - 1];
-  const deltaPct = ((current - market.startPrice) / market.startPrice) * 100;
-  const isUpNow = current >= market.startPrice;
-
-  const xOf = (index: number) => padX + (index / MARKET_STEPS) * (width - padX * 2);
-  const yOf = (value: number) => height - padY - ((value - min) / range) * (height - padY * 2);
-  const strikeY = yOf(market.startPrice);
-  const currentX = xOf(Math.min(step, MARKET_STEPS));
-  const currentY = yOf(current);
-
-  const path = visible
-    .map((price, index) => `${index === 0 ? 'M' : 'L'} ${xOf(index)} ${yOf(price)}`)
-    .join(' ');
-
-  const areaPath = `${path} L ${currentX} ${height - padY} L ${padX} ${height - padY} Z`;
+  const yOf = (value: number) => padTop + ((maxValue - value) / valueRange) * plotHeight;
+  const xOf = (index: number) => padLeft + index * stepX;
+  const strikeY = yOf(market.strike);
+  const priceY = yOf(lastVisible.close);
+  const currentDirection: Direction = lastVisible.close >= market.strike ? 'up' : 'down';
 
   return (
-    <div className={`vm-chart vm-chart-${isUpNow ? 'up' : 'down'}`}>
-      <div className="vm-chart-grid" />
-      <div className="vm-chart-topline">
+    <div className="bo-chart-wrap">
+      <div className="bo-chart-head">
         <div>
-          <span>{market.symbol}</span>
-          <b>{formatPrice(current)}</b>
+          <b>{market.symbol}</b>
+          <span>OTC · 1 round</span>
         </div>
-        <em className={isUpNow ? 'vm-positive' : 'vm-negative'}>{formatPct(deltaPct)}</em>
+        <div className={`bo-live-price ${currentDirection === 'up' ? 'bo-text-up' : 'bo-text-down'}`}>
+          {formatPrice(lastVisible.close)}
+        </div>
       </div>
 
-      <svg viewBox={`0 0 ${width} ${height}`} className="vm-chart-svg">
-        {[0.22, 0.42, 0.62, 0.82].map((line) => (
-          <line
-            key={line}
-            x1={padX}
-            x2={width - padX}
-            y1={padY + (height - padY * 2) * line}
-            y2={padY + (height - padY * 2) * line}
-            stroke="rgba(255,255,255,.055)"
-            strokeWidth="1"
-          />
-        ))}
+      <svg viewBox={`0 0 ${width} ${height}`} className="bo-chart" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="boFade" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="rgba(255,255,255,.04)" />
+            <stop offset="1" stopColor="rgba(255,255,255,0)" />
+          </linearGradient>
+        </defs>
+
+        <rect x="0" y="0" width={width} height={height} fill="url(#boFade)" />
+
+        {[0, 0.25, 0.5, 0.75, 1].map((line) => {
+          const y = padTop + plotHeight * line;
+          return (
+            <line
+              key={`h-${line}`}
+              x1={padLeft}
+              x2={width - padRight + 15}
+              y1={y}
+              y2={y}
+              stroke="rgba(255,255,255,.055)"
+              strokeWidth="1"
+            />
+          );
+        })}
+
+        {[0.16, 0.32, 0.48, 0.64, 0.8].map((line) => {
+          const x = padLeft + plotWidth * line;
+          return (
+            <line
+              key={`v-${line}`}
+              x1={x}
+              x2={x}
+              y1={padTop - 2}
+              y2={height - padBottom}
+              stroke="rgba(255,255,255,.04)"
+              strokeWidth="1"
+            />
+          );
+        })}
 
         <line
-          x1={padX}
-          x2={width - padX}
+          x1={padLeft}
+          x2={width - padRight + 20}
           y1={strikeY}
           y2={strikeY}
-          stroke="rgba(255,255,255,.28)"
-          strokeWidth="1.3"
+          stroke="rgba(255,255,255,.26)"
+          strokeWidth="1.2"
           strokeDasharray="6 7"
         />
 
-        <path d={areaPath} fill={isUpNow ? 'rgba(35, 219, 126, .13)' : 'rgba(255, 82, 82, .13)'} />
-        <path
-          d={path}
-          fill="none"
-          stroke={isUpNow ? '#25df7d' : '#ff5454'}
-          strokeWidth="4.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+        <line
+          x1={padLeft}
+          x2={width - padRight + 20}
+          y1={priceY}
+          y2={priceY}
+          stroke={currentDirection === 'up' ? 'rgba(26, 203, 127, .46)' : 'rgba(255, 83, 92, .46)'}
+          strokeWidth="1.15"
         />
 
-        <circle cx={currentX} cy={currentY} r="6.5" fill={isUpNow ? '#25df7d' : '#ff5454'} />
-        <circle cx={currentX} cy={currentY} r="18" fill={isUpNow ? '#25df7d' : '#ff5454'} opacity="0.12" />
+        <rect
+          x={activeX + stepX * 0.55}
+          y={padTop - 2}
+          width={Math.max(0, expiryX - activeX)}
+          height={plotHeight + 2}
+          fill="rgba(0,0,0,.16)"
+        />
+
+        <line
+          x1={expiryX}
+          x2={expiryX}
+          y1={padTop - 8}
+          y2={height - padBottom + 4}
+          stroke="rgba(255,255,255,.22)"
+          strokeWidth="1.2"
+          strokeDasharray="3 6"
+        />
+
+        {visibleCandles.map((candle, index) => {
+          const x = xOf(index);
+          const openY = yOf(candle.open);
+          const closeY = yOf(candle.close);
+          const highY = yOf(candle.high);
+          const lowY = yOf(candle.low);
+          const isUp = candle.close >= candle.open;
+          const bodyY = Math.min(openY, closeY);
+          const bodyHeight = Math.max(2.4, Math.abs(closeY - openY));
+          const color = isUp ? '#1acb7f' : '#ff535c';
+          const isLast = index === visibleCandles.length - 1;
+
+          return (
+            <g key={`${index}-${candle.open}-${candle.close}`} className={isLast && phase === 'live' ? 'bo-last-candle' : undefined}>
+              <line
+                x1={x}
+                x2={x}
+                y1={highY}
+                y2={lowY}
+                stroke={color}
+                strokeWidth="1.25"
+                strokeLinecap="round"
+                opacity={isLast ? 1 : 0.86}
+              />
+              <rect
+                x={x - candleWidth / 2}
+                y={bodyY}
+                width={candleWidth}
+                height={bodyHeight}
+                rx="1.5"
+                fill={color}
+                opacity={isLast ? 1 : 0.92}
+              />
+            </g>
+          );
+        })}
+
+        <circle
+          cx={activeX}
+          cy={priceY}
+          r="4.2"
+          fill={currentDirection === 'up' ? '#1acb7f' : '#ff535c'}
+          className={phase === 'live' ? 'bo-price-dot' : undefined}
+        />
+
+        <g transform={`translate(${width - padRight + 25} ${priceY - 12})`}>
+          <rect
+            width="56"
+            height="24"
+            rx="8"
+            fill={currentDirection === 'up' ? '#1acb7f' : '#ff535c'}
+            opacity=".96"
+          />
+          <text
+            x="28"
+            y="15.5"
+            textAnchor="middle"
+            fill="#07100d"
+            fontSize="8.5"
+            fontWeight="900"
+          >
+            {formatPrice(lastVisible.close)}
+          </text>
+        </g>
+
+        <g transform={`translate(${width - padRight + 25} ${strikeY + 6})`}>
+          <rect width="54" height="20" rx="7" fill="rgba(255,255,255,.10)" />
+          <text x="27" y="13" textAnchor="middle" fill="rgba(255,255,255,.66)" fontSize="8" fontWeight="800">
+            {formatPrice(market.strike)}
+          </text>
+        </g>
       </svg>
 
-      <div className="vm-strike-tag" style={cssVars({ '--strike-y': `${(strikeY / height) * 100}%` })}>
-        strike {formatPrice(market.startPrice)}
-      </div>
-
-      <div className="vm-current-tag" style={cssVars({ '--point-y': `${(currentY / height) * 100}%` })}>
-        {formatPrice(current)}
-      </div>
-
-      {phase === 'roundResult' || phase === 'finished' ? (
-        <div className={`vm-expire-line vm-expire-${market.outcome}`}>
-          <DirectionBadge direction={market.outcome} />
+      <div className="bo-chart-bottom">
+        <div className="bo-chip">
+          <span>strike</span>
+          <b>{formatPrice(market.strike)}</b>
         </div>
-      ) : null}
+        <div className="bo-chip">
+          <span>payout</span>
+          <b>x{market.payout.toFixed(2)}</b>
+        </div>
+        <div className="bo-chip bo-chip-picks">
+          <span>pick</span>
+          <b>
+            {playerPick ? (playerPick === 'up' ? '↑' : '↓') : '—'}
+            <i />
+            {botPick ? (botPick === 'up' ? '↑' : '↓') : '—'}
+          </b>
+        </div>
+      </div>
     </div>
   );
 };
 
-const TradeButton = ({
-  direction,
-  disabled,
-  selected,
-  onClick,
-}: {
-  direction: Direction;
-  disabled: boolean;
-  selected: boolean;
-  onClick: () => void;
-}) => {
-  const isUp = direction === 'up';
+const ResultToast = ({ result }: { result: RoundResult }) => {
+  const playerWon = result.playerPoint && !result.botPoint;
+  const botWon = result.botPoint && !result.playerPoint;
+  const bothWon = result.playerPoint && result.botPoint;
 
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`vm-trade-btn vm-trade-${direction} ${selected ? 'vm-trade-selected' : ''}`}
-    >
-      <span className="vm-trade-icon">{isUp ? <TrendingUp size={25} /> : <TrendingDown size={25} />}</span>
-      <span className="vm-trade-copy">
-        <b>{isUp ? 'ВВЕРХ' : 'ВНИЗ'}</b>
-        <em>{isUp ? 'CALL' : 'PUT'}</em>
-      </span>
-    </button>
-  );
-};
-
-const RoundResultPanel = ({
-  result,
-  winner,
-  onNextRound,
-  onRestart,
-}: {
-  result: RoundResult | null;
-  winner: Winner;
-  onNextRound: () => void;
-  onRestart: () => void;
-}) => {
-  if (!result) return null;
-
-  const playerText = result.playerPoint ? '+1 тебе' : '+0 тебе';
-  const botText = result.botPoint ? '+1 боту' : '+0 боту';
-  const title = winner
-    ? winner === 'player'
-      ? 'Ты забрал матч'
-      : 'Бот забрал матч'
-    : result.wasOvertime
-      ? 'Доп раунд'
-      : result.playerPoint && result.botPoint
-        ? 'Оба угадали'
-        : result.playerPoint
-          ? 'Раунд твой'
-          : result.botPoint
-            ? 'Раунд бота'
-            : 'Оба промазали';
-
-  return (
-    <section className="vm-round-result">
-      <div className="vm-result-glow" />
-      <div className="vm-result-icon">{winner ? <Trophy size={28} /> : <Target size={28} />}</div>
-      <h2>{title}</h2>
-      <p>
-        Экспирация закрылась <DirectionBadge direction={result.outcome} /> · {formatPct(result.priceDeltaPct)}
-      </p>
-
-      <div className="vm-result-cells">
-        <div className={result.playerPoint ? 'vm-result-win' : ''}>
-          <span>Ты выбрал</span>
-          <DirectionBadge direction={result.playerPick} />
-          <b>{playerText}</b>
-        </div>
-        <div className={result.botPoint ? 'vm-result-win' : ''}>
-          <span>Бот выбрал</span>
-          <DirectionBadge direction={result.botPick} />
-          <b>{botText}</b>
-        </div>
+    <div className="bo-result-toast">
+      <div className={`bo-result-mark ${result.outcome === 'up' ? 'bo-mark-up' : 'bo-mark-down'}`}>
+        {result.outcome === 'up' ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
       </div>
-
-      <button type="button" className="vm-main-action" onClick={winner ? onRestart : onNextRound}>
-        {winner ? 'Играть снова' : result.nextScores.player >= TARGET_SCORE && result.nextScores.bot >= TARGET_SCORE ? 'Доп раунд' : 'Следующий раунд'}
-      </button>
-    </section>
+      <div>
+        <b>{playerWon ? '+1 тебе' : botWon ? '+1 боту' : bothWon ? '+1 обоим' : 'без очков'}</b>
+        <span>
+          close {result.outcome === 'up' ? 'above' : 'below'} strike · {formatPct(result.deltaPct)}
+        </span>
+      </div>
+    </div>
   );
 };
 
 export const VirusMarketGame = () => {
-  const navigate = useNavigate();
-
-  const [phase, setPhase] = useState<Phase>('pick');
+  const [phase, setPhase] = useState<Phase>('choose');
   const [scores, setScores] = useState<Scores>({ player: 0, bot: 0 });
   const [round, setRound] = useState(1);
-  const [isOvertime, setIsOvertime] = useState(false);
-  const [picks, setPicks] = useState<RoundPick | null>(null);
-  const [market, setMarket] = useState<BinaryMarket | null>(null);
-  const [step, setStep] = useState(0);
+  const [market, setMarket] = useState<MarketRound>(() => generateMarketRound());
+  const [visibleCount, setVisibleCount] = useState(PREVIEW_CANDLES);
+  const [choiceLeft, setChoiceLeft] = useState(CHOICE_MS);
+  const [playerPick, setPlayerPick] = useState<Direction | null>(null);
+  const [botPick, setBotPick] = useState<Direction | null>(null);
   const [result, setResult] = useState<RoundResult | null>(null);
-  const [winner, setWinner] = useState<Winner>(null);
+  const [winner, setWinner] = useState<MatchWinner>(null);
 
-  const currentPrice = market?.prices[Math.min(step, MARKET_STEPS)] ?? 0;
-  const priceDelta = market ? currentPrice - market.startPrice : 0;
-  const priceDeltaPct = market ? (priceDelta / market.startPrice) * 100 : 0;
-  const secondsLeft = phase === 'live' ? Math.max(0, Math.ceil(EXPIRATION_SECONDS - step * (TICK_MS / 1000))) : EXPIRATION_SECONDS;
-  const progress = phase === 'live' ? Math.min(100, (step / MARKET_STEPS) * 100) : phase === 'roundResult' || phase === 'finished' ? 100 : 0;
+  const isOvertime = scores.player >= TARGET_SCORE && scores.bot >= TARGET_SCORE && scores.player === scores.bot;
+  const liveLeftMs = phase === 'live'
+    ? Math.max(0, (TOTAL_CANDLES - visibleCount) * LIVE_STEP_MS)
+    : LIVE_MS;
+
+  const timerMs = phase === 'choose' ? choiceLeft : phase === 'live' ? liveLeftMs : 0;
+  const timerTotal = phase === 'choose' ? CHOICE_MS : LIVE_MS;
+  const timerProgress = timerTotal > 0 ? Math.max(0, Math.min(100, (timerMs / timerTotal) * 100)) : 0;
+  const timerLabel = Math.ceil(timerMs / 1000).toString();
+
+  const lastCandle = market.candles[Math.min(visibleCount - 1, market.candles.length - 1)];
+  const delta = lastCandle.close - market.strike;
+  const deltaPct = (delta / market.strike) * 100;
 
   const statusText = useMemo(() => {
-    if (winner === 'player') return 'Victory';
-    if (winner === 'bot') return 'Lost';
-    if (isOvertime) return 'Overtime';
-    if (phase === 'live') return `${secondsLeft}s`;
-    return `Round ${round}`;
-  }, [winner, isOvertime, phase, secondsLeft, round]);
+    if (phase === 'choose') return isOvertime ? 'extra round · bot gets opposite' : 'choose direction';
+    if (phase === 'live') return 'trade is open';
+    if (phase === 'result') return 'round closed';
+    return winner === 'player' ? 'you won the match' : 'bot won the match';
+  }, [phase, isOvertime, winner]);
 
-  const settleRound = () => {
-    if (!market || !picks) return;
+  const startNextRound = useCallback(() => {
+    setRound((value) => value + 1);
+    setMarket(generateMarketRound());
+    setVisibleCount(PREVIEW_CANDLES);
+    setChoiceLeft(CHOICE_MS);
+    setPlayerPick(null);
+    setBotPick(null);
+    setResult(null);
+    setPhase('choose');
+  }, []);
 
-    const finalPrice = market.prices[MARKET_STEPS];
-    const finalDelta = finalPrice - market.startPrice;
-    const finalDeltaPct = (finalDelta / market.startPrice) * 100;
-    const outcome = finalPrice >= market.startPrice ? 'up' : 'down';
-    const playerPoint = picks.player === outcome;
-    const botPoint = picks.bot === outcome;
+  const resetMatch = useCallback(() => {
+    setPhase('choose');
+    setScores({ player: 0, bot: 0 });
+    setRound(1);
+    setMarket(generateMarketRound());
+    setVisibleCount(PREVIEW_CANDLES);
+    setChoiceLeft(CHOICE_MS);
+    setPlayerPick(null);
+    setBotPick(null);
+    setResult(null);
+    setWinner(null);
+  }, []);
 
-    const nextScores: Scores = {
+  const commitChoice = useCallback((direction: Direction) => {
+    if (phase !== 'choose' || playerPick) return;
+
+    const nextBotPick = isOvertime ? oppositeDirection(direction) : randomDirection();
+    setPlayerPick(direction);
+    setBotPick(nextBotPick);
+    setVisibleCount(PREVIEW_CANDLES);
+    setPhase('live');
+  }, [phase, playerPick, isOvertime]);
+
+  const resolveRound = useCallback(() => {
+    if (!playerPick || !botPick) return;
+
+    const finalCandle = market.candles[market.candles.length - 1];
+    const finalDelta = finalCandle.close - market.strike;
+    const finalDeltaPct = (finalDelta / market.strike) * 100;
+    const playerPoint = playerPick === market.outcome;
+    const botPoint = botPick === market.outcome;
+    const nextScores = {
       player: scores.player + (playerPoint ? 1 : 0),
       bot: scores.bot + (botPoint ? 1 : 0),
     };
 
-    let nextWinner: Winner = null;
-
-    if (isOvertime) {
-      nextWinner = playerPoint ? 'player' : 'bot';
-    } else if (nextScores.player >= TARGET_SCORE && nextScores.bot >= TARGET_SCORE) {
-      nextWinner = null;
-    } else if (nextScores.player >= TARGET_SCORE) {
-      nextWinner = 'player';
-    } else if (nextScores.bot >= TARGET_SCORE) {
-      nextWinner = 'bot';
+    let nextWinner: MatchWinner = null;
+    if (nextScores.player >= TARGET_SCORE || nextScores.bot >= TARGET_SCORE) {
+      if (nextScores.player > nextScores.bot) nextWinner = 'player';
+      if (nextScores.bot > nextScores.player) nextWinner = 'bot';
     }
 
-    const nextResult: RoundResult = {
-      outcome,
-      playerPick: picks.player,
-      botPick: picks.bot,
+    setResult({
+      outcome: market.outcome,
+      playerPick,
+      botPick,
       playerPoint,
       botPoint,
-      priceDelta: finalDelta,
-      priceDeltaPct: finalDeltaPct,
+      delta: finalDelta,
+      deltaPct: finalDeltaPct,
+      overtime: isOvertime,
       nextScores,
-      wasOvertime: isOvertime,
-    };
-
+    });
     setScores(nextScores);
-    setResult(nextResult);
     setWinner(nextWinner);
-    setIsOvertime(!nextWinner && nextScores.player >= TARGET_SCORE && nextScores.bot >= TARGET_SCORE);
-    setStep(MARKET_STEPS);
-    setPhase(nextWinner ? 'finished' : 'roundResult');
-  };
+    setPhase('result');
+  }, [playerPick, botPick, market, scores, isOvertime]);
+
+  useEffect(() => {
+    if (phase !== 'choose') return undefined;
+
+    const deadline = Date.now() + CHOICE_MS;
+    setChoiceLeft(CHOICE_MS);
+
+    const id = window.setInterval(() => {
+      const left = Math.max(0, deadline - Date.now());
+      setChoiceLeft(left);
+
+      if (left <= 0) {
+        window.clearInterval(id);
+        commitChoice(randomDirection());
+      }
+    }, 90);
+
+    return () => window.clearInterval(id);
+  }, [phase, round, commitChoice]);
 
   useEffect(() => {
     if (phase !== 'live') return undefined;
 
-    if (step >= MARKET_STEPS) {
-      const id = window.setTimeout(settleRound, 260);
+    if (visibleCount >= TOTAL_CANDLES) {
+      const id = window.setTimeout(resolveRound, 460);
       return () => window.clearTimeout(id);
     }
 
     const id = window.setTimeout(() => {
-      setStep((value) => Math.min(value + 1, MARKET_STEPS));
-    }, TICK_MS);
+      setVisibleCount((value) => Math.min(TOTAL_CANDLES, value + 1));
+    }, LIVE_STEP_MS);
 
     return () => window.clearTimeout(id);
-  }, [phase, step, market, picks, scores, isOvertime]);
+  }, [phase, visibleCount, resolveRound]);
 
-  const startTrade = (direction: Direction) => {
-    if (phase !== 'pick') return;
+  useEffect(() => {
+    if (phase !== 'result' || !result) return undefined;
 
-    const botDirection = isOvertime
-      ? oppositeDirection(direction)
-      : Math.random() > 0.5
-        ? direction
-        : oppositeDirection(direction);
+    const id = window.setTimeout(() => {
+      if (winner) {
+        setPhase('gameOver');
+        return;
+      }
 
-    setPicks({ player: direction, bot: botDirection });
-    setMarket(generateBinaryMarket());
-    setResult(null);
-    setWinner(null);
-    setStep(0);
-    setPhase('live');
-  };
+      startNextRound();
+    }, result.overtime ? 1700 : 1450);
 
-  const nextRound = () => {
-    setRound((value) => value + 1);
-    setPicks(null);
-    setMarket(null);
-    setResult(null);
-    setStep(0);
-    setPhase('pick');
-  };
-
-  const resetGame = () => {
-    setPhase('pick');
-    setScores({ player: 0, bot: 0 });
-    setRound(1);
-    setIsOvertime(false);
-    setPicks(null);
-    setMarket(null);
-    setStep(0);
-    setResult(null);
-    setWinner(null);
-  };
-
-  const helperText = useMemo(() => {
-    if (winner === 'player') return 'Матч завершен. Ты первым выиграл решающий трейд.';
-    if (winner === 'bot') return 'Матч завершен. Бот забрал решающий трейд.';
-    if (phase === 'live') {
-      if (!picks) return 'Сделка открыта.';
-      if (picks.player === picks.bot) return 'Вы с ботом выбрали одну сторону. Если рынок закроется туда — очко получите оба.';
-      return 'Вы выбрали разные стороны. На экспирации очко получит только тот, кто угадал направление.';
-    }
-    if (phase === 'roundResult' && scores.player >= TARGET_SCORE && scores.bot >= TARGET_SCORE) {
-      return 'Счет 3:3. Теперь доп раунд: ты выбираешь первым, боту автоматически остается второй вариант.';
-    }
-    if (isOvertime) return 'Доп раунд: выбирай направление, бот получит противоположный вариант без выбора.';
-    return 'Выбери ВВЕРХ или ВНИЗ. Через короткую экспирацию направление закрытия даст очко.';
-  }, [winner, phase, picks, scores, isOvertime]);
+    return () => window.clearTimeout(id);
+  }, [phase, result, winner, startNextRound]);
 
   return (
-    <div className="vm-page">
+    <div className="bo-page">
       <style>{`
-        .vm-page {
+        .bo-page {
           position: relative;
           width: 100%;
-          min-height: 100%;
           height: 100%;
-          overflow-y: auto;
-          overflow-x: hidden;
-          padding: 8px 8px max(10px, env(safe-area-inset-bottom));
+          min-height: 0;
+          overflow: hidden;
+          display: grid;
+          grid-template-rows: 48px minmax(0, 1fr) 124px;
+          gap: 8px;
+          padding: 6px 8px max(6px, env(safe-area-inset-bottom));
           color: #fff;
-          background:
-            radial-gradient(circle at 50% -12%, rgba(43, 163, 255, .26), transparent 38%),
-            radial-gradient(circle at 102% 42%, rgba(32, 226, 136, .13), transparent 36%),
-            radial-gradient(circle at -10% 70%, rgba(255, 82, 82, .13), transparent 34%),
-            linear-gradient(180deg, rgba(8, 12, 23, .72), rgba(9, 12, 19, .96));
-          user-select: none;
-          -webkit-overflow-scrolling: touch;
+          background: transparent;
           font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-
-        .vm-page * {
-          box-sizing: border-box;
-        }
-
-        .vm-page button {
-          font-family: inherit;
+          user-select: none;
           -webkit-tap-highlight-color: transparent;
         }
 
-        .vm-positive {
-          color: #28e489;
+        .bo-page * {
+          box-sizing: border-box;
         }
 
-        .vm-negative {
-          color: #ff6868;
-        }
-
-        .vm-top {
-          position: relative;
-          z-index: 6;
+        .bo-top {
+          min-height: 0;
           display: grid;
-          grid-template-columns: 40px 1fr 78px;
+          grid-template-columns: 1fr 82px 1fr;
           align-items: center;
           gap: 8px;
-          margin-bottom: 9px;
         }
 
-        .vm-back,
-        .vm-status {
-          height: 40px;
-          display: grid;
-          place-items: center;
-          border-radius: 15px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(14, 20, 33, .72);
-          color: rgba(255,255,255,.82);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.065), 0 12px 34px rgba(0,0,0,.20);
-          backdrop-filter: blur(18px);
-        }
-
-        .vm-back {
-          width: 40px;
-        }
-
-        .vm-status {
-          padding: 0 10px;
-          font-size: 10px;
-          font-weight: 900;
-          letter-spacing: .08em;
-          text-transform: uppercase;
-        }
-
-        .vm-title {
+        .bo-player {
           min-width: 0;
-          text-align: center;
-        }
-
-        .vm-title small {
-          display: block;
-          color: rgba(255,255,255,.45);
-          font-size: 9px;
-          line-height: 1;
-          font-weight: 850;
-          letter-spacing: .16em;
-          text-transform: uppercase;
-        }
-
-        .vm-title h1 {
-          margin: 4px 0 0;
-          color: #fff;
-          font-size: 22px;
-          line-height: .95;
-          font-weight: 900;
-          letter-spacing: -.055em;
-        }
-
-        .vm-board {
-          position: relative;
-          z-index: 4;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-          margin-bottom: 9px;
-        }
-
-        .vm-player-card {
-          position: relative;
-          overflow: hidden;
-          min-width: 0;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,.08);
-          background: rgba(15, 22, 35, .68);
-          padding: 10px;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 16px 40px rgba(0,0,0,.18);
-          backdrop-filter: blur(18px);
-        }
-
-        .vm-player-card::before {
-          content: '';
-          position: absolute;
-          inset: -1px;
-          opacity: .36;
-          background: radial-gradient(circle at 20% 0%, rgba(47,140,255,.28), transparent 42%);
-          pointer-events: none;
-        }
-
-        .vm-player-card:nth-child(2)::before {
-          background: radial-gradient(circle at 80% 0%, rgba(245,158,66,.24), transparent 42%);
-        }
-
-        .vm-player-active {
-          border-color: rgba(54, 211, 153, .33);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 0 0 1px rgba(54,211,153,.12), 0 18px 44px rgba(0,0,0,.18);
-        }
-
-        .vm-player-top,
-        .vm-score-pips,
-        .vm-player-pick {
-          position: relative;
-          z-index: 2;
-        }
-
-        .vm-player-top {
           display: flex;
           align-items: center;
-          gap: 9px;
+          gap: 8px;
         }
 
-        .vm-avatar {
+        .bo-player-right {
+          justify-content: flex-end;
+          text-align: right;
+        }
+
+        .bo-avatar {
           width: 34px;
           height: 34px;
-          display: grid;
-          place-items: center;
           flex: 0 0 auto;
-          border-radius: 14px;
-          background: rgba(255,255,255,.07);
-          color: rgba(255,255,255,.85);
-          font-size: 9px;
-          font-weight: 950;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-        }
-
-        .vm-player-copy {
-          min-width: 0;
-          flex: 1;
-        }
-
-        .vm-player-copy span,
-        .vm-player-copy b {
-          display: block;
-        }
-
-        .vm-player-copy span {
-          color: rgba(255,255,255,.46);
-          font-size: 9px;
-          font-weight: 850;
-          letter-spacing: .12em;
-          text-transform: uppercase;
-        }
-
-        .vm-player-copy b {
-          margin-top: 2px;
-          color: #fff;
-          font-size: 25px;
-          line-height: .9;
-          font-weight: 950;
-          letter-spacing: -.06em;
-        }
-
-        .vm-score-pips {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          margin-top: 10px;
-        }
-
-        .vm-score-pips i {
-          width: 100%;
-          height: 7px;
-          border-radius: 999px;
-          background: rgba(255,255,255,.08);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-        }
-
-        .vm-score-pips b {
-          color: rgba(255,255,255,.68);
-          font-size: 10px;
-          font-weight: 900;
-        }
-
-        .vm-score-player .vm-pip-filled {
-          background: linear-gradient(90deg, #2f8cff, #23d77f);
-          box-shadow: 0 0 16px rgba(47,140,255,.28);
-        }
-
-        .vm-score-bot .vm-pip-filled {
-          background: linear-gradient(90deg, #f59e42, #ff5454);
-          box-shadow: 0 0 16px rgba(245,158,66,.24);
-        }
-
-        .vm-player-pick {
-          margin-top: 10px;
-          min-height: 27px;
-          display: flex;
-          align-items: center;
-        }
-
-        .vm-hidden-pick {
-          display: inline-flex;
-          align-items: center;
-          height: 27px;
-          border-radius: 999px;
-          padding: 0 10px;
-          color: rgba(255,255,255,.37);
-          background: rgba(0,0,0,.19);
-          border: 1px solid rgba(255,255,255,.06);
-          font-size: 9px;
-          font-weight: 850;
-          letter-spacing: .10em;
-        }
-
-        .vm-dir-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          height: 27px;
-          border-radius: 999px;
-          padding: 0 10px;
-          font-size: 10px;
-          font-weight: 950;
-          letter-spacing: .08em;
-          vertical-align: middle;
-        }
-
-        .vm-dir-badge.vm-up {
-          color: #072514;
-          background: linear-gradient(180deg, #7affbb, #22d77f);
-          box-shadow: 0 10px 24px rgba(35,215,127,.20), inset 0 2px 0 rgba(255,255,255,.34);
-        }
-
-        .vm-dir-badge.vm-down {
-          color: #300807;
-          background: linear-gradient(180deg, #ff9b9b, #ff5454);
-          box-shadow: 0 10px 24px rgba(255,84,84,.18), inset 0 2px 0 rgba(255,255,255,.30);
-        }
-
-        .vm-terminal {
-          position: relative;
-          z-index: 3;
-          overflow: hidden;
-          border-radius: 28px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(11, 16, 27, .78);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 22px 58px rgba(0,0,0,.22);
-          backdrop-filter: blur(20px);
-        }
-
-        .vm-terminal-head {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          align-items: center;
-          gap: 10px;
-          min-height: 54px;
-          padding: 11px 12px 7px;
-        }
-
-        .vm-pair {
-          min-width: 0;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .vm-pair-logo {
-          width: 36px;
-          height: 36px;
           display: grid;
           place-items: center;
-          border-radius: 15px;
-          background: linear-gradient(135deg, rgba(47,140,255,.22), rgba(37,223,125,.16));
-          color: #a8e7ff;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.09);
+          border-radius: 999px;
+          color: #06100c;
+          font-size: 13px;
+          font-weight: 950;
+          letter-spacing: -.04em;
+          box-shadow: inset 0 2px 0 rgba(255,255,255,.42), 0 10px 22px rgba(0,0,0,.20);
         }
 
-        .vm-pair-copy {
+        .bo-avatar-player {
+          background: linear-gradient(145deg, #33f0a2, #12a96e);
+        }
+
+        .bo-avatar-bot {
+          background: linear-gradient(145deg, #ff7a81, #d93442);
+        }
+
+        .bo-player-copy {
           min-width: 0;
         }
 
-        .vm-pair-copy b,
-        .vm-pair-copy span {
+        .bo-player-copy b,
+        .bo-player-copy span {
           display: block;
           overflow: hidden;
           white-space: nowrap;
           text-overflow: ellipsis;
         }
 
-        .vm-pair-copy b {
-          color: #fff;
-          font-size: 15px;
-          font-weight: 900;
+        .bo-player-copy b {
+          color: rgba(255,255,255,.92);
+          font-size: 12px;
+          line-height: 1;
+          font-weight: 850;
           letter-spacing: -.035em;
         }
 
-        .vm-pair-copy span {
-          margin-top: 3px;
-          color: rgba(255,255,255,.38);
-          font-size: 10px;
-          font-weight: 700;
+        .bo-player-copy span {
+          margin-top: 4px;
+          color: rgba(255,255,255,.35);
+          font-size: 8px;
+          line-height: 1;
+          font-weight: 850;
+          letter-spacing: .16em;
         }
 
-        .vm-payout {
-          min-width: 74px;
-          border-radius: 17px;
-          background: rgba(42, 255, 154, .10);
-          border: 1px solid rgba(42,255,154,.16);
-          padding: 8px 10px;
-          text-align: center;
+        .bo-score {
+          height: 42px;
+          display: grid;
+          place-items: center;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,.075);
+          background: rgba(255,255,255,.035);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
         }
 
-        .vm-payout span,
-        .vm-payout b {
-          display: block;
+        .bo-score b {
+          font-size: 20px;
+          line-height: .86;
+          font-weight: 900;
+          letter-spacing: -.075em;
+          font-variant-numeric: tabular-nums;
         }
 
-        .vm-payout span {
+        .bo-score span {
+          margin-top: 1px;
           color: rgba(255,255,255,.42);
           font-size: 8px;
+          line-height: 1;
           font-weight: 850;
-          letter-spacing: .12em;
+          letter-spacing: .13em;
           text-transform: uppercase;
         }
 
-        .vm-payout b {
-          margin-top: 2px;
-          color: #6dffad;
-          font-size: 16px;
-          line-height: 1;
-          font-weight: 950;
-          letter-spacing: -.045em;
-        }
-
-        .vm-chart,
-        .vm-chart-empty {
+        .bo-stage {
           position: relative;
-          height: 278px;
-          margin: 5px 10px 10px;
+          min-height: 0;
           overflow: hidden;
-          border-radius: 24px;
+          border-radius: 20px;
           border: 1px solid rgba(255,255,255,.075);
-          background:
-            radial-gradient(circle at 80% 12%, rgba(47,140,255,.12), transparent 35%),
-            linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.28));
+          background: #080b11;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 16px 36px rgba(0,0,0,.18);
         }
 
-        .vm-chart-empty {
-          display: grid;
-          place-items: center;
-          text-align: center;
-          color: rgba(255,255,255,.48);
-        }
-
-        .vm-chart-empty-orb {
-          width: 68px;
-          height: 68px;
-          display: grid;
-          place-items: center;
-          border-radius: 24px;
-          background: rgba(255,255,255,.055);
-          color: rgba(255,255,255,.62);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.18);
-        }
-
-        .vm-chart-empty b {
-          position: absolute;
-          bottom: 86px;
-          color: rgba(255,255,255,.88);
-          font-size: 17px;
-          font-weight: 950;
-          letter-spacing: -.05em;
-        }
-
-        .vm-chart-empty span {
-          position: absolute;
-          bottom: 64px;
-          color: rgba(255,255,255,.42);
-          font-size: 11px;
-          font-weight: 700;
-        }
-
-        .vm-chart-grid {
+        .bo-stage::before {
+          content: "";
           position: absolute;
           inset: 0;
-          opacity: .36;
-          background:
-            linear-gradient(rgba(255,255,255,.055) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,.055) 1px, transparent 1px);
-          background-size: 46px 38px;
-          mask-image: linear-gradient(180deg, transparent, black 11%, black 90%);
-        }
-
-        .vm-chart-topline {
-          position: absolute;
-          z-index: 5;
-          left: 10px;
-          right: 10px;
-          top: 10px;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
           pointer-events: none;
+          background:
+            radial-gradient(circle at 72% 14%, rgba(26,203,127,.10), transparent 28%),
+            radial-gradient(circle at 18% 88%, rgba(255,83,92,.08), transparent 30%);
+          opacity: .95;
         }
 
-        .vm-chart-topline span,
-        .vm-chart-topline b {
+        .bo-chart-wrap {
+          position: relative;
+          z-index: 1;
+          height: 100%;
+          min-height: 0;
+          display: grid;
+          grid-template-rows: 42px minmax(0, 1fr) 40px;
+        }
+
+        .bo-chart-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 12px 0;
+        }
+
+        .bo-chart-head b,
+        .bo-chart-head span {
           display: block;
         }
 
-        .vm-chart-topline span {
-          color: rgba(255,255,255,.42);
-          font-size: 9px;
-          font-weight: 850;
-          letter-spacing: .12em;
-          text-transform: uppercase;
+        .bo-chart-head b {
+          font-size: 13px;
+          line-height: 1;
+          font-weight: 860;
+          letter-spacing: -.035em;
         }
 
-        .vm-chart-topline b {
-          margin-top: 3px;
-          color: #fff;
-          font-size: 20px;
+        .bo-chart-head span {
+          margin-top: 4px;
+          color: rgba(255,255,255,.35);
+          font-size: 9px;
           line-height: 1;
-          font-weight: 950;
+          font-weight: 720;
+          letter-spacing: .04em;
+        }
+
+        .bo-live-price {
+          font-size: 16px;
+          font-weight: 900;
           letter-spacing: -.055em;
           font-variant-numeric: tabular-nums;
         }
 
-        .vm-chart-topline em {
-          min-width: 74px;
-          text-align: right;
-          font-size: 14px;
-          line-height: 1;
-          font-weight: 950;
-          font-style: normal;
-          letter-spacing: -.03em;
-          font-variant-numeric: tabular-nums;
+        .bo-text-up {
+          color: #1acb7f;
         }
 
-        .vm-chart-svg {
-          position: absolute;
-          inset: 0;
+        .bo-text-down {
+          color: #ff535c;
+        }
+
+        .bo-chart {
           width: 100%;
           height: 100%;
-          overflow: visible;
+          min-height: 0;
+          display: block;
         }
 
-        .vm-strike-tag,
-        .vm-current-tag {
-          position: absolute;
-          z-index: 6;
-          right: 8px;
-          transform: translateY(-50%);
-          border-radius: 999px;
-          padding: 5px 8px;
-          font-size: 9px;
-          font-weight: 850;
-          font-variant-numeric: tabular-nums;
-          pointer-events: none;
-          backdrop-filter: blur(10px);
+        .bo-last-candle {
+          filter: drop-shadow(0 0 7px rgba(255,255,255,.16));
         }
 
-        .vm-strike-tag {
-          top: var(--strike-y);
-          color: rgba(255,255,255,.70);
-          background: rgba(255,255,255,.08);
-          border: 1px solid rgba(255,255,255,.10);
+        .bo-price-dot {
+          animation: boPulse 1.08s ease-in-out infinite;
+          transform-origin: center;
         }
 
-        .vm-current-tag {
-          top: var(--point-y);
-          color: #fff;
-          background: rgba(0,0,0,.42);
-          border: 1px solid rgba(255,255,255,.09);
+        @keyframes boPulse {
+          0%, 100% { opacity: .72; }
+          50% { opacity: 1; }
         }
 
-        .vm-expire-line {
-          position: absolute;
-          z-index: 8;
-          right: 8px;
-          top: 50%;
-          transform: translateY(-50%);
+        .bo-chart-bottom {
           display: grid;
-          place-items: center;
-          min-width: 86px;
-          height: 46px;
-          border-radius: 18px;
-          background: rgba(0,0,0,.42);
-          border: 1px solid rgba(255,255,255,.10);
-          backdrop-filter: blur(14px);
-        }
-
-        .vm-trade-info {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: 1fr 1fr 1fr;
           gap: 7px;
           padding: 0 10px 10px;
         }
 
-        .vm-info-cell {
-          min-height: 58px;
-          border-radius: 18px;
-          border: 1px solid rgba(255,255,255,.075);
-          background: rgba(255,255,255,.045);
-          padding: 9px;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.045);
+        .bo-chip {
+          min-width: 0;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 7px;
+          border-radius: 12px;
+          background: rgba(255,255,255,.055);
+          border: 1px solid rgba(255,255,255,.055);
+          padding: 0 9px;
         }
 
-        .vm-info-cell span,
-        .vm-info-cell b {
-          display: block;
-        }
-
-        .vm-info-cell span {
-          color: rgba(255,255,255,.40);
+        .bo-chip span {
+          color: rgba(255,255,255,.34);
           font-size: 8px;
-          font-weight: 850;
-          letter-spacing: .12em;
+          line-height: 1;
+          font-weight: 820;
+          letter-spacing: .10em;
           text-transform: uppercase;
         }
 
-        .vm-info-cell b {
-          margin-top: 7px;
-          color: #fff;
-          font-size: 14px;
+        .bo-chip b {
+          color: rgba(255,255,255,.86);
+          font-size: 10px;
           line-height: 1;
-          font-weight: 950;
-          letter-spacing: -.035em;
+          font-weight: 850;
+          letter-spacing: -.02em;
           font-variant-numeric: tabular-nums;
         }
 
-        .vm-clock {
+        .bo-chip-picks b {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+        }
+
+        .bo-chip-picks i {
+          width: 1px;
+          height: 12px;
+          background: rgba(255,255,255,.13);
+        }
+
+        .bo-tradebar {
+          position: relative;
+          min-height: 0;
+          display: grid;
+          grid-template-rows: 24px 70px 22px;
+          gap: 5px;
+          overflow: hidden;
+        }
+
+        .bo-info-line {
+          display: grid;
+          grid-template-columns: 1fr 64px 1fr;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .bo-info-pill {
+          min-width: 0;
           display: flex;
           align-items: center;
           gap: 6px;
+          color: rgba(255,255,255,.46);
+          font-size: 9px;
+          font-weight: 760;
+          letter-spacing: .02em;
         }
 
-        .vm-progress {
-          height: 7px;
-          overflow: hidden;
-          border-radius: 999px;
-          margin: 0 10px 12px;
-          background: rgba(255,255,255,.075);
+        .bo-info-pill:last-child {
+          justify-content: flex-end;
         }
 
-        .vm-progress-fill {
-          height: 100%;
-          width: var(--progress);
-          border-radius: inherit;
-          background: linear-gradient(90deg, #2f8cff, #25df7d 55%, #ffcc4d);
-          box-shadow: 0 0 22px rgba(37,223,125,.25);
-          transition: width ${TICK_MS}ms linear;
+        .bo-info-pill b {
+          color: rgba(255,255,255,.82);
+          font-size: 10px;
+          font-weight: 850;
+          font-variant-numeric: tabular-nums;
         }
 
-        .vm-message-card {
-          position: relative;
-          z-index: 4;
-          display: flex;
-          align-items: center;
-          gap: 9px;
-          margin: 10px 0;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,.08);
-          background: rgba(14, 20, 33, .64);
-          padding: 11px 12px;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 14px 36px rgba(0,0,0,.14);
-          backdrop-filter: blur(18px);
-        }
-
-        .vm-message-card i {
-          width: 33px;
-          height: 33px;
+        .bo-timer {
+          width: 44px;
+          height: 44px;
+          justify-self: center;
+          align-self: center;
           display: grid;
           place-items: center;
-          flex: 0 0 auto;
-          border-radius: 14px;
-          background: rgba(47,140,255,.13);
-          color: #9bd5ff;
-          font-style: normal;
+          border-radius: 999px;
+          background:
+            conic-gradient(var(--timer-color) calc(var(--timer) * 1%), rgba(255,255,255,.075) 0),
+            rgba(255,255,255,.035);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px rgba(0,0,0,.16);
         }
 
-        .vm-message-card p {
-          margin: 0;
-          color: rgba(255,255,255,.66);
-          font-size: 11px;
-          line-height: 1.28;
-          font-weight: 680;
+        .bo-timer::before {
+          content: "";
+          position: absolute;
+          width: 34px;
+          height: 34px;
+          border-radius: inherit;
+          background: rgba(7,9,14,.94);
         }
 
-        .vm-bottom {
-          position: sticky;
-          z-index: 20;
-          bottom: -10px;
-          margin: 10px -8px 0;
-          padding: 9px 8px max(9px, env(safe-area-inset-bottom));
-          background: linear-gradient(180deg, transparent 0%, rgba(8,12,23,.70) 34%, rgba(8,12,23,.94) 100%);
-          backdrop-filter: blur(16px);
+        .bo-timer span {
+          position: relative;
+          z-index: 1;
+          color: #fff;
+          font-size: 13px;
+          font-weight: 930;
+          font-variant-numeric: tabular-nums;
         }
 
-        .vm-trade-actions {
+        .bo-actions {
+          min-height: 0;
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 9px;
+          grid-template-columns: 1fr 48px 1fr;
+          gap: 8px;
+          align-items: stretch;
         }
 
-        .vm-trade-btn {
+        .bo-arrow,
+        .bo-reset {
+          border: 0;
+          outline: 0;
+          color: #06100d;
+          touch-action: manipulation;
+          cursor: pointer;
+          transition: transform .12s ease, opacity .12s ease, filter .12s ease;
+        }
+
+        .bo-arrow {
           position: relative;
           overflow: hidden;
-          min-height: 72px;
+          border-radius: 22px;
+          display: grid;
+          place-items: center;
+          box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 16px 28px rgba(0,0,0,.18);
+        }
+
+        .bo-arrow svg {
+          width: 36px;
+          height: 36px;
+          stroke-width: 3.4;
+          filter: drop-shadow(0 1px 0 rgba(255,255,255,.18));
+        }
+
+        .bo-arrow::after {
+          content: "";
+          position: absolute;
+          inset: 1px 1px auto;
+          height: 42%;
+          border-radius: inherit;
+          background: linear-gradient(180deg, rgba(255,255,255,.32), transparent);
+          pointer-events: none;
+        }
+
+        .bo-arrow-up {
+          background: linear-gradient(180deg, #2ff4a5 0%, #16c97f 54%, #0c9d62 100%);
+        }
+
+        .bo-arrow-down {
+          background: linear-gradient(180deg, #ff7c83 0%, #ff525c 54%, #c92d3b 100%);
+        }
+
+        .bo-arrow:disabled {
+          opacity: .36;
+          filter: grayscale(.72);
+          cursor: default;
+        }
+
+        .bo-arrow:not(:disabled):active,
+        .bo-reset:active {
+          transform: scale(.965);
+        }
+
+        .bo-reset {
+          height: 48px;
+          align-self: center;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          color: rgba(255,255,255,.70);
+          background: rgba(255,255,255,.065);
+          border: 1px solid rgba(255,255,255,.075);
+        }
+
+        .bo-status {
+          min-width: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 10px;
-          border: 0;
-          border-radius: 24px;
-          color: #06130c;
-          box-shadow: inset 0 2px 0 rgba(255,255,255,.34), 0 18px 42px rgba(0,0,0,.23);
-          transition: transform .13s ease, filter .13s ease, opacity .13s ease;
-        }
-
-        .vm-trade-btn::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 38%);
-          pointer-events: none;
-        }
-
-        .vm-trade-btn:active:not(:disabled) {
-          transform: scale(.976);
-        }
-
-        .vm-trade-btn:disabled {
-          opacity: .44;
-          filter: grayscale(.85);
-        }
-
-        .vm-trade-up {
-          background: linear-gradient(180deg, #7cffbd, #25df7d 56%, #15b967);
-        }
-
-        .vm-trade-down {
-          color: #310807;
-          background: linear-gradient(180deg, #ffaaaa, #ff5a5a 55%, #dd3535);
-        }
-
-        .vm-trade-selected {
-          opacity: 1 !important;
-          filter: none !important;
-          box-shadow: inset 0 2px 0 rgba(255,255,255,.36), 0 0 0 2px rgba(255,255,255,.10), 0 22px 48px rgba(0,0,0,.26);
-        }
-
-        .vm-trade-icon,
-        .vm-trade-copy {
-          position: relative;
-          z-index: 2;
-        }
-
-        .vm-trade-icon {
-          width: 38px;
-          height: 38px;
-          display: grid;
-          place-items: center;
-          border-radius: 15px;
-          background: rgba(255,255,255,.26);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.24);
-        }
-
-        .vm-trade-copy b,
-        .vm-trade-copy em {
-          display: block;
-          text-align: left;
-        }
-
-        .vm-trade-copy b {
-          font-size: 17px;
-          line-height: .95;
-          font-weight: 1000;
-          letter-spacing: -.045em;
-        }
-
-        .vm-trade-copy em {
-          margin-top: 4px;
-          opacity: .58;
-          font-size: 9px;
-          line-height: 1;
-          font-style: normal;
-          font-weight: 950;
-          letter-spacing: .18em;
-        }
-
-        .vm-sub-actions {
-          display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .vm-main-action,
-        .vm-reset {
-          min-height: 44px;
-          border: 0;
-          border-radius: 18px;
-          color: #061018;
-          background: linear-gradient(135deg, #2f8cff, #25df7d 58%, #f9c74f);
-          font-size: 11px;
-          font-weight: 950;
-          letter-spacing: .10em;
-          text-transform: uppercase;
-          box-shadow: inset 0 2px 0 rgba(255,255,255,.31), 0 16px 34px rgba(37,223,125,.14);
-        }
-
-        .vm-reset {
-          width: 54px;
-          display: grid;
-          place-items: center;
-          color: rgba(255,255,255,.78);
-          background: rgba(255,255,255,.075);
-          border: 1px solid rgba(255,255,255,.09);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 14px 30px rgba(0,0,0,.18);
-        }
-
-        .vm-main-action:disabled {
-          opacity: .46;
-          filter: grayscale(.9);
-        }
-
-        .vm-round-result {
-          position: relative;
-          z-index: 12;
-          overflow: hidden;
-          margin-top: 10px;
-          border-radius: 28px;
-          border: 1px solid rgba(255,255,255,.09);
-          background: rgba(14,20,33,.82);
-          padding: 18px;
+          gap: 7px;
+          color: rgba(255,255,255,.52);
+          font-size: 10px;
+          font-weight: 730;
+          letter-spacing: .02em;
           text-align: center;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 20px 54px rgba(0,0,0,.22);
-          backdrop-filter: blur(20px);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
-        .vm-result-glow {
+        .bo-status b {
+          color: rgba(255,255,255,.82);
+          font-weight: 850;
+        }
+
+        .bo-dot-up,
+        .bo-dot-down {
+          width: 6px;
+          height: 6px;
+          flex: 0 0 auto;
+          border-radius: 999px;
+        }
+
+        .bo-dot-up {
+          background: #1acb7f;
+          box-shadow: 0 0 10px rgba(26,203,127,.58);
+        }
+
+        .bo-dot-down {
+          background: #ff535c;
+          box-shadow: 0 0 10px rgba(255,83,92,.58);
+        }
+
+        .bo-result-toast,
+        .bo-game-over {
           position: absolute;
-          inset: -80px -40px auto;
-          height: 170px;
-          opacity: .38;
-          background: radial-gradient(circle, rgba(47,140,255,.38), transparent 62%);
-          pointer-events: none;
+          z-index: 20;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: min(300px, calc(100% - 28px));
+          border-radius: 22px;
+          border: 1px solid rgba(255,255,255,.09);
+          background: rgba(8,11,17,.88);
+          box-shadow: 0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.07);
+          backdrop-filter: blur(16px);
+          padding: 13px;
         }
 
-        .vm-result-icon {
-          position: relative;
-          z-index: 2;
-          width: 58px;
-          height: 58px;
+        .bo-result-mark {
+          width: 42px;
+          height: 42px;
+          flex: 0 0 auto;
           display: grid;
           place-items: center;
-          margin: 0 auto 12px;
-          border-radius: 22px;
-          background: rgba(255,255,255,.075);
-          color: #bce8ff;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.09);
+          border-radius: 16px;
+          color: #06100d;
+          box-shadow: inset 0 2px 0 rgba(255,255,255,.34);
         }
 
-        .vm-round-result h2,
-        .vm-round-result p,
-        .vm-result-cells,
-        .vm-round-result .vm-main-action {
-          position: relative;
-          z-index: 2;
+        .bo-mark-up {
+          background: #1acb7f;
         }
 
-        .vm-round-result h2 {
-          margin: 0;
+        .bo-mark-down {
+          background: #ff535c;
+        }
+
+        .bo-result-toast b,
+        .bo-result-toast span {
+          display: block;
+        }
+
+        .bo-result-toast b {
           color: #fff;
-          font-size: 28px;
-          line-height: .94;
-          font-weight: 1000;
+          font-size: 16px;
+          line-height: 1;
+          font-weight: 900;
+          letter-spacing: -.05em;
+        }
+
+        .bo-result-toast span {
+          margin-top: 5px;
+          color: rgba(255,255,255,.48);
+          font-size: 10px;
+          line-height: 1.2;
+          font-weight: 680;
+        }
+
+        .bo-game-over {
+          display: grid;
+          justify-items: center;
+          text-align: center;
+          padding: 18px 14px 14px;
+        }
+
+        .bo-game-over-icon {
+          width: 50px;
+          height: 50px;
+          display: grid;
+          place-items: center;
+          border-radius: 18px;
+          color: #07100d;
+          background: linear-gradient(145deg, #ffe27a, #ffb020);
+          box-shadow: inset 0 2px 0 rgba(255,255,255,.42), 0 18px 42px rgba(255,176,32,.16);
+        }
+
+        .bo-game-over h2 {
+          margin: 3px 0 0;
+          font-size: 25px;
+          line-height: .9;
+          font-weight: 930;
           letter-spacing: -.075em;
         }
 
-        .vm-round-result p {
-          margin: 10px auto 0;
-          max-width: 320px;
-          color: rgba(255,255,255,.62);
-          font-size: 12px;
-          line-height: 1.38;
-          font-weight: 720;
+        .bo-game-over p {
+          margin: 7px 0 0;
+          color: rgba(255,255,255,.54);
+          font-size: 11px;
+          line-height: 1.35;
+          font-weight: 650;
         }
 
-        .vm-result-cells {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-          margin-top: 14px;
-        }
-
-        .vm-result-cells > div {
-          border-radius: 21px;
-          border: 1px solid rgba(255,255,255,.075);
-          background: rgba(255,255,255,.045);
-          padding: 11px 8px;
-          min-width: 0;
-        }
-
-        .vm-result-cells > div.vm-result-win {
-          border-color: rgba(37,223,125,.22);
-          background: rgba(37,223,125,.075);
-        }
-
-        .vm-result-cells span,
-        .vm-result-cells b {
-          display: block;
-        }
-
-        .vm-result-cells span {
-          margin-bottom: 8px;
-          color: rgba(255,255,255,.40);
-          font-size: 8px;
-          font-weight: 850;
-          letter-spacing: .12em;
-          text-transform: uppercase;
-        }
-
-        .vm-result-cells b {
-          margin-top: 9px;
-          color: #fff;
-          font-size: 15px;
-          line-height: 1;
-          font-weight: 950;
-          letter-spacing: -.04em;
-        }
-
-        .vm-round-result .vm-main-action {
+        .bo-play-again {
           width: 100%;
-          margin-top: 15px;
+          height: 42px;
+          margin-top: 13px;
+          border: 0;
+          border-radius: 17px;
+          color: #06100d;
+          background: linear-gradient(180deg, #2ff4a5, #12b775);
+          font-size: 10px;
+          font-weight: 920;
+          letter-spacing: .10em;
+          text-transform: uppercase;
+          box-shadow: inset 0 2px 0 rgba(255,255,255,.32);
         }
 
-        @media (max-height: 720px) {
-          .vm-chart,
-          .vm-chart-empty {
-            height: 236px;
+        @media (max-height: 690px) {
+          .bo-page {
+            grid-template-rows: 44px minmax(0, 1fr) 112px;
+            gap: 6px;
+            padding-top: 5px;
           }
 
-          .vm-trade-btn {
-            min-height: 64px;
+          .bo-avatar {
+            width: 31px;
+            height: 31px;
+            font-size: 12px;
           }
 
-          .vm-player-copy b {
-            font-size: 22px;
+          .bo-score {
+            height: 38px;
+            border-radius: 16px;
           }
 
-          .vm-terminal-head {
-            min-height: 48px;
+          .bo-score b {
+            font-size: 18px;
+          }
+
+          .bo-stage {
+            border-radius: 18px;
+          }
+
+          .bo-chart-wrap {
+            grid-template-rows: 36px minmax(0, 1fr) 34px;
+          }
+
+          .bo-chart-head {
+            padding-top: 8px;
+          }
+
+          .bo-chip {
+            height: 26px;
+            border-radius: 10px;
+            padding: 0 7px;
+          }
+
+          .bo-tradebar {
+            grid-template-rows: 22px 62px 18px;
+            gap: 5px;
+          }
+
+          .bo-actions {
+            grid-template-columns: 1fr 44px 1fr;
+            gap: 7px;
+          }
+
+          .bo-arrow {
+            border-radius: 20px;
+          }
+
+          .bo-reset {
+            height: 44px;
+            border-radius: 16px;
+          }
+
+          .bo-arrow svg {
+            width: 32px;
+            height: 32px;
+          }
+
+          .bo-timer {
+            width: 40px;
+            height: 40px;
+          }
+
+          .bo-timer::before {
+            width: 31px;
+            height: 31px;
+          }
+
+          .bo-status {
+            font-size: 9px;
           }
         }
       `}</style>
 
-      <header className="vm-top">
-        <button type="button" className="vm-back" onClick={() => navigate(-1)} aria-label="Назад">
-          <ArrowLeft size={18} />
-        </button>
+      <header className="bo-top">
+        <TopPlayer type="player" name="Ростик" />
 
-        <div className="vm-title">
-          <small>{isOvertime ? 'sudden death option' : 'binary option duel'}</small>
-          <h1>Virus Option</h1>
+        <div className="bo-score">
+          <b>{scores.player}:{scores.bot}</b>
+          <span>{isOvertime ? 'OT' : `R${round}`}</span>
         </div>
 
-        <div className="vm-status">{statusText}</div>
+        <TopPlayer type="bot" name="Bot" />
       </header>
 
-      <section className="vm-board">
-        <PlayerCard title="Твой счет" score={scores.player} pick={picks?.player ?? null} active={phase === 'pick' || phase === 'live'} />
-        <PlayerCard title="Счет бота" score={scores.bot} pick={picks?.bot ?? null} active={phase === 'live'} isBot />
-      </section>
+      <main className="bo-stage">
+        <CandleChart
+          market={market}
+          visibleCount={visibleCount}
+          phase={phase}
+          playerPick={playerPick}
+          botPick={botPick}
+        />
 
-      <section className="vm-terminal">
-        <div className="vm-terminal-head">
-          <div className="vm-pair">
-            <div className="vm-pair-logo">
-              <Zap size={18} />
+        {phase === 'result' && result && <ResultToast result={result} />}
+
+        {phase === 'gameOver' && (
+          <section className="bo-game-over">
+            <div className="bo-game-over-icon">
+              <Trophy size={24} />
             </div>
-            <div className="vm-pair-copy">
-              <b>{market?.symbol ?? 'TON/USD'}</b>
-              <span>{market ? `${market.label} · ${market.pulseLabel}` : 'OTC chart · one tap trade'}</span>
-            </div>
+            <h2>{winner === 'player' ? 'Победа' : 'Бот забрал'}</h2>
+            <p>
+              Финальный счет {scores.player}:{scores.bot}. При 3:3 включается extra round,
+              где второй получает противоположную стрелку.
+            </p>
+            <button type="button" className="bo-play-again" onClick={resetMatch}>
+              сыграть еще
+            </button>
+          </section>
+        )}
+      </main>
+
+      <footer className="bo-tradebar">
+        <div className="bo-info-line">
+          <div className="bo-info-pill">
+            <span>{phase === 'choose' ? 'choice' : 'expiry'}</span>
+            <b>{phase === 'choose' ? '6s' : `${Math.ceil(LIVE_MS / 1000)}s`}</b>
           </div>
 
-          <div className="vm-payout">
-            <span>payout</span>
-            <b>x{PAYOUT.toFixed(2)}</b>
+          <div
+            className="bo-timer"
+            style={cssVars({
+              '--timer': timerProgress,
+              '--timer-color': phase === 'live'
+                ? delta >= 0 ? '#1acb7f' : '#ff535c'
+                : '#ffffff',
+            })}
+          >
+            <span>{timerLabel}</span>
+          </div>
+
+          <div className="bo-info-pill">
+            <span>move</span>
+            <b className={delta >= 0 ? 'bo-text-up' : 'bo-text-down'}>{formatPct(deltaPct)}</b>
           </div>
         </div>
 
-        <OptionChart market={market} step={step} phase={phase} />
-
-        <div className="vm-trade-info">
-          <div className="vm-info-cell">
-            <span>expiration</span>
-            <b className="vm-clock"><Clock3 size={13} /> {secondsLeft}s</b>
-          </div>
-
-          <div className="vm-info-cell">
-            <span>change</span>
-            <b className={priceDeltaPct >= 0 ? 'vm-positive' : 'vm-negative'}>{market ? formatPct(priceDeltaPct) : '+0.00%'}</b>
-          </div>
-
-          <div className="vm-info-cell">
-            <span>mode</span>
-            <b>{isOvertime ? 'OT' : `${TARGET_SCORE} pts`}</b>
-          </div>
-        </div>
-
-        <div className="vm-progress">
-          <div className="vm-progress-fill" style={cssVars({ '--progress': `${progress}%` })} />
-        </div>
-      </section>
-
-      <div className="vm-message-card">
-        <i><ShieldCheck size={17} /></i>
-        <p>{helperText}</p>
-      </div>
-
-      {(phase === 'roundResult' || phase === 'finished') && (
-        <RoundResultPanel result={result} winner={winner} onNextRound={nextRound} onRestart={resetGame} />
-      )}
-
-      <footer className="vm-bottom">
-        <div className="vm-trade-actions">
-          <TradeButton
-            direction="up"
-            disabled={phase !== 'pick'}
-            selected={picks?.player === 'up'}
-            onClick={() => startTrade('up')}
-          />
-          <TradeButton
-            direction="down"
-            disabled={phase !== 'pick'}
-            selected={picks?.player === 'down'}
-            onClick={() => startTrade('down')}
-          />
-        </div>
-
-        <div className="vm-sub-actions">
+        <div className="bo-actions">
           <button
             type="button"
-            className="vm-main-action"
-            disabled={phase === 'live'}
-            onClick={phase === 'roundResult' ? nextRound : resetGame}
+            className="bo-arrow bo-arrow-up"
+            disabled={phase !== 'choose'}
+            onClick={() => commitChoice('up')}
+            aria-label="Выбрать вверх"
           >
-            {phase === 'live' ? 'Сделка идет' : phase === 'roundResult' ? 'Следующий раунд' : winner ? 'Новая игра' : 'Новая серия'}
+            <ChevronUp />
           </button>
-          <button type="button" className="vm-reset" onClick={resetGame} aria-label="Сбросить игру">
-            <RefreshCcw size={15} />
+
+          <button type="button" className="bo-reset" onClick={resetMatch} aria-label="Начать заново">
+            <RefreshCcw size={17} />
           </button>
+
+          <button
+            type="button"
+            className="bo-arrow bo-arrow-down"
+            disabled={phase !== 'choose'}
+            onClick={() => commitChoice('down')}
+            aria-label="Выбрать вниз"
+          >
+            <ChevronDown />
+          </button>
+        </div>
+
+        <div className="bo-status">
+          <i className={delta >= 0 ? 'bo-dot-up' : 'bo-dot-down'} />
+          <span>
+            <b>{statusText}</b>
+            {playerPick && botPick ? ` · you ${playerPick === 'up' ? '↑' : '↓'} / bot ${botPick === 'up' ? '↑' : '↓'}` : ''}
+          </span>
         </div>
       </footer>
     </div>
