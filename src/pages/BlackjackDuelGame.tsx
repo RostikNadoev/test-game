@@ -27,6 +27,7 @@ import clubs10Img from '../assets/games/bj/clubs-10.webp';
 import clubsJImg from '../assets/games/bj/clubs-j.webp';
 import clubsQImg from '../assets/games/bj/clubs-q.webp';
 import clubsKImg from '../assets/games/bj/clubs-k.webp';
+import logoBackImg from '../assets/games/bj/logo-b.webp';
 
 type Suit = '♠' | '♣';
 type VisualSuit = 'spades' | 'clubs';
@@ -96,6 +97,29 @@ const CARD_IMAGES: Record<VisualSuit, Record<Rank, string>> = {
     Q: clubsQImg,
     K: clubsKImg,
   },
+};
+
+const PRELOAD_IMAGES = [
+  ...RANKS.map((rank) => CARD_IMAGES.spades[rank]),
+  ...RANKS.map((rank) => CARD_IMAGES.clubs[rank]),
+  logoBackImg,
+];
+
+const preloadImages = (sources: string[]) => {
+  const loadedImages = sources.map((src) => {
+    const image = new Image();
+    image.decoding = 'async';
+    image.loading = 'eager';
+    image.src = src;
+    return image;
+  });
+
+  return () => {
+    loadedImages.forEach((image) => {
+      image.onload = null;
+      image.onerror = null;
+    });
+  };
 };
 
 const TARGET_WINS = 5;
@@ -288,9 +312,7 @@ const CardBackDesign = () => (
     <div className="bj-back-corner bj-back-corner-br" />
 
     <div className="bj-back-logo-slot">
-      <div className="bj-back-logo-core">
-        <span>BJ</span>
-      </div>
+      <img src={logoBackImg} alt="" className="bj-back-logo-img" draggable={false} />
     </div>
   </div>
 );
@@ -497,6 +519,8 @@ export const BlackjackDuelGame: React.FC = () => {
   useEffect(() => {
     scoreRef.current = score;
   }, [score]);
+
+  useEffect(() => preloadImages(PRELOAD_IMAGES), []);
 
   useEffect(() => {
     latestRoundRef.current = {
@@ -1002,43 +1026,21 @@ export const BlackjackDuelGame: React.FC = () => {
           inset: 0;
           display: grid;
           place-items: center;
+          padding: 19%;
         }
 
-        .bj-back-logo-core {
-          position: relative;
-          width: 47%;
-          aspect-ratio: 1;
-          display: grid;
-          place-items: center;
-          border-radius: 28%;
-          transform: rotate(45deg);
-          background:
-            radial-gradient(circle at 35% 18%, rgba(255,255,255,.38), transparent 35%),
-            linear-gradient(145deg, rgba(242,199,102,.90), rgba(164,94,26,.95));
-          border: 2px solid rgba(255,255,255,.22);
-          box-shadow:
-            inset 0 2px 6px rgba(255,255,255,.28),
-            inset 0 -8px 12px rgba(0,0,0,.34),
-            0 0 20px rgba(242,199,102,.24),
-            0 10px 18px rgba(0,0,0,.32);
-        }
-
-        .bj-back-logo-core::before {
-          content: '';
-          position: absolute;
-          inset: 13%;
-          border-radius: 24%;
-          border: 1px solid rgba(0,0,0,.34);
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
-        }
-
-        .bj-back-logo-core span {
-          transform: rotate(-45deg);
-          color: #15100b;
-          font-size: clamp(15px, 4.5vw, 28px);
-          font-weight: 950;
-          letter-spacing: -.10em;
-          text-shadow: 0 1px 0 rgba(255,255,255,.28);
+        .bj-back-logo-img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          user-select: none;
+          pointer-events: none;
+          transform: translateZ(0);
+          filter:
+            drop-shadow(0 0 8px rgba(82,255,229,.30))
+            drop-shadow(0 0 13px rgba(242,199,102,.24))
+            drop-shadow(0 9px 10px rgba(0,0,0,.52));
         }
 
         @keyframes bjBackGlow {
