@@ -445,6 +445,46 @@ const NumberPicker = ({
 }) => {
   const meta = PLAYERS[activePlayer];
   const percent = ((value - MIN_NUMBER) / (MAX_NUMBER - MIN_NUMBER)) * 100;
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+
+  const updateFromClientX = (clientX: number) => {
+    const track = trackRef.current;
+    if (!track) return;
+
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    const nextValue = MIN_NUMBER + Math.round(ratio * (MAX_NUMBER - MIN_NUMBER));
+
+    onChange(nextValue);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    draggingRef.current = true;
+    updateFromClientX(event.clientX);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    event.preventDefault();
+    updateFromClientX(event.clientX);
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+
+    draggingRef.current = false;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div
@@ -462,12 +502,26 @@ const NumberPicker = ({
       </div>
 
       <div className="rd-slider-row">
-        <div className="rd-slider-track">
+        <div ref={trackRef} className="rd-slider-track">
           <div className="rd-slider-fill" />
           <div className="rd-slider-thumb">
             <i>{value}</i>
           </div>
         </div>
+
+        <div
+          className="rd-slider-hit"
+          role="slider"
+          tabIndex={0}
+          aria-valuemin={MIN_NUMBER}
+          aria-valuemax={MAX_NUMBER}
+          aria-valuenow={value}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onLostPointerCapture={handlePointerUp}
+        />
 
         <input
           type="range"
@@ -477,6 +531,8 @@ const NumberPicker = ({
           value={value}
           onChange={(event) => onChange(Number(event.target.value))}
           className="rd-slider"
+          aria-hidden="true"
+          tabIndex={-1}
         />
       </div>
     </div>
@@ -797,7 +853,7 @@ export const NeonMatrixGame: React.FC = () => {
           color: white;
           font-family: 'Supercell','Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           font-size: 12px;
-          line-height: 1.25;
+          line-height: 1.36;
           -webkit-font-smoothing: antialiased;
           user-select: none;
           isolation: isolate;
@@ -969,20 +1025,23 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-title small {
           display: block;
-          color: rgba(255,255,255,.32);
+          color: rgba(255,255,255,.42);
           font-size: 7px;
-          line-height: 1;
+          line-height: 1.32;
           font-weight: 900;
           letter-spacing: .26em;
           text-transform: uppercase;
+          padding-top: 1px;
+          padding-bottom: 2px;
         }
 
         .rd-title h1 {
-          margin: 4px 0 0;
+          margin: 2px 0 0;
           font-size: clamp(18px, 4.6vw, 28px);
-          line-height: 1.1;
+          line-height: 1.24;
           font-weight: 900;
           letter-spacing: -.07em;
+          padding: 1px 0 3px;
           background: linear-gradient(100deg, #EAF4FF, #ffffff 42%, #ffe9b8);
           -webkit-background-clip: text;
           background-clip: text;
@@ -1003,7 +1062,12 @@ export const NeonMatrixGame: React.FC = () => {
           border-radius: 50%;
           display: grid;
           place-items: center;
-          box-shadow: 0 24px 52px rgba(0,0,0,.42); transform: translateZ(0); will-change: transform;
+          box-shadow:
+            0 24px 52px rgba(0,0,0,.52),
+            0 0 0 1px rgba(255,255,255,.05),
+            0 0 36px rgba(255,201,106,.12);
+          transform: translateZ(0);
+          will-change: transform;
         }
 
         .rd-pickCyan .rd-wheel,
@@ -1023,24 +1087,30 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-wheel-aura {
           position: absolute;
-          inset: -2px;
+          inset: -3px;
           border-radius: inherit;
-          border: 1px solid rgba(255,201,106,.18);
-          box-shadow: 0 0 26px rgba(255,201,106,.07), inset 0 0 0 1px rgba(255,255,255,.02);
+          border: 2px solid rgba(255,201,106,.42);
+          box-shadow:
+            0 0 30px rgba(255,201,106,.18),
+            0 0 24px rgba(47,140,255,.10),
+            inset 0 0 0 1px rgba(255,255,255,.06);
         }
 
         .rd-wheel-surface {
           position: absolute;
           inset: 0;
           border-radius: inherit;
-          border: 1px solid rgba(255,255,255,.08);
+          border: 1px solid rgba(255,255,255,.15);
           background:
-            radial-gradient(circle at 50% 30%, rgba(255,255,255,.06), transparent 46%),
-            radial-gradient(circle at 50% 50%, #0e0e16 0%, #08080e 62%, #050509 100%);
+            radial-gradient(circle at 50% 28%, rgba(255,255,255,.14), transparent 40%),
+            radial-gradient(circle at 50% 50%, rgba(255,201,106,.10) 0%, transparent 24%),
+            repeating-conic-gradient(from -3deg, rgba(255,255,255,.035) 0deg 3deg, rgba(0,0,0,.08) 3deg 6deg),
+            radial-gradient(circle at 50% 50%, #1b1c29 0%, #0d0e18 58%, #040407 100%);
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.07),
-            inset 0 -34px 58px rgba(0,0,0,.55),
-            inset 0 0 0 9px rgba(255,255,255,.012);
+            inset 0 1px 0 rgba(255,255,255,.16),
+            inset 0 -34px 58px rgba(0,0,0,.66),
+            inset 0 0 0 8px rgba(255,201,106,.055),
+            inset 0 0 0 16px rgba(255,255,255,.025);
         }
 
         .rd-wheel-glass {
@@ -1054,8 +1124,20 @@ export const NeonMatrixGame: React.FC = () => {
             radial-gradient(circle at 50% 82%, rgba(0,0,0,.22), transparent 48%);
         }
 
-        .rd-spinning .rd-wheel-surface { box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -34px 58px rgba(0,0,0,.55), 0 0 18px rgba(47,140,255,.10); }
-        .rd-impact .rd-wheel-surface { box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 -34px 58px rgba(0,0,0,.55), 0 0 22px rgba(255,143,45,.14); }
+        .rd-spinning .rd-wheel-surface {
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.16),
+            inset 0 -34px 58px rgba(0,0,0,.66),
+            inset 0 0 0 8px rgba(255,201,106,.07),
+            0 0 28px rgba(47,140,255,.18);
+        }
+        .rd-impact .rd-wheel-surface {
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.16),
+            inset 0 -34px 58px rgba(0,0,0,.66),
+            inset 0 0 0 8px rgba(255,201,106,.07),
+            0 0 34px rgba(255,143,45,.24);
+        }
 
         .rd-marks { position: absolute; inset: 0; border-radius: inherit; }
 
@@ -1068,16 +1150,19 @@ export const NeonMatrixGame: React.FC = () => {
           height: 48%;
           transform-origin: 50% 100%;
           transform: translateX(-50%) rotate(var(--a));
-          background: linear-gradient(to bottom, rgba(255,255,255,.10) 0 7px, transparent 7px);
+          background: linear-gradient(to bottom, rgba(255,255,255,.24) 0 8px, transparent 8px);
+          filter: drop-shadow(0 0 3px rgba(255,255,255,.16));
         }
 
         .rd-marks .rd-mark-mid {
-          background: linear-gradient(to bottom, rgba(255,255,255,.22) 0 10px, transparent 10px);
+          width: 2.5px;
+          background: linear-gradient(to bottom, rgba(255,255,255,.42) 0 12px, transparent 12px);
         }
 
         .rd-marks .rd-mark-major {
-          width: 2.5px;
-          background: linear-gradient(to bottom, rgba(255,201,106,.55) 0 14px, transparent 14px);
+          width: 3px;
+          background: linear-gradient(to bottom, rgba(255,201,106,.92) 0 17px, transparent 17px);
+          filter: drop-shadow(0 0 6px rgba(255,201,106,.36));
         }
 
         .rd-labels { position: absolute; inset: 0; pointer-events: none; }
@@ -1085,11 +1170,12 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-labels span {
           position: absolute;
           transform: translate(-50%, -50%);
-          color: rgba(255,255,255,.4);
-          font-size: 8.5px;
-          line-height: 1.15;
+          color: rgba(255,255,255,.76);
+          font-size: 9px;
+          line-height: 1.28;
           font-weight: 900;
           letter-spacing: -.02em;
+          text-shadow: 0 1px 4px rgba(0,0,0,.72), 0 0 12px rgba(255,201,106,.20);
         }
 
         .rd-bet {
@@ -1202,21 +1288,23 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-spinning .rd-center { box-shadow: 0 20px 48px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.1), 0 0 20px rgba(47,140,255,.10); }
 
         .rd-center small {
-          color: rgba(255,255,255,.4);
+          color: rgba(255,255,255,.48);
           font-size: 6.5px;
-          line-height: 1.2;
+          line-height: 1.36;
           font-weight: 900;
           letter-spacing: .18em;
           text-transform: uppercase;
+          padding-top: 2px;
         }
 
         .rd-center strong {
-          margin-top: 3px;
+          margin-top: 2px;
           color: white;
           font-size: clamp(30px, 8vw, 48px);
-          line-height: 1.08;
+          line-height: 1.18;
           font-weight: 900;
           letter-spacing: -.08em;
+          padding-bottom: 2px;
           text-shadow: 0 0 26px rgba(255,201,106,.22);
         }
 
@@ -1377,28 +1465,29 @@ export const NeonMatrixGame: React.FC = () => {
         .rd-bottom { position: relative; z-index: 20; display: grid; gap: 6px; }
 
         .rd-message {
-          min-height: 12px;
+          min-height: 18px;
           text-align: center;
-          color: rgba(255,255,255,.55);
+          color: rgba(255,255,255,.58);
           font-size: 9px;
-          line-height: 1.2;
+          line-height: 1.42;
           font-weight: 700;
           letter-spacing: .01em;
+          padding: 1px 4px;
         }
 
         .rd-picker {
           display: grid;
-          grid-template-columns: 62px minmax(0, 1fr);
+          grid-template-columns: 66px minmax(0, 1fr);
           align-items: center;
           gap: 10px;
-          min-height: 54px;
-          padding: 9px 12px;
-          border-radius: 20px;
-          border: 1px solid var(--line);
+          min-height: 64px;
+          padding: 10px 12px;
+          border-radius: 22px;
+          border: 1px solid rgba(255,255,255,.09);
           background:
             radial-gradient(circle at var(--value) 0%, var(--player-soft), transparent 52%),
-            rgba(255,255,255,.035);
-          box-shadow: 0 10px 30px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.05);
+            rgba(255,255,255,.042);
+          box-shadow: 0 10px 30px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.07);
 
         }
 
@@ -1416,25 +1505,32 @@ export const NeonMatrixGame: React.FC = () => {
 
         .rd-picker-value b {
           color: white;
-          font-size: 22px;
-          line-height: 1.12;
+          font-size: 23px;
+          line-height: 1.22;
           font-weight: 900;
           letter-spacing: -.07em;
+          padding-bottom: 1px;
           text-shadow: 0 0 20px var(--player-glow);
         }
 
-        .rd-slider-row { position: relative; height: 36px; display: grid; align-items: center; }
+        .rd-slider-row {
+          position: relative;
+          height: 48px;
+          display: grid;
+          align-items: center;
+          touch-action: none;
+        }
 
         .rd-slider-track {
           position: absolute;
-          left: 8px;
-          right: 8px;
+          left: 6px;
+          right: 6px;
           top: 50%;
-          height: 8px;
+          height: 11px;
           transform: translateY(-50%);
           border-radius: 999px;
-          background: rgba(0,0,0,.4);
-          box-shadow: inset 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.04);
+          background: rgba(0,0,0,.48);
+          box-shadow: inset 0 1px 2px rgba(0,0,0,.60), 0 0 0 1px rgba(255,255,255,.07);
         }
 
         .rd-slider-fill {
@@ -1450,31 +1546,50 @@ export const NeonMatrixGame: React.FC = () => {
           position: absolute;
           left: var(--value);
           top: 50%;
-          width: 30px;
-          height: 30px;
+          width: 38px;
+          height: 38px;
           display: grid;
           place-items: center;
           transform: translate(-50%, -50%);
           border-radius: 999px;
           background: #ffffff;
-          box-shadow: 0 0 0 6px rgba(255,255,255,.07), 0 0 26px var(--player-glow), 0 6px 14px rgba(0,0,0,.4);
+          box-shadow: 0 0 0 8px rgba(255,255,255,.075), 0 0 30px var(--player-glow), 0 8px 16px rgba(0,0,0,.46);
         }
 
-        .rd-slider-thumb i { color: #050507; font-size: 8px; line-height: 1; font-style: normal; font-weight: 900; }
+        .rd-slider-thumb i {
+          color: #050507;
+          font-size: 9px;
+          line-height: 1.2;
+          font-style: normal;
+          font-weight: 900;
+          padding-top: 1px;
+        }
 
-        .rd-slider { position: relative; z-index: 4; width: 100%; height: 36px; opacity: 0; cursor: pointer; margin: 0; }
+        .rd-slider-hit {
+          position: absolute;
+          z-index: 6;
+          inset: -8px -8px;
+          border-radius: 999px;
+          cursor: pointer;
+          touch-action: none;
+        }
+
+        .rd-slider { position: absolute; inset: 0; z-index: 2; width: 100%; height: 48px; opacity: 0; cursor: pointer; margin: 0; pointer-events: none; }
 
         .rd-button {
           border: 0;
           width: 100%;
-          min-height: 40px;
-          border-radius: 16px;
-          padding: 0 16px;
+          min-height: 46px;
+          border-radius: 17px;
+          padding: 4px 16px 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           color: #1c1505;
           background: linear-gradient(135deg, #ffe9ad 0%, #FFC96A 46%, #d78a20 100%);
           box-shadow: 0 12px 28px rgba(255,201,106,.22), inset 0 1px 0 rgba(255,255,255,.5);
           font-size: 9.5px;
-          line-height: 1.18;
+          line-height: 1.35;
           font-weight: 900;
           text-transform: uppercase;
           letter-spacing: .12em;
@@ -1524,9 +1639,10 @@ export const NeonMatrixGame: React.FC = () => {
           margin: 0;
           color: #fff;
           font-size: clamp(20px, 5.4vw, 28px);
-          line-height: 1.12;
+          line-height: 1.24;
           font-weight: 900;
           letter-spacing: -.06em;
+          padding: 1px 0 3px;
         }
 
         .rd-card p {
@@ -1656,7 +1772,7 @@ export const NeonMatrixGame: React.FC = () => {
           .rd-health-head { margin-bottom: 5px; }
           .rd-health-head b { font-size: 12px; line-height:1.18; }
           .rd-round { height: 37px; border-radius: 13px; }
-          .rd-title h1 { font-size: clamp(17px, 4.4vw, 25px); line-height:1.1; }
+          .rd-title h1 { font-size: clamp(17px, 4.4vw, 25px); line-height:1.24; }
           .rd-wheel {
             min-width: 264px; min-height: 264px;
             width: min(80vw, 374px); height: min(80vw, 374px);
@@ -1666,17 +1782,17 @@ export const NeonMatrixGame: React.FC = () => {
             width: min(78vw, 354px); height: min(78vw, 354px);
             max-width: min(46vh, 354px); max-height: min(46vh, 354px);
           }
-          .rd-center strong { font-size: clamp(28px, 7.8vw, 42px); line-height:1.08; }
+          .rd-center strong { font-size: clamp(28px, 7.8vw, 42px); line-height:1.18; }
           .rd-pick { min-height: 26px; }
-          .rd-picker { min-height: 50px; padding: 8px 10px; border-radius: 18px; grid-template-columns: 58px minmax(0, 1fr); }
-          .rd-picker-value b { font-size: 21px; line-height:1.12; }
-          .rd-button { min-height: 41px; }
+          .rd-picker { min-height: 58px; padding: 8px 10px; border-radius: 19px; grid-template-columns: 60px minmax(0, 1fr); }
+          .rd-picker-value b { font-size: 21px; line-height:1.22; }
+          .rd-button { min-height: 44px; }
         }
 
         @media (max-width: 520px) {
           .rd-wheel { min-width: 278px; min-height: 278px; width: min(85vw, 348px); height: min(85vw, 348px); }
           .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel { min-width: 270px; min-height: 270px; width: min(82vw, 336px); height: min(82vw, 336px); }
-          .rd-center strong { font-size: 34px; line-height:1.08; }
+          .rd-center strong { font-size: 34px; line-height:1.18; }
         }
 
         @media (prefers-reduced-motion: reduce) {
