@@ -6,10 +6,8 @@ import paperCover from '../assets/home/paper.webp';
 import diceCover from '../assets/home/dice.webp';
 import towerCover from '../assets/home/tower.webp';
 import marketCover from '../assets/home/market.webp';
-import crashCover from '../assets/home/crash.webp';
 import hockeyCover from '../assets/home/hockey.webp';
 import raceCover from '../assets/home/race.webp';
-import penalCover from '../assets/home/penal.webp';
 import gridCover from '../assets/home/grid.webp';
 import rouletteCover from '../assets/home/roulette.webp'
 
@@ -85,17 +83,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/tower_stack/play',
     coverUrl: towerCover,
-  },
-  {
-    code: 'crash_duel',
-    displayName: 'Crash Duel',
-    icon: '🚀',
-    description: 'Забери множитель до краша',
-    color: 'from-[#F2C766]/25 via-[#52FFE5]/12 to-transparent',
-    meta: 'Crash',
-    status: 'New',
-    playPath: '/game/crash_duel/play',
-    coverUrl: crashCover,
   },
   {
     code: 'virus_market',
@@ -178,17 +165,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Arcade',
     playPath: '/game/air_hockey/play',
     coverUrl: hockeyCover,
-  },
-  {
-    code: 'penalty_pvp',
-    displayName: 'Penalty PvP',
-    icon: '⚽',
-    description: 'Пенальти 1v1',
-    color: 'from-[#52FFE5]/18 via-[#F2C766]/12 to-transparent',
-    meta: 'Penalty',
-    status: 'New',
-    playPath: '/game/penalty_pvp/play',
-    coverUrl: penalCover
   },
 ];
 
