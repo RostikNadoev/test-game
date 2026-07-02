@@ -3,8 +3,7 @@ import { API_BASE_URL } from './client';
 export type BlackjackCommandType =
   | 'state'
   | 'hit'
-  | 'stand'
-  | 'restart_match';
+  | 'stand';
 
 export type BlackjackClientCommand = {
   type: BlackjackCommandType;
@@ -114,7 +113,6 @@ export type BlackjackSocketClient = {
   requestState: () => boolean;
   hit: () => boolean;
   stand: () => boolean;
-  restartMatch: () => boolean;
   close: () => void;
 };
 
@@ -265,7 +263,6 @@ export const blackjackWsApi = {
       requestState: () => send({ type: 'state' }),
       hit: () => send({ type: 'hit' }),
       stand: () => send({ type: 'stand' }),
-      restartMatch: () => send({ type: 'restart_match' }),
       close: () => {
         socket.close();
       },

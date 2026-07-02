@@ -14,7 +14,7 @@ import { api, ApiError, type Lobby } from '../api';
 import { useAuth } from '../auth/AuthProvider';
 import { getGameByCode } from '../data/games';
 
-const POLL_INTERVAL_MS = 7000;
+const POLL_INTERVAL_MS = 3000;
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;

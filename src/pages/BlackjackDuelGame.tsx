@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import {
   blackjackWsApi,
@@ -287,9 +287,9 @@ const getPlayerInfo = (entry: BlackjackServerPlayer | undefined, cards: PlayingC
 };
 
 const getRoundResult = (state: BlackjackStateMessage | null) => {
-  if (!state) return null;
+  if (!state?.round_result || !isObject(state.round_result)) return null;
 
-  return isObject(state.round_result) ? state.round_result : null;
+  return state.round_result;
 };
 
 const getRoundWinnerUserId = (state: BlackjackStateMessage | null) => {
@@ -758,6 +758,7 @@ const ConnectionNotice = ({
 
 export const BlackjackDuelGame: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { token, user } = useAuth();
 
   const socketRef = useRef<BlackjackSocketClient | null>(null);
@@ -771,6 +772,16 @@ export const BlackjackDuelGame: React.FC = () => {
   const [burst, setBurst] = useState(0);
 
   const routeState = (location.state || {}) as LocationState;
+
+  const gameId = useMemo(() => {
+    if (routeState.game) return routeState.game;
+
+    if (typeof window === 'undefined') return 'blackjack_duel';
+
+    return window.sessionStorage.getItem('twingames_active_game') || 'blackjack_duel';
+  }, [routeState.game]);
+
+  const lobbiesPath = `/game/${gameId}/lobbies`;
 
   const lobbyId = useMemo(() => {
     const query = new URLSearchParams(location.search);
@@ -806,6 +817,7 @@ export const BlackjackDuelGame: React.FC = () => {
 
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem('twingames_blackjack_lobby_id', lobbyId);
+      window.sessionStorage.setItem('twingames_active_game', gameId);
 
       if (playersInfo.length) {
         window.sessionStorage.setItem('twingames_blackjack_players_info', JSON.stringify(playersInfo));
@@ -864,7 +876,7 @@ export const BlackjackDuelGame: React.FC = () => {
       socketRef.current = null;
       client?.close();
     };
-  }, [lobbyId, playersInfo, token]);
+  }, [gameId, lobbyId, playersInfo, token]);
 
   const orderedPlayerIds = useMemo(() => {
     const fromStateOrder = serverState?.player_order || [];
@@ -934,6 +946,18 @@ export const BlackjackDuelGame: React.FC = () => {
   const isPlayerTurnPhase = phase === 'player_turn';
   const isMyTurn = isPlayerTurnPhase;
 
+  useEffect(() => {
+    if (phase !== 'match_over') return;
+
+    const timer = window.setTimeout(() => {
+      navigate(lobbiesPath, { replace: true });
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [phase, navigate, lobbiesPath]);
+
   const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
   const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
 
@@ -998,7 +1022,7 @@ export const BlackjackDuelGame: React.FC = () => {
     }
   }, [roundWinner, serverState]);
 
-  const sendCommand = useCallback((type: 'state' | 'hit' | 'stand' | 'restart_match') => {
+  const sendCommand = useCallback((type: 'state' | 'hit' | 'stand') => {
     setSocketError(null);
 
     const sent = socketRef.current?.send({ type });
@@ -1018,11 +1042,6 @@ export const BlackjackDuelGame: React.FC = () => {
     sendCommand('stand');
   }, [isMyTurn, sendCommand]);
 
-  const restartMatch = useCallback(() => {
-    if (phase !== 'match_over') return;
-    sendCommand('restart_match');
-  }, [sendCommand, phase]);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
@@ -1035,14 +1054,12 @@ export const BlackjackDuelGame: React.FC = () => {
         event.preventDefault();
         stand();
       }
-
-      if (key === 'r') restartMatch();
     };
 
     window.addEventListener('keydown', onKeyDown);
 
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hit, isMyTurn, restartMatch, stand]);
+  }, [hit, isMyTurn, stand]);
 
   if (!lobbyId) {
     return (
@@ -1087,7 +1104,7 @@ export const BlackjackDuelGame: React.FC = () => {
           : phase === 'round_over'
             ? 'Следующая раздача...'
             : phase === 'match_over'
-              ? 'Матч окончен'
+              ? 'Возвращаем в лобби...'
               : `Socket: ${connectionStatus}`;
 
   const centerColor = socketError
@@ -1913,14 +1930,9 @@ export const BlackjackDuelGame: React.FC = () => {
                 Ничьих: {pushScore}
               </div>
 
-              <button
-                type="button"
-                onClick={restartMatch}
-                className="mt-5 h-[46px] w-full rounded-2xl border text-xs font-black uppercase tracking-[0.16em] transition active:scale-[0.98]"
-                style={{ borderColor: `${GOLD}4d`, background: `${GOLD}26`, color: GOLD }}
-              >
-                Новый матч
-              </button>
+              <div className="mt-5 rounded-2xl border border-white/[0.06] bg-white/[0.035] px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em] text-white/35">
+                Возвращаем в лобби...
+              </div>
             </div>
           </div>
         </div>
