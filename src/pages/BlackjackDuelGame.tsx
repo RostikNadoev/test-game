@@ -43,7 +43,7 @@ type Suit = '♠' | '♣';
 type VisualSuit = 'spades' | 'clubs';
 type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
 type Owner = 'player' | 'opponent';
-type Tone = 'mint' | 'rose' | 'gold';
+type Tone = 'mint' | 'gold';
 type RoundWinner = 'player' | 'opponent' | 'push' | null;
 
 type PlayingCard = {
@@ -64,10 +64,8 @@ type HandInfo = {
 type PlayerProfile = {
   id: number;
   nickname: string;
-  label: string;
   avatar: string;
   photoUrl?: string;
-  tone: 'mint' | 'rose';
 };
 
 type LobbyPlayerInfo = {
@@ -337,109 +335,118 @@ const readStoredPlayersInfo = () => {
 
 const AvatarBadge = ({
   profile,
-  size = 'sm',
+  active = false,
   winner = false,
 }: {
   profile: PlayerProfile;
-  size?: 'sm' | 'lg';
-  winner?: boolean;
-}) => {
-  const color = profile.tone === 'mint' ? MINT : ROSE;
-
-  return (
-    <div
-      className={cx(
-        'bj-avatar relative grid shrink-0 place-items-center overflow-hidden rounded-full border font-black uppercase',
-        size === 'lg' ? 'h-[76px] w-[76px] text-3xl' : 'h-8 w-8 text-sm',
-        winner && 'bj-avatar-winner',
-      )}
-      style={{
-        borderColor: `${color}66`,
-        color,
-        background:
-          `radial-gradient(circle at 35% 25%, rgba(255,255,255,.18), transparent 34%),` +
-          `radial-gradient(circle at 50% 100%, ${color}2b, rgba(6,6,10,.98) 68%)`,
-        boxShadow: winner
-          ? `0 0 34px ${color}45, inset 0 0 18px rgba(255,255,255,.06)`
-          : `0 0 16px ${color}22`,
-      }}
-    >
-      {profile.photoUrl ? (
-        <img
-          src={profile.photoUrl}
-          alt={profile.nickname}
-          className="relative z-10 h-full w-full object-cover"
-          draggable={false}
-        />
-      ) : (
-        <span className="relative z-10">{profile.avatar}</span>
-      )}
-    </div>
-  );
-};
-
-const HeaderPlayer = ({
-  profile,
-  score,
-  targetWins,
-  align = 'left',
-  active = false,
-}: {
-  profile: PlayerProfile;
-  score: number;
-  targetWins: number;
-  align?: 'left' | 'right';
   active?: boolean;
-}) => {
-  const color = profile.tone === 'mint' ? MINT : ROSE;
+  winner?: boolean;
+}) => (
+  <div
+    className={cx(
+      'bj-avatar relative grid shrink-0 place-items-center overflow-hidden rounded-full border font-black uppercase',
+      active && 'bj-avatar-active',
+      winner && 'bj-avatar-winner',
+    )}
+  >
+    {profile.photoUrl ? (
+      <img
+        src={profile.photoUrl}
+        alt={profile.nickname}
+        className="relative z-10 h-full w-full object-cover"
+        draggable={false}
+      />
+    ) : (
+      <span className="relative z-10">{profile.avatar}</span>
+    )}
+  </div>
+);
 
-  return (
-    <div className={cx('flex min-w-0 flex-1 items-center gap-2', align === 'right' && 'justify-end')}>
-      {align === 'left' && <AvatarBadge profile={profile} />}
-
-      <div className={cx('min-w-0', align === 'right' && 'text-right')}>
-        <div className="flex items-center gap-1.5">
-          {align === 'right' && active && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: color, boxShadow: `0 0 10px ${color}` }}
-            />
-          )}
-
-          <div className="truncate text-[11px] font-black leading-none text-white">
-            {profile.nickname}
+const ScoreHeader = ({
+  myProfile,
+  opponentProfile,
+  myScore,
+  opponentScore,
+  round,
+  connectionStatus,
+  connectionColor,
+  targetWins,
+  myActive,
+  opponentActive,
+}: {
+  myProfile: PlayerProfile;
+  opponentProfile: PlayerProfile;
+  myScore: number;
+  opponentScore: number;
+  round: number;
+  connectionStatus: ConnectionStatus;
+  connectionColor: string;
+  targetWins: number;
+  myActive: boolean;
+  opponentActive: boolean;
+}) => (
+  <div className="relative z-20 shrink-0 px-3 pt-2">
+    <div className="bj-topbar mx-auto flex max-w-[500px] items-center justify-between gap-2">
+      <div className="bj-top-player">
+        <AvatarBadge profile={myProfile} active={myActive} />
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-black leading-none text-white">
+            {myProfile.nickname}
           </div>
-
-          {align === 'left' && active && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: color, boxShadow: `0 0 10px ${color}` }}
-            />
-          )}
-        </div>
-
-        <div className={cx('mt-1 flex items-center gap-1', align === 'right' && 'justify-end')}>
-          {Array.from({ length: Math.max(1, targetWins) }).map((_, index) => {
-            const on = index < score;
-
-            return (
-              <span
-                key={index}
-                className="h-1.5 w-3 rounded-full transition-colors duration-300"
-                style={{
-                  background: on ? color : 'rgba(255,255,255,0.10)',
-                  boxShadow: on ? `0 0 8px ${color}80` : 'none',
-                }}
-              />
-            );
-          })}
+          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-[#52FFE5]/70">
+            You
+          </div>
         </div>
       </div>
 
-      {align === 'right' && <AvatarBadge profile={profile} />}
+      <div className="bj-scorebox">
+        <div className="flex items-center justify-center gap-2">
+          <span className="bj-score-num text-[#52FFE5]">{myScore}</span>
+          <span className="bj-score-sep">:</span>
+          <span className="bj-score-num text-[#FF6B8A]">{opponentScore}</span>
+        </div>
+
+        <div className="mt-1 flex items-center justify-center gap-1.5">
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: connectionColor, boxShadow: `0 0 10px ${connectionColor}` }}
+          />
+          <span className="text-[7px] font-black uppercase tracking-[0.16em] text-white/30">
+            R{round} · {connectionStatus}
+          </span>
+        </div>
+
+        <div className="mt-1 flex justify-center gap-1">
+          {Array.from({ length: Math.max(1, targetWins) }).map((_, index) => (
+            <span
+              key={index}
+              className={cx(
+                'h-1 w-3 rounded-full',
+                index < myScore
+                  ? 'bg-[#52FFE5]'
+                  : index < opponentScore
+                    ? 'bg-[#FF6B8A]'
+                    : 'bg-white/10',
+              )}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="bj-top-player justify-end text-right">
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-black leading-none text-white">
+            {opponentProfile.nickname}
+          </div>
+          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-[#FF6B8A]/70">
+            Enemy
+          </div>
+        </div>
+        <AvatarBadge profile={opponentProfile} active={opponentActive} />
+      </div>
     </div>
-  );
-};
+  </div>
+);
 
 const TurnTimer = ({
   msLeft,
@@ -466,7 +473,7 @@ const TurnTimer = ({
       }}
     >
       <div className="relative z-10 flex flex-col items-center leading-none">
-        <span className="text-[22px] font-black tabular-nums" style={{ color }}>
+        <span className="text-[24px] font-black tabular-nums" style={{ color }}>
           {seconds}
         </span>
         <span className="mt-0.5 text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
@@ -499,7 +506,6 @@ const PlayingCardView = ({
   hidden = false,
   dimmed = false,
   winner = false,
-  winnerTone = 'mint',
 }: {
   card: PlayingCard;
   owner: Owner;
@@ -508,12 +514,11 @@ const PlayingCardView = ({
   hidden?: boolean;
   dimmed?: boolean;
   winner?: boolean;
-  winnerTone?: 'mint' | 'rose';
 }) => {
   const mid = (count - 1) / 2;
-  const tilt = (index - mid) * (owner === 'player' ? 5 : 4);
-  const lift = Math.abs(index - mid) * 5;
-  const overlap = count > 5 ? -0.52 : count > 4 ? -0.46 : -0.35;
+  const tilt = (index - mid) * (owner === 'player' ? 4.4 : 3.8);
+  const lift = Math.abs(index - mid) * 4;
+  const overlap = count > 5 ? -0.56 : count > 4 ? -0.5 : -0.39;
 
   return (
     <div
@@ -523,7 +528,7 @@ const PlayingCardView = ({
         hidden && 'bj-hidden-shell',
         dimmed && 'bj-dimmed',
         winner && 'bj-winning-card',
-        winner && (winnerTone === 'mint' ? 'bj-win-mint' : 'bj-win-rose'),
+        winner && (owner === 'player' ? 'bj-win-mint' : 'bj-win-rose'),
       )}
       style={{
         ['--tilt' as string]: `${tilt}deg`,
@@ -551,16 +556,103 @@ const PlayingCardView = ({
 };
 
 const CardRow = ({ children }: { children: React.ReactNode }) => (
-  <div className="bj-card-row flex min-h-[calc(var(--bj-card-h)+8px)] items-end justify-center">
+  <div className="bj-card-row flex min-h-[calc(var(--bj-card-h)+6px)] items-end justify-center">
     {children}
   </div>
 );
 
 const EmptyCards = ({ text }: { text: string }) => (
-  <div className="flex h-[calc(var(--bj-card-h)+8px)] items-center justify-center text-[9px] font-black uppercase tracking-[0.18em] text-white/20">
+  <div className="flex h-[calc(var(--bj-card-h)+6px)] items-center justify-center text-[9px] font-black uppercase tracking-[0.18em] text-white/18">
     {text}
   </div>
 );
+
+const HandScoreBadge = ({
+  value,
+  hidden,
+  tone,
+  side,
+}: {
+  value: string;
+  hidden: boolean;
+  tone: 'mint' | 'rose';
+  side: 'top' | 'bottom';
+}) => {
+  const color = tone === 'mint' ? MINT : ROSE;
+
+  return (
+    <div
+      className={cx(
+        'bj-hand-score pointer-events-none absolute z-30 grid place-items-center rounded-full border font-black tabular-nums',
+        side === 'top' ? 'right-1 top-0' : 'bottom-0 left-1',
+      )}
+      style={{
+        color: hidden ? 'rgba(255,255,255,.42)' : color,
+        borderColor: `${color}45`,
+        background: `radial-gradient(circle at 35% 20%, rgba(255,255,255,.16), transparent 44%), ${color}18`,
+        boxShadow: `0 0 24px ${color}22, inset 0 0 16px rgba(0,0,0,.36)`,
+      }}
+    >
+      {value}
+    </div>
+  );
+};
+
+const HandZone = ({
+  cards,
+  info,
+  owner,
+  active,
+  winner,
+  hiddenCards = false,
+  emptyText,
+}: {
+  cards: PlayingCard[];
+  info: HandInfo;
+  owner: Owner;
+  active: boolean;
+  winner: boolean;
+  hiddenCards?: boolean;
+  emptyText: string;
+}) => {
+  const tone = owner === 'player' ? 'mint' : 'rose';
+
+  return (
+    <div
+      className={cx(
+        'bj-hand-zone relative mx-auto w-full max-w-[430px]',
+        owner === 'opponent' ? 'pt-1' : 'pb-1',
+        active && 'bj-hand-active',
+      )}
+    >
+      <HandScoreBadge
+        value={formatHand(info, hiddenCards)}
+        hidden={hiddenCards}
+        tone={tone}
+        side={owner === 'opponent' ? 'top' : 'bottom'}
+      />
+
+      {cards.length > 0 ? (
+        <CardRow>
+          {cards.map((card, index) => (
+            <PlayingCardView
+              key={card.id}
+              card={card}
+              owner={owner}
+              index={index}
+              count={cards.length}
+              hidden={hiddenCards || card.hidden}
+              dimmed={Boolean(winner) && !winner}
+              winner={winner}
+            />
+          ))}
+        </CardRow>
+      ) : (
+        <EmptyCards text={emptyText} />
+      )}
+    </div>
+  );
+};
 
 const ResultBurst = ({ seed, kind }: { seed: number; kind: RoundWinner }) => {
   if (!kind) return null;
@@ -598,110 +690,24 @@ const CtrlButton = ({
   onClick,
   disabled,
   tone,
-  full,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone: Tone;
-  full?: boolean;
 }) => {
-  const color = tone === 'mint' ? MINT : tone === 'gold' ? GOLD : ROSE;
+  const color = tone === 'mint' ? MINT : GOLD;
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cx(
-        'relative h-[46px] rounded-2xl border text-xs font-black uppercase tracking-[0.14em] transition active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40',
-        full ? 'w-full' : 'flex-1',
-      )}
+      className="relative h-[50px] flex-1 rounded-[20px] border text-[12px] font-black uppercase tracking-[0.14em] transition active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
       style={{ borderColor: `${color}40`, background: `${color}1a`, color }}
     >
       {children}
     </button>
-  );
-};
-
-const PlayerHandPanel = ({
-  profile,
-  cards,
-  info,
-  active,
-  winner,
-  hiddenCards = false,
-  owner = 'player',
-  emptyText = 'Нет карт',
-}: {
-  profile: PlayerProfile;
-  cards: PlayingCard[];
-  info: HandInfo;
-  active: boolean;
-  winner: boolean;
-  hiddenCards?: boolean;
-  owner?: Owner;
-  emptyText?: string;
-}) => {
-  const color = profile.tone === 'mint' ? MINT : ROSE;
-
-  return (
-    <div
-      className={cx(
-        'bj-hand-panel min-w-0 rounded-[18px] border bg-black/25 p-2',
-        active && 'bj-hand-active',
-      )}
-      style={{
-        borderColor: active ? `${color}66` : 'rgba(255,255,255,.06)',
-        boxShadow: active ? `0 0 18px ${color}20, inset 0 0 18px rgba(255,255,255,.035)` : undefined,
-      }}
-    >
-      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <AvatarBadge profile={profile} />
-
-          <div className="min-w-0">
-            <div className="truncate text-[10px] font-black leading-none text-white">
-              {profile.nickname}
-            </div>
-            <div className="mt-1 text-[7px] font-black uppercase tracking-[0.16em] text-white/30">
-              {profile.label}
-            </div>
-          </div>
-        </div>
-
-        <div
-          className="shrink-0 rounded-full border px-2 py-1 text-[12px] font-black leading-none tabular-nums"
-          style={{
-            color,
-            borderColor: `${color}30`,
-            background: `${color}12`,
-          }}
-        >
-          {formatHand(info, hiddenCards)}
-        </div>
-      </div>
-
-      {cards.length > 0 ? (
-        <CardRow>
-          {cards.map((card, index) => (
-            <PlayingCardView
-              key={card.id}
-              card={card}
-              owner={owner}
-              index={index}
-              count={cards.length}
-              hidden={hiddenCards || card.hidden}
-              dimmed={Boolean(winner) && !winner}
-              winner={winner}
-              winnerTone={profile.tone}
-            />
-          ))}
-        </CardRow>
-      ) : (
-        <EmptyCards text={emptyText} />
-      )}
-    </div>
   );
 };
 
@@ -875,8 +881,6 @@ export const BlackjackDuelGame: React.FC = () => {
   const getProfile = useCallback(
     (
       id: number,
-      label: string,
-      tone: 'mint' | 'rose',
       fallbackName: string,
       entry?: BlackjackServerPlayer,
     ): PlayerProfile => {
@@ -894,22 +898,20 @@ export const BlackjackDuelGame: React.FC = () => {
       return {
         id,
         nickname,
-        label,
         avatar: getInitials(nickname),
         photoUrl,
-        tone,
       };
     },
     [playersInfo],
   );
 
   const myProfile = useMemo(
-    () => getProfile(myUserId, 'Ты', 'mint', user?.tg_user || 'Ты', myEntry),
+    () => getProfile(myUserId, user?.tg_user || 'Ты', myEntry),
     [getProfile, myEntry, myUserId, user?.tg_user],
   );
 
   const opponentProfile = useMemo(
-    () => getProfile(opponentUserId, 'Соперник', 'rose', 'Opponent', opponentEntry),
+    () => getProfile(opponentUserId, 'Opponent', opponentEntry),
     [getProfile, opponentEntry, opponentUserId],
   );
 
@@ -918,8 +920,13 @@ export const BlackjackDuelGame: React.FC = () => {
 
   const phase = serverState?.phase || 'dealing';
   const activeUserId = serverState?.active_user_id || null;
-  const isMyTurn = phase === 'player_turn' && activeUserId === myUserId;
-  const isOpponentTurn = phase === 'player_turn' && activeUserId === opponentUserId;
+
+  const isPlayerTurnPhase = phase === 'player_turn';
+
+  const isMyTurn =
+    isPlayerTurnPhase &&
+    (!activeUserId || activeUserId === myUserId);
+
 
   const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
   const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
@@ -985,7 +992,7 @@ export const BlackjackDuelGame: React.FC = () => {
     }
   }, [roundWinner, serverState]);
 
-  const sendCommand = useCallback((type: 'state' | 'hit' | 'stand' | 'next_round' | 'restart_match') => {
+  const sendCommand = useCallback((type: 'state' | 'hit' | 'stand' | 'restart_match') => {
     setSocketError(null);
 
     const sent = socketRef.current?.send({ type });
@@ -1005,11 +1012,6 @@ export const BlackjackDuelGame: React.FC = () => {
     sendCommand('stand');
   }, [isMyTurn, sendCommand]);
 
-  const nextRound = useCallback(() => {
-    if (phase !== 'round_over') return;
-    sendCommand('next_round');
-  }, [sendCommand, phase]);
-
   const restartMatch = useCallback(() => {
     if (phase !== 'match_over') return;
     sendCommand('restart_match');
@@ -1028,14 +1030,13 @@ export const BlackjackDuelGame: React.FC = () => {
         stand();
       }
 
-      if (key === 'n') nextRound();
       if (key === 'r') restartMatch();
     };
 
     window.addEventListener('keydown', onKeyDown);
 
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hit, isMyTurn, nextRound, restartMatch, stand]);
+  }, [hit, isMyTurn, restartMatch, stand]);
 
   if (!lobbyId) {
     return (
@@ -1062,10 +1063,8 @@ export const BlackjackDuelGame: React.FC = () => {
     ? 'Ошибка'
     : phase === 'player_turn'
       ? isMyTurn
-        ? 'Твой ход'
-        : isOpponentTurn
-          ? 'Ход соперника'
-          : 'Ход игрока'
+        ? 'Выбирай'
+        : 'Ожидание'
       : serverState?.message ||
         (connectionStatus === 'open'
           ? 'Ожидаем состояние'
@@ -1077,14 +1076,14 @@ export const BlackjackDuelGame: React.FC = () => {
     ? socketError
     : phase === 'player_turn'
       ? isMyTurn
-        ? 'Взять карту или вскрыться'
-        : `${opponentProfile.nickname} выбирает действие`
+        ? 'Оба игрока делают ход одновременно'
+        : 'Ждем результат'
       : phase === 'dealing'
         ? 'Раздача карт'
         : phase === 'settling'
           ? 'Вскрытие карт'
           : phase === 'round_over'
-            ? 'Раунд завершен'
+            ? 'Следующая раздача...'
             : phase === 'match_over'
               ? 'Матч окончен'
               : `Socket: ${connectionStatus}`;
@@ -1093,24 +1092,25 @@ export const BlackjackDuelGame: React.FC = () => {
     ? ROSE
     : isMyTurn
       ? MINT
-      : isOpponentTurn
-        ? ROSE
-        : phase === 'round_over' || phase === 'match_over'
-          ? GOLD
-          : '#FFFFFF';
+      : phase === 'round_over' || phase === 'match_over'
+        ? GOLD
+        : '#FFFFFF';
 
-  const waitingPhase = phase === 'dealing' || phase === 'settling' || (phase === 'player_turn' && !isMyTurn);
+  const waitingPhase = phase === 'dealing' || phase === 'settling' || phase === 'round_over' || (phase === 'player_turn' && !isMyTurn);
+
   const waitingLabel =
-    phase === 'player_turn' && !isMyTurn
-      ? 'Ждем ход соперника'
-      : phase === 'dealing'
-        ? 'Раздача'
-        : phase === 'settling'
-          ? 'Вскрытие'
-          : 'Ожидание';
+    phase === 'round_over'
+      ? 'Следующий раунд...'
+      : phase === 'player_turn' && !isMyTurn
+        ? 'Ожидание'
+        : phase === 'dealing'
+          ? 'Раздача'
+          : phase === 'settling'
+            ? 'Вскрытие'
+            : 'Ожидание';
 
   const winnerProfile = myScore >= opponentScore ? myProfile : opponentProfile;
-  const winnerColor = winnerProfile.tone === 'mint' ? MINT : ROSE;
+  const winnerColor = myScore >= opponentScore ? MINT : ROSE;
   const matchTitle =
     myScore > opponentScore
       ? 'Стол твой'
@@ -1122,17 +1122,108 @@ export const BlackjackDuelGame: React.FC = () => {
     <div className="bj-root relative flex h-full min-h-[440px] w-full select-none flex-col overflow-hidden bg-[#050507] text-white">
       <style>{`
         .bj-root {
-          --bj-card-w: clamp(64px, 16vw, 96px);
+          --bj-card-w: clamp(78px, 21.4vw, 112px);
           --bj-card-h: calc(var(--bj-card-w) * 1.50);
-          --bj-radius: clamp(12px, 1.5vw, 18px);
+          --bj-radius: clamp(13px, 1.6vw, 19px);
           -webkit-tap-highlight-color: transparent;
           touch-action: manipulation;
         }
 
-        .bj-hand-panel {
-          --bj-card-w: clamp(58px, 14.8vw, 88px);
-          --bj-card-h: calc(var(--bj-card-w) * 1.50);
-          --bj-radius: clamp(11px, 1.4vw, 16px);
+        .bj-topbar {
+          min-height: 58px;
+          border-radius: 24px;
+          border: 1px solid rgba(255,255,255,.055);
+          background:
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.06), transparent 54%),
+            rgba(255,255,255,.035);
+          padding: 7px 8px;
+          box-shadow:
+            0 14px 38px rgba(0,0,0,.24),
+            inset 0 1px 0 rgba(255,255,255,.045);
+        }
+
+        .bj-top-player {
+          min-width: 0;
+          width: 34%;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+        }
+
+        .bj-scorebox {
+          width: 32%;
+          min-width: 112px;
+          text-align: center;
+          line-height: 1;
+        }
+
+        .bj-score-num {
+          font-size: clamp(26px, 8vw, 38px);
+          font-weight: 1000;
+          line-height: .78;
+          letter-spacing: -.08em;
+          text-shadow: 0 0 20px currentColor;
+        }
+
+        .bj-score-sep {
+          color: rgba(255,255,255,.28);
+          font-size: 22px;
+          font-weight: 1000;
+          line-height: .8;
+        }
+
+        .bj-avatar {
+          width: 34px;
+          height: 34px;
+          color: white;
+          background:
+            radial-gradient(circle at 35% 25%, rgba(255,255,255,.18), transparent 34%),
+            radial-gradient(circle at 50% 100%, rgba(242,199,102,.20), rgba(6,6,10,.98) 68%);
+          border-color: rgba(255,255,255,.12);
+          box-shadow: 0 0 14px rgba(242,199,102,.10);
+        }
+
+        .bj-avatar-active {
+          border-color: rgba(82,255,229,.5);
+          box-shadow: 0 0 20px rgba(82,255,229,.22), inset 0 0 14px rgba(82,255,229,.08);
+        }
+
+        .bj-avatar::after {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: inherit;
+          border: 1px solid rgba(255,255,255,.08);
+          opacity: .8;
+        }
+
+        .bj-avatar-winner {
+          animation: bjWinnerAvatar 1400ms ease-in-out infinite;
+        }
+
+        .bj-table {
+          border-radius: 28px;
+          background:
+            radial-gradient(80% 42% at 50% 0%, rgba(255,107,138,.08), transparent 60%),
+            radial-gradient(90% 50% at 50% 100%, rgba(82,255,229,.09), transparent 62%),
+            radial-gradient(circle at 50% 50%, rgba(255,255,255,.035), transparent 42%),
+            linear-gradient(180deg, #080810, #050507);
+          box-shadow:
+            inset 0 0 0 1px rgba(255,255,255,.045),
+            inset 0 0 45px rgba(0,0,0,.44),
+            0 18px 50px rgba(0,0,0,.25);
+        }
+
+        .bj-table::before {
+          content: "";
+          position: absolute;
+          inset: 8px;
+          border-radius: 22px;
+          pointer-events: none;
+          background:
+            linear-gradient(90deg, transparent, rgba(255,255,255,.035), transparent),
+            radial-gradient(circle at 50% 50%, transparent 0 58%, rgba(242,199,102,.06) 100%);
+          opacity: .7;
         }
 
         .bj-card-shell {
@@ -1140,7 +1231,7 @@ export const BlackjackDuelGame: React.FC = () => {
           height: var(--bj-card-h);
           perspective: 1000px;
           transform: translate3d(0, var(--lift), 0) rotate(var(--tilt));
-          filter: drop-shadow(0 12px 14px rgba(0,0,0,0.40));
+          filter: drop-shadow(0 14px 16px rgba(0,0,0,0.42));
           will-change: transform;
           isolation: isolate;
           contain: layout paint;
@@ -1310,10 +1401,11 @@ export const BlackjackDuelGame: React.FC = () => {
             drop-shadow(0 9px 10px rgba(0,0,0,.52));
         }
 
-        @keyframes bjBackGlow {
-          to {
-            transform: rotate(360deg);
-          }
+        .bj-hand-score {
+          width: 54px;
+          height: 54px;
+          font-size: 24px;
+          line-height: 1;
         }
 
         .bj-turn-timer {
@@ -1339,6 +1431,12 @@ export const BlackjackDuelGame: React.FC = () => {
           animation: bjTimerPulse 520ms ease-in-out infinite;
         }
 
+        @keyframes bjBackGlow {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
         @keyframes bjTimerPulse {
           0%, 100% {
             transform: scale(1);
@@ -1346,19 +1444,6 @@ export const BlackjackDuelGame: React.FC = () => {
           50% {
             transform: scale(1.045);
           }
-        }
-
-        .bj-avatar::after {
-          content: "";
-          position: absolute;
-          inset: -3px;
-          border-radius: inherit;
-          border: 1px solid rgba(255,255,255,.08);
-          opacity: .8;
-        }
-
-        .bj-avatar-winner {
-          animation: bjWinnerAvatar 1400ms ease-in-out infinite;
         }
 
         @keyframes bjWinnerAvatar {
@@ -1506,11 +1591,28 @@ export const BlackjackDuelGame: React.FC = () => {
 
         @media (max-width: 460px) {
           .bj-root {
-            --bj-card-w: clamp(58px, 15vw, 82px);
+            --bj-card-w: clamp(74px, 21.8vw, 96px);
           }
 
-          .bj-hand-panel {
-            --bj-card-w: clamp(54px, 14vw, 78px);
+          .bj-topbar {
+            min-height: 54px;
+            border-radius: 22px;
+          }
+
+          .bj-avatar {
+            width: 31px;
+            height: 31px;
+            font-size: 12px;
+          }
+
+          .bj-scorebox {
+            min-width: 96px;
+          }
+
+          .bj-hand-score {
+            width: 50px;
+            height: 50px;
+            font-size: 22px;
           }
 
           .bj-turn-timer {
@@ -1519,32 +1621,44 @@ export const BlackjackDuelGame: React.FC = () => {
           }
         }
 
-        @media (max-height: 680px) {
+        @media (max-width: 385px) {
           .bj-root {
-            --bj-card-w: clamp(52px, 13.5vw, 74px);
+            --bj-card-w: clamp(68px, 20.6vw, 88px);
           }
 
-          .bj-hand-panel {
-            --bj-card-w: clamp(50px, 13vw, 70px);
+          .bj-hand-score {
+            width: 46px;
+            height: 46px;
+            font-size: 20px;
+          }
+        }
+
+        @media (max-height: 680px) {
+          .bj-root {
+            --bj-card-w: clamp(64px, 18.2vw, 86px);
+          }
+
+          .bj-status-msg {
+            font-size: clamp(18px, 5vw, 27px) !important;
           }
         }
 
         @media (max-height: 560px) {
           .bj-root {
-            --bj-card-w: clamp(46px, 12vw, 66px);
+            --bj-card-w: clamp(56px, 16.5vw, 74px);
           }
 
-          .bj-hand-panel {
-            --bj-card-w: clamp(44px, 11.5vw, 62px);
+          .bj-topbar {
+            min-height: 50px;
           }
 
           .bj-status-msg {
-            font-size: clamp(17px, 5vw, 26px) !important;
+            font-size: clamp(16px, 4.6vw, 24px) !important;
           }
 
           .bj-turn-timer {
-            width: 56px;
-            height: 56px;
+            width: 54px;
+            height: 54px;
           }
         }
 
@@ -1572,75 +1686,33 @@ export const BlackjackDuelGame: React.FC = () => {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            `radial-gradient(80% 50% at 50% 0%, ${GOLD}10, transparent 60%),` +
-            `radial-gradient(85% 60% at 50% 100%, ${MINT}10, transparent 55%)`,
+            `radial-gradient(80% 50% at 50% 0%, ${GOLD}0e, transparent 60%),` +
+            `radial-gradient(85% 60% at 50% 100%, ${MINT}0d, transparent 55%)`,
         }}
       />
 
-      <div className="relative z-20 shrink-0 px-3 pt-2">
-        <div className="mx-auto flex max-w-[500px] items-center justify-between gap-3 rounded-[20px] border border-white/[0.06] bg-white/[0.035] px-2.5 py-2">
-          <HeaderPlayer
-            profile={myProfile}
-            score={myScore}
-            targetWins={targetWins}
-            align="left"
-            active={isMyTurn}
-          />
+      <ScoreHeader
+        myProfile={myProfile}
+        opponentProfile={opponentProfile}
+        myScore={myScore}
+        opponentScore={opponentScore}
+        round={serverState?.round || 1}
+        connectionStatus={connectionStatus}
+        connectionColor={connectionColor}
+        targetWins={targetWins}
+        myActive={isMyTurn}
+        opponentActive={isPlayerTurnPhase}
+      />
 
-          <div className="flex shrink-0 flex-col items-center rounded-2xl border border-white/[0.06] bg-black/25 px-3 py-1.5 leading-none">
-            <div className="flex items-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ background: connectionColor, boxShadow: `0 0 10px ${connectionColor}` }}
-              />
-              <span className="text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
-                {connectionStatus}
-              </span>
-            </div>
-
-            <span className="mt-1 text-[8px] font-black uppercase tracking-[0.24em] text-white/35">
-              Раунд
-            </span>
-            <span className="mt-0.5 text-sm font-black" style={{ color: GOLD }}>
-              {serverState?.round || 1}
-            </span>
-          </div>
-
-          <HeaderPlayer
-            profile={opponentProfile}
-            score={opponentScore}
-            targetWins={targetWins}
-            align="right"
-            active={isOpponentTurn}
-          />
-        </div>
-      </div>
-
-      <div className="relative z-10 mx-3 mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-white/[0.06]">
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              `radial-gradient(120% 80% at 50% 8%, ${ROSE}0a, transparent 46%),` +
-              `radial-gradient(120% 90% at 50% 108%, #0b1a14e6, transparent 60%),` +
-              `linear-gradient(180deg, #080810, #050507)`,
-          }}
-        />
-
-        <div
-          className="pointer-events-none absolute inset-[6px] rounded-[18px] border"
-          style={{ borderColor: `${GOLD}14` }}
-        />
-
-        <div className="relative z-10 px-3 pt-3">
-          <PlayerHandPanel
-            profile={opponentProfile}
+      <div className="bj-table relative z-10 mx-3 mt-2 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="relative z-10 px-4 pt-3">
+          <HandZone
             cards={opponentTableCards}
             info={opponentTableInfo}
-            active={isOpponentTurn}
+            owner="opponent"
+            active={isPlayerTurnPhase}
             winner={roundWinner === 'opponent'}
             hiddenCards={shouldHideOpponentCards}
-            owner="opponent"
             emptyText="Карты соперника"
           />
         </div>
@@ -1657,28 +1729,27 @@ export const BlackjackDuelGame: React.FC = () => {
               className={cx(
                 'bj-status-msg font-black uppercase leading-none tracking-[-0.04em]',
                 phase === 'player_turn'
-                  ? 'mt-3 text-[clamp(18px,5.2vw,30px)]'
-                  : 'text-[clamp(20px,6vw,34px)]',
+                  ? 'mt-3 text-[clamp(20px,5.8vw,32px)]'
+                  : 'text-[clamp(22px,6.4vw,36px)]',
               )}
               style={{ color: centerColor }}
             >
               {centerMessage}
             </div>
 
-            <div className="mt-1.5 max-w-[280px] text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+            <div className="mt-1.5 max-w-[290px] text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
               {centerSubMessage}
             </div>
           </div>
         </div>
 
-        <div className="relative z-10 px-3 pb-3">
-          <PlayerHandPanel
-            profile={myProfile}
+        <div className="relative z-10 px-4 pb-3">
+          <HandZone
             cards={myCards}
             info={myInfo}
+            owner="player"
             active={isMyTurn}
             winner={roundWinner === 'player'}
-            owner="player"
             emptyText="Ждем раздачу"
           />
         </div>
@@ -1700,19 +1771,13 @@ export const BlackjackDuelGame: React.FC = () => {
             </div>
           )}
 
-          {phase === 'round_over' && (
-            <CtrlButton onClick={nextRound} tone="gold" full>
-              Следующая раздача
-            </CtrlButton>
-          )}
-
           {waitingPhase && (
-            <div className="flex h-[46px] items-center text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
+            <div className="flex h-[50px] items-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">
               {waitingLabel}
             </div>
           )}
 
-          {phase === 'match_over' && <div className="h-[46px]" />}
+          {phase === 'match_over' && <div className="h-[50px]" />}
         </div>
       </div>
 
@@ -1734,7 +1799,7 @@ export const BlackjackDuelGame: React.FC = () => {
               </div>
 
               <div className="mt-4">
-                <AvatarBadge profile={winnerProfile} size="lg" winner />
+                <AvatarBadge profile={winnerProfile} winner />
               </div>
 
               <div className="mt-3 text-[11px] font-black uppercase tracking-[0.22em] text-white/35">
@@ -1758,9 +1823,9 @@ export const BlackjackDuelGame: React.FC = () => {
                   style={{ borderColor: `${MINT}26`, background: `${MINT}0d` }}
                 >
                   <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">
-                    {myProfile.nickname}
+                    Ты
                   </div>
-                  <div className="mt-1 text-3xl font-black" style={{ color: MINT }}>
+                  <div className="mt-1 text-4xl font-black" style={{ color: MINT }}>
                     {myScore}
                   </div>
                 </div>
@@ -1770,9 +1835,9 @@ export const BlackjackDuelGame: React.FC = () => {
                   style={{ borderColor: `${ROSE}26`, background: `${ROSE}0d` }}
                 >
                   <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">
-                    {opponentProfile.nickname}
+                    Соперник
                   </div>
-                  <div className="mt-1 text-3xl font-black" style={{ color: ROSE }}>
+                  <div className="mt-1 text-4xl font-black" style={{ color: ROSE }}>
                     {opponentScore}
                   </div>
                 </div>
