@@ -18,7 +18,9 @@ type TelegramWebApp = {
 
 type Props = {
   gameTitle: string;
+  isMatched: boolean;
   onComplete: () => void;
+  matchedDurationMs?: number;
 };
 
 const opponents = [
@@ -102,9 +104,15 @@ const getOpponentIndex = (value: string) => {
   return hash % opponents.length;
 };
 
-export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
-  const [phase, setPhase] = useState<IntroPhase>('searching');
+export const GameIntroOverlay = ({
+  gameTitle,
+  isMatched,
+  onComplete,
+  matchedDurationMs = 2400,
+}: Props) => {
+  const [phase, setPhase] = useState<IntroPhase>(isMatched ? 'matched' : 'searching');
   const onCompleteRef = useRef(onComplete);
+  const completeStartedRef = useRef(false);
 
   const user = useMemo(() => getTelegramUser(), []);
 
@@ -117,28 +125,32 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
   }, [onComplete]);
 
   useEffect(() => {
-    setPhase('searching');
+    if (!isMatched) {
+      completeStartedRef.current = false;
+      setPhase('searching');
+      return;
+    }
 
-    const matchedTimer = window.setTimeout(() => {
-      setPhase('matched');
-    }, 1500);
+    if (completeStartedRef.current) return;
+
+    completeStartedRef.current = true;
+    setPhase('matched');
 
     const closingTimer = window.setTimeout(() => {
       setPhase('closing');
-    }, 3550);
+    }, matchedDurationMs);
 
     const completeTimer = window.setTimeout(() => {
       onCompleteRef.current();
-    }, 4200);
+    }, matchedDurationMs + 520);
 
     return () => {
-      window.clearTimeout(matchedTimer);
       window.clearTimeout(closingTimer);
       window.clearTimeout(completeTimer);
     };
-  }, [gameTitle]);
+  }, [isMatched, matchedDurationMs]);
 
-  const isMatched = phase === 'matched' || phase === 'closing';
+  const showMatchedState = phase === 'matched' || phase === 'closing';
 
   return (
     <div className={`gi-overlay gi-${phase}`}>
@@ -253,8 +265,8 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           width: 5px;
           height: 5px;
           border-radius: 999px;
-          background: ${isMatched ? '#22c55e' : '#F6C86A'};
-          box-shadow: 0 0 12px ${isMatched ? 'rgba(34,197,94,.55)' : 'rgba(246,200,106,.45)'};
+          background: ${showMatchedState ? '#22c55e' : '#F6C86A'};
+          box-shadow: 0 0 12px ${showMatchedState ? 'rgba(34,197,94,.55)' : 'rgba(246,200,106,.45)'};
         }
 
         .gi-title {
@@ -441,8 +453,8 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
           height: 6px;
           flex: 0 0 auto;
           border-radius: 999px;
-          background: ${isMatched ? '#22c55e' : '#F6C86A'};
-          box-shadow: 0 0 12px ${isMatched ? 'rgba(34,197,94,.55)' : 'rgba(246,200,106,.45)'};
+          background: ${showMatchedState ? '#22c55e' : '#F6C86A'};
+          box-shadow: 0 0 12px ${showMatchedState ? 'rgba(34,197,94,.55)' : 'rgba(246,200,106,.45)'};
         }
 
         .gi-status-code {
@@ -482,13 +494,8 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         }
 
         @keyframes giOverlayIn {
-          from {
-            opacity: 0;
-          }
-
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
 
         @keyframes giOverlayOut {
@@ -534,29 +541,17 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
         }
 
         @keyframes giSpin {
-          to {
-            transform: rotate(360deg);
-          }
+          to { transform: rotate(360deg); }
         }
 
         @keyframes giProgressSearch {
-          0% {
-            transform: translateX(-120%);
-          }
-
-          100% {
-            transform: translateX(285%);
-          }
+          0% { transform: translateX(-120%); }
+          100% { transform: translateX(285%); }
         }
 
         @keyframes giProgressComplete {
-          from {
-            width: 68%;
-          }
-
-          to {
-            width: 100%;
-          }
+          from { width: 68%; }
+          to { width: 100%; }
         }
 
         @media (max-width: 390px) {
@@ -638,9 +633,9 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
             <div className="gi-title">{gameTitle}</div>
 
             <div className="gi-subtitle">
-              {isMatched
+              {showMatchedState
                 ? 'Противник найден. Готовим арену.'
-                : 'Ищем соперника для дуэли.'}
+                : 'Ждем второго игрока для дуэли.'}
             </div>
           </div>
 
@@ -670,13 +665,13 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
             <div className="gi-vs">VS</div>
 
             <div
-              className={`gi-player gi-opponent ${isMatched ? 'gi-opponent-ready' : ''}`}
+              className={`gi-player gi-opponent ${showMatchedState ? 'gi-opponent-ready' : ''}`}
               style={cssVars({
                 '--badge-color': opponent.color,
               })}
             >
               <div className="gi-avatar-wrap">
-                {isMatched ? (
+                {showMatchedState ? (
                   <div className="gi-avatar">{opponent.avatar}</div>
                 ) : (
                   <div className="gi-loader" />
@@ -684,12 +679,12 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
               </div>
 
               <div className="gi-name">
-                {isMatched ? opponent.name : 'Поиск'}
+                {showMatchedState ? opponent.name : 'Поиск'}
               </div>
 
               <div className="gi-label">
                 <i />
-                {isMatched ? opponent.rank : 'Wait'}
+                {showMatchedState ? opponent.rank : 'Wait'}
               </div>
             </div>
           </div>
@@ -698,7 +693,7 @@ export const GameIntroOverlay = ({ gameTitle, onComplete }: Props) => {
             <div className="gi-status">
               <div className="gi-status-text">
                 <i />
-                {isMatched ? 'Connected' : 'Searching'}
+                {showMatchedState ? 'Connected' : 'Searching'}
               </div>
 
               <div className="gi-status-code">

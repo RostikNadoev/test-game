@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
-import { GameIntroOverlay } from './components/GameIntroOverlay';
 import { SoloPageLoader } from './components/Solo/SoloPageLoader';
 import { Home } from './pages/Home';
 import { Profile } from './pages/Profile';
@@ -24,8 +23,11 @@ import { VirusMarketGame } from './pages/VirusMarketGame';
 import { PaperIoGame } from './pages/PaperIoGame';
 import { TowerStackGame } from './pages/TowerStackGame';
 import { PhysicsDuel } from './pages/PhysicsDuel';
+import { Lobbies } from './pages/Lobbies';
+import { CreateLobby } from './pages/CreateLobby';
+import { LobbyRoom } from './pages/LobbyRoom';
 import PlinkoPvpGame from './pages/PlinkoPvpGame';
-import { GAME_TITLE_BY_PLAY_PATH, LOCKED_GAME_ROUTES } from './data/games';
+import { LOCKED_GAME_ROUTES } from './data/games';
 import appLoaderGif from './assets/app-loader.gif';
 
 const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
@@ -79,9 +81,7 @@ async function getGifDurationMs(src: string) {
 
     const delayCentiseconds = bytes[index + 4] | (bytes[index + 5] << 8);
 
-    durationMs += delayCentiseconds > 0
-      ? delayCentiseconds * 10
-      : 100;
+    durationMs += delayCentiseconds > 0 ? delayCentiseconds * 10 : 100;
   }
 
   return durationMs > 0 ? durationMs : APP_LOADER_FALLBACK_MS;
@@ -148,7 +148,6 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [introCompletedPath, setIntroCompletedPath] = useState<string | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [soloLoadingPath, setSoloLoadingPath] = useState<string | null>(null);
   const previousPathRef = useRef(location.pathname);
@@ -157,17 +156,8 @@ function AppShell() {
   const isFruitCascadeRoute = location.pathname === FRUIT_CASCADE_ROUTE;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
-  const gameIntroTitle = GAME_TITLE_BY_PLAY_PATH[location.pathname] || null;
-
-  const shouldShowGameIntro = Boolean(gameIntroTitle && introCompletedPath !== location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
-  const shouldMountRoutes = !shouldShowGameIntro && !shouldShowSoloLoader;
-
-  useEffect(() => {
-    if (!gameIntroTitle) {
-      setIntroCompletedPath(null);
-    }
-  }, [gameIntroTitle]);
+  const shouldMountRoutes = !shouldShowSoloLoader;
 
   useLayoutEffect(() => {
     const previousPath = previousPathRef.current;
@@ -176,9 +166,7 @@ function AppShell() {
 
     previousPathRef.current = location.pathname;
 
-    if (!enteredSoloHub) {
-      return;
-    }
+    if (!enteredSoloHub) return;
 
     setSoloLoadingPath(location.pathname);
 
@@ -238,11 +226,7 @@ function AppShell() {
   }, [isInitialLoading, isFooterRoute, navigate]);
 
   if (isInitialLoading) {
-    return (
-      <AppInitialLoader
-        onFinish={() => setIsInitialLoading(false)}
-      />
-    );
+    return <AppInitialLoader onFinish={() => setIsInitialLoading(false)} />;
   }
 
   return (
@@ -266,6 +250,11 @@ function AppShell() {
         {shouldMountRoutes ? (
           <Routes>
             <Route path="/" element={<Home />} />
+
+            <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
+            <Route path="/game/:gameId/create" element={<CreateLobby />} />
+            <Route path="/game/:gameId/lobby/:lobbyId" element={<LobbyRoom />} />
+
             <Route path="/solo" element={<SoloGames />} />
             <Route path="/solo/fruit-cascade" element={<FruitCascadeSoloGame />} />
             <Route path="/solo/royal-5x5" element={<Royal5x5SoloGame />} />
@@ -285,28 +274,17 @@ function AppShell() {
             <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
             <Route path="/game/street_race/play" element={<RaceGame />} />
             <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
-            
 
             <Route path="/profile" element={<Profile />} />
             <Route path="/rating" element={<Rating />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        ) : shouldShowSoloLoader ? (
-          <SoloPageLoader />
         ) : (
-          <div className={isSoloRoute ? 'h-full w-full bg-transparent' : 'h-full w-full bg-[#09090d]'} />
+          <SoloPageLoader />
         )}
       </main>
 
       {isFooterRoute && <BottomNav />}
-
-      {shouldShowGameIntro && gameIntroTitle && (
-        <GameIntroOverlay
-          key={location.pathname}
-          gameTitle={gameIntroTitle}
-          onComplete={() => setIntroCompletedPath(location.pathname)}
-        />
-      )}
     </div>
   );
 }

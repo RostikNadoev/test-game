@@ -1,21 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, UsersRound } from 'lucide-react';
+import { Loader2, RefreshCw, UsersRound } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
-import { GAME_CATALOG } from '../data/games';
+import { api, ApiError, type Lobby } from '../api';
+import { GAME_CATALOG, getGameByCode } from '../data/games';
 import heroBanner from '../assets/home/banner.webp';
-
-type Lobby = {
-  id: string;
-  gameCode: string;
-  gameName: string;
-  icon: string;
-  players: number;
-  maxPlayers: number;
-  bet: number;
-  status: 'waiting' | 'playing' | 'finished';
-  timeLeft?: string;
-};
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
 
@@ -49,6 +38,12 @@ const getGameImage = (game?: GameWithMedia) => {
 const getGameTone = (index: number): GameTone => {
   const tones = ['blue', 'orange', 'violet', 'green'] as const;
   return tones[index % tones.length];
+};
+
+const toErrorMessage = (error: unknown) => {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'Неизвестная ошибка';
 };
 
 const GameCoinIcon = ({ className = '' }: { className?: string }) => {
@@ -178,80 +173,79 @@ const LobbyRefreshSpinner = () => {
 export const Home = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const [lobbies, setLobbies] = useState<Lobby[]>([]);
+  const [isLoadingLobbies, setIsLoadingLobbies] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
+  const [lobbyError, setLobbyError] = useState<string | null>(null);
 
-  const [lobbies] = useState<Lobby[]>([
-    {
-      id: '1',
-      gameCode: 'DICE',
-      gameName: 'Dice Duel',
-      icon: '🎲',
-      players: 2,
-      maxPlayers: 2,
-      bet: 100,
-      status: 'playing',
-      timeLeft: '2:34',
-    },
-    {
-      id: '2',
-      gameCode: 'CRASH',
-      gameName: 'Crash Duel',
-      icon: '📈',
-      players: 1,
-      maxPlayers: 2,
-      bet: 250,
-      status: 'waiting',
-      timeLeft: '0:45',
-    },
-    {
-      id: '3',
-      gameCode: 'BLACKJACK',
-      gameName: 'Blackjack',
-      icon: '🃏',
-      players: 2,
-      maxPlayers: 2,
-      bet: 500,
-      status: 'playing',
-      timeLeft: '1:12',
-    },
-    {
-      id: '4',
-      gameCode: 'RPS',
-      gameName: 'RPS Duel',
-      icon: '✊',
-      players: 1,
-      maxPlayers: 2,
-      bet: 50,
-      status: 'waiting',
-      timeLeft: '0:30',
-    },
-    {
-      id: '5',
-      gameCode: 'RACE',
-      gameName: 'Street Race',
-      icon: '🏎️',
-      players: 2,
-      maxPlayers: 4,
-      bet: 1000,
-      status: 'playing',
-      timeLeft: '3:45',
-    },
-  ]);
+  const joinableOrOwnLobbies = useMemo(() => {
+    return lobbies.filter((lobby) => {
+      const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
+      const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
 
-  const joinableLobbies = useMemo(
-    () => lobbies.filter((lobby) => lobby.players === 1),
-    [lobbies],
-  );
+      return isUserInLobby || canJoin;
+    });
+  }, [lobbies, user]);
 
-  const handleRefresh = () => {
-    if (isRefreshing) return;
+  const loadLobbies = useCallback(async (withSpinner = false) => {
+    if (withSpinner) {
+      setIsRefreshing(true);
+    }
 
-    setIsRefreshing(true);
-    window.setTimeout(() => setIsRefreshing(false), 2000);
+    try {
+      const response = await api.lobbies.active();
+      setLobbies(response.lobbies);
+      setLobbyError(null);
+    } catch (error) {
+      setLobbyError(toErrorMessage(error));
+    } finally {
+      setIsLoadingLobbies(false);
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLobbies(false);
+
+    const interval = window.setInterval(() => {
+      void loadLobbies(false);
+    }, 8000);
+
+    return () => window.clearInterval(interval);
+  }, [loadLobbies]);
+
+  const openGame = (gameCode: string) => {
+    navigate(`/game/${gameCode}/lobbies`);
   };
 
-  const openGame = (playPath: string) => {
-    navigate(playPath);
+  const handleOpenOrJoinLobby = async (lobby: Lobby) => {
+    if (joiningLobbyId) return;
+
+    const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
+
+    if (isUserInLobby) {
+      navigate(`/game/${lobby.game}/lobby/${lobby.id}`);
+      return;
+    }
+
+    const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
+
+    if (!canJoin) return;
+
+    setJoiningLobbyId(lobby.id);
+    setLobbyError(null);
+
+    try {
+      const response = await api.lobbies.join(lobby.id);
+      navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`);
+    } catch (error) {
+      setLobbyError(toErrorMessage(error));
+      await loadLobbies(false);
+    } finally {
+      setJoiningLobbyId(null);
+    }
   };
 
   return (
@@ -292,7 +286,7 @@ export const Home = () => {
 
           <button
             type="button"
-            onClick={handleRefresh}
+            onClick={() => void loadLobbies(true)}
             disabled={isRefreshing}
             aria-label="Refresh lobbies"
             className={`pressable refresh-button ${isRefreshing ? 'is-loading' : ''}`}
@@ -308,20 +302,30 @@ export const Home = () => {
           </button>
         </div>
 
-        {isRefreshing ? (
+        {lobbyError && (
+          <div className="mb-2 rounded-[16px] border border-[#FF7A90]/20 bg-[#FF7A90]/10 px-3 py-2 text-[10px] font-bold leading-snug text-[#FFB3BE]">
+            {lobbyError}
+          </div>
+        )}
+
+        {isRefreshing || isLoadingLobbies ? (
           <LobbyRefreshSpinner />
         ) : (
           <div className="lobby-scroll -mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1">
-            {joinableLobbies.map((lobby, index) => {
-              const game = games.find((item) => item.code === lobby.gameCode);
+            {joinableOrOwnLobbies.map((lobby, index) => {
+              const game = getGameByCode(lobby.game) as GameWithMedia | undefined;
               const tone = getGameTone(index);
+              const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
+              const isJoining = joiningLobbyId === lobby.id;
 
               const fallbackGame = {
-                code: lobby.gameCode,
-                displayName: lobby.gameName,
+                code: lobby.game,
+                displayName: lobby.game,
                 description: '',
-                icon: lobby.icon,
-                playPath: '/',
+                icon: '🎮',
+                color: 'from-[#52FFE5]/20 via-[#9D7CFF]/12 to-transparent',
+                meta: 'Game',
+                playPath: `/game/${lobby.game}/play`,
               } as GameWithMedia;
 
               const targetGame = game ?? fallbackGame;
@@ -330,41 +334,46 @@ export const Home = () => {
                 <button
                   key={lobby.id}
                   type="button"
-                  onClick={() => {
-                    if (game) openGame(game.playPath);
-                  }}
-                  className="pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[25px] p-2 text-left"
+                  onClick={() => void handleOpenOrJoinLobby(lobby)}
+                  disabled={Boolean(joiningLobbyId)}
+                  className="pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[25px] p-2 text-left disabled:opacity-70"
                 >
                   <GameImage game={targetGame} tone={tone} size="lobby" />
 
                   <div className="px-1 pt-2.5">
                     <h3 className="text-safe mb-2 truncate text-[12px] font-bold text-white">
-                      {lobby.gameName}
+                      {targetGame.displayName}
                     </h3>
 
                     <div className="lobby-meta-row">
                       <div className="lobby-bet-pill">
                         <GameCoinIcon className="h-[16px] w-[16px]" />
-                        <span>{formatNumber(lobby.bet)}</span>
+                        <span>{formatNumber(lobby.bet_coins)}</span>
                       </div>
 
                       <div className="lobby-player-pill">
                         <UsersRound size={12} />
                         <span>
-                          {lobby.players}/{lobby.maxPlayers}
+                          {lobby.player_count}/{lobby.max_players}
                         </span>
                       </div>
                     </div>
 
                     <div className="mini-button mini-button-join w-full">
-                      Join
+                      {isJoining ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : isUserInLobby ? (
+                        'Open'
+                      ) : (
+                        'Join'
+                      )}
                     </div>
                   </div>
                 </button>
               );
             })}
 
-            {joinableLobbies.length === 0 && (
+            {joinableOrOwnLobbies.length === 0 && (
               <div className="app-panel empty-lobby-card min-w-[220px] rounded-[24px] p-4">
                 <p className="text-safe text-[12px] font-bold text-white">
                   No open lobbies
@@ -406,7 +415,7 @@ export const Home = () => {
               <button
                 key={game.code}
                 type="button"
-                onClick={() => openGame(game.playPath)}
+                onClick={() => openGame(game.code)}
                 className="pressable app-panel game-card overflow-hidden rounded-[25px] p-2 text-left"
               >
                 <GameImage game={game} tone={tone} />
@@ -417,7 +426,7 @@ export const Home = () => {
                   </h3>
 
                   <div className="mini-button mini-button-play w-full">
-                    Play
+                    Lobby
                   </div>
                 </div>
               </button>

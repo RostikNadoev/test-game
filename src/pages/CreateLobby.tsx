@@ -1,67 +1,86 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
 import {
   ArrowUpRight,
   ChevronLeft,
   Coins,
+  Loader2,
   Sparkles,
   Sword,
   Wallet,
 } from 'lucide-react';
-
-const gameNames: Record<string, string> = {
-  virusmarket: 'Virus Market',
-  hexfall: 'Hex Fall',
-  rps: 'RPS Duel',
-  tictactoe: 'Tic Tac Toe Duel',
-  gridlock: 'Grid Lock',
-  blackjack: 'Blackjack Duel',
-  diceduel: 'Dice Duel',
-  neonmatrix: 'Neon Matrix',
-  slingclash: 'Sling Clash',
-  icebump: 'Ice Bump',
-  archer: 'Neon Duel',
-  race: 'Street Race',
-  airhockey: 'Air Hockey',
-  pingpong: 'Golf',
-  darts: 'Darts',
-};
+import { api, ApiError } from '../api';
+import { useAuth } from '../auth/AuthProvider';
+import { getGameByCode } from '../data/games';
 
 const presetBets = [50, 100, 250, 500];
+
+const toErrorMessage = (error: unknown) => {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'Неизвестная ошибка';
+};
 
 export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
-
-  const createLobby = useStore((state) => state.createLobby);
-  const userCoins = useStore((state) => state.user.coins);
+  const { user, refreshBalance } = useAuth();
 
   const [lobbyName, setLobbyName] = useState('');
   const [bet, setBet] = useState(100);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const gameName = gameNames[gameId || ''] || 'Game';
+  const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
+  const gameName = game?.displayName || 'Game';
+  const userCoins = Math.floor(user?.balance_game ?? 0);
+
   const betPercent = ((bet - 10) / (1000 - 10)) * 100;
-  const canCreate = lobbyName.trim().length > 0 && bet <= userCoins;
+  const canCreate =
+    Boolean(gameId) &&
+    lobbyName.trim().length > 0 &&
+    bet > 0 &&
+    bet <= userCoins &&
+    !isSubmitting;
 
-  const handleCreate = () => {
-    if (!lobbyName.trim()) {
-      alert('Введите название лобби');
+  const handleCreate = async () => {
+    const name = lobbyName.trim();
+
+    if (!gameId) {
+      setError('Не найден код игры');
       return;
     }
+
+    if (!name) {
+      setError('Введите название лобби');
+      return;
+    }
+
     if (bet > userCoins) {
-      alert('Недостаточно монет!');
+      setError('Недостаточно монет');
       return;
     }
 
-    createLobby({
-      gameId: gameId!,
-      gameName,
-      name: lobbyName,
-      betAmount: bet,
-    });
+    setIsSubmitting(true);
+    setError(null);
 
-    navigate(`/game/${gameId}/lobbies`);
+    try {
+      const response = await api.lobbies.create({
+        name,
+        game: gameId,
+        bet_coins: bet,
+      });
+
+      await refreshBalance();
+
+      navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`, {
+        replace: true,
+      });
+    } catch (requestError) {
+      setError(toErrorMessage(requestError));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -76,7 +95,6 @@ export const CreateLobby = () => {
         Назад
       </button>
 
-      {/* hero */}
       <section className="reveal top-hairline relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-4">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(242,199,102,0.16),transparent_40%),radial-gradient(circle_at_100%_28%,rgba(82,255,229,0.11),transparent_42%)]" />
 
@@ -104,7 +122,6 @@ export const CreateLobby = () => {
       </section>
 
       <section className="relative mt-3 space-y-3">
-        {/* name */}
         <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.04] p-3.5">
           <label className="mb-2.5 block text-[9px] font-black uppercase tracking-[0.2em] text-white/36">
             Название лобби
@@ -112,13 +129,12 @@ export const CreateLobby = () => {
           <input
             type="text"
             value={lobbyName}
-            onChange={(e) => setLobbyName(e.target.value)}
+            onChange={(event) => setLobbyName(event.target.value)}
             placeholder="Например: VIP Duel"
             className="w-full rounded-[16px] border border-white/[0.08] bg-black/25 px-3.5 py-3 text-[15px] font-black tracking-[-0.03em] text-white outline-none placeholder:text-white/22 focus:border-[#F2C766]/60"
           />
         </div>
 
-        {/* bet */}
         <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.04] p-3.5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
@@ -148,7 +164,7 @@ export const CreateLobby = () => {
             <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-black/35" />
             <div
               className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-gradient-to-r from-[#F2C766] via-[#52FFE5] to-[#9D7CFF]"
-              style={{ width: `${betPercent}%` }}
+              style={{ width: `${Math.max(0, Math.min(100, betPercent))}%` }}
             />
             <input
               type="range"
@@ -156,7 +172,7 @@ export const CreateLobby = () => {
               max={1000}
               step={10}
               value={bet}
-              onChange={(e) => setBet(Number(e.target.value))}
+              onChange={(event) => setBet(Number(event.target.value))}
               className="relative z-10 h-7 w-full cursor-pointer opacity-0"
             />
           </div>
@@ -184,15 +200,31 @@ export const CreateLobby = () => {
           </div>
         </div>
 
+        {error && (
+          <div className="rounded-[16px] border border-[#FF7A90]/20 bg-[#FF7A90]/10 px-3 py-2 text-[11px] font-bold leading-snug text-[#FFB3BE]">
+            {error}
+          </div>
+        )}
+
         <button
           onClick={handleCreate}
+          disabled={!canCreate}
           className={[
-            'press flex w-full items-center justify-center gap-2 rounded-[20px] py-3.5 text-[13px] font-black uppercase tracking-[0.14em] transition-colors',
+            'press flex w-full items-center justify-center gap-2 rounded-[20px] py-3.5 text-[13px] font-black uppercase tracking-[0.14em] transition-colors disabled:cursor-default',
             canCreate ? 'bg-white text-[#08080C]' : 'bg-white/[0.1] text-white/38',
           ].join(' ')}
         >
-          Создать лобби
-          <ArrowUpRight size={16} />
+          {isSubmitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Создаем
+            </>
+          ) : (
+            <>
+              Создать лобби
+              <ArrowUpRight size={16} />
+            </>
+          )}
         </button>
       </section>
     </main>
