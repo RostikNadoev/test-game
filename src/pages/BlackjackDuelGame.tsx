@@ -42,7 +42,7 @@ import logoBackImg from '../assets/games/bj/logo-b.webp';
 type Suit = '♠' | '♣';
 type VisualSuit = 'spades' | 'clubs';
 type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
-type Owner = 'player' | 'dealer';
+type Owner = 'player' | 'opponent';
 type Tone = 'mint' | 'rose' | 'gold';
 type RoundWinner = 'player' | 'opponent' | 'push' | null;
 
@@ -519,7 +519,7 @@ const PlayingCardView = ({
     <div
       className={cx(
         'bj-card-shell relative shrink-0',
-        owner === 'player' ? 'bj-deal-player' : 'bj-deal-dealer',
+        owner === 'player' ? 'bj-deal-player' : 'bj-deal-opponent',
         hidden && 'bj-hidden-shell',
         dimmed && 'bj-dimmed',
         winner && 'bj-winning-card',
@@ -561,34 +561,6 @@ const EmptyCards = ({ text }: { text: string }) => (
     {text}
   </div>
 );
-
-const TableLabel = ({
-  title,
-  score,
-  hidden,
-  tone,
-}: {
-  title: string;
-  score: string;
-  hidden?: boolean;
-  tone: Tone;
-}) => {
-  const color = tone === 'mint' ? MINT : tone === 'rose' ? ROSE : GOLD;
-
-  return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/[0.07] bg-black/40 px-2.5 py-1">
-      <span
-        className="truncate text-[9px] font-black uppercase tracking-[0.16em]"
-        style={{ color: `${color}b3` }}
-      >
-        {title}
-      </span>
-      <span className={cx('text-sm font-black leading-none tabular-nums', hidden ? 'text-white/40' : 'text-white')}>
-        {score}
-      </span>
-    </div>
-  );
-};
 
 const ResultBurst = ({ seed, kind }: { seed: number; kind: RoundWinner }) => {
   if (!kind) return null;
@@ -658,12 +630,18 @@ const PlayerHandPanel = ({
   info,
   active,
   winner,
+  hiddenCards = false,
+  owner = 'player',
+  emptyText = 'Нет карт',
 }: {
   profile: PlayerProfile;
   cards: PlayingCard[];
   info: HandInfo;
   active: boolean;
   winner: boolean;
+  hiddenCards?: boolean;
+  owner?: Owner;
+  emptyText?: string;
 }) => {
   const color = profile.tone === 'mint' ? MINT : ROSE;
 
@@ -681,6 +659,7 @@ const PlayerHandPanel = ({
       <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <AvatarBadge profile={profile} />
+
           <div className="min-w-0">
             <div className="truncate text-[10px] font-black leading-none text-white">
               {profile.nickname}
@@ -699,7 +678,7 @@ const PlayerHandPanel = ({
             background: `${color}12`,
           }}
         >
-          {formatHand(info)}
+          {formatHand(info, hiddenCards)}
         </div>
       </div>
 
@@ -709,10 +688,10 @@ const PlayerHandPanel = ({
             <PlayingCardView
               key={card.id}
               card={card}
-              owner="player"
+              owner={owner}
               index={index}
               count={cards.length}
-              hidden={card.hidden}
+              hidden={hiddenCards || card.hidden}
               dimmed={Boolean(winner) && !winner}
               winner={winner}
               winnerTone={profile.tone}
@@ -720,7 +699,7 @@ const PlayerHandPanel = ({
           ))}
         </CardRow>
       ) : (
-        <EmptyCards text="Нет карт" />
+        <EmptyCards text={emptyText} />
       )}
     </div>
   );
@@ -937,9 +916,10 @@ export const BlackjackDuelGame: React.FC = () => {
   const targetWins = Math.max(1, serverState?.target_wins || 5);
   const turnTotalMs = Math.max(1, (serverState?.turn_seconds || 10) * 1000);
 
+  const phase = serverState?.phase || 'dealing';
   const activeUserId = serverState?.active_user_id || null;
-  const isMyTurn = serverState?.phase === 'player_turn' && activeUserId === myUserId;
-  const isOpponentTurn = serverState?.phase === 'player_turn' && activeUserId === opponentUserId;
+  const isMyTurn = phase === 'player_turn' && activeUserId === myUserId;
+  const isOpponentTurn = phase === 'player_turn' && activeUserId === opponentUserId;
 
   const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
   const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
@@ -947,26 +927,25 @@ export const BlackjackDuelGame: React.FC = () => {
   const myInfo = useMemo(() => getPlayerInfo(myEntry, myCards), [myCards, myEntry]);
   const opponentInfo = useMemo(() => getPlayerInfo(opponentEntry, opponentCards), [opponentCards, opponentEntry]);
 
-  const dealerCardsRaw = serverState?.dealer_cards || [];
-  const dealerHidden = Boolean(serverState?.dealer_hidden);
+  const shouldHideOpponentCards = phase === 'dealing' || phase === 'player_turn';
 
-  const dealerCards = useMemo(() => {
-    const normalized = normalizeCards(dealerCardsRaw, 'dealer');
+  const opponentTableCards = useMemo(() => {
+    if (!serverState) return [];
 
-    if (dealerHidden && normalized.length === 0 && serverState) {
-      return [createHiddenCard('dealer-hidden-1'), createHiddenCard('dealer-hidden-2')];
+    if (opponentCards.length === 0 && shouldHideOpponentCards) {
+      return [
+        createHiddenCard('opponent-hidden-1'),
+        createHiddenCard('opponent-hidden-2'),
+      ];
     }
 
-    return normalized.map((card) => ({
+    return opponentCards.map((card) => ({
       ...card,
-      hidden: dealerHidden || card.hidden,
+      hidden: shouldHideOpponentCards || card.hidden,
     }));
-  }, [dealerCardsRaw, dealerHidden, serverState]);
+  }, [opponentCards, serverState, shouldHideOpponentCards]);
 
-  const dealerInfo = useMemo(
-    () => normalizeHandInfo(serverState?.dealer_info, dealerCards),
-    [dealerCards, serverState?.dealer_info],
-  );
+  const opponentTableInfo = shouldHideOpponentCards ? getHandInfo([]) : opponentInfo;
 
   const myScore = serverState?.score?.players?.[String(myUserId)] || 0;
   const opponentScore = serverState?.score?.players?.[String(opponentUserId)] || 0;
@@ -982,14 +961,14 @@ export const BlackjackDuelGame: React.FC = () => {
         : null;
 
   const turnLeftMs = useMemo(() => {
-    if (!serverState?.turn_deadline_ms || serverState.phase !== 'player_turn') {
+    if (!serverState?.turn_deadline_ms || phase !== 'player_turn') {
       return turnTotalMs;
     }
 
     const clientDeadlineMs = serverState.turn_deadline_ms + serverOffsetRef.current;
 
     return Math.max(0, clientDeadlineMs - nowMs);
-  }, [nowMs, serverState, turnTotalMs]);
+  }, [nowMs, phase, serverState, turnTotalMs]);
 
   useEffect(() => {
     if (!serverState) return;
@@ -1027,14 +1006,14 @@ export const BlackjackDuelGame: React.FC = () => {
   }, [isMyTurn, sendCommand]);
 
   const nextRound = useCallback(() => {
-    if (serverState?.phase !== 'round_over') return;
+    if (phase !== 'round_over') return;
     sendCommand('next_round');
-  }, [sendCommand, serverState?.phase]);
+  }, [sendCommand, phase]);
 
   const restartMatch = useCallback(() => {
-    if (serverState?.phase !== 'match_over') return;
+    if (phase !== 'match_over') return;
     sendCommand('restart_match');
-  }, [sendCommand, serverState?.phase]);
+  }, [sendCommand, phase]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1079,8 +1058,6 @@ export const BlackjackDuelGame: React.FC = () => {
   const connectionColor =
     connectionStatus === 'open' ? MINT : connectionStatus === 'error' ? ROSE : GOLD;
 
-  const phase = serverState?.phase || 'dealing';
-
   const centerMessage = socketError
     ? 'Ошибка'
     : phase === 'player_turn'
@@ -1105,7 +1082,7 @@ export const BlackjackDuelGame: React.FC = () => {
       : phase === 'dealing'
         ? 'Раздача карт'
         : phase === 'settling'
-          ? 'Подсчет результата'
+          ? 'Вскрытие карт'
           : phase === 'round_over'
             ? 'Раунд завершен'
             : phase === 'match_over'
@@ -1129,7 +1106,7 @@ export const BlackjackDuelGame: React.FC = () => {
       : phase === 'dealing'
         ? 'Раздача'
         : phase === 'settling'
-          ? 'Подсчет'
+          ? 'Вскрытие'
           : 'Ожидание';
 
   const winnerProfile = myScore >= opponentScore ? myProfile : opponentProfile;
@@ -1145,7 +1122,7 @@ export const BlackjackDuelGame: React.FC = () => {
     <div className="bj-root relative flex h-full min-h-[440px] w-full select-none flex-col overflow-hidden bg-[#050507] text-white">
       <style>{`
         .bj-root {
-          --bj-card-w: clamp(62px, 15.5vw, 92px);
+          --bj-card-w: clamp(64px, 16vw, 96px);
           --bj-card-h: calc(var(--bj-card-w) * 1.50);
           --bj-radius: clamp(12px, 1.5vw, 18px);
           -webkit-tap-highlight-color: transparent;
@@ -1153,9 +1130,9 @@ export const BlackjackDuelGame: React.FC = () => {
         }
 
         .bj-hand-panel {
-          --bj-card-w: clamp(42px, 10.8vw, 62px);
+          --bj-card-w: clamp(58px, 14.8vw, 88px);
           --bj-card-h: calc(var(--bj-card-w) * 1.50);
-          --bj-radius: clamp(9px, 1.2vw, 13px);
+          --bj-radius: clamp(11px, 1.4vw, 16px);
         }
 
         .bj-card-shell {
@@ -1407,7 +1384,7 @@ export const BlackjackDuelGame: React.FC = () => {
           }
         }
 
-        @keyframes bjDealDealer {
+        @keyframes bjDealOpponent {
           0% {
             opacity: 0;
             transform: translate3d(30vw, 12vh, 0) rotate(-16deg) scale(.42);
@@ -1425,8 +1402,8 @@ export const BlackjackDuelGame: React.FC = () => {
           animation: bjDealPlayer 500ms cubic-bezier(.2,.8,.2,1) both;
         }
 
-        .bj-deal-dealer {
-          animation: bjDealDealer 500ms cubic-bezier(.2,.8,.2,1) both;
+        .bj-deal-opponent {
+          animation: bjDealOpponent 500ms cubic-bezier(.2,.8,.2,1) both;
         }
 
         @keyframes bjWinCard {
@@ -1532,6 +1509,10 @@ export const BlackjackDuelGame: React.FC = () => {
             --bj-card-w: clamp(58px, 15vw, 82px);
           }
 
+          .bj-hand-panel {
+            --bj-card-w: clamp(54px, 14vw, 78px);
+          }
+
           .bj-turn-timer {
             width: 62px;
             height: 62px;
@@ -1544,7 +1525,7 @@ export const BlackjackDuelGame: React.FC = () => {
           }
 
           .bj-hand-panel {
-            --bj-card-w: clamp(38px, 9.8vw, 56px);
+            --bj-card-w: clamp(50px, 13vw, 70px);
           }
         }
 
@@ -1554,7 +1535,7 @@ export const BlackjackDuelGame: React.FC = () => {
           }
 
           .bj-hand-panel {
-            --bj-card-w: clamp(34px, 8.8vw, 50px);
+            --bj-card-w: clamp(44px, 11.5vw, 62px);
           }
 
           .bj-status-msg {
@@ -1569,7 +1550,7 @@ export const BlackjackDuelGame: React.FC = () => {
 
         @media (prefers-reduced-motion: reduce) {
           .bj-deal-player,
-          .bj-deal-dealer,
+          .bj-deal-opponent,
           .bj-winning-card,
           .bj-status-in,
           .bj-ring,
@@ -1640,7 +1621,7 @@ export const BlackjackDuelGame: React.FC = () => {
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              `radial-gradient(120% 80% at 50% 8%, ${MINT}0a, transparent 46%),` +
+              `radial-gradient(120% 80% at 50% 8%, ${ROSE}0a, transparent 46%),` +
               `radial-gradient(120% 90% at 50% 108%, #0b1a14e6, transparent 60%),` +
               `linear-gradient(180deg, #080810, #050507)`,
           }}
@@ -1651,31 +1632,17 @@ export const BlackjackDuelGame: React.FC = () => {
           style={{ borderColor: `${GOLD}14` }}
         />
 
-        <div className="relative z-10 flex flex-col items-center gap-1.5 px-3 pt-3">
-          <TableLabel
-            title="Dealer"
-            score={formatHand(dealerInfo, dealerHidden)}
-            hidden={dealerHidden}
-            tone="gold"
+        <div className="relative z-10 px-3 pt-3">
+          <PlayerHandPanel
+            profile={opponentProfile}
+            cards={opponentTableCards}
+            info={opponentTableInfo}
+            active={isOpponentTurn}
+            winner={roundWinner === 'opponent'}
+            hiddenCards={shouldHideOpponentCards}
+            owner="opponent"
+            emptyText="Карты соперника"
           />
-
-          {dealerCards.length > 0 ? (
-            <CardRow>
-              {dealerCards.map((card, index) => (
-                <PlayingCardView
-                  key={card.id}
-                  card={card}
-                  owner="dealer"
-                  index={index}
-                  count={dealerCards.length}
-                  hidden={card.hidden}
-                  winnerTone="rose"
-                />
-              ))}
-            </CardRow>
-          ) : (
-            <EmptyCards text="Ждем раздачу" />
-          )}
         </div>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
@@ -1704,21 +1671,15 @@ export const BlackjackDuelGame: React.FC = () => {
           </div>
         </div>
 
-        <div className="relative z-10 grid grid-cols-2 gap-2 px-3 pb-3">
+        <div className="relative z-10 px-3 pb-3">
           <PlayerHandPanel
             profile={myProfile}
             cards={myCards}
             info={myInfo}
             active={isMyTurn}
             winner={roundWinner === 'player'}
-          />
-
-          <PlayerHandPanel
-            profile={opponentProfile}
-            cards={opponentCards}
-            info={opponentInfo}
-            active={isOpponentTurn}
-            winner={roundWinner === 'opponent'}
+            owner="player"
+            emptyText="Ждем раздачу"
           />
         </div>
 

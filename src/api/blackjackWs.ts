@@ -157,15 +157,18 @@ const normalizeStateMessage = (raw: Record<string, unknown>): BlackjackStateMess
     round: Number(raw.round || 1),
     target_wins: Number(raw.target_wins || 5),
     turn_seconds: Number(raw.turn_seconds || 10),
-    active_user_id: raw.active_user_id === null || raw.active_user_id === undefined
-      ? null
-      : Number(raw.active_user_id),
-    turn_deadline_ms: raw.turn_deadline_ms === null || raw.turn_deadline_ms === undefined
-      ? null
-      : Number(raw.turn_deadline_ms),
-    server_ms: raw.server_ms === null || raw.server_ms === undefined
-      ? null
-      : Number(raw.server_ms),
+    active_user_id:
+      raw.active_user_id === null || raw.active_user_id === undefined
+        ? null
+        : Number(raw.active_user_id),
+    turn_deadline_ms:
+      raw.turn_deadline_ms === null || raw.turn_deadline_ms === undefined
+        ? null
+        : Number(raw.turn_deadline_ms),
+    server_ms:
+      raw.server_ms === null || raw.server_ms === undefined
+        ? null
+        : Number(raw.server_ms),
     dealer_hidden: Boolean(raw.dealer_hidden),
     dealer_cards: Array.isArray(raw.dealer_cards)
       ? (raw.dealer_cards as BlackjackServerCard[])
@@ -190,13 +193,11 @@ const normalizeStateMessage = (raw: Record<string, unknown>): BlackjackStateMess
 };
 
 export const blackjackWsApi = {
-  connect(
-    params: {
-      lobbyId: string;
-      token: string;
-      handlers?: BlackjackSocketHandlers;
-    },
-  ): BlackjackSocketClient {
+  connect(params: {
+    lobbyId: string;
+    token: string;
+    handlers?: BlackjackSocketHandlers;
+  }): BlackjackSocketClient {
     const { lobbyId, token, handlers } = params;
     const socket = new WebSocket(getBlackjackWsUrl(lobbyId, token));
 
