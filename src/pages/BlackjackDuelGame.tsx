@@ -1,4 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
+import {
+  blackjackWsApi,
+  type BlackjackServerCard,
+  type BlackjackServerHandInfo,
+  type BlackjackServerPlayer,
+  type BlackjackSocketClient,
+  type BlackjackStateMessage,
+} from '../api/blackjackWs';
 
 import spadesAImg from '../assets/games/bj/spades-a.webp';
 import spades2Img from '../assets/games/bj/spades-2.webp';
@@ -33,20 +43,15 @@ type Suit = '♠' | '♣';
 type VisualSuit = 'spades' | 'clubs';
 type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
 type Owner = 'player' | 'dealer';
-type Phase = 'dealing' | 'player' | 'settling' | 'round_over' | 'match_over';
-type RoundWinner = 'player' | 'dealer' | 'push' | null;
+type Tone = 'mint' | 'rose' | 'gold';
+type RoundWinner = 'player' | 'opponent' | 'push' | null;
 
 type PlayingCard = {
   id: string;
   suit: Suit;
   rank: Rank;
   deck: number;
-};
-
-type Score = {
-  player: number;
-  dealer: number;
-  push: number;
+  hidden?: boolean;
 };
 
 type HandInfo = {
@@ -57,13 +62,28 @@ type HandInfo = {
 };
 
 type PlayerProfile = {
+  id: number;
   nickname: string;
   label: string;
   avatar: string;
+  photoUrl?: string;
   tone: 'mint' | 'rose';
 };
 
-const SUITS: Suit[] = ['♠', '♣'];
+type LobbyPlayerInfo = {
+  id: number;
+  tg_user?: string;
+  photo_url?: string;
+};
+
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+  playersInfo?: LobbyPlayerInfo[];
+};
+
+type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error';
+
 const RANKS: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
 const CARD_IMAGES: Record<VisualSuit, Record<Rank, string>> = {
@@ -105,6 +125,12 @@ const PRELOAD_IMAGES = [
   logoBackImg,
 ];
 
+const GOLD = '#F2C766';
+const MINT = '#52FFE5';
+const ROSE = '#FF6B8A';
+
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
 const preloadImages = (sources: string[]) => {
   const loadedImages = sources.map((src) => {
     const image = new Image();
@@ -122,30 +148,23 @@ const preloadImages = (sources: string[]) => {
   };
 };
 
-const TARGET_WINS = 5;
-const TURN_SECONDS = 10;
-const TURN_MS = TURN_SECONDS * 1000;
-
-const GOLD = '#F2C766';
-const MINT = '#52FFE5';
-const ROSE = '#FF6B8A';
-
-const PLAYER_PROFILE: PlayerProfile = {
-  nickname: 'Rostik',
-  label: 'Ты',
-  avatar: 'R',
-  tone: 'mint',
+const isObject = (value: unknown): value is Record<string, unknown> => {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 };
 
-const DEALER_PROFILE: PlayerProfile = {
-  nickname: 'Dealer',
-  label: 'Дилер',
-  avatar: 'D',
-  tone: 'rose',
-};
+const getInitials = (name: string) => {
+  const clean = name.replace('@', '').trim();
 
-const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+  const initials = clean
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+
+  return initials || 'TG';
+};
 
 const rankValue = (rank: Rank) => {
   if (rank === 'A') return 11;
@@ -154,8 +173,10 @@ const rankValue = (rank: Rank) => {
 };
 
 const getHandInfo = (cards: PlayingCard[]): HandInfo => {
-  let total = cards.reduce((sum, card) => sum + rankValue(card.rank), 0);
-  let aces = cards.filter((card) => card.rank === 'A').length;
+  const visibleCards = cards.filter((card) => !card.hidden);
+
+  let total = visibleCards.reduce((sum, card) => sum + rankValue(card.rank), 0);
+  let aces = visibleCards.filter((card) => card.rank === 'A').length;
 
   while (total > 21 && aces > 0) {
     total -= 10;
@@ -167,43 +188,152 @@ const getHandInfo = (cards: PlayingCard[]): HandInfo => {
   return {
     total,
     soft,
-    blackjack: cards.length === 2 && total === 21,
+    blackjack: visibleCards.length === 2 && total === 21,
     bust: total > 21,
   };
-};
-
-const createShoe = (decks = 8) => {
-  const shoe: PlayingCard[] = [];
-
-  for (let deck = 0; deck < decks; deck += 1) {
-    for (const suit of SUITS) {
-      for (const rank of RANKS) {
-        shoe.push({
-          id: `${deck}-${rank}-${suit}-${Math.random().toString(36).slice(2, 10)}`,
-          rank,
-          suit,
-          deck,
-        });
-      }
-    }
-  }
-
-  for (let i = shoe.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
-  }
-
-  return shoe;
 };
 
 const formatHand = (info: HandInfo, hidden = false) => {
   if (hidden) return '?';
   if (info.blackjack) return 'BJ';
+  if (!info.total) return '—';
   return String(info.total);
+};
+
+const normalizeRank = (value: unknown): Rank | null => {
+  const normalized = String(value || '').trim().toUpperCase();
+
+  if (RANKS.includes(normalized as Rank)) {
+    return normalized as Rank;
+  }
+
+  return null;
+};
+
+const normalizeSuit = (value: unknown): Suit => {
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (
+    normalized === '♣' ||
+    normalized === 'club' ||
+    normalized === 'clubs' ||
+    normalized === 'c'
+  ) {
+    return '♣';
+  }
+
+  return '♠';
+};
+
+const normalizeCard = (raw: BlackjackServerCard, fallbackId: string): PlayingCard => {
+  const rank = normalizeRank(raw.rank);
+  const hidden = Boolean(raw.hidden) || !rank;
+
+  return {
+    id: typeof raw.id === 'string' ? raw.id : fallbackId,
+    suit: normalizeSuit(raw.suit),
+    rank: rank || 'A',
+    deck: Number(raw.deck || 0),
+    hidden,
+  };
+};
+
+const normalizeCards = (cards: BlackjackServerCard[] | undefined, prefix: string) => {
+  if (!Array.isArray(cards)) return [];
+
+  return cards.map((card, index) => normalizeCard(card, `${prefix}-${index}`));
+};
+
+const createHiddenCard = (id: string): PlayingCard => ({
+  id,
+  suit: '♠',
+  rank: 'A',
+  deck: 0,
+  hidden: true,
+});
+
+const normalizeHandInfo = (
+  raw: BlackjackServerHandInfo | BlackjackServerPlayer | undefined,
+  cards: PlayingCard[],
+): HandInfo => {
+  const fallback = getHandInfo(cards);
+
+  if (!raw || !isObject(raw)) return fallback;
+
+  const total = Number(raw.total);
+  const blackjackRaw = raw.blackjack ?? raw.black_jack;
+
+  return {
+    total: Number.isFinite(total) && total > 0 ? total : fallback.total,
+    soft: typeof raw.soft === 'boolean' ? raw.soft : fallback.soft,
+    blackjack: typeof blackjackRaw === 'boolean' ? blackjackRaw : fallback.blackjack,
+    bust: typeof raw.bust === 'boolean' ? raw.bust : fallback.bust,
+  };
 };
 
 const getCardVisualSuit = (suit: Suit): VisualSuit => (suit === '♠' ? 'spades' : 'clubs');
 const getCardImage = (card: PlayingCard) => CARD_IMAGES[getCardVisualSuit(card.suit)][card.rank];
+
+const getPlayerCards = (entry: BlackjackServerPlayer | undefined, id: number) => {
+  if (!entry) return [];
+
+  const cards = entry.cards || entry.hand || entry.player_cards || [];
+
+  return normalizeCards(cards, `player-${id}`);
+};
+
+const getPlayerInfo = (entry: BlackjackServerPlayer | undefined, cards: PlayingCard[]) => {
+  if (!entry) return getHandInfo(cards);
+
+  return normalizeHandInfo(entry.info || entry.hand_info || entry, cards);
+};
+
+const getWinnerUserId = (state: BlackjackStateMessage | null) => {
+  if (!state) return null;
+
+  const raw =
+    state.round_winner_user_id ??
+    state.winner_user_id ??
+    state.winner_id ??
+    state.round_winner_id;
+
+  if (raw === null || raw === undefined) return null;
+
+  const value = Number(raw);
+
+  return Number.isFinite(value) ? value : null;
+};
+
+const getPushWinner = (state: BlackjackStateMessage | null) => {
+  if (!state) return false;
+
+  return state.round_winner === 'push' || state.winner === 'push';
+};
+
+const readStoredPlayersInfo = () => {
+  if (typeof window === 'undefined') return [];
+
+  const raw = window.sessionStorage.getItem('twingames_blackjack_players_info');
+
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter(isObject)
+      .map((item) => ({
+        id: Number(item.id),
+        tg_user: typeof item.tg_user === 'string' ? item.tg_user : undefined,
+        photo_url: typeof item.photo_url === 'string' ? item.photo_url : undefined,
+      }))
+      .filter((item) => Number.isFinite(item.id));
+  } catch {
+    return [];
+  }
+};
 
 const AvatarBadge = ({
   profile,
@@ -219,7 +349,7 @@ const AvatarBadge = ({
   return (
     <div
       className={cx(
-        'bj-avatar relative grid shrink-0 place-items-center rounded-full border font-black uppercase',
+        'bj-avatar relative grid shrink-0 place-items-center overflow-hidden rounded-full border font-black uppercase',
         size === 'lg' ? 'h-[76px] w-[76px] text-3xl' : 'h-8 w-8 text-sm',
         winner && 'bj-avatar-winner',
       )}
@@ -229,10 +359,21 @@ const AvatarBadge = ({
         background:
           `radial-gradient(circle at 35% 25%, rgba(255,255,255,.18), transparent 34%),` +
           `radial-gradient(circle at 50% 100%, ${color}2b, rgba(6,6,10,.98) 68%)`,
-        boxShadow: winner ? `0 0 34px ${color}45, inset 0 0 18px rgba(255,255,255,.06)` : `0 0 16px ${color}22`,
+        boxShadow: winner
+          ? `0 0 34px ${color}45, inset 0 0 18px rgba(255,255,255,.06)`
+          : `0 0 16px ${color}22`,
       }}
     >
-      <span className="relative z-10">{profile.avatar}</span>
+      {profile.photoUrl ? (
+        <img
+          src={profile.photoUrl}
+          alt={profile.nickname}
+          className="relative z-10 h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        <span className="relative z-10">{profile.avatar}</span>
+      )}
     </div>
   );
 };
@@ -240,11 +381,15 @@ const AvatarBadge = ({
 const HeaderPlayer = ({
   profile,
   score,
+  targetWins,
   align = 'left',
+  active = false,
 }: {
   profile: PlayerProfile;
   score: number;
+  targetWins: number;
   align?: 'left' | 'right';
+  active?: boolean;
 }) => {
   const color = profile.tone === 'mint' ? MINT : ROSE;
 
@@ -253,14 +398,33 @@ const HeaderPlayer = ({
       {align === 'left' && <AvatarBadge profile={profile} />}
 
       <div className={cx('min-w-0', align === 'right' && 'text-right')}>
-        <div className="truncate text-[11px] font-black leading-none text-white">{profile.nickname}</div>
-        <div className="mt-1 flex items-center gap-1">
-          {Array.from({ length: TARGET_WINS }).map((_, i) => {
-            const on = i < score;
+        <div className="flex items-center gap-1.5">
+          {align === 'right' && active && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: color, boxShadow: `0 0 10px ${color}` }}
+            />
+          )}
+
+          <div className="truncate text-[11px] font-black leading-none text-white">
+            {profile.nickname}
+          </div>
+
+          {align === 'left' && active && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: color, boxShadow: `0 0 10px ${color}` }}
+            />
+          )}
+        </div>
+
+        <div className={cx('mt-1 flex items-center gap-1', align === 'right' && 'justify-end')}>
+          {Array.from({ length: Math.max(1, targetWins) }).map((_, index) => {
+            const on = index < score;
 
             return (
               <span
-                key={i}
+                key={index}
                 className="h-1.5 w-3 rounded-full transition-colors duration-300"
                 style={{
                   background: on ? color : 'rgba(255,255,255,0.10)',
@@ -277,10 +441,18 @@ const HeaderPlayer = ({
   );
 };
 
-const TurnTimer = ({ msLeft, active }: { msLeft: number; active: boolean }) => {
+const TurnTimer = ({
+  msLeft,
+  totalMs,
+  active,
+}: {
+  msLeft: number;
+  totalMs: number;
+  active: boolean;
+}) => {
   if (!active) return null;
 
-  const progress = Math.max(0, Math.min(1, msLeft / TURN_MS));
+  const progress = Math.max(0, Math.min(1, msLeft / Math.max(1, totalMs)));
   const seconds = Math.max(0, Math.ceil(msLeft / 1000));
   const color = seconds <= 3 ? ROSE : progress <= 0.55 ? GOLD : MINT;
 
@@ -297,7 +469,9 @@ const TurnTimer = ({ msLeft, active }: { msLeft: number; active: boolean }) => {
         <span className="text-[22px] font-black tabular-nums" style={{ color }}>
           {seconds}
         </span>
-        <span className="mt-0.5 text-[7px] font-black uppercase tracking-[0.18em] text-white/35">сек</span>
+        <span className="mt-0.5 text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
+          сек
+        </span>
       </div>
     </div>
   );
@@ -325,6 +499,7 @@ const PlayingCardView = ({
   hidden = false,
   dimmed = false,
   winner = false,
+  winnerTone = 'mint',
 }: {
   card: PlayingCard;
   owner: Owner;
@@ -333,6 +508,7 @@ const PlayingCardView = ({
   hidden?: boolean;
   dimmed?: boolean;
   winner?: boolean;
+  winnerTone?: 'mint' | 'rose';
 }) => {
   const mid = (count - 1) / 2;
   const tilt = (index - mid) * (owner === 'player' ? 5 : 4);
@@ -347,7 +523,7 @@ const PlayingCardView = ({
         hidden && 'bj-hidden-shell',
         dimmed && 'bj-dimmed',
         winner && 'bj-winning-card',
-        winner && (owner === 'player' ? 'bj-win-mint' : 'bj-win-rose'),
+        winner && (winnerTone === 'mint' ? 'bj-win-mint' : 'bj-win-rose'),
       )}
       style={{
         ['--tilt' as string]: `${tilt}deg`,
@@ -375,7 +551,15 @@ const PlayingCardView = ({
 };
 
 const CardRow = ({ children }: { children: React.ReactNode }) => (
-  <div className="bj-card-row flex min-h-[calc(var(--bj-card-h)+8px)] items-end justify-center">{children}</div>
+  <div className="bj-card-row flex min-h-[calc(var(--bj-card-h)+8px)] items-end justify-center">
+    {children}
+  </div>
+);
+
+const EmptyCards = ({ text }: { text: string }) => (
+  <div className="flex h-[calc(var(--bj-card-h)+8px)] items-center justify-center text-[9px] font-black uppercase tracking-[0.18em] text-white/20">
+    {text}
+  </div>
 );
 
 const TableLabel = ({
@@ -387,44 +571,48 @@ const TableLabel = ({
   title: string;
   score: string;
   hidden?: boolean;
-  tone: 'player' | 'dealer';
-}) => (
-  <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-black/40 px-2.5 py-1">
-    <span
-      className="text-[9px] font-black uppercase tracking-[0.2em]"
-      style={{ color: tone === 'player' ? `${MINT}b3` : `${ROSE}b3` }}
-    >
-      {title}
-    </span>
-    <span className={cx('text-sm font-black leading-none tabular-nums', hidden ? 'text-white/40' : 'text-white')}>
-      {score}
-    </span>
-  </div>
-);
+  tone: Tone;
+}) => {
+  const color = tone === 'mint' ? MINT : tone === 'rose' ? ROSE : GOLD;
+
+  return (
+    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/[0.07] bg-black/40 px-2.5 py-1">
+      <span
+        className="truncate text-[9px] font-black uppercase tracking-[0.16em]"
+        style={{ color: `${color}b3` }}
+      >
+        {title}
+      </span>
+      <span className={cx('text-sm font-black leading-none tabular-nums', hidden ? 'text-white/40' : 'text-white')}>
+        {score}
+      </span>
+    </div>
+  );
+};
 
 const ResultBurst = ({ seed, kind }: { seed: number; kind: RoundWinner }) => {
   if (!kind) return null;
 
-  const color = kind === 'player' ? MINT : kind === 'dealer' ? ROSE : GOLD;
+  const color = kind === 'player' ? MINT : kind === 'opponent' ? ROSE : GOLD;
 
   return (
     <div key={seed} className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
       <div className="bj-ring" style={{ borderColor: color, ['--c' as string]: color }} />
 
-      {Array.from({ length: 16 }).map((_, i) => {
-        const angle = (i / 16) * Math.PI * 2 + seed * 0.2;
-        const dist = 64 + ((i * 17 + seed * 5) % 64);
+      {Array.from({ length: 16 }).map((_, index) => {
+        const angle = (index / 16) * Math.PI * 2 + seed * 0.2;
+        const dist = 64 + ((index * 17 + seed * 5) % 64);
 
         return (
           <span
-            key={i}
+            key={index}
             className="bj-spark"
             style={{
               background: color,
               color,
               ['--dx' as string]: `${Math.cos(angle) * dist}px`,
               ['--dy' as string]: `${Math.sin(angle) * dist}px`,
-              animationDelay: `${(i % 4) * 28}ms`,
+              animationDelay: `${(index % 4) * 28}ms`,
             }}
           />
         );
@@ -443,7 +631,7 @@ const CtrlButton = ({
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
-  tone: 'mint' | 'gold' | 'rose';
+  tone: Tone;
   full?: boolean;
 }) => {
   const color = tone === 'mint' ? MINT : tone === 'gold' ? GOLD : ROSE;
@@ -464,379 +652,400 @@ const CtrlButton = ({
   );
 };
 
-const resultCopy = (winner: RoundWinner, p: HandInfo, d: HandInfo): { title: string; sub: string; color: string } => {
-  if (winner === 'push') return { title: 'Ничья', sub: `${p.total} : ${d.total}`, color: GOLD };
+const PlayerHandPanel = ({
+  profile,
+  cards,
+  info,
+  active,
+  winner,
+}: {
+  profile: PlayerProfile;
+  cards: PlayingCard[];
+  info: HandInfo;
+  active: boolean;
+  winner: boolean;
+}) => {
+  const color = profile.tone === 'mint' ? MINT : ROSE;
 
-  if (winner === 'player') {
-    if (p.blackjack) return { title: 'Блэкджек', sub: 'Идеальная рука', color: MINT };
-    if (d.bust) return { title: 'Перебор дилера', sub: `У дилера ${d.total}`, color: MINT };
-    return { title: 'Победа', sub: `${p.total} против ${d.total}`, color: MINT };
-  }
+  return (
+    <div
+      className={cx(
+        'bj-hand-panel min-w-0 rounded-[18px] border bg-black/25 p-2',
+        active && 'bj-hand-active',
+      )}
+      style={{
+        borderColor: active ? `${color}66` : 'rgba(255,255,255,.06)',
+        boxShadow: active ? `0 0 18px ${color}20, inset 0 0 18px rgba(255,255,255,.035)` : undefined,
+      }}
+    >
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <AvatarBadge profile={profile} />
+          <div className="min-w-0">
+            <div className="truncate text-[10px] font-black leading-none text-white">
+              {profile.nickname}
+            </div>
+            <div className="mt-1 text-[7px] font-black uppercase tracking-[0.16em] text-white/30">
+              {profile.label}
+            </div>
+          </div>
+        </div>
 
-  if (winner === 'dealer') {
-    if (d.blackjack) return { title: 'Блэкджек дилера', sub: 'У дилера 21', color: ROSE };
-    if (p.bust) return { title: 'Перебор', sub: `У тебя ${p.total}`, color: ROSE };
-    return { title: 'Дилер выиграл', sub: `${d.total} против ${p.total}`, color: ROSE };
-  }
+        <div
+          className="shrink-0 rounded-full border px-2 py-1 text-[12px] font-black leading-none tabular-nums"
+          style={{
+            color,
+            borderColor: `${color}30`,
+            background: `${color}12`,
+          }}
+        >
+          {formatHand(info)}
+        </div>
+      </div>
 
-  return { title: 'Блэкджек', sub: 'Сделай ход', color: '#FFFFFF' };
+      {cards.length > 0 ? (
+        <CardRow>
+          {cards.map((card, index) => (
+            <PlayingCardView
+              key={card.id}
+              card={card}
+              owner="player"
+              index={index}
+              count={cards.length}
+              hidden={card.hidden}
+              dimmed={Boolean(winner) && !winner}
+              winner={winner}
+              winnerTone={profile.tone}
+            />
+          ))}
+        </CardRow>
+      ) : (
+        <EmptyCards text="Нет карт" />
+      )}
+    </div>
+  );
 };
 
+const ConnectionNotice = ({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) => (
+  <div className="bj-root relative grid h-full min-h-[440px] w-full place-items-center overflow-hidden bg-[#050507] p-5 text-center text-white">
+    <div className="relative w-full max-w-[340px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0a0a11] p-6">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            `radial-gradient(60% 44% at 50% 0%, ${GOLD}20, transparent 70%),` +
+            `radial-gradient(70% 70% at 50% 100%, ${MINT}10, transparent 70%)`,
+        }}
+      />
+
+      <div className="relative z-10">
+        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-white/35">
+          Blackjack Duel
+        </div>
+        <div className="mt-3 text-2xl font-black uppercase leading-none tracking-[-0.05em] text-white">
+          {title}
+        </div>
+        <div className="mt-2 text-[12px] font-bold leading-snug text-white/40">
+          {subtitle}
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 export const BlackjackDuelGame: React.FC = () => {
-  const timersRef = useRef<number[]>([]);
-  const turnTimerRef = useRef<number | null>(null);
-  const deckRef = useRef<PlayingCard[]>(createShoe());
-  const dealerAutoRef = useRef(false);
-  const settlingRef = useRef(false);
+  const location = useLocation();
+  const { token, user } = useAuth();
 
-  const [phase, setPhase] = useState<Phase>('dealing');
-  const [playerCards, setPlayerCards] = useState<PlayingCard[]>([]);
-  const [dealerCards, setDealerCards] = useState<PlayingCard[]>([]);
-  const [dealerCardsRevealed, setDealerCardsRevealed] = useState(false);
-  const [score, setScore] = useState<Score>({ player: 0, dealer: 0, push: 0 });
-  const [round, setRound] = useState(1);
-  const [roundWinner, setRoundWinner] = useState<RoundWinner>(null);
-  const [message, setMessage] = useState('Раздача');
-  const [subMessage, setSubMessage] = useState('Карты на стол');
+  const socketRef = useRef<BlackjackSocketClient | null>(null);
+  const serverOffsetRef = useRef(0);
+  const lastBurstKeyRef = useRef('');
+
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [serverState, setServerState] = useState<BlackjackStateMessage | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
   const [burst, setBurst] = useState(0);
-  const [matchTitle, setMatchTitle] = useState('');
-  const [turnLeftMs, setTurnLeftMs] = useState(TURN_MS);
 
-  const scoreRef = useRef(score);
-  const latestRoundRef = useRef<{
-    phase: Phase;
-    playerCards: PlayingCard[];
-    dealerCards: PlayingCard[];
-  }>({
-    phase: 'dealing',
-    playerCards: [],
-    dealerCards: [],
-  });
+  const routeState = (location.state || {}) as LocationState;
 
-  const playerInfo = useMemo(() => getHandInfo(playerCards), [playerCards]);
-  const dealerInfo = useMemo(() => getHandInfo(dealerCards), [dealerCards]);
+  const lobbyId = useMemo(() => {
+    const query = new URLSearchParams(location.search);
+    const fromQuery = query.get('lobby_id') || query.get('lobbyId');
+    const fromState = routeState.lobbyId;
 
-  useEffect(() => {
-    scoreRef.current = score;
-  }, [score]);
+    if (fromState) return fromState;
+    if (fromQuery) return fromQuery;
+
+    if (typeof window === 'undefined') return '';
+
+    return window.sessionStorage.getItem('twingames_blackjack_lobby_id') || '';
+  }, [location.search, routeState.lobbyId]);
+
+  const playersInfo = useMemo(() => {
+    if (routeState.playersInfo?.length) return routeState.playersInfo;
+
+    return readStoredPlayersInfo();
+  }, [routeState.playersInfo]);
 
   useEffect(() => preloadImages(PRELOAD_IMAGES), []);
 
   useEffect(() => {
-    latestRoundRef.current = {
-      phase,
-      playerCards,
-      dealerCards,
-    };
-  }, [phase, playerCards, dealerCards]);
-
-  const clearTurnTimer = useCallback(() => {
-    if (turnTimerRef.current !== null) {
-      window.clearInterval(turnTimerRef.current);
-      turnTimerRef.current = null;
-    }
-  }, []);
-
-  const clearTimers = useCallback(() => {
-    timersRef.current.forEach((id) => window.clearTimeout(id));
-    timersRef.current = [];
-    dealerAutoRef.current = false;
-    settlingRef.current = false;
-    clearTurnTimer();
-  }, [clearTurnTimer]);
-
-  const schedule = useCallback((fn: () => void, delay: number) => {
-    const id = window.setTimeout(fn, delay);
-    timersRef.current.push(id);
-    return id;
-  }, []);
-
-  const drawCard = useCallback(() => {
-    if (deckRef.current.length < 24) deckRef.current = createShoe();
-
-    const card = deckRef.current.pop();
-
-    if (!card) throw new Error('Shoe is empty');
-
-    return card;
-  }, []);
-
-  const finishDealerHand = useCallback(
-    (startCards: PlayingCard[]) => {
-      let cards = [...startCards];
-      let safety = 0;
-
-      while (safety < 7) {
-        const info = getHandInfo(cards);
-        const shouldHit = info.total < 17 || (info.total === 17 && info.soft && Math.random() < 0.25);
-
-        if (!shouldHit) break;
-
-        cards = [...cards, drawCard()];
-        safety += 1;
-
-        if (getHandInfo(cards).bust) break;
-      }
-
-      return cards;
-    },
-    [drawCard],
-  );
-
-  const settleRound = useCallback(
-    async (pCards: PlayingCard[], rawDealerCards: PlayingCard[]) => {
-      if (settlingRef.current) return;
-
-      settlingRef.current = true;
-      dealerAutoRef.current = false;
-      clearTurnTimer();
-
-      const finalDealerCards = finishDealerHand(rawDealerCards);
-
-      setPhase('settling');
-      setDealerCards(finalDealerCards);
-      setDealerCardsRevealed(false);
-      setMessage('Вскрытие');
-      setSubMessage('Открываем карты дилера');
-
-      await wait(420);
-
-      setDealerCardsRevealed(true);
-
-      await wait(640);
-
-      const p = getHandInfo(pCards);
-      const d = getHandInfo(finalDealerCards);
-
-      let winner: RoundWinner;
-
-      if (p.bust && d.bust) winner = 'push';
-      else if (p.blackjack && !d.blackjack) winner = 'player';
-      else if (d.blackjack && !p.blackjack) winner = 'dealer';
-      else if (p.bust) winner = 'dealer';
-      else if (d.bust) winner = 'player';
-      else if (p.total > d.total) winner = 'player';
-      else if (d.total > p.total) winner = 'dealer';
-      else winner = 'push';
-
-      const prevScore = scoreRef.current;
-      const nextScore: Score = {
-        player: prevScore.player + (winner === 'player' ? 1 : 0),
-        dealer: prevScore.dealer + (winner === 'dealer' ? 1 : 0),
-        push: prevScore.push + (winner === 'push' ? 1 : 0),
-      };
-
-      scoreRef.current = nextScore;
-
-      const copy = resultCopy(winner, p, d);
-
-      setRoundWinner(winner);
-      setScore(nextScore);
-      setBurst((value) => value + 1);
-      setMessage(copy.title);
-      setSubMessage(copy.sub);
-
-      if (nextScore.player >= TARGET_WINS || nextScore.dealer >= TARGET_WINS) {
-        setPhase('match_over');
-        setMatchTitle(nextScore.player > nextScore.dealer ? 'Стол твой' : 'Дилер победил');
-        return;
-      }
-
-      setPhase('round_over');
-    },
-    [clearTurnTimer, finishDealerHand],
-  );
-
-  const startDealerAuto = useCallback(() => {
-    dealerAutoRef.current = true;
-
-    const step = () => {
-      if (!dealerAutoRef.current || settlingRef.current) return;
-
-      let didHit = false;
-
-      setDealerCards((currentCards) => {
-        if (!dealerAutoRef.current || settlingRef.current) return currentCards;
-
-        const info = getHandInfo(currentCards);
-        const shouldHit = info.total < 17 || (info.total === 17 && info.soft && Math.random() < 0.25);
-
-        if (!shouldHit) {
-          dealerAutoRef.current = false;
-          return currentCards;
-        }
-
-        didHit = true;
-        return [...currentCards, drawCard()];
-      });
-
-      if (didHit && dealerAutoRef.current) {
-        schedule(step, 980 + Math.floor(Math.random() * 520));
-      }
-    };
-
-    schedule(step, 960 + Math.floor(Math.random() * 360));
-  }, [drawCard, schedule]);
-
-  const forceStandByTimer = useCallback(() => {
-    const latest = latestRoundRef.current;
-
-    if (latest.phase !== 'player') return;
-
-    clearTurnTimer();
-
-    const info = getHandInfo(latest.playerCards);
-
-    setTurnLeftMs(0);
-    setMessage('Время вышло');
-    setSubMessage(`Авто-вскрытие ${info.total}`);
-
-    schedule(() => {
-      settleRound(latest.playerCards, latestRoundRef.current.dealerCards);
-    }, 260);
-  }, [clearTurnTimer, schedule, settleRound]);
-
-  useEffect(() => {
-    clearTurnTimer();
-
-    if (phase !== 'player') {
-      setTurnLeftMs(TURN_MS);
-      return;
-    }
-
-    const deadline = Date.now() + TURN_MS;
-
-    setTurnLeftMs(TURN_MS);
-
-    turnTimerRef.current = window.setInterval(() => {
-      const left = Math.max(0, deadline - Date.now());
-
-      setTurnLeftMs(left);
-
-      if (left <= 0) {
-        forceStandByTimer();
-      }
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
     }, 80);
 
-    return clearTurnTimer;
-  }, [phase, clearTurnTimer, forceStandByTimer]);
-
-  const startRound = useCallback(
-    (nextRoundValue = round) => {
-      clearTimers();
-
-      if (deckRef.current.length < 28) deckRef.current = createShoe();
-
-      const p1 = drawCard();
-      const d1 = drawCard();
-      const p2 = drawCard();
-      const d2 = drawCard();
-
-      const initialPlayer = [p1, p2];
-      const initialDealer = [d1, d2];
-
-      setRound(nextRoundValue);
-      setRoundWinner(null);
-      setDealerCardsRevealed(false);
-      setPlayerCards([]);
-      setDealerCards([]);
-      setPhase('dealing');
-      setTurnLeftMs(TURN_MS);
-      setMessage('Раздача');
-      setSubMessage('Карты на стол');
-      setMatchTitle('');
-
-      schedule(() => setPlayerCards([p1]), 110);
-      schedule(() => setDealerCards([d1]), 360);
-      schedule(() => setPlayerCards([p1, p2]), 630);
-      schedule(() => setDealerCards([d1, d2]), 900);
-
-      schedule(() => {
-        const p = getHandInfo(initialPlayer);
-        const d = getHandInfo(initialDealer);
-
-        if (p.blackjack || d.blackjack) {
-          settleRound(initialPlayer, initialDealer);
-          return;
-        }
-
-        setPhase('player');
-        setMessage('Твой ход');
-        setSubMessage('10 секунд · дилер тоже берёт скрыто');
-        startDealerAuto();
-      }, 1340);
-    },
-    [clearTimers, drawCard, round, schedule, settleRound, startDealerAuto],
-  );
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
-    startRound(1);
-    return clearTimers;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!lobbyId || !token) return;
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('twingames_blackjack_lobby_id', lobbyId);
+
+      if (playersInfo.length) {
+        window.sessionStorage.setItem('twingames_blackjack_players_info', JSON.stringify(playersInfo));
+      }
+    }
+
+    let alive = true;
+    let client: BlackjackSocketClient | null = null;
+
+    setConnectionStatus('connecting');
+    setSocketError(null);
+
+    client = blackjackWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          if (!alive) return;
+
+          setConnectionStatus('open');
+          client?.requestState();
+        },
+        onClose: () => {
+          if (!alive) return;
+
+          setConnectionStatus('closed');
+        },
+        onSocketError: () => {
+          if (!alive) return;
+
+          setConnectionStatus('error');
+          setSocketError('Ошибка подключения к WebSocket');
+        },
+        onServerError: (error) => {
+          if (!alive) return;
+
+          setSocketError(error.details || error.error);
+        },
+        onState: (state) => {
+          if (!alive) return;
+
+          setServerState(state);
+          setSocketError(null);
+
+          if (state.server_ms) {
+            serverOffsetRef.current = Date.now() - state.server_ms;
+          }
+        },
+      },
+    });
+
+    socketRef.current = client;
+
+    return () => {
+      alive = false;
+      socketRef.current = null;
+      client?.close();
+    };
+  }, [lobbyId, playersInfo, token]);
+
+  const orderedPlayerIds = useMemo(() => {
+    const fromStateOrder = serverState?.player_order || [];
+
+    if (fromStateOrder.length) {
+      return fromStateOrder;
+    }
+
+    const fromServerPlayers = serverState?.players
+      ? Object.keys(serverState.players).map(Number).filter(Number.isFinite)
+      : [];
+
+    if (fromServerPlayers.length) {
+      return fromServerPlayers;
+    }
+
+    return playersInfo.map((player) => player.id).filter(Number.isFinite);
+  }, [playersInfo, serverState]);
+
+  const myUserId = user?.id || orderedPlayerIds[0] || 0;
+  const opponentUserId = orderedPlayerIds.find((id) => id !== myUserId) || 0;
+
+  const myEntry = myUserId ? serverState?.players?.[String(myUserId)] : undefined;
+  const opponentEntry = opponentUserId ? serverState?.players?.[String(opponentUserId)] : undefined;
+
+  const getProfile = useCallback(
+    (
+      id: number,
+      label: string,
+      tone: 'mint' | 'rose',
+      fallbackName: string,
+      entry?: BlackjackServerPlayer,
+    ): PlayerProfile => {
+      const fromLobby = playersInfo.find((player) => player.id === id);
+
+      const nickname =
+        entry?.tg_user ||
+        entry?.username ||
+        entry?.name ||
+        fromLobby?.tg_user ||
+        fallbackName;
+
+      const photoUrl = entry?.photo_url || fromLobby?.photo_url || '';
+
+      return {
+        id,
+        nickname,
+        label,
+        avatar: getInitials(nickname),
+        photoUrl,
+        tone,
+      };
+    },
+    [playersInfo],
+  );
+
+  const myProfile = useMemo(
+    () => getProfile(myUserId, 'Ты', 'mint', user?.tg_user || 'Ты', myEntry),
+    [getProfile, myEntry, myUserId, user?.tg_user],
+  );
+
+  const opponentProfile = useMemo(
+    () => getProfile(opponentUserId, 'Соперник', 'rose', 'Opponent', opponentEntry),
+    [getProfile, opponentEntry, opponentUserId],
+  );
+
+  const targetWins = Math.max(1, serverState?.target_wins || 5);
+  const turnTotalMs = Math.max(1, (serverState?.turn_seconds || 10) * 1000);
+
+  const activeUserId = serverState?.active_user_id || null;
+  const isMyTurn = serverState?.phase === 'player_turn' && activeUserId === myUserId;
+  const isOpponentTurn = serverState?.phase === 'player_turn' && activeUserId === opponentUserId;
+
+  const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
+  const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
+
+  const myInfo = useMemo(() => getPlayerInfo(myEntry, myCards), [myCards, myEntry]);
+  const opponentInfo = useMemo(() => getPlayerInfo(opponentEntry, opponentCards), [opponentCards, opponentEntry]);
+
+  const dealerCardsRaw = serverState?.dealer_cards || [];
+  const dealerHidden = Boolean(serverState?.dealer_hidden);
+
+  const dealerCards = useMemo(() => {
+    const normalized = normalizeCards(dealerCardsRaw, 'dealer');
+
+    if (dealerHidden && normalized.length === 0 && serverState) {
+      return [createHiddenCard('dealer-hidden-1'), createHiddenCard('dealer-hidden-2')];
+    }
+
+    return normalized.map((card) => ({
+      ...card,
+      hidden: dealerHidden || card.hidden,
+    }));
+  }, [dealerCardsRaw, dealerHidden, serverState]);
+
+  const dealerInfo = useMemo(
+    () => normalizeHandInfo(serverState?.dealer_info, dealerCards),
+    [dealerCards, serverState?.dealer_info],
+  );
+
+  const myScore = serverState?.score?.players?.[String(myUserId)] || 0;
+  const opponentScore = serverState?.score?.players?.[String(opponentUserId)] || 0;
+  const pushScore = serverState?.score?.push || 0;
+
+  const winnerUserId = getWinnerUserId(serverState);
+  const roundWinner: RoundWinner = getPushWinner(serverState)
+    ? 'push'
+    : winnerUserId === myUserId
+      ? 'player'
+      : winnerUserId === opponentUserId
+        ? 'opponent'
+        : null;
+
+  const turnLeftMs = useMemo(() => {
+    if (!serverState?.turn_deadline_ms || serverState.phase !== 'player_turn') {
+      return turnTotalMs;
+    }
+
+    const clientDeadlineMs = serverState.turn_deadline_ms + serverOffsetRef.current;
+
+    return Math.max(0, clientDeadlineMs - nowMs);
+  }, [nowMs, serverState, turnTotalMs]);
+
+  useEffect(() => {
+    if (!serverState) return;
+
+    const key = `${serverState.phase}-${serverState.round}-${roundWinner || ''}-${serverState.message || ''}`;
+
+    if (
+      key !== lastBurstKeyRef.current &&
+      roundWinner &&
+      (serverState.phase === 'round_over' || serverState.phase === 'match_over')
+    ) {
+      lastBurstKeyRef.current = key;
+      setBurst((value) => value + 1);
+    }
+  }, [roundWinner, serverState]);
+
+  const sendCommand = useCallback((type: 'state' | 'hit' | 'stand' | 'next_round' | 'restart_match') => {
+    setSocketError(null);
+
+    const sent = socketRef.current?.send({ type });
+
+    if (!sent) {
+      setSocketError('Нет подключения к игре');
+    }
   }, []);
 
   const hit = useCallback(() => {
-    if (phase !== 'player') return;
-
-    const nextCard = drawCard();
-    const nextPlayer = [...playerCards, nextCard];
-
-    setPlayerCards(nextPlayer);
-
-    const info = getHandInfo(nextPlayer);
-
-    if (info.bust) {
-      clearTurnTimer();
-      setMessage('Перебор');
-      setSubMessage(`${info.total} — слишком много`);
-      schedule(() => settleRound(nextPlayer, latestRoundRef.current.dealerCards), 460);
-    } else if (info.total === 21) {
-      clearTurnTimer();
-      setMessage('21');
-      setSubMessage('Стоп автоматически');
-      schedule(() => settleRound(nextPlayer, latestRoundRef.current.dealerCards), 460);
-    } else {
-      setMessage('Карта взята');
-      setSubMessage(`У тебя ${info.total} · время не сбрасывается`);
-    }
-  }, [clearTurnTimer, drawCard, phase, playerCards, schedule, settleRound]);
+    if (!isMyTurn) return;
+    sendCommand('hit');
+  }, [isMyTurn, sendCommand]);
 
   const stand = useCallback(() => {
-    if (phase !== 'player') return;
-
-    const latest = latestRoundRef.current;
-
-    clearTurnTimer();
-    setMessage('Вскрытие');
-    setSubMessage(`Фиксируем ${getHandInfo(latest.playerCards).total}`);
-    settleRound(latest.playerCards, latest.dealerCards);
-  }, [clearTurnTimer, phase, settleRound]);
+    if (!isMyTurn) return;
+    sendCommand('stand');
+  }, [isMyTurn, sendCommand]);
 
   const nextRound = useCallback(() => {
-    if (phase !== 'round_over') return;
-    startRound(round + 1);
-  }, [phase, round, startRound]);
+    if (serverState?.phase !== 'round_over') return;
+    sendCommand('next_round');
+  }, [sendCommand, serverState?.phase]);
 
   const restartMatch = useCallback(() => {
-    clearTimers();
-    deckRef.current = createShoe();
-    const freshScore = { player: 0, dealer: 0, push: 0 };
-    scoreRef.current = freshScore;
-    setScore(freshScore);
-    setRound(1);
-    setMatchTitle('');
-    setTurnLeftMs(TURN_MS);
-    startRound(1);
-  }, [clearTimers, startRound]);
+    if (serverState?.phase !== 'match_over') return;
+    sendCommand('restart_match');
+  }, [sendCommand, serverState?.phase]);
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
 
-      if (key === 'h' || key === 'enter') hit();
+      if ((key === 'h' || key === 'enter') && isMyTurn) {
+        hit();
+      }
 
-      if (key === 's' || key === ' ') {
-        e.preventDefault();
+      if ((key === 's' || key === ' ') && isMyTurn) {
+        event.preventDefault();
         stand();
       }
 
@@ -847,25 +1056,106 @@ export const BlackjackDuelGame: React.FC = () => {
     window.addEventListener('keydown', onKeyDown);
 
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hit, nextRound, restartMatch, stand]);
+  }, [hit, isMyTurn, nextRound, restartMatch, stand]);
 
-  const result = resultCopy(roundWinner, playerInfo, dealerInfo);
-  const dealerHidden = !dealerCardsRevealed && dealerCards.length > 0;
-  const waitingPhase = phase === 'dealing' || phase === 'settling';
-  const waitingLabel = phase === 'dealing' ? 'Раздача' : 'Подсчёт';
+  if (!lobbyId) {
+    return (
+      <ConnectionNotice
+        title="Нет lobby id"
+        subtitle="Открывай Blackjack через созданное лобби, чтобы игра подключилась к WebSocket."
+      />
+    );
+  }
 
-  const winnerProfile = score.player > score.dealer ? PLAYER_PROFILE : DEALER_PROFILE;
+  if (!token) {
+    return (
+      <ConnectionNotice
+        title="Нет токена"
+        subtitle="Telegram авторизация еще не готова. Без JWT socket не подключится."
+      />
+    );
+  }
+
+  const connectionColor =
+    connectionStatus === 'open' ? MINT : connectionStatus === 'error' ? ROSE : GOLD;
+
+  const phase = serverState?.phase || 'dealing';
+
+  const centerMessage = socketError
+    ? 'Ошибка'
+    : phase === 'player_turn'
+      ? isMyTurn
+        ? 'Твой ход'
+        : isOpponentTurn
+          ? 'Ход соперника'
+          : 'Ход игрока'
+      : serverState?.message ||
+        (connectionStatus === 'open'
+          ? 'Ожидаем состояние'
+          : connectionStatus === 'connecting'
+            ? 'Подключение'
+            : 'Нет соединения');
+
+  const centerSubMessage = socketError
+    ? socketError
+    : phase === 'player_turn'
+      ? isMyTurn
+        ? 'Взять карту или вскрыться'
+        : `${opponentProfile.nickname} выбирает действие`
+      : phase === 'dealing'
+        ? 'Раздача карт'
+        : phase === 'settling'
+          ? 'Подсчет результата'
+          : phase === 'round_over'
+            ? 'Раунд завершен'
+            : phase === 'match_over'
+              ? 'Матч окончен'
+              : `Socket: ${connectionStatus}`;
+
+  const centerColor = socketError
+    ? ROSE
+    : isMyTurn
+      ? MINT
+      : isOpponentTurn
+        ? ROSE
+        : phase === 'round_over' || phase === 'match_over'
+          ? GOLD
+          : '#FFFFFF';
+
+  const waitingPhase = phase === 'dealing' || phase === 'settling' || (phase === 'player_turn' && !isMyTurn);
+  const waitingLabel =
+    phase === 'player_turn' && !isMyTurn
+      ? 'Ждем ход соперника'
+      : phase === 'dealing'
+        ? 'Раздача'
+        : phase === 'settling'
+          ? 'Подсчет'
+          : 'Ожидание';
+
+  const winnerProfile = myScore >= opponentScore ? myProfile : opponentProfile;
   const winnerColor = winnerProfile.tone === 'mint' ? MINT : ROSE;
+  const matchTitle =
+    myScore > opponentScore
+      ? 'Стол твой'
+      : opponentScore > myScore
+        ? 'Соперник победил'
+        : 'Ничья';
 
   return (
     <div className="bj-root relative flex h-full min-h-[440px] w-full select-none flex-col overflow-hidden bg-[#050507] text-white">
       <style>{`
         .bj-root {
-          --bj-card-w: clamp(68px, 17vw, 104px);
+          --bj-card-w: clamp(62px, 15.5vw, 92px);
           --bj-card-h: calc(var(--bj-card-w) * 1.50);
           --bj-radius: clamp(12px, 1.5vw, 18px);
           -webkit-tap-highlight-color: transparent;
           touch-action: manipulation;
+        }
+
+        .bj-hand-panel {
+          --bj-card-w: clamp(42px, 10.8vw, 62px);
+          --bj-card-h: calc(var(--bj-card-w) * 1.50);
+          --bj-radius: clamp(9px, 1.2vw, 13px);
         }
 
         .bj-card-shell {
@@ -1224,9 +1514,22 @@ export const BlackjackDuelGame: React.FC = () => {
           filter: drop-shadow(0 0 4px currentColor);
         }
 
+        .bj-hand-active {
+          animation: bjHandPulse 1.4s ease-in-out infinite;
+        }
+
+        @keyframes bjHandPulse {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-2px);
+          }
+        }
+
         @media (max-width: 460px) {
           .bj-root {
-            --bj-card-w: clamp(68px, 18.4vw, 86px);
+            --bj-card-w: clamp(58px, 15vw, 82px);
           }
 
           .bj-turn-timer {
@@ -1237,13 +1540,21 @@ export const BlackjackDuelGame: React.FC = () => {
 
         @media (max-height: 680px) {
           .bj-root {
-            --bj-card-w: clamp(58px, 15.5vw, 88px);
+            --bj-card-w: clamp(52px, 13.5vw, 74px);
+          }
+
+          .bj-hand-panel {
+            --bj-card-w: clamp(38px, 9.8vw, 56px);
           }
         }
 
         @media (max-height: 560px) {
           .bj-root {
-            --bj-card-w: clamp(52px, 14vw, 74px);
+            --bj-card-w: clamp(46px, 12vw, 66px);
+          }
+
+          .bj-hand-panel {
+            --bj-card-w: clamp(34px, 8.8vw, 50px);
           }
 
           .bj-status-msg {
@@ -1256,12 +1567,6 @@ export const BlackjackDuelGame: React.FC = () => {
           }
         }
 
-        @media (max-width: 390px) and (max-height: 680px) {
-          .bj-root {
-            --bj-card-w: clamp(58px, 16.5vw, 76px);
-          }
-        }
-
         @media (prefers-reduced-motion: reduce) {
           .bj-deal-player,
           .bj-deal-dealer,
@@ -1271,7 +1576,8 @@ export const BlackjackDuelGame: React.FC = () => {
           .bj-spark,
           .bj-turn-danger,
           .bj-avatar-winner,
-          .bj-back-glow {
+          .bj-back-glow,
+          .bj-hand-active {
             animation: none !important;
           }
 
@@ -1292,16 +1598,40 @@ export const BlackjackDuelGame: React.FC = () => {
 
       <div className="relative z-20 shrink-0 px-3 pt-2">
         <div className="mx-auto flex max-w-[500px] items-center justify-between gap-3 rounded-[20px] border border-white/[0.06] bg-white/[0.035] px-2.5 py-2">
-          <HeaderPlayer profile={PLAYER_PROFILE} score={score.player} align="left" />
+          <HeaderPlayer
+            profile={myProfile}
+            score={myScore}
+            targetWins={targetWins}
+            align="left"
+            active={isMyTurn}
+          />
 
           <div className="flex shrink-0 flex-col items-center rounded-2xl border border-white/[0.06] bg-black/25 px-3 py-1.5 leading-none">
-            <span className="text-[8px] font-black uppercase tracking-[0.24em] text-white/35">Раунд</span>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ background: connectionColor, boxShadow: `0 0 10px ${connectionColor}` }}
+              />
+              <span className="text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
+                {connectionStatus}
+              </span>
+            </div>
+
+            <span className="mt-1 text-[8px] font-black uppercase tracking-[0.24em] text-white/35">
+              Раунд
+            </span>
             <span className="mt-0.5 text-sm font-black" style={{ color: GOLD }}>
-              {round}
+              {serverState?.round || 1}
             </span>
           </div>
 
-          <HeaderPlayer profile={DEALER_PROFILE} score={score.dealer} align="right" />
+          <HeaderPlayer
+            profile={opponentProfile}
+            score={opponentScore}
+            targetWins={targetWins}
+            align="right"
+            active={isOpponentTurn}
+          />
         </div>
       </div>
 
@@ -1316,68 +1646,80 @@ export const BlackjackDuelGame: React.FC = () => {
           }}
         />
 
-        <div className="pointer-events-none absolute inset-[6px] rounded-[18px] border" style={{ borderColor: `${GOLD}14` }} />
+        <div
+          className="pointer-events-none absolute inset-[6px] rounded-[18px] border"
+          style={{ borderColor: `${GOLD}14` }}
+        />
 
         <div className="relative z-10 flex flex-col items-center gap-1.5 px-3 pt-3">
           <TableLabel
-            title={DEALER_PROFILE.nickname}
+            title="Dealer"
             score={formatHand(dealerInfo, dealerHidden)}
             hidden={dealerHidden}
-            tone="dealer"
+            tone="gold"
           />
 
-          <CardRow>
-            {dealerCards.map((card, index) => (
-              <PlayingCardView
-                key={card.id}
-                card={card}
-                owner="dealer"
-                index={index}
-                count={dealerCards.length}
-                hidden={!dealerCardsRevealed}
-                dimmed={roundWinner === 'player'}
-                winner={roundWinner === 'dealer'}
-              />
-            ))}
-          </CardRow>
+          {dealerCards.length > 0 ? (
+            <CardRow>
+              {dealerCards.map((card, index) => (
+                <PlayingCardView
+                  key={card.id}
+                  card={card}
+                  owner="dealer"
+                  index={index}
+                  count={dealerCards.length}
+                  hidden={card.hidden}
+                  winnerTone="rose"
+                />
+              ))}
+            </CardRow>
+          ) : (
+            <EmptyCards text="Ждем раздачу" />
+          )}
         </div>
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
-          <div key={`${message}-${burst}`} className="bj-status-in flex flex-col items-center">
-            <TurnTimer msLeft={turnLeftMs} active={phase === 'player'} />
+          <div key={`${centerMessage}-${burst}`} className="bj-status-in flex flex-col items-center">
+            <TurnTimer
+              msLeft={turnLeftMs}
+              totalMs={turnTotalMs}
+              active={phase === 'player_turn'}
+            />
 
             <div
               className={cx(
                 'bj-status-msg font-black uppercase leading-none tracking-[-0.04em]',
-                phase === 'player' ? 'mt-3 text-[clamp(18px,5.2vw,30px)]' : 'text-[clamp(20px,6vw,34px)]',
+                phase === 'player_turn'
+                  ? 'mt-3 text-[clamp(18px,5.2vw,30px)]'
+                  : 'text-[clamp(20px,6vw,34px)]',
               )}
-              style={{ color: result.color }}
+              style={{ color: centerColor }}
             >
-              {message}
+              {centerMessage}
             </div>
 
-            <div className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white/40">
-              {subMessage}
+            <div className="mt-1.5 max-w-[280px] text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+              {centerSubMessage}
             </div>
           </div>
         </div>
 
-        <div className="relative z-10 flex flex-col items-center gap-1.5 px-3 pb-3">
-          <CardRow>
-            {playerCards.map((card, index) => (
-              <PlayingCardView
-                key={card.id}
-                card={card}
-                owner="player"
-                index={index}
-                count={playerCards.length}
-                dimmed={roundWinner === 'dealer'}
-                winner={roundWinner === 'player'}
-              />
-            ))}
-          </CardRow>
+        <div className="relative z-10 grid grid-cols-2 gap-2 px-3 pb-3">
+          <PlayerHandPanel
+            profile={myProfile}
+            cards={myCards}
+            info={myInfo}
+            active={isMyTurn}
+            winner={roundWinner === 'player'}
+          />
 
-          <TableLabel title={PLAYER_PROFILE.nickname} score={formatHand(playerInfo)} tone="player" />
+          <PlayerHandPanel
+            profile={opponentProfile}
+            cards={opponentCards}
+            info={opponentInfo}
+            active={isOpponentTurn}
+            winner={roundWinner === 'opponent'}
+          />
         </div>
 
         <ResultBurst seed={burst} kind={roundWinner} />
@@ -1385,13 +1727,13 @@ export const BlackjackDuelGame: React.FC = () => {
 
       <div className="relative z-20 shrink-0 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2.5">
         <div className="mx-auto flex max-w-[440px] items-center justify-center">
-          {phase === 'player' && (
+          {phase === 'player_turn' && isMyTurn && (
             <div className="flex w-full items-center gap-2">
-              <CtrlButton onClick={hit} disabled={phase !== 'player'} tone="mint">
+              <CtrlButton onClick={hit} disabled={!isMyTurn} tone="mint">
                 Взять
               </CtrlButton>
 
-              <CtrlButton onClick={stand} disabled={phase !== 'player'} tone="gold">
+              <CtrlButton onClick={stand} disabled={!isMyTurn} tone="gold">
                 Вскрыть
               </CtrlButton>
             </div>
@@ -1426,13 +1768,17 @@ export const BlackjackDuelGame: React.FC = () => {
             />
 
             <div className="relative z-10 flex flex-col items-center">
-              <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/35">Матч окончен</div>
+              <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/35">
+                Матч окончен
+              </div>
 
               <div className="mt-4">
                 <AvatarBadge profile={winnerProfile} size="lg" winner />
               </div>
 
-              <div className="mt-3 text-[11px] font-black uppercase tracking-[0.22em] text-white/35">Победитель</div>
+              <div className="mt-3 text-[11px] font-black uppercase tracking-[0.22em] text-white/35">
+                Победитель
+              </div>
 
               <div
                 className="mt-1 max-w-full truncate text-3xl font-black uppercase leading-none tracking-[-0.05em]"
@@ -1441,29 +1787,39 @@ export const BlackjackDuelGame: React.FC = () => {
                 {winnerProfile.nickname}
               </div>
 
-              <div className="mt-2 text-sm font-bold text-white/45">{matchTitle}</div>
+              <div className="mt-2 text-sm font-bold text-white/45">
+                {matchTitle}
+              </div>
 
               <div className="mt-5 flex w-full items-stretch gap-3">
-                <div className="flex-1 rounded-2xl border py-3" style={{ borderColor: `${MINT}26`, background: `${MINT}0d` }}>
+                <div
+                  className="flex-1 rounded-2xl border py-3"
+                  style={{ borderColor: `${MINT}26`, background: `${MINT}0d` }}
+                >
                   <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">
-                    {PLAYER_PROFILE.nickname}
+                    {myProfile.nickname}
                   </div>
                   <div className="mt-1 text-3xl font-black" style={{ color: MINT }}>
-                    {score.player}
+                    {myScore}
                   </div>
                 </div>
 
-                <div className="flex-1 rounded-2xl border py-3" style={{ borderColor: `${ROSE}26`, background: `${ROSE}0d` }}>
+                <div
+                  className="flex-1 rounded-2xl border py-3"
+                  style={{ borderColor: `${ROSE}26`, background: `${ROSE}0d` }}
+                >
                   <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">
-                    {DEALER_PROFILE.nickname}
+                    {opponentProfile.nickname}
                   </div>
                   <div className="mt-1 text-3xl font-black" style={{ color: ROSE }}>
-                    {score.dealer}
+                    {opponentScore}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-3 text-[11px] font-bold text-white/35">Ничьих: {score.push}</div>
+              <div className="mt-3 text-[11px] font-bold text-white/35">
+                Ничьих: {pushScore}
+              </div>
 
               <button
                 type="button"

@@ -72,6 +72,12 @@ export type GamesResponse = {
 
 export type LobbyStatus = 'waiting' | 'playing' | 'finished';
 
+export type LobbyPlayerInfo = {
+  id: number;
+  tg_user: string;
+  photo_url: string;
+};
+
 export type Lobby = {
   id: string;
   name: string;
@@ -81,6 +87,7 @@ export type Lobby = {
   max_players: number;
   player_count: number;
   players: number[];
+  players_info?: LobbyPlayerInfo[];
   created_by: number;
   created_at: string;
   updated_at: string;

@@ -34,6 +34,12 @@ export const LobbyRoom = () => {
   const isMatched = lobby?.status === 'playing' || (lobby?.player_count ?? 0) >= 2;
   const isUserInLobby = Boolean(user && lobby?.players.includes(user.id));
 
+  const opponentInfo = useMemo(() => {
+    if (!user || !lobby?.players_info?.length) return null;
+
+    return lobby.players_info.find((player) => player.id !== user.id) || null;
+  }, [lobby?.players_info, user]);
+
   const loadLobby = useCallback(async () => {
     if (!lobbyId) {
       setError('ID лобби не найден');
@@ -64,18 +70,32 @@ export const LobbyRoom = () => {
 
   const handleComplete = useCallback(() => {
     if (completedRef.current) return;
+    if (!lobby) return;
 
     completedRef.current = true;
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('twingames_blackjack_lobby_id', lobby.id);
+      window.sessionStorage.setItem(
+        'twingames_blackjack_players_info',
+        JSON.stringify(lobby.players_info ?? []),
+      );
+
+      window.sessionStorage.setItem('twingames_active_lobby_id', lobby.id);
+      window.sessionStorage.setItem('twingames_active_game', lobby.game);
+    }
+
     void refreshBalance();
 
     navigate(playPath, {
       replace: true,
       state: {
-        lobbyId: lobby?.id,
-        game: lobby?.game,
+        lobbyId: lobby.id,
+        game: lobby.game,
+        playersInfo: lobby.players_info ?? [],
       },
     });
-  }, [lobby?.game, lobby?.id, navigate, playPath, refreshBalance]);
+  }, [lobby, navigate, playPath, refreshBalance]);
 
   const handleLeave = async () => {
     if (!lobby || isLeaving || isMatched) return;
@@ -205,6 +225,8 @@ export const LobbyRoom = () => {
         gameTitle={gameTitle}
         isMatched={isMatched}
         onComplete={handleComplete}
+        opponentName={opponentInfo?.tg_user}
+        opponentPhotoUrl={opponentInfo?.photo_url}
       />
     </main>
   );

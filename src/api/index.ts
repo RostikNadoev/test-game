@@ -3,6 +3,7 @@ import { authApi } from './auth';
 import { lobbiesApi } from './lobbies';
 import { usersApi } from './users';
 import { walletApi } from './wallet';
+import { blackjackWsApi } from './blackjackWs';
 import type { HealthResponse } from './types';
 
 export * from './types';
@@ -11,6 +12,7 @@ export * from './auth';
 export * from './users';
 export * from './wallet';
 export * from './lobbies';
+export * from './blackjackWs';
 
 export const api = {
   health() {
@@ -20,4 +22,5 @@ export const api = {
   users: usersApi,
   wallet: walletApi,
   lobbies: lobbiesApi,
+  blackjackWs: blackjackWsApi,
 };

@@ -21,6 +21,8 @@ type Props = {
   isMatched: boolean;
   onComplete: () => void;
   matchedDurationMs?: number;
+  opponentName?: string;
+  opponentPhotoUrl?: string;
 };
 
 const opponents = [
@@ -65,7 +67,8 @@ const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties
 
 const getInitials = (name: string) => {
   const initials = name
-    .split(' ')
+    .replace('@', '')
+    .split(/[\s._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0])
@@ -109,6 +112,8 @@ export const GameIntroOverlay = ({
   isMatched,
   onComplete,
   matchedDurationMs = 2400,
+  opponentName,
+  opponentPhotoUrl,
 }: Props) => {
   const [phase, setPhase] = useState<IntroPhase>(isMatched ? 'matched' : 'searching');
   const onCompleteRef = useRef(onComplete);
@@ -119,6 +124,9 @@ export const GameIntroOverlay = ({
   const opponent = useMemo(() => {
     return opponents[getOpponentIndex(gameTitle)];
   }, [gameTitle]);
+
+  const realOpponentName = opponentName?.trim() || opponent.name;
+  const realOpponentPhotoUrl = opponentPhotoUrl?.trim() || '';
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -345,7 +353,7 @@ export const GameIntroOverlay = ({
         }
 
         .gi-opponent .gi-avatar {
-          font-size: 27px;
+          font-size: 17px;
         }
 
         .gi-loader {
@@ -582,7 +590,7 @@ export const GameIntroOverlay = ({
           }
 
           .gi-opponent .gi-avatar {
-            font-size: 25px;
+            font-size: 15px;
           }
 
           .gi-name {
@@ -672,19 +680,25 @@ export const GameIntroOverlay = ({
             >
               <div className="gi-avatar-wrap">
                 {showMatchedState ? (
-                  <div className="gi-avatar">{opponent.avatar}</div>
+                  <div className="gi-avatar">
+                    {realOpponentPhotoUrl ? (
+                      <img src={realOpponentPhotoUrl} alt={realOpponentName} />
+                    ) : (
+                      getInitials(realOpponentName)
+                    )}
+                  </div>
                 ) : (
                   <div className="gi-loader" />
                 )}
               </div>
 
               <div className="gi-name">
-                {showMatchedState ? opponent.name : 'Поиск'}
+                {showMatchedState ? realOpponentName : 'Поиск'}
               </div>
 
               <div className="gi-label">
                 <i />
-                {showMatchedState ? opponent.rank : 'Wait'}
+                {showMatchedState ? 'Opponent' : 'Wait'}
               </div>
             </div>
           </div>
