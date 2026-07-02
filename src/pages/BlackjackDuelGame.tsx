@@ -393,23 +393,23 @@ const ScoreHeader = ({
           <div className="truncate text-[10px] font-black leading-none text-white">
             {myProfile.nickname}
           </div>
-          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-[#52FFE5]/70">
+          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
             You
           </div>
         </div>
       </div>
 
       <div className="bj-scorebox">
-        <div className="flex items-center justify-center gap-2">
-          <span className="bj-score-num text-[#52FFE5]">{myScore}</span>
-          <span className="bj-score-sep">:</span>
-          <span className="bj-score-num text-[#FF6B8A]">{opponentScore}</span>
+        <div className="bj-score-pill">
+          <span className="bj-score-num bj-score-you">{myScore}</span>
+          <span className="bj-score-sep">−</span>
+          <span className="bj-score-num bj-score-enemy">{opponentScore}</span>
         </div>
 
         <div className="mt-1 flex items-center justify-center gap-1.5">
           <span
             className="h-1.5 w-1.5 rounded-full"
-            style={{ background: connectionColor, boxShadow: `0 0 10px ${connectionColor}` }}
+            style={{ background: connectionColor }}
           />
           <span className="text-[7px] font-black uppercase tracking-[0.16em] text-white/30">
             R{round} · {connectionStatus}
@@ -421,11 +421,11 @@ const ScoreHeader = ({
             <span
               key={index}
               className={cx(
-                'h-1 w-3 rounded-full',
+                'h-1 w-2.5 rounded-full',
                 index < myScore
-                  ? 'bg-[#52FFE5]'
+                  ? 'bg-[#52FFE5]/80'
                   : index < opponentScore
-                    ? 'bg-[#FF6B8A]'
+                    ? 'bg-[#FF6B8A]/80'
                     : 'bg-white/10',
               )}
             />
@@ -438,7 +438,7 @@ const ScoreHeader = ({
           <div className="truncate text-[10px] font-black leading-none text-white">
             {opponentProfile.nickname}
           </div>
-          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-[#FF6B8A]/70">
+          <div className="mt-1 text-[7px] font-black uppercase tracking-[0.18em] text-white/35">
             Enemy
           </div>
         </div>
@@ -927,7 +927,6 @@ export const BlackjackDuelGame: React.FC = () => {
     isPlayerTurnPhase &&
     (!activeUserId || activeUserId === myUserId);
 
-
   const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
   const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
 
@@ -1134,42 +1133,67 @@ export const BlackjackDuelGame: React.FC = () => {
           border-radius: 24px;
           border: 1px solid rgba(255,255,255,.055);
           background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.06), transparent 54%),
+            radial-gradient(circle at 50% 0%, rgba(255,255,255,.055), transparent 54%),
             rgba(255,255,255,.035);
           padding: 7px 8px;
           box-shadow:
-            0 14px 38px rgba(0,0,0,.24),
+            0 12px 30px rgba(0,0,0,.20),
             inset 0 1px 0 rgba(255,255,255,.045);
         }
 
         .bj-top-player {
           min-width: 0;
-          width: 34%;
+          width: 35%;
           display: flex;
           align-items: center;
           gap: 7px;
         }
 
         .bj-scorebox {
-          width: 32%;
-          min-width: 112px;
+          width: 30%;
+          min-width: 94px;
           text-align: center;
           line-height: 1;
         }
 
+        .bj-score-pill {
+          min-width: 78px;
+          height: 32px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,.08);
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)),
+            rgba(0,0,0,.22);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.045);
+        }
+
         .bj-score-num {
-          font-size: clamp(26px, 8vw, 38px);
-          font-weight: 1000;
-          line-height: .78;
-          letter-spacing: -.08em;
-          text-shadow: 0 0 20px currentColor;
+          min-width: 18px;
+          font-size: clamp(18px, 5vw, 23px);
+          font-weight: 950;
+          line-height: 1;
+          letter-spacing: -.045em;
+          text-shadow: none;
+        }
+
+        .bj-score-you {
+          color: rgba(82,255,229,.92);
+        }
+
+        .bj-score-enemy {
+          color: rgba(255,107,138,.92);
         }
 
         .bj-score-sep {
-          color: rgba(255,255,255,.28);
-          font-size: 22px;
-          font-weight: 1000;
-          line-height: .8;
+          transform: translateY(-1px);
+          color: rgba(255,255,255,.34);
+          font-size: 15px;
+          font-weight: 900;
+          line-height: 1;
         }
 
         .bj-avatar {
@@ -1177,15 +1201,15 @@ export const BlackjackDuelGame: React.FC = () => {
           height: 34px;
           color: white;
           background:
-            radial-gradient(circle at 35% 25%, rgba(255,255,255,.18), transparent 34%),
-            radial-gradient(circle at 50% 100%, rgba(242,199,102,.20), rgba(6,6,10,.98) 68%);
+            radial-gradient(circle at 35% 25%, rgba(255,255,255,.16), transparent 34%),
+            radial-gradient(circle at 50% 100%, rgba(242,199,102,.16), rgba(6,6,10,.98) 68%);
           border-color: rgba(255,255,255,.12);
-          box-shadow: 0 0 14px rgba(242,199,102,.10);
+          box-shadow: 0 6px 13px rgba(0,0,0,.28);
         }
 
         .bj-avatar-active {
-          border-color: rgba(82,255,229,.5);
-          box-shadow: 0 0 20px rgba(82,255,229,.22), inset 0 0 14px rgba(82,255,229,.08);
+          border-color: rgba(82,255,229,.48);
+          box-shadow: 0 0 0 1px rgba(82,255,229,.12), 0 8px 16px rgba(0,0,0,.30);
         }
 
         .bj-avatar::after {
@@ -1194,7 +1218,7 @@ export const BlackjackDuelGame: React.FC = () => {
           inset: -3px;
           border-radius: inherit;
           border: 1px solid rgba(255,255,255,.08);
-          opacity: .8;
+          opacity: .75;
         }
 
         .bj-avatar-winner {
@@ -1597,6 +1621,12 @@ export const BlackjackDuelGame: React.FC = () => {
           .bj-topbar {
             min-height: 54px;
             border-radius: 22px;
+            padding: 6px 7px;
+          }
+
+          .bj-top-player {
+            width: 35%;
+            gap: 6px;
           }
 
           .bj-avatar {
@@ -1606,7 +1636,23 @@ export const BlackjackDuelGame: React.FC = () => {
           }
 
           .bj-scorebox {
-            min-width: 96px;
+            width: 30%;
+            min-width: 86px;
+          }
+
+          .bj-score-pill {
+            min-width: 70px;
+            height: 30px;
+            gap: 5px;
+          }
+
+          .bj-score-num {
+            min-width: 16px;
+            font-size: clamp(17px, 4.8vw, 21px);
+          }
+
+          .bj-score-sep {
+            font-size: 14px;
           }
 
           .bj-hand-score {
@@ -1624,6 +1670,25 @@ export const BlackjackDuelGame: React.FC = () => {
         @media (max-width: 385px) {
           .bj-root {
             --bj-card-w: clamp(68px, 20.6vw, 88px);
+          }
+
+          .bj-top-player {
+            width: 34%;
+          }
+
+          .bj-scorebox {
+            width: 32%;
+            min-width: 78px;
+          }
+
+          .bj-score-pill {
+            min-width: 64px;
+            height: 28px;
+          }
+
+          .bj-score-num {
+            min-width: 14px;
+            font-size: 18px;
           }
 
           .bj-hand-score {
