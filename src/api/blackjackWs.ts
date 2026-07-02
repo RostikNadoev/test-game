@@ -4,7 +4,6 @@ export type BlackjackCommandType =
   | 'state'
   | 'hit'
   | 'stand'
-  | 'next_round'
   | 'restart_match';
 
 export type BlackjackClientCommand = {
@@ -62,6 +61,14 @@ export type BlackjackScore = {
   push: number;
 };
 
+export type BlackjackRoundResult = {
+  winner_user_id?: number | null;
+  winner_id?: number | null;
+  winner?: string | null;
+  result?: string | null;
+  [key: string]: unknown;
+};
+
 export type BlackjackStateMessage = {
   type: 'state';
   game: 'blackjack_duel' | string;
@@ -79,6 +86,7 @@ export type BlackjackStateMessage = {
   players: Record<string, BlackjackServerPlayer>;
   player_order: number[];
   score: BlackjackScore;
+  round_result?: BlackjackRoundResult;
   message?: string;
   [key: string]: unknown;
 };
@@ -106,7 +114,6 @@ export type BlackjackSocketClient = {
   requestState: () => boolean;
   hit: () => boolean;
   stand: () => boolean;
-  nextRound: () => boolean;
   restartMatch: () => boolean;
   close: () => void;
 };
@@ -188,6 +195,9 @@ const normalizeStateMessage = (raw: Record<string, unknown>): BlackjackStateMess
       ),
       push: Number(scoreRaw.push || 0),
     },
+    round_result: isObject(raw.round_result)
+      ? (raw.round_result as BlackjackRoundResult)
+      : undefined,
     message: typeof raw.message === 'string' ? raw.message : undefined,
   };
 };
@@ -255,7 +265,6 @@ export const blackjackWsApi = {
       requestState: () => send({ type: 'state' }),
       hit: () => send({ type: 'hit' }),
       stand: () => send({ type: 'stand' }),
-      nextRound: () => send({ type: 'next_round' }),
       restartMatch: () => send({ type: 'restart_match' }),
       close: () => {
         socket.close();

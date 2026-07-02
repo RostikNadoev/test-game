@@ -286,14 +286,21 @@ const getPlayerInfo = (entry: BlackjackServerPlayer | undefined, cards: PlayingC
   return normalizeHandInfo(entry.info || entry.hand_info || entry, cards);
 };
 
-const getWinnerUserId = (state: BlackjackStateMessage | null) => {
+const getRoundResult = (state: BlackjackStateMessage | null) => {
   if (!state) return null;
 
+  return isObject(state.round_result) ? state.round_result : null;
+};
+
+const getRoundWinnerUserId = (state: BlackjackStateMessage | null) => {
+  if (!state) return null;
+
+  const roundResult = getRoundResult(state);
+
   const raw =
+    roundResult?.winner_user_id ??
     state.round_winner_user_id ??
-    state.winner_user_id ??
-    state.winner_id ??
-    state.round_winner_id;
+    state.winner_user_id;
 
   if (raw === null || raw === undefined) return null;
 
@@ -305,7 +312,12 @@ const getWinnerUserId = (state: BlackjackStateMessage | null) => {
 const getPushWinner = (state: BlackjackStateMessage | null) => {
   if (!state) return false;
 
-  return state.round_winner === 'push' || state.winner === 'push';
+  const roundResult = getRoundResult(state);
+
+  return (
+    roundResult?.winner === 'push' ||
+    roundResult?.result === 'push'
+  );
 };
 
 const readStoredPlayersInfo = () => {
@@ -919,13 +931,8 @@ export const BlackjackDuelGame: React.FC = () => {
   const turnTotalMs = Math.max(1, (serverState?.turn_seconds || 10) * 1000);
 
   const phase = serverState?.phase || 'dealing';
-  const activeUserId = serverState?.active_user_id || null;
-
   const isPlayerTurnPhase = phase === 'player_turn';
-
-  const isMyTurn =
-    isPlayerTurnPhase &&
-    (!activeUserId || activeUserId === myUserId);
+  const isMyTurn = isPlayerTurnPhase;
 
   const myCards = useMemo(() => getPlayerCards(myEntry, myUserId), [myEntry, myUserId]);
   const opponentCards = useMemo(() => getPlayerCards(opponentEntry, opponentUserId), [opponentEntry, opponentUserId]);
@@ -957,7 +964,7 @@ export const BlackjackDuelGame: React.FC = () => {
   const opponentScore = serverState?.score?.players?.[String(opponentUserId)] || 0;
   const pushScore = serverState?.score?.push || 0;
 
-  const winnerUserId = getWinnerUserId(serverState);
+  const winnerUserId = getRoundWinnerUserId(serverState);
   const roundWinner: RoundWinner = getPushWinner(serverState)
     ? 'push'
     : winnerUserId === myUserId
@@ -1061,9 +1068,7 @@ export const BlackjackDuelGame: React.FC = () => {
   const centerMessage = socketError
     ? 'Ошибка'
     : phase === 'player_turn'
-      ? isMyTurn
-        ? 'Выбирай'
-        : 'Ожидание'
+      ? 'Выбирай'
       : serverState?.message ||
         (connectionStatus === 'open'
           ? 'Ожидаем состояние'
@@ -1074,9 +1079,7 @@ export const BlackjackDuelGame: React.FC = () => {
   const centerSubMessage = socketError
     ? socketError
     : phase === 'player_turn'
-      ? isMyTurn
-        ? 'Оба игрока делают ход одновременно'
-        : 'Ждем результат'
+      ? 'Оба игрока делают ход одновременно'
       : phase === 'dealing'
         ? 'Раздача карт'
         : phase === 'settling'
@@ -1095,18 +1098,16 @@ export const BlackjackDuelGame: React.FC = () => {
         ? GOLD
         : '#FFFFFF';
 
-  const waitingPhase = phase === 'dealing' || phase === 'settling' || phase === 'round_over' || (phase === 'player_turn' && !isMyTurn);
+  const waitingPhase = phase === 'dealing' || phase === 'settling' || phase === 'round_over';
 
   const waitingLabel =
     phase === 'round_over'
       ? 'Следующий раунд...'
-      : phase === 'player_turn' && !isMyTurn
-        ? 'Ожидание'
-        : phase === 'dealing'
-          ? 'Раздача'
-          : phase === 'settling'
-            ? 'Вскрытие'
-            : 'Ожидание';
+      : phase === 'dealing'
+        ? 'Раздача'
+        : phase === 'settling'
+          ? 'Вскрытие'
+          : 'Ожидание';
 
   const winnerProfile = myScore >= opponentScore ? myProfile : opponentProfile;
   const winnerColor = myScore >= opponentScore ? MINT : ROSE;
