@@ -1,9 +1,16 @@
 import type { ApiErrorBody } from './types';
 
-const rawBaseUrl =
-  import.meta.env.VITE_API_BASE_URL || 'https://twingames.duckdns.org';
+const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/$/, '');
+
+export const resolveApiUrl = (path: string) => {
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${path}`;
+  }
+
+  return path;
+};
 
 let authToken: string | null = null;
 
@@ -47,10 +54,6 @@ export const apiRequest = async <T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> => {
-  if (!API_BASE_URL) {
-    throw new Error('VITE_API_BASE_URL is not set');
-  }
-
   const headers: HeadersInit = {
     Accept: 'application/json',
   };
@@ -63,7 +66,7 @@ export const apiRequest = async <T>(
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(resolveApiUrl(path), {
     method: options.method || 'GET',
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

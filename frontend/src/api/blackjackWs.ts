@@ -117,11 +117,18 @@ export type BlackjackSocketClient = {
 };
 
 const getWsBaseUrl = () => {
-  const url = new URL(API_BASE_URL);
+  if (API_BASE_URL) {
+    const url = new URL(API_BASE_URL);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.origin;
+  }
 
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}`;
+  }
 
-  return url.origin;
+  return 'ws://localhost';
 };
 
 export const getBlackjackWsUrl = (lobbyId: string, token: string) => {

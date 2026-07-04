@@ -1,11 +1,19 @@
 # Dependencies
 node_modules/
+frontend/node_modules/
 .pnpm-store/
 
 # Build
 dist/
+frontend/dist/
 dist-ssr/
 *.local
+
+# Go
+backend/server
+backend/*.exe
+tgbot/tgbot
+tgbot/*.exe
 
 # Editor directories
 .vscode/
@@ -21,7 +29,13 @@ dist-ssr/
 .env.local
 .env.production
 .env.development
+backend/.env
+frontend/.env
+tgbot/.env
 !.env.example
+!frontend/.env.example
+!backend/.env.example
+!tgbot/.env.example
 
 # Logs
 logs/
@@ -39,6 +53,8 @@ Thumbs.db
 .cache/
 .parcel-cache/
 .vite/
+frontend/.vite/
 
 # TypeScript
 *.tsbuildinfo
+frontend/*.tsbuildinfo

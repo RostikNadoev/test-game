@@ -1,73 +1,74 @@
-# React + TypeScript + Vite
+# TwinGames — Telegram Mini App monorepo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Monorepo layout:
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```txt
+frontend/   React + Vite Mini App
+backend/    Go API + WebSocket (blackjack)
+tgbot/      Telegram bot placeholder
+nginx/      Single public entrypoint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+All services run in Docker on the internal network `twingames_app`. Externally only nginx is exposed.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Quick start (Docker)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```powershell
+copy .env.example .env
+# fill TELEGRAM_BOT_TOKEN and JWT_SECRET
+
+docker compose up --build
 ```
+
+Open:
+
+```txt
+http://localhost/
+http://localhost/health
+```
+
+The frontend uses same-origin API routes:
+
+```txt
+/api/v1/...
+/ws/blackjack/...
+```
+
+## Local development (frontend + backend)
+
+Terminal 1 — infrastructure and API:
+
+```powershell
+docker compose up postgres backend
+```
+
+Terminal 2 — Vite dev server with proxy:
+
+```powershell
+cd frontend
+copy .env.example .env
+npm install
+npm run dev
+```
+
+Vite proxies `/api`, `/ws`, and `/health` to `http://localhost:8080`.
+
+For backend outside Docker, copy `backend/.env.example` to `backend/.env` and set `DATABASE_DSN` with `host=localhost port=5433` if you expose postgres via a debug profile.
+
+## BotFather / Mini App
+
+Set the Mini App URL to your public `PUBLIC_URL` (the nginx entrypoint), for example:
+
+```txt
+https://your-domain.com/
+```
+
+Use the same `TELEGRAM_BOT_TOKEN` in root `.env` for backend Telegram auth validation.
+
+## API documentation
+
+See [backend/docs/FRONTEND_API.md](backend/docs/FRONTEND_API.md).
+
+## TGbot
+
+The `tgbot` service is currently a health stub. See [tgbot/README.md](tgbot/README.md).
