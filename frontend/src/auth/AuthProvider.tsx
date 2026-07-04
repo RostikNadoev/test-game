@@ -29,16 +29,7 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-type RawAuthResponse = {
-  token?: string;
-  user?: ApiUser;
-  error?: string;
-  details?: string;
-};
-
 const TOKEN_STORAGE_KEY = 'twingames_jwt_token';
-
-const AUTH_URL = 'https://twingames.duckdns.org/api/v1/auth/telegram';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -99,35 +90,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error('Нет Telegram initData. Проверь, что приложение открыто именно как Telegram Mini App.');
     }
 
-    const rawResponse = await fetch(AUTH_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        init_data: initData,
-      }),
-    });
+    const data = await api.auth.telegram(initData);
 
-    let data: RawAuthResponse | null = null;
-
-    try {
-      data = (await rawResponse.json()) as RawAuthResponse;
-    } catch {
-      data = null;
-    }
-
-    console.log('[RAW AUTH RESPONSE]', {
-      status: rawResponse.status,
-      ok: rawResponse.ok,
-      data,
-    });
-
-    if (!rawResponse.ok) {
-      throw new Error(data?.details || data?.error || `Auth failed: ${rawResponse.status}`);
-    }
-
-    if (!data?.token || !data?.user) {
+    if (!data.token || !data.user) {
       throw new Error('Backend не вернул token или user');
     }
 
