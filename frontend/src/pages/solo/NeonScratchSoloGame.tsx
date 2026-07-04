@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 
 import loadingCardImg from '../../assets/solo/scratch/loading-card.webp';
 import titleImg from '../../assets/solo/scratch/title.webp';
@@ -311,15 +311,19 @@ const SCRATCH_ICON_BY_KEY: Record<ScratchIconKey, string> = {
   crown: iconCrownImg,
 };
 
-const ScratchIcon = ({ icon, alt = '' }: { icon: ScratchIconKey; alt?: string }) => (
-  <img
-    src={SCRATCH_ICON_BY_KEY[icon]}
-    alt={alt}
-    aria-hidden={alt ? undefined : true}
-    draggable={false}
-    className="ns-symbol ns-symbol-img"
-  />
-);
+const ScratchIcon = ({ icon, alt = '' }: { icon: ScratchIconKey; alt?: string }) => {
+  const shared = {
+    src: SCRATCH_ICON_BY_KEY[icon],
+    draggable: false as const,
+    className: 'ns-symbol ns-symbol-img',
+  };
+
+  if (alt) {
+    return <img {...shared} alt={alt} />;
+  }
+
+  return <img {...shared} alt="" aria-hidden="true" />;
+};
 
 const GameTitle = ({ loading = false }: { loading?: boolean }) => (
   <img
@@ -329,6 +333,81 @@ const GameTitle = ({ loading = false }: { loading?: boolean }) => (
     className={loading ? 'ns-title-img ns-title-img-loading' : 'ns-title-img'}
   />
 );
+
+const PRIZE_CARD_CSS = PRIZES.map(
+  (prize) => `
+    .ns-card[data-prize="${prize.id}"] {
+      --cardGlow: ${prize.glow};
+      --cardText: ${prize.text};
+      --cardTone: ${prize.tone};
+    }`,
+).join('\n');
+
+const CARD_INDEX_CSS = [0, 1, 2]
+  .map((index) => `.ns-card[data-index="${index}"] { animation-delay: ${index * 120}ms; }`)
+  .join('\n');
+
+const PREVIEW_INDEX_CSS = [
+  {
+    index: 0,
+    glow: 'rgba(73, 236, 255, .18)',
+    text: '#e8feff',
+    tone: '#49ecff',
+  },
+  {
+    index: 1,
+    glow: 'rgba(255, 87, 189, .18)',
+    text: '#e8feff',
+    tone: '#ff57bd',
+  },
+  {
+    index: 2,
+    glow: 'rgba(255, 207, 98, .16)',
+    text: '#e8feff',
+    tone: '#ffcf62',
+  },
+]
+  .map(
+    (preview) => `
+    .ns-card.disabled-preview[data-index="${preview.index}"] {
+      --cardGlow: ${preview.glow};
+      --cardText: ${preview.text};
+      --cardTone: ${preview.tone};
+    }`,
+  )
+  .join('\n');
+
+const FINAL_TIER_CSS = `
+  .ns-final-card.is-zero {
+    --finalGlow: rgba(120, 130, 150, .24);
+    --finalGlowSoft: rgba(120, 130, 150, .22);
+    --finalText: #aeb7c8;
+  }
+
+  .ns-final-card.is-win {
+    --finalGlow: rgba(73, 236, 255, .30);
+    --finalGlowSoft: rgba(73, 236, 255, .24);
+    --finalText: #e8feff;
+  }
+
+  .ns-final-card.is-big {
+    --finalGlow: rgba(197, 121, 255, .32);
+    --finalGlowSoft: rgba(197, 121, 255, .25);
+    --finalText: #d9a6ff;
+  }
+
+  .ns-final-card.is-mega {
+    --finalGlow: rgba(255, 91, 195, .34);
+    --finalGlowSoft: rgba(255, 91, 195, .28);
+    --finalText: #ff8fd8;
+  }
+
+  .ns-final-card.is-epic {
+    --finalGlow: rgba(255, 240, 106, .38);
+    --finalGlowSoft: rgba(255, 240, 106, .30);
+    --finalText: #fff6a8;
+  }
+`;
 
 const StyleBlock = () => (
   <style>{`
@@ -571,6 +650,7 @@ const StyleBlock = () => (
     .ns-load-bar span {
       display: block;
       height: 100%;
+      width: var(--loadProgress, 0%);
       border-radius: inherit;
       background: linear-gradient(90deg, #49ecff, #ff57bd, #ffcf62);
       transition: width .08s linear;
@@ -1546,10 +1626,22 @@ const StyleBlock = () => (
         transition: none !important;
       }
     }
+
+    ${PRIZE_CARD_CSS}
+    ${CARD_INDEX_CSS}
+    ${PREVIEW_INDEX_CSS}
+    ${FINAL_TIER_CSS}
   `}</style>
 );
 
-const LoadingScreen = ({ progress }: { progress: number }) => (
+const LoadingScreen = ({ progress }: { progress: number }) => {
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    barRef.current?.style.setProperty('--loadProgress', `${progress}%`);
+  }, [progress]);
+
+  return (
   <div className="ns-loading">
     <div className="ns-loading-glow" />
 
@@ -1562,11 +1654,12 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
 
     <GameTitle loading />
 
-    <div className="ns-load-bar">
-      <span style={{ width: `${progress}%` }} />
+    <div ref={barRef} className="ns-load-bar">
+      <span />
     </div>
   </div>
-);
+  );
+};
 
 const ScratchCard = ({
   card,
@@ -1587,10 +1680,17 @@ const ScratchCard = ({
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const revealedRef = useRef(revealed);
   const lastCheckRef = useRef(0);
+  const progressPillRef = useRef<HTMLDivElement | null>(null);
 
   const [progress, setProgress] = useState(revealed ? 100 : 0);
 
-  revealedRef.current = revealed;
+  useEffect(() => {
+    revealedRef.current = revealed;
+  }, [revealed]);
+
+  useEffect(() => {
+    progressPillRef.current?.style.setProperty('--scratchProgress', `${progress}%`);
+  }, [progress]);
 
   const drawMask = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1833,23 +1933,20 @@ const ScratchCard = ({
   }, [card.id, drawMask]);
 
   useEffect(() => {
-    if (revealed) {
+    if (!revealed) return;
+
+    const frameId = window.requestAnimationFrame(() => {
       completeReveal();
-    }
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [revealed, completeReveal]);
 
   return (
     <div
       className={`ns-card ${revealed ? 'revealed' : ''}`}
-      style={
-        {
-          '--cardGlow': card.prize.glow,
-          '--cardText': card.prize.text,
-          '--cardTone': card.prize.tone,
-          '--enterDelay': `${card.index * 120}ms`,
-          '--scratchProgress': `${progress}%`,
-        } as CSSProperties
-      }
+      data-prize={card.prize.id}
+      data-index={card.index}
     >
       <div className="ns-card-inner">
         <div className="ns-symbol-box">
@@ -1876,7 +1973,7 @@ const ScratchCard = ({
         onPointerLeave={stopDrawing}
       />
 
-      <div className="ns-progress-pill">
+      <div ref={progressPillRef} className="ns-progress-pill">
         <span />
       </div>
     </div>
@@ -1885,21 +1982,7 @@ const ScratchCard = ({
 
 
 const ClosedScratchPreview = ({ index }: { index: number }) => (
-  <div
-    className="ns-card disabled-preview"
-    style={
-      {
-        '--cardGlow': index === 0
-          ? 'rgba(73, 236, 255, .18)'
-          : index === 1
-            ? 'rgba(255, 87, 189, .18)'
-            : 'rgba(255, 207, 98, .16)',
-        '--cardText': '#e8feff',
-        '--cardTone': index === 0 ? '#49ecff' : index === 1 ? '#ff57bd' : '#ffcf62',
-        '--enterDelay': `${index * 120}ms`,
-      } as CSSProperties
-    }
-  >
+  <div className="ns-card disabled-preview" data-index={index}>
     <div className="ns-card-inner">
       <img
         src={loadingCardImg}
@@ -1974,42 +2057,11 @@ const FinalOverlay = ({
   const isEpic = totalMultiplier >= 20;
   const isZero = win <= 0;
 
+  const tierClass = isZero ? 'is-zero' : isEpic ? 'is-epic' : isMega ? 'is-mega' : isBig ? 'is-big' : 'is-win';
+
   return (
     <div className="ns-final-layer">
-      <div
-        className="ns-final-card"
-        style={
-          {
-            '--finalGlow': isZero
-              ? 'rgba(120, 130, 150, .24)'
-              : isEpic
-                ? 'rgba(255, 240, 106, .38)'
-                : isMega
-                  ? 'rgba(255, 91, 195, .34)'
-                  : isBig
-                    ? 'rgba(197, 121, 255, .32)'
-                    : 'rgba(73, 236, 255, .30)',
-            '--finalGlowSoft': isZero
-              ? 'rgba(120, 130, 150, .22)'
-              : isEpic
-                ? 'rgba(255, 240, 106, .30)'
-                : isMega
-                  ? 'rgba(255, 91, 195, .28)'
-                  : isBig
-                    ? 'rgba(197, 121, 255, .25)'
-                    : 'rgba(73, 236, 255, .24)',
-            '--finalText': isZero
-              ? '#aeb7c8'
-              : isEpic
-                ? '#fff6a8'
-                : isMega
-                  ? '#ff8fd8'
-                  : isBig
-                    ? '#d9a6ff'
-                    : '#e8feff',
-          } as CSSProperties
-        }
-      >
+      <div className={`ns-final-card ${tierClass}`}>
         <div className="ns-final-symbol">
           <ScratchIcon icon={isEpic ? 'crown' : isMega ? 'orb' : isBig ? 'star' : 'diamond'} />
         </div>
@@ -2041,7 +2093,9 @@ export const NeonScratchSoloGame = () => {
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
 
-  mutedRef.current = muted;
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   const revealedCards = useMemo(
     () => cards.filter((card) => revealedIds.has(card.id)),

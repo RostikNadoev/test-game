@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Header } from './components/Layout/Header';
 import { BottomNav } from './components/Layout/BottomNav';
 import { SoloPageLoader } from './components/Solo/SoloPageLoader';
@@ -7,28 +7,41 @@ import { Home } from './pages/Home';
 import { Profile } from './pages/Profile';
 import { Rating } from './pages/Rating';
 import { SoloGames } from './pages/SoloGames';
-import { FruitCascadeSoloGame } from './pages/solo/FruitCascadeSoloGame';
-import { Royal5x5SoloGame } from './pages/solo/Royal5x5SoloGame';
-import { CrystalMinesSoloGame } from './pages/solo/CrystalMinesSoloGame';
-import { TurboTowerSoloGame } from './pages/solo/TurboTowerSoloGame';
-import { NeonScratchSoloGame } from './pages/solo/NeonScratchSoloGame';
-import { RaceGame } from './pages/RaceGame';
-import { AirHockeyGame } from './pages/AirHockeyGame';
-import { BlackjackDuelGame } from './pages/BlackjackDuelGame';
-import { GridLockGame } from './pages/GridLockGame';
-import { RockPaperScissorsDuelGame } from './pages/RockPaperScissorsDuelGame';
-import { DiceDuelGame } from './pages/DiceDuelGame';
-import { NeonMatrixGame } from './pages/NeonMatrixGame';
-import { VirusMarketGame } from './pages/VirusMarketGame';
-import { PaperIoGame } from './pages/PaperIoGame';
-import { TowerStackGame } from './pages/TowerStackGame';
-import { PhysicsDuel } from './pages/PhysicsDuel';
 import { Lobbies } from './pages/Lobbies';
 import { CreateLobby } from './pages/CreateLobby';
 import { LobbyRoom } from './pages/LobbyRoom';
-import PlinkoPvpGame from './pages/PlinkoPvpGame';
 import { LOCKED_GAME_ROUTES } from './data/games';
 import appLoaderGif from './assets/app-loader.gif';
+
+const FruitCascadeSoloGame = lazy(() =>
+  import('./pages/solo/FruitCascadeSoloGame').then((module) => ({ default: module.FruitCascadeSoloGame })),
+);
+const Royal5x5SoloGame = lazy(() =>
+  import('./pages/solo/Royal5x5SoloGame').then((module) => ({ default: module.Royal5x5SoloGame })),
+);
+const CrystalMinesSoloGame = lazy(() =>
+  import('./pages/solo/CrystalMinesSoloGame').then((module) => ({ default: module.CrystalMinesSoloGame })),
+);
+const TurboTowerSoloGame = lazy(() =>
+  import('./pages/solo/TurboTowerSoloGame').then((module) => ({ default: module.TurboTowerSoloGame })),
+);
+const NeonScratchSoloGame = lazy(() =>
+  import('./pages/solo/NeonScratchSoloGame').then((module) => ({ default: module.NeonScratchSoloGame })),
+);
+const RaceGame = lazy(() => import('./pages/RaceGame'));
+const AirHockeyGame = lazy(() =>
+  import('./pages/AirHockeyGame').then((module) => ({ default: module.AirHockeyGame })),
+);
+const BlackjackDuelGame = lazy(() => import('./pages/BlackjackDuelGame'));
+const GridLockGame = lazy(() => import('./pages/GridLockGame'));
+const RockPaperScissorsDuelGame = lazy(() => import('./pages/RockPaperScissorsDuelGame'));
+const DiceDuelGame = lazy(() => import('./pages/DiceDuelGame'));
+const NeonMatrixGame = lazy(() => import('./pages/NeonMatrixGame'));
+const VirusMarketGame = lazy(() => import('./pages/VirusMarketGame'));
+const PaperIoGame = lazy(() => import('./pages/PaperIoGame'));
+const TowerStackGame = lazy(() => import('./pages/TowerStackGame'));
+const PhysicsDuel = lazy(() => import('./pages/PhysicsDuel'));
+const PlinkoPvpGame = lazy(() => import('./pages/PlinkoPvpGame'));
 
 const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
 const SOLO_ROUTE_PREFIX = '/solo';
@@ -168,13 +181,19 @@ function AppShell() {
 
     if (!enteredSoloHub) return;
 
-    setSoloLoadingPath(location.pathname);
+    const path = location.pathname;
+    const frameId = window.requestAnimationFrame(() => {
+      setSoloLoadingPath(path);
+    });
 
     const timer = window.setTimeout(() => {
       setSoloLoadingPath(null);
     }, SOLO_PAGE_LOADER_MS);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timer);
+    };
   }, [location.pathname]);
 
   useEffect(() => {
@@ -248,37 +267,39 @@ function AppShell() {
         ].join(' ')}
       >
         {shouldMountRoutes ? (
-          <Routes>
-            <Route path="/" element={<Home />} />
+          <Suspense fallback={<SoloPageLoader />}>
+            <Routes>
+              <Route path="/" element={<Home />} />
 
-            <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
-            <Route path="/game/:gameId/create" element={<CreateLobby />} />
-            <Route path="/game/:gameId/lobby/:lobbyId" element={<LobbyRoom />} />
+              <Route path="/game/:gameId/lobbies" element={<Lobbies />} />
+              <Route path="/game/:gameId/create" element={<CreateLobby />} />
+              <Route path="/game/:gameId/lobby/:lobbyId" element={<LobbyRoom />} />
 
-            <Route path="/solo" element={<SoloGames />} />
-            <Route path="/solo/fruit-cascade" element={<FruitCascadeSoloGame />} />
-            <Route path="/solo/royal-5x5" element={<Royal5x5SoloGame />} />
-            <Route path="/solo/crystal-mines" element={<CrystalMinesSoloGame />} />
-            <Route path="/solo/turbo-tower" element={<TurboTowerSoloGame />} />
-            <Route path="/solo/neon-scratch" element={<NeonScratchSoloGame />} />
+              <Route path="/solo" element={<SoloGames />} />
+              <Route path="/solo/fruit-cascade" element={<FruitCascadeSoloGame />} />
+              <Route path="/solo/royal-5x5" element={<Royal5x5SoloGame />} />
+              <Route path="/solo/crystal-mines" element={<CrystalMinesSoloGame />} />
+              <Route path="/solo/turbo-tower" element={<TurboTowerSoloGame />} />
+              <Route path="/solo/neon-scratch" element={<NeonScratchSoloGame />} />
 
-            <Route path="/game/plinko_pvp/play" element={<PlinkoPvpGame />} />
-            <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
-            <Route path="/game/paper_io/play" element={<PaperIoGame />} />
-            <Route path="/game/tower_stack/play" element={<TowerStackGame />} />
-            <Route path="/game/virus_market/play" element={<VirusMarketGame />} />
-            <Route path="/game/rps_duel/play" element={<RockPaperScissorsDuelGame />} />
-            <Route path="/game/grid_lock/play" element={<GridLockGame />} />
-            <Route path="/game/blackjack_duel/play" element={<BlackjackDuelGame />} />
-            <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
-            <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
-            <Route path="/game/street_race/play" element={<RaceGame />} />
-            <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
+              <Route path="/game/plinko_pvp/play" element={<PlinkoPvpGame />} />
+              <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
+              <Route path="/game/paper_io/play" element={<PaperIoGame />} />
+              <Route path="/game/tower_stack/play" element={<TowerStackGame />} />
+              <Route path="/game/virus_market/play" element={<VirusMarketGame />} />
+              <Route path="/game/rps_duel/play" element={<RockPaperScissorsDuelGame />} />
+              <Route path="/game/grid_lock/play" element={<GridLockGame />} />
+              <Route path="/game/blackjack_duel/play" element={<BlackjackDuelGame />} />
+              <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
+              <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
+              <Route path="/game/street_race/play" element={<RaceGame />} />
+              <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
 
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/rating" element={<Rating />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/rating" element={<Rating />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         ) : (
           <SoloPageLoader />
         )}

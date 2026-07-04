@@ -117,6 +117,7 @@ export type BlackjackSocketClient = {
 };
 
 const getWsBaseUrl = () => {
+  // TODO: move JWT out of query string when backend supports Sec-WebSocket-Protocol or short-lived tickets.
   if (API_BASE_URL) {
     const url = new URL(API_BASE_URL);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';

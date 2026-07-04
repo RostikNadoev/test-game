@@ -294,6 +294,221 @@ const PLAYERS = [
   { name: "Игрок 2", nick: "@player_2", color: "#FFB45C", soft: "rgba(255,143,45,0.12)", emoji: "II" },
 ];
 
+type PlayerTone = "p0" | "p1";
+const toneOf = (idx: number): PlayerTone => (idx === 0 ? "p0" : "p1");
+
+const PLINKO_UI_CSS = `
+  .plinko-root {
+    height: var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh));
+    max-height: var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh));
+    min-height: 0;
+    font-family: "Supercell", "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    touch-action: none;
+  }
+
+  .plinko-hud-top {
+    top: max(calc(env(safe-area-inset-top, 0px) - 25px), 0px);
+  }
+
+  .plinko-gain {
+    top: calc(env(safe-area-inset-top, 0px) + 46px);
+  }
+
+  .plinko-gain-p0 { color: #5bb7ff; }
+  .plinko-gain-p1 { color: #ffb45c; }
+
+  .plinko-dock {
+    bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  }
+
+  .plinko-tone-p0 { color: #5bb7ff; }
+  .plinko-tone-p1 { color: #ffb45c; }
+
+  .plinko-btn-ok-p0 { background: #5bb7ff; }
+  .plinko-btn-ok-p1 { background: #ffb45c; }
+
+  .plinko-slider-thumb {
+    position: absolute;
+    top: 50%;
+    height: 24px;
+    width: 24px;
+    transform: translate(-50%, -50%);
+    border-radius: 9999px;
+    border: 1px solid rgba(0, 0, 0, 0.4);
+  }
+
+  .plinko-slider-thumb-p0 {
+    background: #5bb7ff;
+    box-shadow: 0 0 14px #5bb7ff55;
+  }
+
+  .plinko-slider-thumb-p1 {
+    background: #ffb45c;
+    box-shadow: 0 0 14px #ffb45c55;
+  }
+
+  .plinko-action-on-p0 {
+    border-color: #5bb7ff90;
+    background: #5bb7ff;
+    color: #050507;
+  }
+
+  .plinko-action-on-p1 {
+    border-color: #ffb45c90;
+    background: #ffb45c;
+    color: #050507;
+  }
+
+  .plinko-action-off {
+    border-color: rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .plinko-handoff-badge-p0,
+  .plinko-handoff-btn-p0 { background: #5bb7ff; }
+
+  .plinko-handoff-badge-p1,
+  .plinko-handoff-btn-p1 { background: #ffb45c; }
+
+  .plinko-result-glow-left-p0 { background: #5bb7ff30; }
+  .plinko-result-glow-left-p1 { background: #ffb45c30; }
+  .plinko-result-glow-left-tie { background: #eaf4ff30; }
+
+  .plinko-result-glow-right-p0 { background: #5bb7ff22; }
+  .plinko-result-glow-right-p1 { background: #ffb45c22; }
+  .plinko-result-glow-right-tie { background: rgba(91, 183, 255, 0.18); }
+
+  .plinko-result-hero-p0 { color: #5bb7ff; }
+  .plinko-result-hero-p1 { color: #ffb45c; }
+  .plinko-result-hero-tie { color: #eaf4ff; }
+
+  .plinko-result-icon-p0 {
+    background: #5bb7ff;
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: 0 0 34px #5bb7ff44, 0 18px 38px rgba(0, 0, 0, 0.34);
+  }
+
+  .plinko-result-icon-p1 {
+    background: #ffb45c;
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: 0 0 34px #ffb45c44, 0 18px 38px rgba(0, 0, 0, 0.34);
+  }
+
+  .plinko-result-icon-tie {
+    background: #eaf4ff;
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: 0 0 34px #eaf4ff44, 0 18px 38px rgba(0, 0, 0, 0.34);
+  }
+
+  .plinko-rpc-winner-p0 {
+    border-color: #5bb7ffb8;
+    background: linear-gradient(135deg, #5bb7ff34, rgba(255, 255, 255, 0.06));
+    box-shadow: 0 0 30px #5bb7ff22, inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+
+  .plinko-rpc-winner-p1 {
+    border-color: #ffb45cb8;
+    background: linear-gradient(135deg, #ffb45c34, rgba(255, 255, 255, 0.06));
+    box-shadow: 0 0 30px #ffb45c22, inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
+
+  .plinko-rpc-tie {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  }
+
+  .plinko-rpc-idle {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  }
+
+  .plinko-rpc-badge-p0 { background: #5bb7ff; }
+  .plinko-rpc-badge-p1 { background: #ffb45c; }
+
+  .plinko-rpc-avatar-p0 {
+    background: #5bb7ff;
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: 0 0 22px #5bb7ff38;
+  }
+
+  .plinko-rpc-avatar-p1 {
+    background: #ffb45c;
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: 0 0 22px #ffb45c38;
+  }
+
+  .plinko-rpc-score-p0 { color: #5bb7ff; }
+  .plinko-rpc-score-p1 { color: #ffb45c; }
+
+  .plinko-score-active-p0 {
+    border-color: #5bb7ff80;
+    background: linear-gradient(135deg, #5bb7ff24, rgba(255, 255, 255, 0.045));
+    box-shadow: 0 10px 28px #5bb7ff14, inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .plinko-score-active-p1 {
+    border-color: #ffb45c80;
+    background: linear-gradient(135deg, #ffb45c24, rgba(255, 255, 255, 0.045));
+    box-shadow: 0 10px 28px #ffb45c14, inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .plinko-score-idle {
+    border-color: rgba(255, 255, 255, 0.07);
+    background: rgba(12, 13, 20, 0.72);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  }
+
+  .plinko-score-badge-p0 {
+    background: #5bb7ff;
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow: 0 0 16px #5bb7ff33;
+  }
+
+  .plinko-score-badge-p1 {
+    background: #ffb45c;
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow: 0 0 16px #ffb45c33;
+  }
+
+  .plinko-score-value-p0 {
+    color: #5bb7ff;
+    font-size: clamp(11px, 3.45vw, 14px);
+    line-height: 1.35;
+  }
+
+  .plinko-score-value-p1 {
+    color: #ffb45c;
+    font-size: clamp(11px, 3.45vw, 14px);
+    line-height: 1.35;
+  }
+
+  .plinko-ball-p0 {
+    background: #5bb7ff;
+    box-shadow: 0 0 10px #5bb7ff66;
+  }
+
+  .plinko-ball-p1 {
+    background: #ffb45c;
+    box-shadow: 0 0 10px #ffb45c66;
+  }
+
+  .plinko-timer-ring {
+    position: relative;
+    display: grid;
+    height: 28px;
+    width: 28px;
+    place-items: center;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+  }
+`;
+
 // цвет по «ценности» лунки
 function tierColor(v: number): string {
   if (v >= 8) return "#FFB45C";
@@ -1033,7 +1248,6 @@ export default function PlinkoPvpGame() {
     }, 4000);
 
     return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   const finishAngleTurn = () => {
@@ -1290,20 +1504,12 @@ export default function PlinkoPvpGame() {
     setAngleFromClientX(e.clientX);
   };
 
-  const activeColor = PLAYERS[turn]?.color ?? "#5BB7FF";
+  const activeTone = toneOf(turn);
 
   return (
-    <div
-      className="relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white"
-      style={{
-        height: "var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh))",
-        maxHeight: "var(--tg-viewport-stable-height, var(--tg-viewport-height, 100svh))",
-        minHeight: 0,
-        fontFamily:
-          "'Supercell', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        touchAction: "none",
-      }}
-    >
+    <div className="plinko-root relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white">
+      <style>{PLINKO_UI_CSS}</style>
+
       <div ref={wrapRef} className="absolute inset-0 z-10">
         <canvas
           ref={canvasRef}
@@ -1311,64 +1517,52 @@ export default function PlinkoPvpGame() {
           onPointerMove={(e) => {
             if (phase === "angles" && e.buttons === 1) onCanvasPointer(e);
           }}
-          className="absolute inset-0 h-full w-full"
-          style={{ touchAction: "none", transform: "translateZ(0)" }}
+          className="absolute inset-0 h-full w-full touch-none translate-z-0"
         />
       </div>
 
-      <div
-        className="pointer-events-none absolute left-2 right-2 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5"
-        style={{ top: "max(calc(env(safe-area-inset-top, 0px) - 25px), 0px)" }}
-      >
+      <div className="plinko-hud-top pointer-events-none absolute left-2 right-2 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5">
         <div className="flex min-w-0 justify-start">
-          <PlayerScoreCard player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
+          <PlayerScoreCard playerIdx={0} player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
         </div>
 
         <div className="flex h-11 items-center gap-1.5 rounded-[16px] border border-white/[0.08] bg-[#09090d]/82 px-2 shadow-[0_10px_24px_rgba(0,0,0,.26)] backdrop-blur-xl">
-          <BallCounter color={PLAYERS[0].color} value={ballCounters[0]} />
+          <BallCounter playerIdx={0} value={ballCounters[0]} />
           {(phase === "angles" || phase === "actions") ? (
             <TurnTimer
               total={phase === "angles" ? CFG.ANGLE_SECONDS : CFG.ACTION_SECONDS}
               left={timeLeft}
-              color={activeColor}
+              playerIdx={turn}
               label={phase === "angles" ? "углы" : "ход"}
               meta={phase === "actions" ? `${actionsLeft}/${CFG.ACTIONS_PER_TURN}` : `${curBall + 1}/${CFG.BALLS_PER_PLAYER}`}
             />
           ) : (
             <div className="h-5 w-px bg-white/12" />
           )}
-          <BallCounter color={PLAYERS[1].color} value={ballCounters[1]} reverse />
+          <BallCounter playerIdx={1} value={ballCounters[1]} reverse />
         </div>
 
         <div className="flex min-w-0 justify-end">
-          <PlayerScoreCard player={PLAYERS[1]} score={scores[1]} active={(phase === "angles" || phase === "actions") && turn === 1} reverse />
+          <PlayerScoreCard playerIdx={1} player={PLAYERS[1]} score={scores[1]} active={(phase === "angles" || phase === "actions") && turn === 1} reverse />
         </div>
       </div>
 
       {lastGain && (
         <div
-          className="pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl"
-          style={{
-            top: "calc(env(safe-area-inset-top, 0px) + 46px)",
-            color: PLAYERS[lastGain.p].color,
-          }}
+          className={`plinko-gain pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl plinko-gain-${toneOf(lastGain.p)}`}
         >
           {lastGain.stuck ? "x1" : `x${fmt(lastGain.v)} → ${fmt(lastGain.score)}`}
         </div>
       )}
 
       {phase === "angles" && (
-        <div className="fixed inset-x-0 z-30 px-3"
-          style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}>
+        <div className="plinko-dock fixed inset-x-0 z-30 px-3">
           <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
             <div className="mb-1 flex items-center justify-between px-1">
               <span className="text-[8px] font-black uppercase tracking-[0.18em] text-white/32">
                 Прицел
               </span>
-              <span
-                className="text-[12px] font-black tracking-[-0.04em] tabular-nums"
-                style={{ color: activeColor }}
-              >
+              <span className={`text-[12px] font-black tracking-[-0.04em] tabular-nums plinko-tone-${activeTone}`}>
                 {angleDeg > 0 ? "+" : ""}
                 {angleDeg}°
               </span>
@@ -1392,19 +1586,11 @@ export default function PlinkoPvpGame() {
                 ref={sliderRef}
                 onPointerDown={sliderDown}
                 onPointerMove={sliderMove}
-                className="relative h-8 min-w-0 flex-1 cursor-pointer"
-                style={{ touchAction: "none" }}
+                className="relative h-8 min-w-0 flex-1 cursor-pointer touch-none"
               >
                 <div className="absolute inset-x-0 top-1/2 h-[5px] -translate-y-1/2 rounded-full bg-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,.12)]" />
                 <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
-                <div
-                  className="absolute top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40"
-                  style={{
-                    left: `${((liveAngle + 1) / 2) * 100}%`,
-                    background: activeColor,
-                    boxShadow: `0 0 14px ${activeColor}55`,
-                  }}
-                />
+                <SliderThumb pct={((liveAngle + 1) / 2) * 100} tone={activeTone} />
               </div>
 
               <button
@@ -1423,8 +1609,7 @@ export default function PlinkoPvpGame() {
               <button
                 type="button"
                 onClick={confirmAngle}
-                className="press h-9 shrink-0 rounded-[14px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_10px_22px_rgba(0,0,0,.28)] active:scale-[0.98]"
-                style={{ background: activeColor }}
+                className={`press h-9 shrink-0 rounded-[14px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_10px_22px_rgba(0,0,0,.28)] active:scale-[0.98] plinko-btn-ok-${activeTone}`}
               >
                 OK {curBall + 1}/{CFG.BALLS_PER_PLAYER}
               </button>
@@ -1434,8 +1619,7 @@ export default function PlinkoPvpGame() {
       )}
 
       {phase === "actions" && (
-        <div className="fixed inset-x-0 z-30 px-3"
-          style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}>
+        <div className="plinko-dock fixed inset-x-0 z-30 px-3">
           <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
             <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
               {([
@@ -1453,12 +1637,7 @@ export default function PlinkoPvpGame() {
                       hapticSelection();
                       setActionMode(on ? null : b.m);
                     }}
-                    className="press h-9 min-w-0 rounded-[14px] border px-2 text-[12px] font-black tracking-[-0.01em] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] disabled:opacity-35"
-                    style={{
-                      borderColor: on ? activeColor + "90" : "rgba(255,255,255,0.07)",
-                      background: on ? activeColor : "rgba(255,255,255,0.05)",
-                      color: on ? "#050507" : "rgba(255,255,255,0.72)",
-                    }}
+                    className={`press h-9 min-w-0 rounded-[14px] border px-2 text-[12px] font-black tracking-[-0.01em] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}
                   >
                     {b.label}
                   </button>
@@ -1513,10 +1692,7 @@ export default function PlinkoPvpGame() {
       {phase === "handoff" && (
         <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
           <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.64)] backdrop-blur-xl">
-            <div
-              className="mx-auto grid h-12 w-12 place-items-center rounded-[16px] text-[14px] font-black text-[#050507]"
-              style={{ background: PLAYERS[handoff.to].color }}
-            >
+            <div className={`mx-auto grid h-12 w-12 place-items-center rounded-[16px] text-[14px] font-black text-[#050507] plinko-handoff-badge-${toneOf(handoff.to)}`}>
               {PLAYERS[handoff.to].emoji}
             </div>
             <div className="mt-4 text-[20px] font-black tracking-[-0.06em]">
@@ -1528,8 +1704,7 @@ export default function PlinkoPvpGame() {
             <button
               type="button"
               onClick={proceedHandoff}
-              className="press mt-5 h-11 w-full rounded-[16px] text-[13px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98]"
-              style={{ background: PLAYERS[handoff.to].color }}
+              className={`press mt-5 h-11 w-full rounded-[16px] text-[13px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98] plinko-handoff-btn-${toneOf(handoff.to)}`}
             >
               Продолжить
             </button>
@@ -1553,7 +1728,7 @@ type ResultModalProps = {
 
 function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
   const isTie = winner < 0;
-  const heroColor = isTie ? "#EAF4FF" : players[winner].color;
+  const heroTone = isTie ? "tie" : toneOf(winner);
   const title = isTie ? "Ничья" : `${players[winner].name} победил`;
   const subtitle = isTie
     ? "Матч закончился ровно — оба игрока удержались."
@@ -1562,14 +1737,8 @@ function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center px-5 text-center">
       <div className="relative w-full max-w-[370px] overflow-hidden rounded-[34px] border border-white/[0.10] bg-[#09090d]/92 px-4 py-5 shadow-[0_28px_90px_rgba(0,0,0,0.70)] backdrop-blur-2xl">
-        <div
-          className="pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full blur-3xl"
-          style={{ background: `${heroColor}30` }}
-        />
-        <div
-          className="pointer-events-none absolute -right-24 top-12 h-52 w-52 rounded-full blur-3xl"
-          style={{ background: isTie ? "rgba(91,183,255,0.18)" : `${heroColor}22` }}
-        />
+        <div className={`pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full blur-3xl plinko-result-glow-left-${heroTone}`} />
+        <div className={`pointer-events-none absolute -right-24 top-12 h-52 w-52 rounded-full blur-3xl plinko-result-glow-right-${heroTone}`} />
 
         <div className="relative">
           <div className="text-[9px] font-black uppercase tracking-[0.24em] text-white/36">
@@ -1577,22 +1746,12 @@ function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
           </div>
 
           <div className="mt-3 flex justify-center">
-            <div
-              className="grid h-16 w-16 place-items-center rounded-[24px] border text-[18px] font-black text-[#050507] shadow-[0_18px_38px_rgba(0,0,0,0.34)]"
-              style={{
-                background: heroColor,
-                borderColor: "rgba(255,255,255,0.28)",
-                boxShadow: `0 0 34px ${heroColor}44, 0 18px 38px rgba(0,0,0,0.34)`,
-              }}
-            >
+            <div className={`grid h-16 w-16 place-items-center rounded-[24px] border text-[18px] font-black text-[#050507] plinko-result-icon-${heroTone}`}>
               {isTie ? "=" : players[winner].emoji}
             </div>
           </div>
 
-          <div
-            className="mt-3 text-[30px] font-black leading-none tracking-[-0.08em]"
-            style={{ color: heroColor }}
-          >
+          <div className={`mt-3 text-[30px] font-black leading-none tracking-[-0.08em] plinko-result-hero-${heroTone}`}>
             {title}
           </div>
           <div className="mx-auto mt-1 max-w-[250px] text-[11px] font-bold leading-snug text-white/46">
@@ -1603,6 +1762,7 @@ function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
             {players.map((player, idx) => (
               <ResultPlayerCard
                 key={player.name}
+                playerIdx={idx}
                 player={player}
                 score={scores[idx]}
                 isWinner={!isTie && winner === idx}
@@ -1625,44 +1785,34 @@ function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
 }
 
 type ResultPlayerCardProps = {
+  playerIdx: number;
   player: typeof PLAYERS[number];
   score: number;
   isWinner: boolean;
   isTie: boolean;
 };
 
-function ResultPlayerCard({ player, score, isWinner, isTie }: ResultPlayerCardProps) {
+function ResultPlayerCard({ playerIdx, player, score, isWinner, isTie }: ResultPlayerCardProps) {
   const big = isWinner || isTie;
+  const tone = toneOf(playerIdx);
+  const cardClass = isWinner
+    ? `plinko-rpc-winner-${tone}`
+    : isTie
+      ? "plinko-rpc-tie"
+      : "plinko-rpc-idle";
 
   return (
     <div
-      className={`relative flex items-center gap-3 rounded-[24px] border px-3 text-left backdrop-blur-xl ${big ? "min-h-[88px]" : "min-h-[66px] opacity-72"}`}
-      style={{
-        borderColor: isWinner ? `${player.color}b8` : "rgba(255,255,255,0.08)",
-        background: isWinner
-          ? `linear-gradient(135deg, ${player.color}34, rgba(255,255,255,0.06))`
-          : "rgba(255,255,255,0.045)",
-        boxShadow: isWinner
-          ? `0 0 30px ${player.color}22, inset 0 1px 0 rgba(255,255,255,.09)`
-          : "inset 0 1px 0 rgba(255,255,255,.055)",
-      }}
+      className={`relative flex items-center gap-3 rounded-[24px] border px-3 text-left backdrop-blur-xl ${cardClass} ${big ? "min-h-[88px]" : "min-h-[66px] opacity-72"}`}
     >
       {isWinner && (
-        <div
-          className="absolute right-3 top-2 rounded-full px-2 py-1 text-[7px] font-black uppercase tracking-[0.16em] text-[#050507]"
-          style={{ background: player.color }}
-        >
+        <div className={`absolute right-3 top-2 rounded-full px-2 py-1 text-[7px] font-black uppercase tracking-[0.16em] text-[#050507] plinko-rpc-badge-${tone}`}>
           Winner
         </div>
       )}
 
       <div
-        className={`${big ? "h-14 w-14 rounded-[20px] text-[15px]" : "h-11 w-11 rounded-[16px] text-[12px]"} grid shrink-0 place-items-center border font-black text-[#050507]`}
-        style={{
-          background: player.color,
-          borderColor: "rgba(255,255,255,0.24)",
-          boxShadow: `0 0 22px ${player.color}38`,
-        }}
+        className={`${big ? "h-14 w-14 rounded-[20px] text-[15px]" : "h-11 w-11 rounded-[16px] text-[12px]"} grid shrink-0 place-items-center border font-black text-[#050507] plinko-rpc-avatar-${tone}`}
       >
         {player.emoji}
       </div>
@@ -1677,8 +1827,7 @@ function ResultPlayerCard({ player, score, isWinner, isTie }: ResultPlayerCardPr
       </div>
 
       <div
-        className={`${big ? "text-[30px]" : "text-[22px]"} shrink-0 font-black leading-none tracking-[-0.07em] tabular-nums`}
-        style={{ color: player.color }}
+        className={`${big ? "text-[30px]" : "text-[22px]"} shrink-0 font-black leading-none tracking-[-0.07em] tabular-nums plinko-rpc-score-${tone}`}
       >
         {fmt(score)}
       </div>
@@ -1689,26 +1838,29 @@ function ResultPlayerCard({ player, score, isWinner, isTie }: ResultPlayerCardPr
 type TurnTimerProps = {
   total: number;
   left: number;
-  color: string;
+  playerIdx: number;
   label: string;
   meta?: string;
 };
 
-function TurnTimer({ total, left, color, label, meta }: TurnTimerProps) {
+function TurnTimer({ total, left, playerIdx, label, meta }: TurnTimerProps) {
   const safeTotal = Math.max(1, total);
   const safeLeft = clamp(Math.ceil(left), 0, safeTotal);
   const progress = clamp(safeLeft / safeTotal, 0, 1);
   const degrees = Math.round(progress * 360);
+  const color = PLAYERS[playerIdx]?.color ?? "#5BB7FF";
+  const ringRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const ring = ringRef.current;
+    if (!ring) return;
+    ring.style.background = `conic-gradient(${color} ${degrees}deg, rgba(255,255,255,0.12) ${degrees}deg)`;
+    ring.style.boxShadow = `0 0 13px ${color}38`;
+  }, [color, degrees]);
 
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
-      <div
-        className="relative grid h-7 w-7 place-items-center rounded-full text-[10px] font-black tabular-nums text-white"
-        style={{
-          background: `conic-gradient(${color} ${degrees}deg, rgba(255,255,255,0.12) ${degrees}deg)`,
-          boxShadow: `0 0 13px ${color}38`,
-        }}
-      >
+      <div ref={ringRef} className="plinko-timer-ring">
         <span className="absolute inset-[3px] rounded-full bg-[#09090d]" />
         <span className="relative leading-none">{safeLeft}</span>
       </div>
@@ -1727,35 +1879,25 @@ function TurnTimer({ total, left, color, label, meta }: TurnTimerProps) {
 }
 
 type PlayerScoreCardProps = {
+  playerIdx: number;
   player: typeof PLAYERS[number];
   score: number;
   active: boolean;
   reverse?: boolean;
 };
 
-function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScoreCardProps) {
+function PlayerScoreCard({ playerIdx, player, score, active, reverse = false }: PlayerScoreCardProps) {
+  const tone = toneOf(playerIdx);
+
   return (
     <div
-      className={`flex h-11 max-w-[122px] min-w-[84px] items-center gap-1.5 overflow-visible rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""}`}
-      style={{
-        borderColor: active ? player.color + "80" : "rgba(255,255,255,0.07)",
-        background: active ? `linear-gradient(135deg, ${player.color}24, rgba(255,255,255,0.045))` : "rgba(12,13,20,0.72)",
-        boxShadow: active ? `0 10px 28px ${player.color}14, inset 0 1px 0 rgba(255,255,255,.08)` : "inset 0 1px 0 rgba(255,255,255,.055)",
-      }}
+      className={`flex h-11 max-w-[122px] min-w-[84px] items-center gap-1.5 overflow-visible rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""} ${active ? `plinko-score-active-${tone}` : "plinko-score-idle"}`}
     >
-      <div
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[8px] font-black text-[#050507]"
-        style={{
-          background: player.color,
-          borderColor: "rgba(255,255,255,0.22)",
-          boxShadow: `0 0 16px ${player.color}33`,
-        }}
-      >
+      <div className={`grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[8px] font-black text-[#050507] plinko-score-badge-${tone}`}>
         {player.emoji}
       </div>
       <div
-        className={`min-w-0 flex-1 whitespace-nowrap font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"}`}
-        style={{ color: player.color, fontSize: "clamp(11px, 3.45vw, 14px)", lineHeight: 1.35 }}
+        className={`min-w-0 flex-1 whitespace-nowrap font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"} plinko-score-value-${tone}`}
       >
         {fmt(score)}
       </div>
@@ -1764,24 +1906,28 @@ function PlayerScoreCard({ player, score, active, reverse = false }: PlayerScore
 }
 
 type BallCounterProps = {
-  color: string;
+  playerIdx: number;
   value: number;
   reverse?: boolean;
 };
 
-function BallCounter({ color, value, reverse = false }: BallCounterProps) {
+function BallCounter({ playerIdx, value, reverse = false }: BallCounterProps) {
   return (
     <div className={`flex items-center gap-1 ${reverse ? "flex-row-reverse" : ""}`}>
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{
-          background: color,
-          boxShadow: `0 0 10px ${color}66`,
-        }}
-      />
+      <span className={`h-1.5 w-1.5 rounded-full plinko-ball-${toneOf(playerIdx)}`} />
       <span className="text-[10px] font-black leading-none tracking-[-0.04em] text-white/82 tabular-nums">
         {value}/{CFG.BALLS_PER_PLAYER}
       </span>
     </div>
   );
+}
+
+function SliderThumb({ pct, tone }: { pct: number; tone: PlayerTone }) {
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    thumbRef.current?.style.setProperty("left", `${Math.max(0, Math.min(100, pct))}%`);
+  }, [pct]);
+
+  return <div ref={thumbRef} className={`plinko-slider-thumb plinko-slider-thumb-${tone}`} />;
 }

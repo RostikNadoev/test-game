@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Loader2, UserRound, Wallet } from 'lucide-react';
-import { useAuth } from '../../auth/AuthProvider';
+import { useAuth } from '../../auth/useAuth';
 import { WalletModal } from '../Wallet/WalletModal';
 import tonIcon from '../../assets/header/ton.svg';
 
@@ -172,6 +172,7 @@ export const Header = () => {
                   alt=""
                   className="h-[15px] w-[15px] shrink-0 object-contain"
                   draggable={false}
+                  decoding="async"
                 />
                 <span className="text-safe text-[10px] font-bold tabular-nums text-white">
                   {formatNumber(user?.balance_ton ?? 0)}

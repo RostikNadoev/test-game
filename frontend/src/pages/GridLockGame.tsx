@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getTelegramWebApp } from "../types/telegram";
 
 /* =========================================================================
    GRIDLOCK / QUORIDOR — app-style version
@@ -237,7 +238,7 @@ const legalMovesOf = (from: Pos, other: Pos, blocked: Set<string>) => {
 
 const haptic = (kind: "light" | "medium" | "error" = "light") => {
   try {
-    const tg = (window as Window & { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
 
     if (kind === "error") {
       tg?.HapticFeedback?.notificationOccurred?.("error");
@@ -255,14 +256,14 @@ const haptic = (kind: "light" | "medium" | "error" = "light") => {
 const Pawn = ({ player, pos, active }: { player: PlayerId; pos: Pos; active: boolean }) => {
   const c = CFG[player];
   const { x, y } = center(pos.r, pos.c);
+  const pawnRef = useRef<SVGGElement | null>(null);
+
+  useEffect(() => {
+    pawnRef.current?.style.setProperty("transform", `translate(${x}px, ${y}px)`);
+  }, [x, y]);
 
   return (
-    <g
-      style={{
-        transform: `translate(${x}px, ${y}px)`,
-        transition: "transform 210ms cubic-bezier(.22,.85,.25,1)",
-      }}
-    >
+    <g ref={pawnRef} className="gl-pawn">
       {active && <circle r={4.28} fill={c.main} opacity={0.14} className="gl-pulse" />}
       <ellipse cx={0} cy={2.75} rx={2.9} ry={0.82} fill="rgba(0,0,0,0.34)" />
       <circle r={3.1} fill={`url(#pawn-${player})`} stroke="rgba(255,255,255,0.56)" strokeWidth={0.32} />
@@ -289,7 +290,6 @@ export const GridLockGame: React.FC = () => {
   const cur = turn === "p1" ? p1 : p2;
   const other = turn === "p1" ? p2 : p1;
   const cfg = CFG[turn];
-  const accent = cfg.main;
 
   const setDragWall = useCallback((next: DragWall | null) => {
     dragWallRef.current = next;
@@ -297,7 +297,7 @@ export const GridLockGame: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const tg = (window as Window & { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
 
     try {
       tg?.ready?.();
@@ -399,20 +399,25 @@ export const GridLockGame: React.FC = () => {
     if (winner) return;
 
     if (clocks.p1 <= 0) {
-      haptic("error");
-      setPreview(null);
-      setDragWall(null);
-      setNotice("У Игрока 1 вышло время");
-      setWinner("p2");
-      return;
+      const frameId = window.requestAnimationFrame(() => {
+        haptic("error");
+        setPreview(null);
+        setDragWall(null);
+        setNotice("У Игрока 1 вышло время");
+        setWinner("p2");
+      });
+      return () => window.cancelAnimationFrame(frameId);
     }
 
     if (clocks.p2 <= 0) {
-      haptic("error");
-      setPreview(null);
-      setDragWall(null);
-      setNotice("У Игрока 2 вышло время");
-      setWinner("p1");
+      const frameId = window.requestAnimationFrame(() => {
+        haptic("error");
+        setPreview(null);
+        setDragWall(null);
+        setNotice("У Игрока 2 вышло время");
+        setWinner("p1");
+      });
+      return () => window.cancelAnimationFrame(frameId);
     }
   }, [clocks, winner, setDragWall]);
 
@@ -651,18 +656,194 @@ export const GridLockGame: React.FC = () => {
 
   return (
     <div
-      className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden text-white"
+      className="gl-root relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden text-white"
       onContextMenu={(e) => e.preventDefault()}
-      style={{
-        background: "transparent",
-        touchAction: "none",
-        overscrollBehavior: "none",
-        WebkitUserSelect: "none",
-        userSelect: "none",
-        WebkitTapHighlightColor: "transparent",
-      }}
     >
       <style>{`
+        .gl-root {
+          background: transparent;
+          touch-action: none;
+          overscroll-behavior: none;
+          -webkit-user-select: none;
+          user-select: none;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .gl-board {
+          background: rgba(18, 18, 24, 0.64);
+          border-color: rgba(255, 255, 255, 0.075);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.055),
+            0 16px 34px rgba(0, 0, 0, 0.25);
+          touch-action: none;
+          contain: layout paint size;
+        }
+
+        .gl-pawn {
+          transition: transform 210ms cubic-bezier(0.22, 0.85, 0.25, 1);
+        }
+
+        .gl-notice {
+          animation: glToast 150ms ease-out both;
+          background: rgba(9, 9, 13, 0.86);
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          color: rgba(255, 255, 255, 0.78);
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+        }
+
+        .gl-win-card {
+          background: rgba(18, 18, 24, 0.9);
+          border-color: rgba(255, 255, 255, 0.075);
+          box-shadow:
+            0 20px 60px rgba(0, 0, 0, 0.45),
+            inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        .gl-win-label { color: #8f8f9c; }
+        .gl-win-name-p1 { color: #dbeafe; }
+        .gl-win-name-p2 { color: #ffedd5; }
+        .gl-win-btn-p1 { background: #2f8cff; color: #fff; }
+        .gl-win-btn-p2 { background: #f59e42; color: #fff; }
+
+        .gl-wall-tray {
+          background: rgba(18, 18, 24, 0.72);
+          border-color: rgba(255, 255, 255, 0.075);
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.055),
+            0 12px 28px rgba(0, 0, 0, 0.22);
+        }
+
+        .gl-wall-tray-cancel {
+          background: rgba(239, 68, 68, 0.16);
+          border-color: rgba(239, 68, 68, 0.55);
+          box-shadow:
+            0 0 0 1px rgba(239, 68, 68, 0.12),
+            0 12px 28px rgba(0, 0, 0, 0.22);
+        }
+
+        .gl-cancel-badge {
+          background: rgba(239, 68, 68, 0.92);
+          color: #fff;
+          box-shadow: 0 10px 24px rgba(239, 68, 68, 0.24);
+        }
+
+        .gl-turn-badge-p1 {
+          background: #2f8cff18;
+          border-color: #2f8cff55;
+          color: #dbeafe;
+          box-shadow:
+            0 8px 22px #2f8cff12,
+            inset 0 1px 0 rgba(255, 255, 255, 0.055);
+        }
+
+        .gl-turn-badge-p2 {
+          background: #f59e4218;
+          border-color: #f59e4255;
+          color: #ffedd5;
+          box-shadow:
+            0 8px 22px #f59e4212,
+            inset 0 1px 0 rgba(255, 255, 255, 0.055);
+        }
+
+        .gl-turn-badge-done {
+          background: #ffc96a18;
+          border-color: #ffc96a55;
+          color: #ffc96a;
+          box-shadow: none;
+        }
+
+        .gl-player-row-left { flex-direction: row; }
+        .gl-player-row-right { flex-direction: row-reverse; }
+        .gl-player-align-left { text-align: left; }
+        .gl-player-align-right { text-align: right; }
+
+        .gl-player-mini-p1 {
+          background: rgba(255, 255, 255, 0.035);
+          border-color: rgba(255, 255, 255, 0.075);
+          opacity: 0.62;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+        }
+
+        .gl-player-mini-p1.gl-player-active {
+          background: #2f8cff18;
+          border-color: #2f8cff66;
+          opacity: 1;
+          box-shadow:
+            0 8px 22px #2f8cff13,
+            inset 0 1px 0 rgba(255, 255, 255, 0.055);
+        }
+
+        .gl-player-mini-p2 {
+          background: rgba(255, 255, 255, 0.035);
+          border-color: rgba(255, 255, 255, 0.075);
+          opacity: 0.62;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+        }
+
+        .gl-player-mini-p2.gl-player-active {
+          background: #f59e4218;
+          border-color: #f59e4266;
+          opacity: 1;
+          box-shadow:
+            0 8px 22px #f59e4213,
+            inset 0 1px 0 rgba(255, 255, 255, 0.055);
+        }
+
+        .gl-player-badge-p1 { background: #2f8cff; color: #fff; }
+        .gl-player-badge-p2 { background: #f59e42; color: #fff; }
+        .gl-player-name-p1 { color: #dbeafe; }
+        .gl-player-name-p2 { color: #ffedd5; }
+        .gl-player-clock-active { color: #ffffff; }
+        .gl-player-clock-idle { color: rgba(255, 255, 255, 0.72); }
+        .gl-player-clock-low { color: #fecaca; }
+        .gl-player-meta { color: #8f8f9c; }
+
+        .gl-wall-btn {
+          touch-action: none;
+        }
+
+        .gl-wall-btn-p1 {
+          background: #2f8cff1f;
+          border: 1px solid #2f8cff55;
+        }
+
+        .gl-wall-btn-p2 {
+          background: #f59e421f;
+          border: 1px solid #f59e4255;
+        }
+
+        .gl-wall-btn-faded { opacity: 0.28; }
+
+        .gl-wall-icon {
+          display: block;
+          border-radius: 999px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+        }
+
+        .gl-wall-icon-p1 {
+          background: #2f8cff;
+          box-shadow:
+            0 0 16px #2f8cff44,
+            inset 0 1px 0 rgba(255, 255, 255, 0.35);
+        }
+
+        .gl-wall-icon-p2 {
+          background: #f59e42;
+          box-shadow:
+            0 0 16px #f59e4244,
+            inset 0 1px 0 rgba(255, 255, 255, 0.35);
+        }
+
+        .gl-wall-icon-h {
+          width: 34px;
+          height: 8px;
+        }
+
+        .gl-wall-icon-v {
+          width: 8px;
+          height: 34px;
+        }
+
         @keyframes glPulse { 0%,100%{ opacity:.10; transform:scale(1);} 50%{ opacity:.22; transform:scale(1.18);} }
         @keyframes glPop { 0%{ transform:scale(.82); opacity:0;} 100%{ transform:scale(1); opacity:1;} }
         @keyframes glToast { 0%{ opacity:0; transform:translateY(8px) scale(.98);} 100%{ opacity:1; transform:none;} }
@@ -672,13 +853,11 @@ export const GridLockGame: React.FC = () => {
         .gl-tap:active:not(:disabled) { transform: scale(.976); opacity:.92; }
       `}</style>
 
-      <header
-        className="z-10 px-3 pt-2"
-        style={{ paddingTop: "max(8px, env(safe-area-inset-top))" }}
-      >
+      <header className="z-10 px-3 pt-[max(8px,env(safe-area-inset-top))]">
         <div className="grid grid-cols-[1fr_40px_1fr] items-center gap-2">
           <PlayerMini
             cfg={CFG.p1}
+            player="p1"
             count={left.p1}
             timeLeft={clocks.p1}
             active={turn === "p1" && !winner}
@@ -689,6 +868,7 @@ export const GridLockGame: React.FC = () => {
 
           <PlayerMini
             cfg={CFG.p2}
+            player="p2"
             count={left.p2}
             timeLeft={clocks.p2}
             active={turn === "p2" && !winner}
@@ -703,16 +883,9 @@ export const GridLockGame: React.FC = () => {
           onPointerCancel={() => {
             setPreview(null);
           }}
-          className="relative aspect-square w-full max-w-[min(100%,calc(100vh-168px))] overflow-hidden rounded-[25px] border"
-          style={{
-            background: "rgba(18,18,24,0.64)",
-            borderColor: APP.border,
-            boxShadow: "inset 0 1px 0 rgba(255,255,255,.055), 0 16px 34px rgba(0,0,0,.25)",
-            touchAction: "none",
-            contain: "layout paint size",
-          }}
+          className="gl-board relative aspect-square w-full max-w-[min(100%,calc(100vh-168px))] overflow-hidden rounded-[25px] border"
         >
-          <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" style={{ touchAction: "none" }}>
+          <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full touch-none">
             <defs>
               <linearGradient id="pawn-p1" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stopColor={CFG.p1.light} />
@@ -754,7 +927,7 @@ export const GridLockGame: React.FC = () => {
 
                   {legal && !winner && !dragWall && (
                     <g pointerEvents="none">
-                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.32} fill={accent} opacity={0.96} />
+                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.32} fill={cfg.main} opacity={0.96} />
                     </g>
                   )}
                 </g>
@@ -813,16 +986,7 @@ export const GridLockGame: React.FC = () => {
 
           {notice && (
             <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-center">
-              <div
-                className="rounded-2xl px-3 py-2 text-center text-[10px] font-black"
-                style={{
-                  animation: "glToast 150ms ease-out both",
-                  background: "rgba(9,9,13,0.86)",
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  color: "rgba(255,255,255,0.78)",
-                  boxShadow: "0 10px 24px rgba(0,0,0,.28)",
-                }}
-              >
+              <div className="gl-notice rounded-2xl px-3 py-2 text-center text-[10px] font-black">
                 {notice}
               </div>
             </div>
@@ -830,27 +994,16 @@ export const GridLockGame: React.FC = () => {
 
           {winner && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/55 p-6">
-              <div
-                className="w-full max-w-[300px] rounded-[26px] border px-5 py-6 text-center"
-                style={{
-                  background: APP.bgCard,
-                  borderColor: APP.border,
-                  boxShadow: "0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06)",
-                }}
-              >
-                <div className="text-[9px] font-black uppercase tracking-[0.22em]" style={{ color: APP.muted }}>
+              <div className="gl-win-card w-full max-w-[300px] rounded-[26px] border px-5 py-6 text-center">
+                <div className="gl-win-label text-[9px] font-black uppercase tracking-[0.22em]">
                   победа
                 </div>
-                <div className="mt-2 text-2xl font-black" style={{ color: CFG[winner].text }}>
+                <div className={`mt-2 text-2xl font-black ${winner === "p1" ? "gl-win-name-p1" : "gl-win-name-p2"}`}>
                   {CFG[winner].name}
                 </div>
                 <button
                   onClick={restart}
-                  className="gl-tap mt-5 h-11 w-full rounded-2xl text-[11px] font-black uppercase tracking-[0.14em]"
-                  style={{
-                    background: winner === "p1" ? APP.blue : APP.orange,
-                    color: "#fff",
-                  }}
+                  className={`gl-tap mt-5 h-11 w-full rounded-2xl text-[11px] font-black uppercase tracking-[0.14em] ${winner === "p1" ? "gl-win-btn-p1" : "gl-win-btn-p2"}`}
                   type="button"
                 >
                   снова
@@ -861,23 +1014,13 @@ export const GridLockGame: React.FC = () => {
         </div>
       </main>
 
-      <footer
-        className="z-10 px-3 pb-2"
-        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
-      >
+      <footer className="z-10 px-3 pb-[max(8px,env(safe-area-inset-bottom))]">
         <div
-          className="relative mx-auto grid h-[56px] w-[168px] grid-cols-2 gap-2 rounded-[22px] border p-1.5"
-          style={{
-            background: dragWall?.overCancel ? "rgba(239,68,68,0.16)" : "rgba(18,18,24,0.72)",
-            borderColor: dragWall?.overCancel ? "rgba(239,68,68,0.55)" : APP.border,
-            boxShadow: dragWall?.overCancel
-              ? "0 0 0 1px rgba(239,68,68,.12), 0 12px 28px rgba(0,0,0,.22)"
-              : "inset 0 1px 0 rgba(255,255,255,.055), 0 12px 28px rgba(0,0,0,.22)",
-          }}
+          className={`gl-wall-tray relative mx-auto grid h-[56px] w-[168px] grid-cols-2 gap-2 rounded-[22px] border p-1.5 ${dragWall?.overCancel ? "gl-wall-tray-cancel" : ""}`}
         >
           <WallDragButton
             o="v"
-            accent={accent}
+            player={turn}
             disabled={!!winner || left[turn] <= 0}
             faded={!!dragWall}
             onPointerDown={(e) => startWallDrag("v", e)}
@@ -885,7 +1028,7 @@ export const GridLockGame: React.FC = () => {
 
           <WallDragButton
             o="h"
-            accent={accent}
+            player={turn}
             disabled={!!winner || left[turn] <= 0}
             faded={!!dragWall}
             onPointerDown={(e) => startWallDrag("h", e)}
@@ -893,14 +1036,7 @@ export const GridLockGame: React.FC = () => {
 
           {dragWall?.overCancel && (
             <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-[22px]">
-              <div
-                className="grid h-10 w-10 place-items-center rounded-full"
-                style={{
-                  background: "rgba(239,68,68,0.92)",
-                  color: "#fff",
-                  boxShadow: "0 10px 24px rgba(239,68,68,.24)",
-                }}
-              >
+              <div className="gl-cancel-badge grid h-10 w-10 place-items-center rounded-full">
                 <TrashIcon />
               </div>
             </div>
@@ -916,13 +1052,7 @@ const TurnBadge = ({ player, done }: { player: PlayerId; done: boolean }) => {
 
   return (
     <div
-      className="grid h-10 w-10 place-items-center rounded-[16px] border text-[15px] font-black"
-      style={{
-        background: done ? `${APP.gold}18` : `${cfg.main}18`,
-        borderColor: done ? `${APP.gold}55` : `${cfg.main}55`,
-        color: done ? APP.gold : cfg.text,
-        boxShadow: done ? "none" : `0 8px 22px ${cfg.main}12, inset 0 1px 0 rgba(255,255,255,.055)`,
-      }}
+      className={`grid h-10 w-10 place-items-center rounded-[16px] border text-[15px] font-black ${done ? "gl-turn-badge-done" : player === "p1" ? "gl-turn-badge-p1" : "gl-turn-badge-p2"}`}
       aria-label="Текущий ход"
     >
       {done ? "✓" : cfg.arrow}
@@ -932,12 +1062,14 @@ const TurnBadge = ({ player, done }: { player: PlayerId; done: boolean }) => {
 
 const PlayerMini = ({
   cfg,
+  player,
   count,
   timeLeft,
   active,
   align,
 }: {
   cfg: PlayerCfg;
+  player: PlayerId;
   count: number;
   timeLeft: number;
   active: boolean;
@@ -947,37 +1079,21 @@ const PlayerMini = ({
 
   return (
     <div
-      className="flex min-h-[64px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5"
-      style={{
-        flexDirection: align === "right" ? "row-reverse" : "row",
-        background: active ? `${cfg.main}18` : APP.bgCardSoft,
-        borderColor: active ? `${cfg.main}66` : APP.border,
-        opacity: active ? 1 : 0.62,
-        boxShadow: active
-          ? `0 8px 22px ${cfg.main}13, inset 0 1px 0 rgba(255,255,255,.055)`
-          : "inset 0 1px 0 rgba(255,255,255,.045)",
-      }}
+      className={`flex min-h-[64px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5 gl-player-mini-${player} ${active ? "gl-player-active" : ""} ${align === "right" ? "gl-player-row-right" : "gl-player-row-left"}`}
     >
-      <span
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black"
-        style={{ background: cfg.main, color: "#fff" }}
-      >
+      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black gl-player-badge-${player}`}>
         {cfg.short}
       </span>
-      <span className="min-w-0 leading-[1.16]" style={{ textAlign: align === "right" ? "right" : "left" }}>
-        <span className="block truncate text-[10.5px] font-black" style={{ color: cfg.text }}>
+      <span className={`min-w-0 leading-[1.16] ${align === "right" ? "gl-player-align-right" : "gl-player-align-left"}`}>
+        <span className={`block truncate text-[10.5px] font-black gl-player-name-${player}`}>
           {cfg.name}
         </span>
         <span
-          className="mt-1 block truncate text-[12px] font-black tabular-nums tracking-[0.05em]"
-          style={{ color: lowTime ? "#fecaca" : active ? APP.text : "rgba(255,255,255,0.72)" }}
+          className={`mt-1 block truncate text-[12px] font-black tabular-nums tracking-[0.05em] ${lowTime ? "gl-player-clock-low" : active ? "gl-player-clock-active" : "gl-player-clock-idle"}`}
         >
           {formatClock(timeLeft)}
         </span>
-        <span
-          className="mt-1 block truncate text-[8px] font-black uppercase tracking-[0.12em] leading-[1.25]"
-          style={{ color: APP.muted }}
-        >
+        <span className="gl-player-meta mt-1 block truncate text-[8px] font-black uppercase tracking-[0.12em] leading-[1.25]">
           {count} стен
         </span>
       </span>
@@ -987,13 +1103,13 @@ const PlayerMini = ({
 
 const WallDragButton = ({
   o,
-  accent,
+  player,
   disabled,
   faded,
   onPointerDown,
 }: {
   o: Orientation;
-  accent: string;
+  player: PlayerId;
   disabled?: boolean;
   faded?: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
@@ -1001,26 +1117,11 @@ const WallDragButton = ({
   <button
     onPointerDown={onPointerDown}
     disabled={disabled}
-    className="gl-tap grid place-items-center rounded-[17px] disabled:opacity-35"
-    style={{
-      background: `${accent}1f`,
-      border: `1px solid ${accent}55`,
-      opacity: faded ? 0.28 : 1,
-      touchAction: "none",
-    }}
+    className={`gl-tap gl-wall-btn gl-wall-btn-${player} grid place-items-center rounded-[17px] disabled:opacity-35 ${faded ? "gl-wall-btn-faded" : ""}`}
     type="button"
     aria-label={o === "h" ? "Поставить горизонтальную стену" : "Поставить вертикальную стену"}
   >
-    <span
-      style={{
-        display: "block",
-        width: o === "h" ? 34 : 8,
-        height: o === "h" ? 8 : 34,
-        borderRadius: 999,
-        background: accent,
-        boxShadow: `0 0 16px ${accent}44, inset 0 1px 0 rgba(255,255,255,.35)`,
-      }}
-    />
+    <span className={`gl-wall-icon gl-wall-icon-${player} ${o === "h" ? "gl-wall-icon-h" : "gl-wall-icon-v"}`} />
   </button>
 );
 

@@ -12,7 +12,7 @@ import {
   Trophy,
   UserRound,
 } from 'lucide-react';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth } from '../auth/useAuth';
 
 const formatNumber = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(value);
@@ -90,8 +90,13 @@ export const Profile = () => {
               <p className="profile-id-line">ID {user.id} · TG {user.telegram_id}</p>
             </div>
           </div>
-          <button type="button" onClick={() => void refreshProfile()} className="pressable profile-refresh-button">
-            <RefreshCw size={11} />
+          <button
+            type="button"
+            onClick={() => void refreshProfile()}
+            className="pressable profile-refresh-button"
+            aria-label="Обновить профиль"
+          >
+            <RefreshCw size={11} aria-hidden="true" />
           </button>
         </div>
 
@@ -113,7 +118,7 @@ export const Profile = () => {
         </div>
       </section>
 
-      <section className="profile-wallet-grid page-reveal" style={{ animationDelay: '60ms' }}>
+      <section className="profile-wallet-grid page-reveal">
         <div className="profile-wallet-card is-ton">
           <div className="profile-wallet-icon"><Gem size={19} /></div>
           <div className="min-w-0"><p className="profile-wallet-value">{formatNumber(user.balance_ton)}</p><p className="profile-wallet-label">TON</p></div>
@@ -124,7 +129,7 @@ export const Profile = () => {
         </div>
       </section>
 
-      <section className="profile-stat-panel minimal-panel page-reveal" style={{ animationDelay: '110ms' }}>
+      <section className="profile-stat-panel minimal-panel page-reveal">
         <div className="minimal-section-head">
           <div><p className="minimal-kicker">Backend stats</p><h2>Статистика</h2></div>
           <div className="minimal-head-icon"><Award size={15} /></div>
@@ -147,7 +152,7 @@ export const Profile = () => {
         </div>
       </section>
 
-      <section className="favorite-mode-card minimal-panel page-reveal" style={{ animationDelay: '160ms' }}>
+      <section className="favorite-mode-card minimal-panel page-reveal">
         <div className="minimal-section-head">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="minimal-head-icon"><Gamepad2 size={16} /></div>

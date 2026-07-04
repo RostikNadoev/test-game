@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCcw, Trophy } from 'lucide-react';
 
 type Direction = 'up' | 'down';
@@ -48,7 +47,6 @@ const PAYOUT = 1.82;
 
 const PAIRS = ['TON/USD', 'BTC/USD', 'ETH/USD', 'SOL/USD', 'NOT/USD'];
 
-const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
 const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
 const randomDirection = (): Direction => (Math.random() > 0.5 ? 'up' : 'down');
 const oppositeDirection = (direction: Direction): Direction => (direction === 'up' ? 'down' : 'up');
@@ -392,6 +390,30 @@ const ResultToast = ({ result }: { result: RoundResult }) => {
   );
 };
 
+type BoTimerTone = 'idle' | 'up' | 'down';
+
+const BoTimer = ({
+  progress,
+  label,
+  tone,
+}: {
+  progress: number;
+  label: string;
+  tone: BoTimerTone;
+}) => {
+  const timerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    timerRef.current?.style.setProperty('--timer', String(progress));
+  }, [progress]);
+
+  return (
+    <div ref={timerRef} className={`bo-timer bo-timer-${tone}`}>
+      <span>{label}</span>
+    </div>
+  );
+};
+
 export const VirusMarketGame = () => {
   const [phase, setPhase] = useState<Phase>('choose');
   const [scores, setScores] = useState<Scores>({ player: 0, bot: 0 });
@@ -498,7 +520,9 @@ export const VirusMarketGame = () => {
     if (phase !== 'choose') return undefined;
 
     const deadline = Date.now() + CHOICE_MS;
-    setChoiceLeft(CHOICE_MS);
+    const frameId = window.requestAnimationFrame(() => {
+      setChoiceLeft(CHOICE_MS);
+    });
 
     const id = window.setInterval(() => {
       const left = Math.max(0, deadline - Date.now());
@@ -510,7 +534,10 @@ export const VirusMarketGame = () => {
       }
     }, 90);
 
-    return () => window.clearInterval(id);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearInterval(id);
+    };
   }, [phase, round, commitChoice]);
 
   useEffect(() => {
@@ -862,6 +889,18 @@ export const VirusMarketGame = () => {
             conic-gradient(var(--timer-color) calc(var(--timer) * 1%), rgba(255,255,255,.075) 0),
             rgba(255,255,255,.035);
           box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px rgba(0,0,0,.16);
+        }
+
+        .bo-timer-idle {
+          --timer-color: #ffffff;
+        }
+
+        .bo-timer-up {
+          --timer-color: #1acb7f;
+        }
+
+        .bo-timer-down {
+          --timer-color: #ff535c;
         }
 
         .bo-timer::before {
@@ -1229,17 +1268,11 @@ export const VirusMarketGame = () => {
             <b>{phase === 'choose' ? '6s' : `${Math.ceil(LIVE_MS / 1000)}s`}</b>
           </div>
 
-          <div
-            className="bo-timer"
-            style={cssVars({
-              '--timer': timerProgress,
-              '--timer-color': phase === 'live'
-                ? delta >= 0 ? '#1acb7f' : '#ff535c'
-                : '#ffffff',
-            })}
-          >
-            <span>{timerLabel}</span>
-          </div>
+          <BoTimer
+            progress={timerProgress}
+            label={timerLabel}
+            tone={phase === 'live' ? (delta >= 0 ? 'up' : 'down') : 'idle'}
+          />
 
           <div className="bo-info-pill">
             <span>move</span>

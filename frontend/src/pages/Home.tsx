@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, RefreshCw, UsersRound } from 'lucide-react';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth } from '../auth/useAuth';
 import { api, ApiError, type Lobby } from '../api';
 import { GAME_CATALOG, getGameByCode } from '../data/games';
+import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import heroBanner from '../assets/home/banner.webp';
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
@@ -206,15 +207,9 @@ export const Home = () => {
     }
   }, []);
 
-  useEffect(() => {
+  useIntervalWhenVisible(() => {
     void loadLobbies(false);
-
-    const interval = window.setInterval(() => {
-      void loadLobbies(false);
-    }, 8000);
-
-    return () => window.clearInterval(interval);
-  }, [loadLobbies]);
+  }, 8000);
 
   const openGame = (gameCode: string) => {
     navigate(`/game/${gameCode}/lobbies`);
@@ -233,6 +228,13 @@ export const Home = () => {
     const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
 
     if (!canJoin) return;
+
+    const userCoins = Math.floor(user?.balance_game ?? 0);
+
+    if (lobby.bet_coins > userCoins) {
+      setLobbyError('Недостаточно монет для этой ставки');
+      return;
+    }
 
     setJoiningLobbyId(lobby.id);
     setLobbyError(null);
@@ -257,6 +259,8 @@ export const Home = () => {
             alt="TwinGames"
             className="absolute inset-0 h-full w-full object-cover"
             draggable={false}
+            loading="lazy"
+            decoding="async"
           />
 
           <div className="absolute inset-0 hero-banner-overlay" />
@@ -273,7 +277,7 @@ export const Home = () => {
         </div>
       </section>
 
-      <section className="animate-fade-in mb-5" style={{ animationDelay: '60ms' }}>
+      <section className="animate-fade-in home-lobbies-reveal mb-5">
         <div className="section-heading">
           <div>
             <p className="section-kicker section-kicker-orange">
@@ -387,11 +391,7 @@ export const Home = () => {
         )}
       </section>
 
-      <section
-        id="games-grid"
-        className="animate-fade-in scroll-mt-4"
-        style={{ animationDelay: '120ms' }}
-      >
+      <section id="games-grid" className="animate-fade-in home-games-reveal scroll-mt-4">
         <div className="section-heading mb-2.5">
           <div>
             <p className="section-kicker section-kicker-blue">

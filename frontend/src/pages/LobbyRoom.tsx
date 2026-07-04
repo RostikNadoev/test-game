@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ChevronLeft, Coins, Loader2, Users } from 'lucide-react';
-import { api, ApiError, type Lobby } from '../api';
-import { useAuth } from '../auth/AuthProvider';
+import { api, ApiError, getOpponentInfo, resolvePlayersInfo, type Lobby } from '../api';
+import { useAuth } from '../auth/useAuth';
 import { GameIntroOverlay } from '../components/GameIntroOverlay';
 import { getGameByCode } from '../data/games';
+import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = 2000;
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
@@ -35,10 +36,9 @@ export const LobbyRoom = () => {
   const isUserInLobby = Boolean(user && lobby?.players.includes(user.id));
 
   const opponentInfo = useMemo(() => {
-    if (!user || !lobby?.players_info?.length) return null;
-
-    return lobby.players_info.find((player) => player.id !== user.id) || null;
-  }, [lobby?.players_info, user]);
+    if (!user || !lobby) return null;
+    return getOpponentInfo(lobby, user);
+  }, [lobby, user]);
 
   const loadLobby = useCallback(async () => {
     if (!lobbyId) {
@@ -58,27 +58,23 @@ export const LobbyRoom = () => {
     }
   }, [lobbyId]);
 
-  useEffect(() => {
+  useIntervalWhenVisible(() => {
     void loadLobby();
-
-    const interval = window.setInterval(() => {
-      void loadLobby();
-    }, POLL_INTERVAL_MS);
-
-    return () => window.clearInterval(interval);
-  }, [loadLobby]);
+  }, POLL_INTERVAL_MS);
 
   const handleComplete = useCallback(() => {
     if (completedRef.current) return;
-    if (!lobby) return;
+    if (!lobby || !user) return;
 
     completedRef.current = true;
+
+    const playersInfo = resolvePlayersInfo(lobby, user);
 
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem('twingames_blackjack_lobby_id', lobby.id);
       window.sessionStorage.setItem(
         'twingames_blackjack_players_info',
-        JSON.stringify(lobby.players_info ?? []),
+        JSON.stringify(playersInfo),
       );
 
       window.sessionStorage.setItem('twingames_active_lobby_id', lobby.id);
@@ -92,10 +88,10 @@ export const LobbyRoom = () => {
       state: {
         lobbyId: lobby.id,
         game: lobby.game,
-        playersInfo: lobby.players_info ?? [],
+        playersInfo,
       },
     });
-  }, [lobby, navigate, playPath, refreshBalance]);
+  }, [lobby, navigate, playPath, refreshBalance, user]);
 
   const handleLeave = async () => {
     if (!lobby || isLeaving || isMatched) return;

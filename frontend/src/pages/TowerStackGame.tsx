@@ -213,7 +213,10 @@ function createBotDriver(): OpponentDriver {
 
 function useOpponentFeed(opts: { active: boolean; onEvent: (e: OpponentEvent) => void }) {
   const cbRef = useRef(opts.onEvent);
-  cbRef.current = opts.onEvent;
+
+  useEffect(() => {
+    cbRef.current = opts.onEvent;
+  }, [opts.onEvent]);
 
   useEffect(() => {
     if (!opts.active) return;
@@ -756,6 +759,7 @@ let labelSeq = 0;
 
 export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const barFillRef = useRef<HTMLDivElement | null>(null);
   const vh = useViewportHeight(rootRef);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -847,6 +851,20 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     return () => root.removeEventListener('touchmove', prevent);
   }, [phase]);
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const height = `${Math.max(320, vh - 1)}px`;
+    root.style.height = height;
+    root.style.maxHeight = height;
+  }, [vh]);
+
+  const progress = clamp(timeLeft / ROUND_SECONDS, 0, 1);
+
+  useEffect(() => {
+    barFillRef.current?.style.setProperty('width', `${progress * 100}%`);
+  }, [progress]);
+
   // Countdown 3 -> 2 -> 1 -> play.
   useEffect(() => {
     if (phase !== 'countdown') return;
@@ -921,16 +939,10 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     if (phase === 'playing') engineRef.current?.drop();
   }, [phase]);
 
-  const progress = clamp(timeLeft / ROUND_SECONDS, 0, 1);
   const timeStr = `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, '0')}`;
-  const rootHeight = Math.max(320, vh - 1);
 
   return (
-    <div
-      className="ts-root"
-      ref={rootRef}
-      style={{ height: `${rootHeight}px`, maxHeight: `${rootHeight}px` }}
-    >
+    <div className="ts-root" ref={rootRef}>
       <style>{STYLES}</style>
 
       <div className="ts-hud">
@@ -945,7 +957,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
         <div className="ts-hud-center">
           <span className="ts-timer">{timeStr}</span>
           <div className="ts-bar">
-            <div className="ts-bar-fill" style={{ width: `${progress * 100}%` }} />
+            <div ref={barFillRef} className="ts-bar-fill" />
           </div>
         </div>
         <div className="ts-hud-side ts-right">
@@ -963,9 +975,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
         <div className="ts-fx">
           {labels.map((l) => (
-            <span key={l.id} className={`ts-float q-${l.kind}`} style={{ left: l.x, top: l.y }}>
-              {l.text}
-            </span>
+            <FloatLabelView key={l.id} label={l} />
           ))}
         </div>
 
@@ -1031,6 +1041,23 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
 /* --------------------------------- Styles --------------------------------- */
 /* Component-scoped. Inherits the global Supercell font with a safe fallback. */
+
+function FloatLabelView({ label }: { label: FloatLabel }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.left = `${label.x}px`;
+    el.style.top = `${label.y}px`;
+  }, [label.x, label.y]);
+
+  return (
+    <span ref={ref} className={`ts-float q-${label.kind}`}>
+      {label.text}
+    </span>
+  );
+}
 
 const STYLES = `
 .ts-root{

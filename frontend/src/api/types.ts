@@ -45,13 +45,29 @@ export type StatsResponse = {
 };
 
 export type ExchangeTonToGameRequest = {
-  amount: number;
+  coins: number;
 };
 
 export type ExchangeTonToGameResponse = {
   success: boolean;
+  rate?: string;
+  coins?: number;
+  spent_ton?: number;
+  balance_game?: number;
+  balance: {
+    ton?: number;
+    game: number;
+  };
+};
+
+export type TopUpQuoteRequest = {
+  coins: number;
+};
+
+export type TopUpQuoteResponse = {
+  coins: number;
+  required_ton: number;
   rate: string;
-  balance: Balance;
 };
 
 export type HealthResponse = {

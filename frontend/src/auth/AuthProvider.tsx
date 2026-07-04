@@ -1,13 +1,20 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
-import { api, ApiError, setApiToken, type ApiUser, type Balance } from '../api';
+import {
+  api,
+  ApiError,
+  normalizeBalance,
+  setApiToken,
+  setUnauthorizedHandler,
+  type Balance,
+  type ApiUser,
+} from '../api';
+import { AuthContext, type AuthContextValue } from './authContext';
 
 type TelegramWebApp = {
   initData?: string;
@@ -15,23 +22,7 @@ type TelegramWebApp = {
   expand?: () => void;
 };
 
-type AuthContextValue = {
-  token: string | null;
-  user: ApiUser | null;
-  isLoading: boolean;
-  error: string | null;
-  isAuthorized: boolean;
-  loginWithTelegram: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
-  refreshBalance: () => Promise<void>;
-  exchangeTonToGame: (amount: number) => Promise<Balance>;
-  logout: () => void;
-};
-
 const TOKEN_STORAGE_KEY = 'twingames_jwt_token';
-
-const AuthContext = createContext<AuthContextValue | null>(null);
 
 const getTelegramWebApp = () =>
   (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
@@ -40,6 +31,19 @@ const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return 'Неизвестная ошибка';
+};
+
+const resolveInitData = () => {
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || '';
+
+  if (initData) return initData;
+
+  if (import.meta.env.DEV && import.meta.env.VITE_DEV_INIT_DATA) {
+    return import.meta.env.VITE_DEV_INIT_DATA;
+  }
+
+  return '';
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -69,22 +73,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
   }, [saveToken]);
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      saveToken(null);
+      setUser(null);
+    });
+
+    return () => {
+      setUnauthorizedHandler(null);
+    };
+  }, [saveToken]);
+
   const loginWithTelegram = useCallback(async () => {
     const tg = getTelegramWebApp();
 
     tg?.ready?.();
 
-    const initData = tg?.initData || '';
+    const initData = resolveInitData();
 
-    console.log('RAW initData:', initData);
-
-    console.log('[TG AUTH DEBUG]', {
-      hasTelegram: Boolean((window as Window & { Telegram?: unknown }).Telegram),
-      hasWebApp: Boolean(tg),
-      initDataLength: initData.length,
-      initDataPreview: initData.slice(0, 120),
-      apiBaseUrl: import.meta.env.VITE_API_BASE_URL,
-    });
+    if (import.meta.env.DEV) {
+      console.log('[TG AUTH DEBUG]', {
+        hasTelegram: Boolean((window as Window & { Telegram?: unknown }).Telegram),
+        hasWebApp: Boolean(tg),
+        initDataLength: initData.length,
+        usedDevInitData: Boolean(!tg?.initData && import.meta.env.VITE_DEV_INIT_DATA),
+      });
+    }
 
     if (!initData) {
       throw new Error('Нет Telegram initData. Проверь, что приложение открыто именно как Telegram Mini App.');
@@ -124,20 +138,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
-  const exchangeTonToGame = useCallback(async (amount: number) => {
-    const response = await api.wallet.exchangeTonToGame(amount);
+  const exchangeTonToGame = useCallback(async (coins: number) => {
+    const response = await api.wallet.exchangeTonToGame(coins);
+    let nextBalance: Balance = { ton: 0, game: 0 };
 
     setUser((currentUser) => {
       if (!currentUser) return currentUser;
 
+      nextBalance = normalizeBalance(response, currentUser);
+
       return {
         ...currentUser,
-        balance_ton: response.balance.ton,
-        balance_game: response.balance.game,
+        balance_ton: nextBalance.ton,
+        balance_game: nextBalance.game,
       };
     });
 
-    return response.balance;
+    return nextBalance;
   }, []);
 
   useEffect(() => {
@@ -209,14 +226,4 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error('useAuth must be used inside AuthProvider');
-  }
-
-  return context;
 };

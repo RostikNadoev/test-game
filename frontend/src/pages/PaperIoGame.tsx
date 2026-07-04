@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { getTelegramWebApp } from "../types/telegram";
 
 /* =========================================================================
    PAPER IO — mobile / Telegram mini app
@@ -466,12 +467,14 @@ export const PaperIoGame = () => {
 
   // блокируем скролл/свайпы (в т.ч. закрытие TG mini app вертикальным свайпом)
   useEffect(() => {
-    const tg = (window as any)?.Telegram?.WebApp;
+    const tg = getTelegramWebApp();
     try {
       tg?.ready?.();
       tg?.expand?.();
       tg?.disableVerticalSwipes?.();
-    } catch {}
+    } catch {
+      /* ignore telegram init errors */
+    }
 
     const html = document.documentElement;
     const body = document.body;
@@ -484,7 +487,7 @@ export const PaperIoGame = () => {
     html.style.overflow = "hidden";
     body.style.overflow = "hidden";
     body.style.overscrollBehavior = "none";
-    (body.style as any).touchAction = "none";
+    body.style.touchAction = "none";
 
     const stop = (e: TouchEvent) => {
       if (e.cancelable) e.preventDefault();
@@ -496,10 +499,12 @@ export const PaperIoGame = () => {
       html.style.overflow = prev.htmlOver;
       body.style.overflow = prev.bodyOver;
       body.style.overscrollBehavior = prev.over;
-      (body.style as any).touchAction = prev.touch;
+      body.style.touchAction = prev.touch;
       try {
         tg?.enableVerticalSwipes?.();
-      } catch {}
+      } catch {
+        /* ignore telegram cleanup errors */
+      }
     };
   }, []);
 
@@ -820,25 +825,254 @@ export const PaperIoGame = () => {
 
   /* ----------------------------- UI ----------------------------- */
   return (
-    <div
-      className="paperio-root"
-      style={{
-        position: "relative",
-        height: "100%",
-        minHeight: "100%",
-        width: "100%",
-        overflow: "hidden",
-        background: COLORS.bg,
-        color: "#fff",
-        touchAction: "none",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        overscrollBehavior: "none",
-        fontFamily:
-          "'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-      }}
-    >
+    <div className="paperio-root">
       <style>{`
+        .paperio-root {
+          position: relative;
+          height: 100%;
+          min-height: 100%;
+          width: 100%;
+          overflow: hidden;
+          background: #050610;
+          color: #fff;
+          touch-action: none;
+          user-select: none;
+          -webkit-user-select: none;
+          overscroll-behavior: none;
+          font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .pio-hud {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 20;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+          padding: 8px 10px;
+          padding-top: max(8px, env(safe-area-inset-top));
+          pointer-events: none;
+        }
+
+        .pio-hud-left {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .pio-kills {
+          font-size: 10px;
+          font-weight: 800;
+          color: rgba(255, 255, 255, 0.45);
+          letter-spacing: 0.04em;
+        }
+
+        .pio-stage {
+          position: absolute;
+          inset: 0;
+          touch-action: none;
+        }
+
+        .pio-canvas {
+          display: block;
+          width: 100%;
+          height: 100%;
+        }
+
+        .pio-joy {
+          position: absolute;
+          width: 112px;
+          height: 112px;
+          margin-left: -56px;
+          margin-top: -56px;
+          border-radius: 9999px;
+          border: 1.5px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(8px);
+          opacity: 0;
+          transition: opacity 0.12s;
+          pointer-events: none;
+          z-index: 15;
+        }
+
+        .pio-joy-thumb {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 52px;
+          height: 52px;
+          transform: translate(-50%, -50%);
+          border-radius: 9999px;
+          background: radial-gradient(circle at 35% 30%, #7cffc6, #54f2a8);
+          box-shadow: 0 6px 20px rgba(84, 242, 168, 0.45);
+        }
+
+        .pio-modal-backdrop {
+          position: absolute;
+          inset: 0;
+          z-index: 30;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: rgba(5, 6, 16, 0.55);
+          backdrop-filter: blur(6px);
+        }
+
+        .pio-modal-card {
+          width: 100%;
+          max-width: 340px;
+          text-align: center;
+          border-radius: 32px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          background: rgba(255, 255, 255, 0.045);
+          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+          backdrop-filter: blur(16px);
+          padding: 26px;
+          animation: pio-pop 0.25s ease both;
+        }
+
+        .pio-modal-icon {
+          margin: 0 auto;
+          width: 72px;
+          height: 72px;
+          display: grid;
+          place-items: center;
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(0, 0, 0, 0.25);
+          font-size: 40px;
+          animation: pio-float 3s ease-in-out infinite;
+        }
+
+        .pio-modal-kicker {
+          margin-top: 18px;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.24em;
+          text-transform: uppercase;
+          color: rgba(84, 242, 168, 0.7);
+        }
+
+        .pio-modal-title {
+          margin-top: 6px;
+          font-size: 34px;
+          font-weight: 900;
+          line-height: 1;
+          letter-spacing: -0.04em;
+        }
+
+        .pio-modal-copy {
+          margin: 12px auto 0;
+          max-width: 280px;
+          font-size: 14px;
+          line-height: 1.5;
+          color: rgba(255, 255, 255, 0.5);
+        }
+
+        .pio-modal-btn {
+          margin-top: 20px;
+          width: 100%;
+          padding: 15px 20px;
+          border-radius: 18px;
+          border: none;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: 800;
+          letter-spacing: 0.02em;
+          color: #04130c;
+          background: linear-gradient(180deg, #7cffc6, #54f2a8);
+          box-shadow: 0 12px 30px rgba(84, 242, 168, 0.4);
+        }
+
+        .pio-timer {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 5px 12px;
+          border-radius: 9999px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(8px);
+          transition: all 0.2s;
+        }
+
+        .pio-timer-low {
+          border-color: rgba(255, 94, 138, 0.5);
+          background: rgba(255, 94, 138, 0.12);
+        }
+
+        .pio-timer-value {
+          font-size: 13px;
+          font-weight: 900;
+          color: #fff;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
+        }
+
+        .pio-timer-value-low {
+          color: #ff5e8a;
+        }
+
+        .pio-score {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 10px;
+          border-radius: 9999px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(8px);
+        }
+
+        .pio-score-active-you {
+          border-color: #54f2a855;
+        }
+
+        .pio-score-active-bot {
+          border-color: #ff5e8a55;
+        }
+
+        .pio-score-dot-you {
+          width: 8px;
+          height: 8px;
+          border-radius: 9999px;
+          background: #54f2a8;
+          box-shadow: 0 0 8px #54f2a8;
+        }
+
+        .pio-score-dot-bot {
+          width: 8px;
+          height: 8px;
+          border-radius: 9999px;
+          background: #ff5e8a;
+          box-shadow: 0 0 8px #ff5e8a;
+        }
+
+        .pio-score-label {
+          font-size: 11px;
+          font-weight: 800;
+          color: rgba(255, 255, 255, 0.7);
+          letter-spacing: 0.02em;
+        }
+
+        .pio-score-value-you {
+          font-size: 11px;
+          font-weight: 900;
+          color: #54f2a8;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .pio-score-value-bot {
+          font-size: 11px;
+          font-weight: 900;
+          color: #ff5e8a;
+          font-variant-numeric: tabular-nums;
+        }
+
         @keyframes pio-pop { 0%{transform:scale(.92);opacity:0} 100%{transform:scale(1);opacity:1} }
         @keyframes pio-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
         .pio-glow1{position:absolute;left:-90px;top:60px;width:280px;height:280px;border-radius:9999px;background:rgba(84,242,168,0.14);filter:blur(95px);pointer-events:none}
@@ -848,192 +1082,50 @@ export const PaperIoGame = () => {
       <div className="pio-glow1" />
       <div className="pio-glow2" />
 
-      {/* верхний бар — минимальный */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 20,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 6,
-          padding: "8px 10px",
-          paddingTop: "max(8px, env(safe-area-inset-top))",
-          pointerEvents: "none",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <ScorePill color="#54F2A8" label="You" pct={p1pct} active />
-          {kills > 0 && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 800,
-                color: "rgba(255,255,255,0.45)",
-                letterSpacing: "0.04em",
-              }}
-            >
-              ⚔ {kills}
-            </span>
-          )}
+      <div className="pio-hud">
+        <div className="pio-hud-left">
+          <ScorePill tone="you" label="You" pct={p1pct} active />
+          {kills > 0 && <span className="pio-kills">⚔ {kills}</span>}
         </div>
 
         <TimerPill ms={timeLeft} />
 
-        <ScorePill color="#FF5E8A" label="Bot" pct={p2pct} />
+        <ScorePill tone="bot" label="Bot" pct={p2pct} />
       </div>
 
-      {/* игровое поле + ввод */}
       <div
         ref={wrapRef}
+        className="pio-stage"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        style={{ position: "absolute", inset: 0, touchAction: "none" }}
       >
-        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
+        <canvas ref={canvasRef} className="pio-canvas" />
       </div>
 
-      {/* джойстик (появляется под пальцем) */}
-      <div
-        ref={joyRef}
-        style={{
-          position: "absolute",
-          width: 112,
-          height: 112,
-          marginLeft: -56,
-          marginTop: -56,
-          borderRadius: "9999px",
-          border: "1.5px solid rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.05)",
-          backdropFilter: "blur(8px)",
-          opacity: 0,
-          transition: "opacity .12s",
-          pointerEvents: "none",
-          zIndex: 15,
-        }}
-      >
-        <div
-          ref={thumbRef}
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            width: 52,
-            height: 52,
-            transform: "translate(-50%,-50%)",
-            borderRadius: "9999px",
-            background:
-              "radial-gradient(circle at 35% 30%, #7CFFC6, #54F2A8)",
-            boxShadow: "0 6px 20px rgba(84,242,168,0.45)",
-          }}
-        />
+      <div ref={joyRef} className="pio-joy">
+        <div ref={thumbRef} className="pio-joy-thumb" />
       </div>
 
-      {/* стартовый / финальный экран */}
       {phase !== "playing" && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 30,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-            background: "rgba(5,6,16,0.55)",
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              maxWidth: 340,
-              textAlign: "center",
-              borderRadius: 32,
-              border: "1px solid rgba(255,255,255,0.09)",
-              background: "rgba(255,255,255,0.045)",
-              boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
-              backdropFilter: "blur(16px)",
-              padding: 26,
-              animation: "pio-pop .25s ease both",
-            }}
-          >
-            <div
-              style={{
-                margin: "0 auto",
-                width: 72,
-                height: 72,
-                display: "grid",
-                placeItems: "center",
-                borderRadius: 24,
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "rgba(0,0,0,0.25)",
-                fontSize: 40,
-                animation: "pio-float 3s ease-in-out infinite",
-              }}
-            >
+        <div className="pio-modal-backdrop">
+          <div className="pio-modal-card">
+            <div className="pio-modal-icon">
               {phase === "over" ? (didWin ? "🏆" : p1pct === p2pct ? "🤝" : "😵") : "🟩"}
             </div>
 
-            <p
-              style={{
-                marginTop: 18,
-                fontSize: 10,
-                fontWeight: 900,
-                letterSpacing: "0.24em",
-                textTransform: "uppercase",
-                color: "rgba(84,242,168,0.7)",
-              }}
-            >
-              Territory Duel
-            </p>
-            <h1
-              style={{
-                marginTop: 6,
-                fontSize: 34,
-                fontWeight: 900,
-                lineHeight: 1,
-                letterSpacing: "-0.04em",
-              }}
-            >
+            <p className="pio-modal-kicker">Territory Duel</p>
+            <h1 className="pio-modal-title">
               {phase === "over" ? (didWin ? "Победа!" : p1pct === p2pct ? "Ничья" : "Поражение") : "Paper IO"}
             </h1>
-            <p
-              style={{
-                margin: "12px auto 0",
-                maxWidth: 280,
-                fontSize: 14,
-                lineHeight: 1.5,
-                color: "rgba(255,255,255,0.5)",
-              }}
-            >
+            <p className="pio-modal-copy">
               {phase === "over"
                 ? `Время вышло. Ты: ${p1pct}%  ·  Бот: ${p2pct}%`
                 : "Захватывай территорию, замыкая петли. 90 секунд — кто захватит больше, тот и победил. Наступи на след бота, чтобы скинуть его в ноль."}
             </p>
 
-            <button
-              onClick={start}
-              style={{
-                marginTop: 20,
-                width: "100%",
-                padding: "15px 20px",
-                borderRadius: 18,
-                border: "none",
-                cursor: "pointer",
-                fontSize: 16,
-                fontWeight: 800,
-                letterSpacing: "0.02em",
-                color: "#04130C",
-                background: "linear-gradient(180deg,#7CFFC6,#54F2A8)",
-                boxShadow: "0 12px 30px rgba(84,242,168,0.4)",
-              }}
-            >
+            <button onClick={start} className="pio-modal-btn" type="button">
               {phase === "over" ? "Играть снова" : "Начать игру"}
             </button>
           </div>
@@ -1049,30 +1141,10 @@ function TimerPill({ ms }: { ms: number }) {
   const m = Math.floor(total / 60);
   const s = total % 60;
   const low = total <= 10;
-  const color = low ? "#FF5E8A" : "#fff";
+
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "5px 12px",
-        borderRadius: 9999,
-        border: `1px solid ${low ? "rgba(255,94,138,0.5)" : "rgba(255,255,255,0.1)"}`,
-        background: low ? "rgba(255,94,138,0.12)" : "rgba(255,255,255,0.05)",
-        backdropFilter: "blur(8px)",
-        transition: "all .2s",
-      }}
-    >
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 900,
-          color,
-          fontVariantNumeric: "tabular-nums",
-          letterSpacing: "0.02em",
-        }}
-      >
+    <div className={`pio-timer ${low ? "pio-timer-low" : ""}`}>
+      <span className={`pio-timer-value ${low ? "pio-timer-value-low" : ""}`}>
         {m}:{s.toString().padStart(2, "0")}
       </span>
     </div>
@@ -1080,49 +1152,23 @@ function TimerPill({ ms }: { ms: number }) {
 }
 
 function ScorePill({
-  color,
+  tone,
   label,
   pct,
   active,
 }: {
-  color: string;
+  tone: "you" | "bot";
   label: string;
   pct: number;
   active?: boolean;
 }) {
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "5px 10px",
-        borderRadius: 9999,
-        border: `1px solid ${active ? color + "55" : "rgba(255,255,255,0.08)"}`,
-        background: "rgba(255,255,255,0.05)",
-        backdropFilter: "blur(8px)",
-      }}
+      className={`pio-score ${active ? (tone === "you" ? "pio-score-active-you" : "pio-score-active-bot") : ""}`}
     >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 9999,
-          background: color,
-          boxShadow: `0 0 8px ${color}`,
-        }}
-      />
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 800,
-          color: "rgba(255,255,255,0.7)",
-          letterSpacing: "0.02em",
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ fontSize: 11, fontWeight: 900, color, fontVariantNumeric: "tabular-nums" }}>
+      <span className={tone === "you" ? "pio-score-dot-you" : "pio-score-dot-bot"} />
+      <span className="pio-score-label">{label}</span>
+      <span className={tone === "you" ? "pio-score-value-you" : "pio-score-value-bot"}>
         {pct.toFixed(1)}%
       </span>
     </div>
