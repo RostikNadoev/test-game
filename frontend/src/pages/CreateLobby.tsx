@@ -10,7 +10,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api, ApiError } from '../api';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 
 const presetBets = [50, 100, 250, 500];
@@ -24,7 +24,7 @@ const toErrorMessage = (error: unknown) => {
 export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
-  const { user, refreshBalance } = useAuth();
+  const { user } = useAuth();
 
   const [lobbyName, setLobbyName] = useState('');
   const [bet, setBet] = useState(100);
@@ -35,7 +35,6 @@ export const CreateLobby = () => {
   const gameName = game?.displayName || 'Game';
   const userCoins = Math.floor(user?.balance_game ?? 0);
 
-  const betPercent = ((bet - 10) / (1000 - 10)) * 100;
   const canCreate =
     Boolean(gameId) &&
     lobbyName.trim().length > 0 &&
@@ -68,10 +67,8 @@ export const CreateLobby = () => {
       const response = await api.lobbies.create({
         name,
         game: gameId,
-        bet_coins: bet,
+        bet_coins: Math.floor(bet),
       });
-
-      await refreshBalance();
 
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`, {
         replace: true,
@@ -138,7 +135,11 @@ export const CreateLobby = () => {
         <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.04] p-3.5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <label className="block text-[9px] font-black uppercase tracking-[0.2em] text-white/36">
+              <label
+                id="create-lobby-bet-label"
+                htmlFor="create-lobby-bet-range"
+                className="block text-[9px] font-black uppercase tracking-[0.2em] text-white/36"
+              >
                 Ставка
               </label>
               <div className="mt-1.5 flex items-end gap-1.5">
@@ -160,20 +161,24 @@ export const CreateLobby = () => {
             </div>
           </div>
 
-          <div className="relative py-3">
-            <div className="absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-black/35" />
-            <div
-              className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-gradient-to-r from-[#F2C766] via-[#52FFE5] to-[#9D7CFF]"
-              style={{ width: `${Math.max(0, Math.min(100, betPercent))}%` }}
+          <div className="create-lobby-bet-slider relative py-3">
+            <progress
+              className="create-lobby-bet-progress"
+              value={bet - 10}
+              max={990}
+              aria-hidden="true"
+              tabIndex={-1}
             />
             <input
+              id="create-lobby-bet-range"
               type="range"
               min={10}
               max={1000}
               step={10}
               value={bet}
               onChange={(event) => setBet(Number(event.target.value))}
-              className="relative z-10 h-7 w-full cursor-pointer opacity-0"
+              aria-labelledby="create-lobby-bet-label"
+              className="create-lobby-bet-range relative z-10 h-7 w-full cursor-pointer opacity-0"
             />
           </div>
 

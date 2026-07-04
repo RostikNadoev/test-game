@@ -1,4 +1,4 @@
-import type { ApiErrorBody } from './types';
+import type { ApiErrorBody, ApiUser, ExchangeTonToGameResponse } from './types';
 
 const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
 
@@ -13,9 +13,14 @@ export const resolveApiUrl = (path: string) => {
 };
 
 let authToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
 
 export const setApiToken = (token: string | null) => {
   authToken = token;
+};
+
+export const setUnauthorizedHandler = (handler: (() => void) | null) => {
+  unauthorizedHandler = handler;
 };
 
 export class ApiError extends Error {
@@ -23,13 +28,23 @@ export class ApiError extends Error {
   body: ApiErrorBody | null;
 
   constructor(status: number, body: ApiErrorBody | null) {
-    const message = body?.details || body?.error || `API error ${status}`;
+    const message = formatApiErrorMessage(body);
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
   }
 }
+
+const formatApiErrorMessage = (body: ApiErrorBody | null) => {
+  if (!body) return 'API error';
+
+  if (import.meta.env.DEV && body.details) {
+    return body.details;
+  }
+
+  return body.error || body.details || 'API error';
+};
 
 type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -48,6 +63,24 @@ const parseJsonSafely = async <T>(response: Response): Promise<T | null> => {
   } catch {
     return null;
   }
+};
+
+export const normalizeBalance = (
+  response: ExchangeTonToGameResponse,
+  currentUser?: ApiUser | null,
+) => {
+  const game =
+    response.balance?.game ??
+    response.balance_game ??
+    currentUser?.balance_game ??
+    0;
+
+  const ton =
+    response.balance?.ton ??
+    currentUser?.balance_ton ??
+    0;
+
+  return { ton, game };
 };
 
 export const apiRequest = async <T>(
@@ -76,6 +109,10 @@ export const apiRequest = async <T>(
   const data = await parseJsonSafely<T | ApiErrorBody>(response);
 
   if (!response.ok) {
+    if (response.status === 401 && options.auth !== false) {
+      unauthorizedHandler?.();
+    }
+
     throw new ApiError(response.status, (data as ApiErrorBody | null) || null);
   }
 

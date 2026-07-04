@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 
 type IntroPhase = 'searching' | 'matched' | 'closing';
 
@@ -63,7 +62,15 @@ const opponents = [
   },
 ];
 
-const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
+const OPPONENT_BADGE_CSS = opponents
+  .map(
+    (entry, index) => `
+        .gi-opponent-${index} .gi-label i {
+          background: ${entry.color};
+          box-shadow: 0 0 9px ${entry.color};
+        }`,
+  )
+  .join('\n');
 
 const getInitials = (name: string) => {
   const initials = name
@@ -121,9 +128,9 @@ export const GameIntroOverlay = ({
 
   const user = useMemo(() => getTelegramUser(), []);
 
-  const opponent = useMemo(() => {
-    return opponents[getOpponentIndex(gameTitle)];
-  }, [gameTitle]);
+  const opponentIndex = useMemo(() => getOpponentIndex(gameTitle), [gameTitle]);
+
+  const opponent = useMemo(() => opponents[opponentIndex], [opponentIndex]);
 
   const realOpponentName = opponentName?.trim() || opponent.name;
   const realOpponentPhotoUrl = opponentPhotoUrl?.trim() || '';
@@ -135,14 +142,19 @@ export const GameIntroOverlay = ({
   useEffect(() => {
     if (!isMatched) {
       completeStartedRef.current = false;
-      setPhase('searching');
-      return;
+      const frameId = window.requestAnimationFrame(() => {
+        setPhase('searching');
+      });
+      return () => window.cancelAnimationFrame(frameId);
     }
 
     if (completeStartedRef.current) return;
 
     completeStartedRef.current = true;
-    setPhase('matched');
+
+    const matchedFrameId = window.requestAnimationFrame(() => {
+      setPhase('matched');
+    });
 
     const closingTimer = window.setTimeout(() => {
       setPhase('closing');
@@ -153,6 +165,7 @@ export const GameIntroOverlay = ({
     }, matchedDurationMs + 520);
 
     return () => {
+      window.cancelAnimationFrame(matchedFrameId);
       window.clearTimeout(closingTimer);
       window.clearTimeout(completeTimer);
     };
@@ -399,9 +412,14 @@ export const GameIntroOverlay = ({
           width: 4px;
           height: 4px;
           border-radius: 999px;
-          background: var(--badge-color);
-          box-shadow: 0 0 9px var(--badge-color);
         }
+
+        .gi-you .gi-label i {
+          background: #F6C86A;
+          box-shadow: 0 0 9px #F6C86A;
+        }
+
+        ${OPPONENT_BADGE_CSS}
 
         .gi-vs {
           width: 38px;
@@ -661,10 +679,7 @@ export const GameIntroOverlay = ({
 
               <div className="gi-name">{user.name}</div>
 
-              <div
-                className="gi-label"
-                style={cssVars({ '--badge-color': '#F6C86A' })}
-              >
+              <div className="gi-label">
                 <i />
                 You
               </div>
@@ -673,10 +688,7 @@ export const GameIntroOverlay = ({
             <div className="gi-vs">VS</div>
 
             <div
-              className={`gi-player gi-opponent ${showMatchedState ? 'gi-opponent-ready' : ''}`}
-              style={cssVars({
-                '--badge-color': opponent.color,
-              })}
+              className={`gi-player gi-opponent gi-opponent-${opponentIndex} ${showMatchedState ? 'gi-opponent-ready' : ''}`}
             >
               <div className="gi-avatar-wrap">
                 {showMatchedState ? (

@@ -31,6 +31,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import upback from '../assets/upback.png';
+import { getTelegramWebApp } from '../types/telegram';
 
 /* ===========================================================================
  * Tuning constants  (safe to tweak; all in px / seconds / radians)
@@ -512,6 +513,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const [botM, setBotM] = useState(0);
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [power, setPower] = useState(0); // live launch power 0..100 (from drag), HUD only
+  const [matchSeed] = useState(() => seed ?? ((Math.random() * 1e9) | 0));
 
   // Mutable engine state.
   const gameRef = useRef<GameState | null>(null);
@@ -560,9 +562,11 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     };
   }, []);
 
-  if (!gameRef.current) {
-    gameRef.current = buildGame(seed ?? ((Math.random() * 1e9) | 0));
-  }
+  useEffect(() => {
+    if (gameRef.current === null) {
+      gameRef.current = buildGame(matchSeed);
+    }
+  }, [buildGame, matchSeed]);
 
   /* ----- helpers to push to React UI at low frequency ----- */
   const syncUI = useCallback(() => {
@@ -1307,6 +1311,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   }, [renderStep, renderCube, renderArrow]);
 
   /* ----- main loop ----- */
+  const frameRef = useRef<(now: number) => void>(() => {});
+
   const frame = useCallback(
     (now: number) => {
       const g = gameRef.current!;
@@ -1333,10 +1339,14 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
         });
       }
 
-      rafRef.current = requestAnimationFrame(frame);
+      rafRef.current = requestAnimationFrame((time) => frameRef.current(time));
     },
     [simulate, render, syncUI],
   );
+
+  useEffect(() => {
+    frameRef.current = frame;
+  }, [frame]);
 
   /* ----- mount: canvas sizing, image, telegram, listeners, RAF ----- */
   useEffect(() => {
@@ -1346,7 +1356,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     imgRef.current = image;
 
     // Telegram Mini App: lock vertical swipes, expand, and disable page scroll.
-    const tg = (window as unknown as { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
+    const tg = getTelegramWebApp();
     try {
       tg?.ready?.();
       tg?.expand?.();
@@ -1360,7 +1370,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      let w = rect.width || window.innerWidth;
+      const w = rect.width || window.innerWidth;
       let h = rect.height;
       // Fall back to Telegram viewport / window height if container is collapsed.
       if (!h || h < 60) {
@@ -1501,7 +1511,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const exit = useCallback(() => {
     if (onExit) onExit();
     else {
-      const tg = (window as unknown as { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
+      const tg = getTelegramWebApp();
       try {
         tg?.close?.();
       } catch {
@@ -1514,241 +1524,355 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
    * Render (DOM HUD over the canvas)
    * ========================================================================= */
 
-  const mono = 'ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace';
   const turnLabel = String(turn).padStart(2, '0');
 
   return (
     <div
       ref={containerRef}
+      className="pd-root"
       onPointerDown={onAreaDown}
       onPointerMove={onAreaMove}
       onPointerUp={onAreaUp}
       onPointerCancel={onAreaUp}
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        overflow: 'hidden',
-        background: '#070708',
-        touchAction: 'none',
-        overscrollBehavior: 'none',
-        WebkitUserSelect: 'none',
-        userSelect: 'none',
-        WebkitTouchCallout: 'none',
-        color: '#e9ebef',
-        fontFamily: mono,
-      }}
     >
-      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+      <style>{`
+        .pd-root {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          background: #070708;
+          touch-action: none;
+          overscroll-behavior: none;
+          -webkit-user-select: none;
+          user-select: none;
+          -webkit-touch-callout: none;
+          color: #e9ebef;
+          font-family: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
+        }
 
-      {/* ---------- Top HUD bar ---------- */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          padding: '10px 12px',
-          pointerEvents: 'none',
-          background: 'linear-gradient(180deg, rgba(6,6,8,0.72) 0%, rgba(6,6,8,0) 100%)',
-        }}
-      >
-        <Stat label="YOU" value={`${playerM}m`} align="left" mono={mono} />
-        <div style={{ textAlign: 'center', flex: 1 }}>
-          <div style={{ fontSize: 11, letterSpacing: 3, opacity: 0.6 }}>TURN</div>
-          <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: 2 }}>
+        .pd-canvas {
+          display: block;
+          width: 100%;
+          height: 100%;
+        }
+
+        .pd-hud-top {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          padding: 10px 12px;
+          pointer-events: none;
+          background: linear-gradient(180deg, rgba(6, 6, 8, 0.72) 0%, rgba(6, 6, 8, 0) 100%);
+        }
+
+        .pd-turn-wrap {
+          text-align: center;
+          flex: 1;
+        }
+
+        .pd-turn-label {
+          font-size: 11px;
+          letter-spacing: 3px;
+          opacity: 0.6;
+        }
+
+        .pd-turn-value {
+          font-size: 18px;
+          font-weight: 700;
+          letter-spacing: 2px;
+        }
+
+        .pd-stat {
+          min-width: 64px;
+        }
+
+        .pd-stat-left { text-align: left; }
+        .pd-stat-right { text-align: right; }
+
+        .pd-stat-label {
+          font-size: 10px;
+          letter-spacing: 3px;
+          opacity: 0.55;
+        }
+
+        .pd-stat-value {
+          font-size: 17px;
+          font-weight: 700;
+        }
+
+        .pd-prep {
+          position: absolute;
+          top: 64px;
+          left: 50%;
+          transform: translateX(-50%);
+          text-align: center;
+          pointer-events: none;
+        }
+
+        .pd-prep-label {
+          font-size: 10px;
+          letter-spacing: 4px;
+          opacity: 0.55;
+        }
+
+        .pd-prep-time {
+          font-size: 34px;
+          font-weight: 800;
+          line-height: 1;
+          text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+        }
+
+        .pd-prep-progress {
+          width: 120px;
+          height: 3px;
+          margin-top: 6px;
+          background: rgba(255, 255, 255, 0.12);
+          border-radius: 2px;
+          overflow: hidden;
+        }
+
+        .pd-prep-progress-fill {
+          height: 100%;
+          background: rgba(236, 238, 242, 0.85);
+          transition: width 0.18s linear;
+        }
+
+        .pd-resolve-label {
+          position: absolute;
+          top: 70px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 10px;
+          letter-spacing: 4px;
+          opacity: 0.5;
+          pointer-events: none;
+        }
+
+        .pd-launch-panel {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          padding: 12px 16px 18px;
+          background: linear-gradient(0deg, rgba(6, 6, 8, 0.82) 0%, rgba(6, 6, 8, 0) 100%);
+          opacity: 1;
+          pointer-events: none;
+          transition: opacity 0.2s;
+        }
+
+        .pd-launch-panel-dim {
+          opacity: 0.4;
+        }
+
+        .pd-launch-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10px;
+          letter-spacing: 3px;
+          opacity: 0.6;
+          margin-bottom: 6px;
+        }
+
+        .pd-power-track {
+          position: relative;
+          height: 8px;
+          border-radius: 5px;
+          background: rgba(255, 255, 255, 0.07);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          overflow: hidden;
+        }
+
+        .pd-power-fill {
+          position: absolute;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          background: linear-gradient(90deg, rgba(120, 123, 128, 0.45), rgba(236, 238, 242, 0.7));
+          transition: width 0.06s linear;
+        }
+
+        .pd-overlay {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          padding: 24px;
+          background: radial-gradient(120% 120% at 50% 40%, rgba(8, 8, 10, 0.55), rgba(6, 6, 8, 0.9));
+          backdrop-filter: blur(2px);
+        }
+
+        .pd-intro-kicker {
+          font-size: 11px;
+          letter-spacing: 5px;
+          opacity: 0.55;
+        }
+
+        .pd-intro-title {
+          font-size: 30px;
+          font-weight: 800;
+          letter-spacing: 2px;
+          margin: 10px 0 4px;
+        }
+
+        .pd-intro-copy {
+          font-size: 12px;
+          opacity: 0.6;
+          max-width: 280px;
+          line-height: 1.5;
+          margin: 0 auto 22px;
+        }
+
+        .pd-result-kicker {
+          font-size: 13px;
+          letter-spacing: 5px;
+          opacity: 0.55;
+          margin-bottom: 4px;
+        }
+
+        .pd-outcome {
+          font-size: 44px;
+          font-weight: 900;
+          letter-spacing: 3px;
+          text-shadow: 0 4px 30px rgba(0, 0, 0, 0.8);
+        }
+
+        .pd-outcome-victory { color: #f3f4f7; }
+        .pd-outcome-defeat { color: #8b8e93; }
+        .pd-outcome-draw { color: #c8cace; }
+
+        .pd-result-scores {
+          display: flex;
+          gap: 28px;
+          justify-content: center;
+          margin: 20px 0 24px;
+        }
+
+        .pd-result-divider {
+          width: 1px;
+          background: rgba(255, 255, 255, 0.12);
+        }
+
+        .pd-result-stat-label {
+          font-size: 10px;
+          letter-spacing: 3px;
+          opacity: 0.55;
+        }
+
+        .pd-result-stat-value {
+          font-size: 24px;
+          font-weight: 800;
+        }
+
+        .pd-result-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+        }
+
+        .pd-btn-primary {
+          font-size: 13px;
+          letter-spacing: 3px;
+          font-weight: 700;
+          color: #0a0a0b;
+          background: #eceef2;
+          border: none;
+          border-radius: 8px;
+          padding: 12px 22px;
+          cursor: pointer;
+        }
+
+        .pd-btn-ghost {
+          font-size: 13px;
+          letter-spacing: 3px;
+          font-weight: 700;
+          color: #e9ebef;
+          background: transparent;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 8px;
+          padding: 12px 22px;
+          cursor: pointer;
+        }
+      `}</style>
+
+      <canvas ref={canvasRef} className="pd-canvas" />
+
+      <div className="pd-hud-top">
+        <Stat label="YOU" value={`${playerM}m`} align="left" />
+        <div className="pd-turn-wrap">
+          <div className="pd-turn-label">TURN</div>
+          <div className="pd-turn-value">
             {turnLabel} / {TOTAL_TURNS}
           </div>
         </div>
-        <Stat label="RIVAL" value={`${botM}m`} align="right" mono={mono} />
+        <Stat label="RIVAL" value={`${botM}m`} align="right" />
       </div>
 
-      {/* ---------- Prep countdown ---------- */}
       {phase === 'prep' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 64,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            textAlign: 'center',
-            pointerEvents: 'none',
-          }}
-        >
-          <div style={{ fontSize: 10, letterSpacing: 4, opacity: 0.55 }}>PREPARE</div>
-          <div
-            style={{
-              fontSize: 34,
-              fontWeight: 800,
-              lineHeight: 1,
-              textShadow: '0 2px 18px rgba(0,0,0,0.8)',
-            }}
-          >
-            {timeLeft}
-          </div>
-          <div
-            style={{
-              width: 120,
-              height: 3,
-              marginTop: 6,
-              background: 'rgba(255,255,255,0.12)',
-              borderRadius: 2,
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: `${(timeLeft / PREP_TIME) * 100}%`,
-                background: 'rgba(236,238,242,0.85)',
-                transition: 'width 0.18s linear',
-              }}
-            />
+        <div className="pd-prep">
+          <div className="pd-prep-label">PREPARE</div>
+          <div className="pd-prep-time">{timeLeft}</div>
+          <div className="pd-prep-progress">
+            <WidthFill pct={(timeLeft / PREP_TIME) * 100} className="pd-prep-progress-fill" />
           </div>
         </div>
       )}
 
-      {phase === 'resolve' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 70,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            fontSize: 10,
-            letterSpacing: 4,
-            opacity: 0.5,
-            pointerEvents: 'none',
-          }}
-        >
-          IN MOTION…
-        </div>
-      )}
+      {phase === 'resolve' && <div className="pd-resolve-label">IN MOTION…</div>}
 
-      {/* ---------- Launch readout (bottom, non-interactive: drags pass through) ---------- */}
       {(phase === 'prep' || phase === 'resolve') && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            padding: '12px 16px 18px',
-            background: 'linear-gradient(0deg, rgba(6,6,8,0.82) 0%, rgba(6,6,8,0) 100%)',
-            opacity: phase === 'prep' ? 1 : 0.4,
-            pointerEvents: 'none',
-            transition: 'opacity 0.2s',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontSize: 10,
-              letterSpacing: 3,
-              opacity: 0.6,
-              marginBottom: 6,
-            }}
-          >
+        <div className={`pd-launch-panel ${phase === 'resolve' ? 'pd-launch-panel-dim' : ''}`}>
+          <div className="pd-launch-meta">
             <span>{power > 0 ? 'POWER' : 'PULL BACK TO AIM'}</span>
             <span>{power > 0 ? power : 'RELEASE TO LOCK'}</span>
           </div>
-          <div
-            style={{
-              position: 'relative',
-              height: 8,
-              borderRadius: 5,
-              background: 'rgba(255,255,255,0.07)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                bottom: 0,
-                width: `${power}%`,
-                background:
-                  'linear-gradient(90deg, rgba(120,123,128,0.45), rgba(236,238,242,0.7))',
-                transition: 'width 0.06s linear',
-              }}
-            />
+          <div className="pd-power-track">
+            <WidthFill pct={power} className="pd-power-fill" />
           </div>
         </div>
       )}
 
-      {/* ---------- Intro overlay ---------- */}
       {phase === 'intro' && (
         <Overlay>
-          <div style={{ fontSize: 11, letterSpacing: 5, opacity: 0.55 }}>1 V 1 · PHYSICS DUEL</div>
-          <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: 2, margin: '10px 0 4px' }}>
-            CONCRETE LADDER
-          </div>
-          <div
-            style={{
-              fontSize: 12,
-              opacity: 0.6,
-              maxWidth: 280,
-              lineHeight: 1.5,
-              margin: '0 auto 22px',
-            }}
-          >
+          <div className="pd-intro-kicker">1 V 1 · PHYSICS DUEL</div>
+          <div className="pd-intro-title">CONCRETE LADDER</div>
+          <div className="pd-intro-copy">
             {TOTAL_TURNS} turns. Each turn you have {PREP_TIME}s — pull back to aim, release to
             launch. Climb as far up the ladder as you can. Both cubes fire at once; furthest wins.
           </div>
-          <PrimaryButton label="BEGIN" onClick={startMatch} mono={mono} />
+          <PrimaryButton label="BEGIN" onClick={startMatch} />
         </Overlay>
       )}
 
-      {/* ---------- Result overlay ---------- */}
       {phase === 'result' && outcome && (
         <Overlay>
+          <div className="pd-result-kicker">MATCH COMPLETE</div>
           <div
-            style={{
-              fontSize: 13,
-              letterSpacing: 5,
-              opacity: 0.55,
-              marginBottom: 4,
-            }}
-          >
-            MATCH COMPLETE
-          </div>
-          <div
-            style={{
-              fontSize: 44,
-              fontWeight: 900,
-              letterSpacing: 3,
-              color:
-                outcome === 'VICTORY'
-                  ? '#f3f4f7'
-                  : outcome === 'DEFEAT'
-                  ? '#8b8e93'
-                  : '#c8cace',
-              textShadow: '0 4px 30px rgba(0,0,0,0.8)',
-            }}
+            className={`pd-outcome ${
+              outcome === 'VICTORY'
+                ? 'pd-outcome-victory'
+                : outcome === 'DEFEAT'
+                  ? 'pd-outcome-defeat'
+                  : 'pd-outcome-draw'
+            }`}
           >
             {outcome}
           </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 28,
-              justifyContent: 'center',
-              margin: '20px 0 24px',
-            }}
-          >
-            <ResultStat label="YOU" value={`${Math.round(playerM)}m`} mono={mono} />
-            <div style={{ width: 1, background: 'rgba(255,255,255,0.12)' }} />
-            <ResultStat label="RIVAL" value={`${Math.round(botM)}m`} mono={mono} />
+          <div className="pd-result-scores">
+            <ResultStat label="YOU" value={`${Math.round(playerM)}m`} />
+            <div className="pd-result-divider" />
+            <ResultStat label="RIVAL" value={`${Math.round(botM)}m`} />
           </div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <PrimaryButton label="REMATCH" onClick={rematch} mono={mono} />
-            <GhostButton label="EXIT" onClick={exit} mono={mono} />
+          <div className="pd-result-actions">
+            <PrimaryButton label="REMATCH" onClick={rematch} />
+            <GhostButton label="EXIT" onClick={exit} />
           </div>
         </Overlay>
       )}
@@ -1760,92 +1884,46 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
  * Small presentational helpers
  * ========================================================================= */
 
-const Stat: React.FC<{ label: string; value: string; align: 'left' | 'right'; mono: string }> = ({
+const WidthFill = ({ pct, className }: { pct: number; className: string }) => {
+  const fillRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    fillRef.current?.style.setProperty('width', `${Math.max(0, Math.min(100, pct))}%`);
+  }, [pct]);
+
+  return <div ref={fillRef} className={className} />;
+};
+
+const Stat: React.FC<{ label: string; value: string; align: 'left' | 'right' }> = ({
   label,
   value,
   align,
-  mono,
 }) => (
-  <div style={{ textAlign: align, minWidth: 64, fontFamily: mono }}>
-    <div style={{ fontSize: 10, letterSpacing: 3, opacity: 0.55 }}>{label}</div>
-    <div style={{ fontSize: 17, fontWeight: 700 }}>{value}</div>
+  <div className={`pd-stat ${align === 'left' ? 'pd-stat-left' : 'pd-stat-right'}`}>
+    <div className="pd-stat-label">{label}</div>
+    <div className="pd-stat-value">{value}</div>
   </div>
 );
 
 const Overlay: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
-    style={{
-      position: 'absolute',
-      inset: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      textAlign: 'center',
-      padding: 24,
-      background: 'radial-gradient(120% 120% at 50% 40%, rgba(8,8,10,0.55), rgba(6,6,8,0.9))',
-      backdropFilter: 'blur(2px)',
-    }}
-  >
-    {children}
+  <div className="pd-overlay">{children}</div>
+);
+
+const ResultStat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div>
+    <div className="pd-result-stat-label">{label}</div>
+    <div className="pd-result-stat-value">{value}</div>
   </div>
 );
 
-const ResultStat: React.FC<{ label: string; value: string; mono: string }> = ({
-  label,
-  value,
-  mono,
-}) => (
-  <div style={{ fontFamily: mono }}>
-    <div style={{ fontSize: 10, letterSpacing: 3, opacity: 0.55 }}>{label}</div>
-    <div style={{ fontSize: 24, fontWeight: 800 }}>{value}</div>
-  </div>
-);
-
-const PrimaryButton: React.FC<{ label: string; onClick: () => void; mono: string }> = ({
-  label,
-  onClick,
-  mono,
-}) => (
-  <button
-    onClick={onClick}
-    style={{
-      fontFamily: mono,
-      fontSize: 13,
-      letterSpacing: 3,
-      fontWeight: 700,
-      color: '#0a0a0b',
-      background: '#eceef2',
-      border: 'none',
-      borderRadius: 8,
-      padding: '12px 22px',
-      cursor: 'pointer',
-    }}
-  >
+const PrimaryButton: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
+  <button onClick={onClick} className="pd-btn-primary" type="button">
     {label}
   </button>
 );
 
-const GhostButton: React.FC<{ label: string; onClick: () => void; mono: string }> = ({
-  label,
-  onClick,
-  mono,
-}) => (
-  <button
-    onClick={onClick}
-    style={{
-      fontFamily: mono,
-      fontSize: 13,
-      letterSpacing: 3,
-      fontWeight: 700,
-      color: '#e9ebef',
-      background: 'transparent',
-      border: '1px solid rgba(255,255,255,0.22)',
-      borderRadius: 8,
-      padding: '12px 22px',
-      cursor: 'pointer',
-    }}
-  >
+const GhostButton: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
+  <button onClick={onClick} className="pd-btn-ghost" type="button">
     {label}
   </button>
 );

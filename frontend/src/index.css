@@ -65,6 +65,7 @@ body {
   font-size: 13px;
   line-height: 1.45;
   touch-action: manipulation;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -96,8 +97,8 @@ a:focus-visible {
 }
 
 img {
+  -webkit-user-select: none;
   user-select: none;
-  -webkit-user-drag: none;
 }
 
 #root {
@@ -120,9 +121,7 @@ img {
 }
 
 .app-scroll {
-  scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
 }
 
@@ -136,11 +135,49 @@ img {
   overflow-x: hidden;
 }
 
+.home-lobbies-reveal {
+  animation-delay: 60ms;
+}
+
+.home-games-reveal {
+  animation-delay: 120ms;
+}
+
+.reveal {
+  animation: pageReveal 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.lobbies-list > .reveal:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.lobbies-list > .reveal:nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.lobbies-list > .reveal:nth-child(3) {
+  animation-delay: 70ms;
+}
+
+.lobbies-list > .reveal:nth-child(4) {
+  animation-delay: 105ms;
+}
+
+.lobbies-list > .reveal:nth-child(5) {
+  animation-delay: 140ms;
+}
+
+.lobbies-list > .reveal:nth-child(6) {
+  animation-delay: 175ms;
+}
+
+.lobbies-list > .reveal:nth-child(n + 7) {
+  animation-delay: 200ms;
+}
+
 .lobby-scroll {
   max-width: calc(100% + 32px);
-  scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
 }
@@ -168,8 +205,8 @@ img {
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     inset 0 -1px 0 rgba(0, 0, 0, 0.24),
     var(--glass-shadow);
-  backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
 }
 
 .app-panel::before {
@@ -789,8 +826,8 @@ img {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.075),
     0 18px 42px rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
 
 .nav-active-bg {
@@ -1056,18 +1093,18 @@ img {
     radial-gradient(circle at 92% 86%, rgba(255, 143, 45, 0.1), transparent 34%),
     rgba(0, 0, 0, 0.62);
   opacity: 0;
-  backdrop-filter: blur(0);
   -webkit-backdrop-filter: blur(0);
+  backdrop-filter: blur(0);
   transition:
     opacity 0.24s ease,
-    backdrop-filter 0.24s ease,
-    -webkit-backdrop-filter 0.24s ease;
+    -webkit-backdrop-filter 0.24s ease,
+    backdrop-filter 0.24s ease;
 }
 
 .wallet-modal-root.is-open .wallet-modal-backdrop {
   opacity: 1;
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .wallet-modal-sheet {
@@ -1580,8 +1617,8 @@ img {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.075),
     0 18px 42px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
 }
 
 .premium-hero {
@@ -1716,6 +1753,34 @@ img {
   margin-top: 12px;
 }
 
+.rating-podium-grid.page-reveal {
+  animation-delay: 60ms;
+}
+
+.podium-accent-gold {
+  --accent: #f7c66b;
+}
+
+.podium-accent-blue {
+  --accent: #78bfff;
+}
+
+.podium-accent-orange {
+  --accent: #ff9a5e;
+}
+
+.podium-delay-0 {
+  animation-delay: 0ms;
+}
+
+.podium-delay-1 {
+  animation-delay: 55ms;
+}
+
+.podium-delay-2 {
+  animation-delay: 110ms;
+}
+
 .podium-card {
   position: relative;
   min-width: 0;
@@ -1732,7 +1797,6 @@ img {
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 14px 32px rgba(0, 0, 0, 0.24);
   animation: pageReveal 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--podium-delay);
 }
 
 .podium-card.is-first {
@@ -1851,6 +1915,10 @@ img {
   margin-top: 14px;
 }
 
+.leaderboard-section.page-reveal {
+  animation-delay: 120ms;
+}
+
 .section-icon-pill {
   display: grid;
   width: 36px;
@@ -1880,7 +1948,38 @@ img {
   border-radius: 19px;
   padding: 8px 9px;
   animation: pageReveal 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--row-delay);
+}
+
+.leaderboard-row:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.leaderboard-row:nth-child(2) {
+  animation-delay: 25ms;
+}
+
+.leaderboard-row:nth-child(3) {
+  animation-delay: 50ms;
+}
+
+.leaderboard-row:nth-child(4) {
+  animation-delay: 75ms;
+}
+
+.leaderboard-row:nth-child(5) {
+  animation-delay: 100ms;
+}
+
+.leaderboard-row:nth-child(6) {
+  animation-delay: 125ms;
+}
+
+.leaderboard-row:nth-child(7) {
+  animation-delay: 150ms;
+}
+
+.leaderboard-row:nth-child(n + 8) {
+  animation-delay: 160ms;
 }
 
 .leaderboard-row + .leaderboard-row {
@@ -2240,6 +2339,10 @@ img {
   margin-top: 10px;
 }
 
+.profile-wallet-grid.page-reveal {
+  animation-delay: 60ms;
+}
+
 .profile-wallet-card {
   position: relative;
   overflow: hidden;
@@ -2305,6 +2408,10 @@ img {
   z-index: 1;
   margin-top: 12px;
   padding: 14px;
+}
+
+.profile-stat-panel.page-reveal {
+  animation-delay: 110ms;
 }
 
 .profile-stat-list {
@@ -2487,8 +2594,8 @@ img {
   background: linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.022)), rgba(15,15,22,.78);
   border: 1px solid rgba(255,255,255,.04);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 14px 32px rgba(0,0,0,.24);
-  backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
 }
 .minimal-panel::before {
   content: '';
@@ -2546,6 +2653,7 @@ img {
 .profile-stat-left span { overflow: hidden; color: rgba(255,255,255,.56); font-size: 10.5px; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .profile-stat-row strong { color: white; font-size: 13px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
 .favorite-mode-card { z-index: 1; margin-top: 12px; padding: 13px; border-radius: 25px; }
+.favorite-mode-card.page-reveal { animation-delay: 160ms; }
 .favorite-subtitle { color: rgba(255,255,255,.36); font-size: 9px; font-weight: 700; line-height: 1.4; }
 .favorite-trend { display: grid; width: 34px; height: 34px; flex-shrink: 0; place-items: center; border-radius: 999px; color: #09090d; background: rgba(255,255,255,.88); }
 .favorite-mode-inner { position: relative; display: flex; align-items: center; gap: 12px; overflow: hidden; margin-top: 12px; border-radius: 20px; padding: 12px; background: linear-gradient(135deg, rgba(47,140,255,.07), rgba(255,154,66,.06)), rgba(255,255,255,.028); }
@@ -2564,7 +2672,14 @@ img {
 .hero-micro-card p { color: white; font-size: 13px; font-weight: 900; line-height: 1.15; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
 .hero-micro-card span { display: block; margin-top: 4px; color: rgba(255,255,255,.34); font-size: 7px; font-weight: 800; line-height: 1.2; letter-spacing: .12em; text-transform: uppercase; }
 .rating-podium-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 8px; margin-top: 12px; }
-.podium-card { position: relative; min-width: 0; overflow: hidden; border-radius: 23px; padding: 14px 8px 12px; text-align: center; background: linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.022)), rgba(15,15,22,.78); box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 13px 28px rgba(0,0,0,.22); animation: pageReveal .32s cubic-bezier(.22,1,.36,1) both; animation-delay: var(--podium-delay); }
+.rating-podium-grid.page-reveal { animation-delay: 60ms; }
+.podium-accent-gold { --accent: #f7c66b; }
+.podium-accent-blue { --accent: #78bfff; }
+.podium-accent-orange { --accent: #ff9a5e; }
+.podium-delay-0 { animation-delay: 0ms; }
+.podium-delay-1 { animation-delay: 55ms; }
+.podium-delay-2 { animation-delay: 110ms; }
+.podium-card { position: relative; min-width: 0; overflow: hidden; border-radius: 23px; padding: 14px 8px 12px; text-align: center; background: linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.022)), rgba(15,15,22,.78); box-shadow: inset 0 1px 0 rgba(255,255,255,.055), 0 13px 28px rgba(0,0,0,.22); animation: pageReveal .32s cubic-bezier(.22,1,.36,1) both; }
 .podium-card::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 42%), linear-gradient(135deg, rgba(255,255,255,.05), transparent 34%); opacity: .8; }
 .podium-card.is-first { padding-top: 19px; }
 .podium-crown { position: absolute; top: 6px; left: 50%; z-index: 2; display: grid; width: 22px; height: 22px; place-items: center; color: var(--accent); transform: translateX(-50%); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 32%, transparent)); }
@@ -3320,8 +3435,8 @@ img {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 12px 24px rgba(0, 0, 0, 0.26);
-  backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .solo-hero-v3-count span {
@@ -3461,4 +3576,81 @@ body.fruit-cascade-active .header-panel {
   box-shadow:
     0 16px 38px rgba(0, 0, 0, 0.26),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.create-lobby-bet-slider {
+  position: relative;
+}
+
+.create-lobby-bet-progress {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  z-index: 0;
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.create-lobby-bet-progress::-webkit-progress-bar {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+}
+
+.create-lobby-bet-progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(to right, #f2c766, #52ffe5, #9d7cff);
+}
+
+.create-lobby-bet-progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(to right, #f2c766, #52ffe5, #9d7cff);
+}
+
+.create-lobby-bet-range {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.create-lobby-bet-range::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+
+.create-lobby-bet-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.create-lobby-bet-range::-moz-range-track {
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+.create-lobby-bet-range::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
 }

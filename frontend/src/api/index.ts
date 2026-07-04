@@ -13,6 +13,7 @@ export * from './users';
 export * from './wallet';
 export * from './lobbies';
 export * from './blackjackWs';
+export { getOpponentInfo, resolvePlayersInfo } from './lobbyUtils';
 
 export const api = {
   health() {

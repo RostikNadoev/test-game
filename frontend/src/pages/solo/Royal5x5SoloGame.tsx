@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 
 import trailImg from '../../assets/solo/apples/trail.webp';
 import logoImg from '../../assets/solo/apples/logo.webp';
@@ -68,16 +67,20 @@ const AssetImage = ({
   size: number;
   className?: string;
   alt?: string;
-}) => (
-  <img
-    src={src}
-    alt={alt}
-    aria-hidden={alt ? undefined : true}
-    draggable={false}
-    className={`at-asset-img ${className}`}
-    style={{ width: size, height: size }}
-  />
-);
+}) => {
+  const shared = {
+    src,
+    draggable: false as const,
+    className: `at-asset-img ${className}`,
+    'data-size': String(size),
+  };
+
+  if (alt) {
+    return <img {...shared} alt={alt} />;
+  }
+
+  return <img {...shared} alt="" aria-hidden="true" />;
+};
 
 const TrailTitle = ({ loading = false }: { loading?: boolean }) => (
   <img
@@ -154,6 +157,44 @@ const VolumeOffIcon = ({ size = 19 }: { size?: number }) => (
     <path d="M20 9L16 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
+
+const ASSET_SIZE_CSS = [42, 44, 48, 50, 56, 58, 60, 68, 70]
+  .map((size) => `.at-asset-img[data-size="${size}"] { width: ${size}px; height: ${size}px; }`)
+  .join('\n');
+
+const FINAL_TIER_CSS = `
+  .at-final-card.is-lost {
+    --finalGlow: rgba(255, 45, 59, .28);
+    --finalGlowSoft: rgba(255, 45, 59, .26);
+    --finalText: #ff6673;
+  }
+
+  .at-final-card.is-win {
+    --finalGlow: rgba(255, 190, 72, .30);
+    --finalGlowSoft: rgba(255, 190, 72, .24);
+    --finalText: #fff1a8;
+  }
+
+  .at-final-card.is-mega {
+    --finalGlow: rgba(202, 116, 255, .32);
+    --finalGlowSoft: rgba(202, 116, 255, .24);
+    --finalText: #d79cff;
+  }
+
+  .at-final-card.is-epic {
+    --finalGlow: rgba(113, 255, 97, .34);
+    --finalGlowSoft: rgba(113, 255, 97, .28);
+    --finalText: #9dff83;
+  }
+
+  .at-tile[data-tile="bomb"] {
+    --tile-glow: rgba(255, 68, 68, .22);
+  }
+
+  .at-tile[data-tile="apple"] {
+    --tile-glow: rgba(201, 255, 98, .18);
+  }
+`;
 
 const StyleBlock = () => (
   <style>{`
@@ -390,6 +431,7 @@ const StyleBlock = () => (
     .at-loading-bar span {
       display: block;
       height: 100%;
+      width: var(--loadProgress, 0%);
       border-radius: inherit;
       background: linear-gradient(90deg, #c9ff62, #fff1a8, #ff6538);
       transition: width .08s linear;
@@ -1426,10 +1468,20 @@ const StyleBlock = () => (
         transition: none !important;
       }
     }
+
+    ${ASSET_SIZE_CSS}
+    ${FINAL_TIER_CSS}
   `}</style>
 );
 
-const LoadingScreen = ({ progress }: { progress: number }) => (
+const LoadingScreen = ({ progress }: { progress: number }) => {
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    barRef.current?.style.setProperty('--loadProgress', `${progress}%`);
+  }, [progress]);
+
+  return (
   <div className="at-loading">
     <div className="at-loading-glow" />
 
@@ -1445,11 +1497,12 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
 
     <TrailTitle loading />
 
-    <div className="at-loading-bar">
-      <span style={{ width: `${progress}%` }} />
+    <div ref={barRef} className="at-loading-bar">
+      <span />
     </div>
   </div>
-);
+  );
+};
 
 const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
   <div className="at-modal-layer" onClick={onClose}>
@@ -1515,30 +1568,11 @@ const FinalOverlay = ({
   const isEpic = !isLost && multiplier >= 7;
   const isMega = !isLost && multiplier >= 3 && multiplier < 7;
 
+  const tierClass = isLost ? 'is-lost' : isEpic ? 'is-epic' : isMega ? 'is-mega' : 'is-win';
+
   return (
     <div className="at-final-layer">
-      <div
-        className="at-final-card"
-        style={
-          {
-            '--finalGlow': isLost
-              ? 'rgba(255, 45, 59, .28)'
-              : isEpic
-                ? 'rgba(113, 255, 97, .34)'
-                : isMega
-                  ? 'rgba(202, 116, 255, .32)'
-                  : 'rgba(255, 190, 72, .30)',
-            '--finalGlowSoft': isLost
-              ? 'rgba(255, 45, 59, .26)'
-              : isEpic
-                ? 'rgba(113, 255, 97, .28)'
-                : isMega
-                  ? 'rgba(202, 116, 255, .24)'
-                  : 'rgba(255, 190, 72, .24)',
-            '--finalText': isLost ? '#ff6673' : isEpic ? '#9dff83' : isMega ? '#d79cff' : '#fff1a8',
-          } as CSSProperties
-        }
-      >
+      <div className={`at-final-card ${tierClass}`}>
         <div className="at-final-icon">
           {isLost ? <BombIcon size={68} /> : <AppleIcon size={70} />}
         </div>
@@ -1577,7 +1611,9 @@ export const Royal5x5SoloGame = () => {
   const mutedRef = useRef(muted);
   const revealRunRef = useRef(0);
 
-  mutedRef.current = muted;
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   const cashMultiplier = getCashoutMultiplier(currentRow);
   const nextMultiplier = phase === 'playing' ? MULTIPLIERS[currentRow] ?? cashMultiplier : cashMultiplier;
@@ -1992,6 +2028,7 @@ export const Royal5x5SoloGame = () => {
                             type="button"
                             disabled={!isAvailable}
                             onClick={() => pickTile(row, col)}
+                            data-tile={isBomb ? 'bomb' : 'apple'}
                             className={[
                               'at-tile',
                               isAvailable ? 'available' : '',
@@ -2002,13 +2039,6 @@ export const Royal5x5SoloGame = () => {
                               isBomb && isPicked && phase === 'lost' ? 'picked-bomb' : '',
                               shouldDim ? 'dimmed' : '',
                             ].join(' ')}
-                            style={
-                              {
-                                '--tile-glow': isBomb
-                                  ? 'rgba(255, 68, 68, .22)'
-                                  : 'rgba(201,255,98,.18)',
-                              } as CSSProperties
-                            }
                             aria-label={`Row ${row + 1}, tile ${col + 1}`}
                           >
                             <span className="at-card-inner">

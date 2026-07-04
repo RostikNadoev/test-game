@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+/** @deprecated legacy mock, not used in production flow */
 // Определяем интерфейсы прямо здесь
 interface Lobby {
   id: string;

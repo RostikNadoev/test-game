@@ -1,11 +1,22 @@
 import { apiRequest } from './client';
-import type { BalanceResponse, ExchangeTonToGameResponse } from './types';
+import type {
+  BalanceResponse,
+  ExchangeTonToGameResponse,
+  TopUpQuoteResponse,
+} from './types';
 
 export const walletApi = {
-  exchangeTonToGame(amount: number) {
+  topupQuote(coins: number) {
+    return apiRequest<TopUpQuoteResponse>('/api/v1/wallet/topup-quote', {
+      method: 'POST',
+      body: { coins: Math.floor(coins) },
+    });
+  },
+
+  exchangeTonToGame(coins: number) {
     return apiRequest<ExchangeTonToGameResponse>('/api/v1/wallet/exchange-ton-to-game', {
       method: 'POST',
-      body: { amount },
+      body: { coins: Math.floor(coins) },
     });
   },
 

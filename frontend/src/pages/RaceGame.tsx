@@ -1685,7 +1685,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     });
 
     const timing = useRef({
-      lapStart: performance.now(),
+      lapStart: 0,
       best: Infinity,
     });
 
@@ -2142,6 +2142,10 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       };
     }, [center, decor, onSnapshot, selfGhost, total]);
 
+    useEffect(() => {
+      wrapRef.current?.style.setProperty('--race-top-offset', `${topOffset}px`);
+    }, [topOffset]);
+
     const setKnob = (x: number, y: number) => {
       if (knobRef.current) {
         knobRef.current.style.transform = `translate(${x}px, ${y}px)`;
@@ -2226,16 +2230,44 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     return (
       <div
         ref={wrapRef}
-        className="relative h-full min-h-0 w-full select-none overflow-hidden overscroll-none bg-[#050610] font-mono text-white"
-        style={{
-          height: `min(100%, calc(100dvh - ${topOffset}px))`,
-          maxHeight: `calc(100dvh - ${topOffset}px)`,
-          minHeight: 320,
-          touchAction: 'none',
-          WebkitUserSelect: 'none',
-        }}
+        className="race-wrap relative h-full min-h-0 w-full select-none overflow-hidden overscroll-none bg-[#050610] font-mono text-white"
       >
-        <canvas ref={canvasRef} className="block h-full w-full" style={{ touchAction: 'none' }} />
+        <style>{`
+          .race-wrap {
+            height: min(100%, calc(100dvh - var(--race-top-offset, 120px)));
+            max-height: calc(100dvh - var(--race-top-offset, 120px));
+            min-height: 320px;
+            touch-action: none;
+            -webkit-user-select: none;
+          }
+
+          .race-reset-btn {
+            left: 16px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+          }
+
+          .race-joy-zone {
+            right: 14px;
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+            width: ${VISUAL.joystickZone}px;
+            height: ${VISUAL.joystickZone}px;
+            touch-action: none;
+          }
+
+          .race-joy-ring {
+            width: ${VISUAL.joystickRadius * 2 + 18}px;
+            height: ${VISUAL.joystickRadius * 2 + 18}px;
+          }
+
+          .race-joy-knob {
+            width: 50px;
+            height: 50px;
+            margin: -25px;
+            will-change: transform;
+          }
+        `}</style>
+
+        <canvas ref={canvasRef} className="block h-full w-full touch-none" />
 
         <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2">
           <div className="flex items-center divide-x divide-white/[0.07] overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#050610]/72 shadow-[0_14px_40px_rgba(0,0,0,0.42)] backdrop-blur-md">
@@ -2266,25 +2298,14 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           type="button"
           onClick={doReset}
           onPointerDown={(event) => event.stopPropagation()}
-          className="absolute z-10 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050610]/60 text-lg text-white/70 backdrop-blur-md active:scale-95 active:text-[#52FFE5]"
-          style={{
-            left: 16,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
-          }}
+          className="race-reset-btn absolute z-10 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050610]/60 text-lg text-white/70 backdrop-blur-md active:scale-95 active:text-[#52FFE5]"
           aria-label="Заново"
         >
           ↻
         </button>
 
         <div
-          className="absolute z-10"
-          style={{
-            right: 14,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
-            width: VISUAL.joystickZone,
-            height: VISUAL.joystickZone,
-            touchAction: 'none',
-          }}
+          className="race-joy-zone absolute z-10"
           onPointerDown={stickDown}
           onPointerMove={stickMove}
           onPointerUp={stickUp}
@@ -2292,13 +2313,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         >
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div
-              className={`relative rounded-full border bg-white/[0.04] backdrop-blur-sm transition-colors ${
+              className={`race-joy-ring relative rounded-full border bg-white/[0.04] backdrop-blur-sm transition-colors ${
                 stickActive ? 'border-[#52FFE5]/45 shadow-[0_0_28px_rgba(82,255,229,0.14)]' : 'border-white/[0.10]'
               }`}
-              style={{
-                width: VISUAL.joystickRadius * 2 + 18,
-                height: VISUAL.joystickRadius * 2 + 18,
-              }}
             >
               <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-white/25">
                 ручник ↓
@@ -2306,17 +2323,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
 
               <div
                 ref={knobRef}
-                className={`absolute left-1/2 top-1/2 rounded-full border shadow-xl transition-colors ${
+                className={`race-joy-knob absolute left-1/2 top-1/2 rounded-full border shadow-xl transition-colors ${
                   stickActive
                     ? 'border-[#52FFE5]/60 bg-gradient-to-br from-[#52FFE5]/90 to-[#167a70]'
                     : 'border-white/20 bg-gradient-to-br from-white/80 to-white/40'
                 }`}
-                style={{
-                  width: 50,
-                  height: 50,
-                  margin: -25,
-                  willChange: 'transform',
-                }}
               />
             </div>
           </div>

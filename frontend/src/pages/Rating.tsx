@@ -1,6 +1,5 @@
-import { type CSSProperties } from 'react';
 import { Crown, Flame, Medal, Sparkles, Trophy, UsersRound } from 'lucide-react';
-
+import { useAuth } from '../auth/useAuth';
 type Player = {
   name: string;
   rating: number;
@@ -18,15 +17,18 @@ const players: Player[] = [
   { name: 'Riptide', rating: 1790, wins: 71 },
 ];
 
-const podiumAccent = ['#f7c66b', '#78bfff', '#ff9a5e'];
+const podiumAccentClass = ['podium-accent-gold', 'podium-accent-blue', 'podium-accent-orange'];
 const podiumOrder = [1, 0, 2];
-
 const formatNumber = (value: number) =>
   new Intl.NumberFormat('ru-RU').format(value);
 
 export const Rating = () => {
+  const { user } = useAuth();
   const top3 = players.slice(0, 3);
   const rest = players.slice(3);
+  const yourName = user?.tg_user || 'Игрок';
+  const yourRating = user?.stats?.rating ?? 0;
+  const yourWins = user?.stats?.wins ?? 0;
 
   return (
     <main className="app-scroll page-shell rating-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
@@ -47,14 +49,15 @@ export const Rating = () => {
         </div>
       </section>
 
-      <section className="rating-podium-grid page-reveal" style={{ animationDelay: '60ms' }}>
+      <section className="rating-podium-grid page-reveal">
         {podiumOrder.map((idx, placeIndex) => {
           const player = top3[idx];
-          const accent = podiumAccent[idx];
           const isFirst = idx === 0;
           return (
-            <div key={player.name} className={`podium-card ${isFirst ? 'is-first' : ''}`} style={{ '--accent': accent, '--podium-delay': `${placeIndex * 55}ms` } as CSSProperties}>
-              {isFirst && <div className="podium-crown"><Crown size={14} className="fill-current" /></div>}
+            <div
+              key={player.name}
+              className={`podium-card ${podiumAccentClass[idx]} podium-delay-${placeIndex} ${isFirst ? 'is-first' : ''}`}
+            >              {isFirst && <div className="podium-crown"><Crown size={14} className="fill-current" /></div>}
               <div className="podium-avatar">{player.name.charAt(0)}</div>
               <div className="podium-rank-badge">{idx + 1}</div>
               <p className="podium-name">{player.name}</p>
@@ -65,17 +68,18 @@ export const Rating = () => {
         })}
       </section>
 
-      <section className="leaderboard-section page-reveal" style={{ animationDelay: '120ms' }}>
-        <div className="minimal-section-head">
+      <section className="leaderboard-section page-reveal">        <div className="minimal-section-head">
           <div><p className="minimal-kicker">Standings</p><h2>Таблица</h2></div>
           <div className="minimal-head-icon"><Medal size={15} /></div>
         </div>
+        <p className="mb-3 text-[11px] font-medium leading-snug text-white/42">
+          Топ — демо, ваши stats — из профиля.
+        </p>
         <div className="leaderboard-card minimal-panel">
           {rest.map((player, index) => {
             const rank = index + 4;
             return (
-              <div key={player.name} className="leaderboard-row" style={{ '--row-delay': `${Math.min(index * 25, 160)}ms` } as CSSProperties}>
-                <div className="rank-chip">{rank}</div>
+              <div key={player.name} className="leaderboard-row">                <div className="rank-chip">{rank}</div>
                 <div className="player-avatar">{player.name.charAt(0)}</div>
                 <div className="min-w-0 flex-1">
                   <p className="player-name">{player.name}</p>
@@ -87,10 +91,13 @@ export const Rating = () => {
           })}
         </div>
         <div className="your-rank-card minimal-panel">
-          <div className="rank-chip is-you">14</div>
+          <div className="rank-chip is-you">—</div>
           <div className="you-avatar"><Sparkles size={17} /></div>
-          <div className="min-w-0 flex-1"><p className="player-name">Вы · Игрок</p><p className="player-meta"><UsersRound size={10} />42 победы</p></div>
-          <div className="leaderboard-score is-you"><p>1 250</p><span>rating</span></div>
+          <div className="min-w-0 flex-1">
+            <p className="player-name">Вы · {yourName}</p>
+            <p className="player-meta"><UsersRound size={10} />{formatNumber(yourWins)} побед</p>
+          </div>
+          <div className="leaderboard-score is-you"><p>{formatNumber(yourRating)}</p><span>rating</span></div>
         </div>
       </section>
     </main>

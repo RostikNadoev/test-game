@@ -347,14 +347,30 @@ export const AirHockeyGame: React.FC = () => {
       container.removeEventListener('touchmove', prevent);
       window.removeEventListener('resize', resizeCanvas);
     };
+    // resizeCanvas is stable enough for mount-only setup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getPoint = (e: any) => {
+  type PointerLike = React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>;
+
+  const getPoint = (e: PointerLike) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return null;
 
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const clientX =
+      'touches' in e && e.touches.length > 0
+        ? e.touches[0].clientX
+        : 'clientX' in e
+          ? e.clientX
+          : null;
+    const clientY =
+      'touches' in e && e.touches.length > 0
+        ? e.touches[0].clientY
+        : 'clientY' in e
+          ? e.clientY
+          : null;
+
+    if (clientX === null || clientY === null) return null;
 
     return {
       x: clientX - rect.left,
@@ -364,7 +380,7 @@ export const AirHockeyGame: React.FC = () => {
     };
   };
 
-  const handleStart = (e: any) => {
+  const handleStart = (e: PointerLike) => {
     const point = getPoint(e);
     if (!point) return;
 
@@ -374,7 +390,7 @@ export const AirHockeyGame: React.FC = () => {
     }
   };
 
-  const handleMove = (e: any) => {
+  const handleMove = (e: PointerLike) => {
     if (!p1.current.isDragging) return;
     const point = getPoint(e);
     if (!point) return;
@@ -396,8 +412,7 @@ export const AirHockeyGame: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full bg-[#0A0A0F] overflow-hidden touch-none select-none"
-      style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+      className="relative h-full w-full touch-none overscroll-none select-none overflow-hidden bg-[#0A0A0F]"
     >
       <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-25">
         <div className="text-6xl font-black text-blue-500">{score.p2}</div>

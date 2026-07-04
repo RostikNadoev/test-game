@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowRightLeft, ArrowUpFromLine, Coins, Loader2, X } from 'lucide-react';
-import { useAuth } from '../../auth/AuthProvider';
+import { api } from '../../api';
+import { useAuth } from '../../auth/useAuth';
 
 type WalletTab = 'deposit' | 'withdraw' | 'exchange';
 
@@ -8,6 +9,8 @@ type WalletModalProps = {
   isOpen: boolean;
   onClose: () => void;
 };
+
+const GAME_TO_TON_RATE = 0.1;
 
 const formatBalance = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(value);
@@ -27,9 +30,19 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [quotedTon, setQuotedTon] = useState<number | null>(null);
+  const [isQuoting, setIsQuoting] = useState(false);
 
-  const parsedAmount = useMemo(() => Number(amount.replace(',', '.')), [amount]);
-  const canExchange = Number.isFinite(parsedAmount) && parsedAmount > 0 && !isSubmitting;
+  const parsedCoins = useMemo(() => Math.floor(Number(amount.replace(',', '.'))), [amount]);
+  const canExchange =
+    Number.isFinite(parsedCoins) && parsedCoins > 0 && !isSubmitting && !isQuoting;
+
+  const fallbackTon = useMemo(() => {
+    if (!Number.isFinite(parsedCoins) || parsedCoins <= 0) return 0;
+    return parsedCoins * GAME_TO_TON_RATE;
+  }, [parsedCoins]);
+
+  const displayTon = quotedTon ?? fallbackTon;
 
   useEffect(() => {
     if (isOpen) {
@@ -51,6 +64,43 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [shouldRender, onClose]);
 
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'exchange') {
+      setQuotedTon(null);
+      return;
+    }
+
+    if (!Number.isFinite(parsedCoins) || parsedCoins <= 0) {
+      setQuotedTon(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsQuoting(true);
+
+      try {
+        const quote = await api.wallet.topupQuote(parsedCoins);
+        if (!cancelled) {
+          setQuotedTon(quote.required_ton);
+        }
+      } catch {
+        if (!cancelled) {
+          setQuotedTon(parsedCoins * GAME_TO_TON_RATE);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsQuoting(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeTab, isOpen, parsedCoins]);
+
   if (!shouldRender) return null;
 
   const handleExchange = async () => {
@@ -58,10 +108,14 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     setIsSubmitting(true);
     setMessage(null);
     setError(null);
+
     try {
-      const balance = await exchangeTonToGame(parsedAmount);
+      const balance = await exchangeTonToGame(parsedCoins);
       setAmount('');
-      setMessage(`Готово · TON ${formatBalance(balance.ton)} · GAME ${formatBalance(balance.game)}`);
+      setQuotedTon(null);
+      setMessage(
+        `Готово · TON ${formatBalance(balance.ton)} · GAME ${formatBalance(balance.game)}`,
+      );
       await refreshProfile();
     } catch (exchangeError) {
       setError(exchangeError instanceof Error ? exchangeError.message : 'Не удалось выполнить обмен');
@@ -109,9 +163,10 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
             )}
             {activeTab === 'exchange' && (
               <div className="wallet-exchange">
-                <div className="wallet-exchange-head"><div className="min-w-0"><h3 className="wallet-section-title">TON → GAME</h3><p className="wallet-section-text">Курс 1:1. Введи сумму TON.</p></div><div className="wallet-swap-orb"><Coins size={17} /></div></div>
-                <label className="wallet-field"><span className="wallet-field-label">Сумма TON</span><input value={amount} onChange={(event) => handleAmountChange(event.target.value)} inputMode="decimal" placeholder="Например, 3" className="wallet-input" /></label>
-                <div className="wallet-output-row"><span>Получишь</span><strong>{Number.isFinite(parsedAmount) && parsedAmount > 0 ? formatBalance(parsedAmount) : '0'} GAME</strong></div>
+                <div className="wallet-exchange-head"><div className="min-w-0"><h3 className="wallet-section-title">TON → GAME</h3><p className="wallet-section-text">Курс 1 GAME = 0.1 TON. Введи количество GAME.</p></div><div className="wallet-swap-orb"><Coins size={17} /></div></div>
+                <label className="wallet-field"><span className="wallet-field-label">Количество GAME</span><input value={amount} onChange={(event) => handleAmountChange(event.target.value)} inputMode="numeric" placeholder="Например, 10" className="wallet-input" /></label>
+                <div className="wallet-output-row"><span>Стоимость</span><strong>{parsedCoins > 0 ? `${formatBalance(displayTon)} TON` : '0 TON'}</strong></div>
+                <div className="wallet-output-row"><span>Получишь</span><strong>{parsedCoins > 0 ? `${formatBalance(parsedCoins)} GAME` : '0 GAME'}</strong></div>
                 {message && <div className="wallet-alert is-success">{message}</div>}
                 {error && <div className="wallet-alert is-error">{error}</div>}
                 <button type="button" disabled={!canExchange} onClick={handleExchange} className="pressable wallet-submit-button">{isSubmitting && <Loader2 size={14} className="animate-spin" />}<span>Обменять</span></button>

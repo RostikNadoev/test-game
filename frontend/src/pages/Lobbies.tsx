@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   BadgeCheck,
@@ -11,8 +11,9 @@ import {
   Users,
 } from 'lucide-react';
 import { api, ApiError, type Lobby } from '../api';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
+import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -62,15 +63,9 @@ export const Lobbies = () => {
     [gameId],
   );
 
-  useEffect(() => {
+  useIntervalWhenVisible(() => {
     void loadLobbies(false);
-
-    const interval = window.setInterval(() => {
-      void loadLobbies(false);
-    }, POLL_INTERVAL_MS);
-
-    return () => window.clearInterval(interval);
-  }, [loadLobbies]);
+  }, POLL_INTERVAL_MS);
 
   const handleOpenOrJoin = async (lobby: Lobby) => {
     if (joiningLobbyId) return;
@@ -85,6 +80,13 @@ export const Lobbies = () => {
     const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
 
     if (!canJoin) return;
+
+    const userCoins = Math.floor(user?.balance_game ?? 0);
+
+    if (lobby.bet_coins > userCoins) {
+      setError('Недостаточно монет для этой ставки');
+      return;
+    }
 
     setJoiningLobbyId(lobby.id);
     setError(null);
@@ -198,7 +200,8 @@ export const Lobbies = () => {
             </p>
           </div>
         ) : (
-          lobbies.map((lobby, index) => {
+          <div className="lobbies-list space-y-2">
+            {lobbies.map((lobby) => {
             const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
             const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
             const isJoining = joiningLobbyId === lobby.id;
@@ -213,7 +216,6 @@ export const Lobbies = () => {
               <div
                 key={lobby.id}
                 className="reveal group relative overflow-hidden rounded-[22px] border border-white/[0.07] bg-white/[0.04] p-2.5"
-                style={{ animationDelay: `${Math.min(index * 35, 200)}ms` }}
               >
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#52FFE5]/10 via-transparent to-[#F2C766]/10" />
                 <div className="relative flex items-center gap-2.5">
@@ -255,7 +257,8 @@ export const Lobbies = () => {
                 </div>
               </div>
             );
-          })
+          })}
+          </div>
         )}
       </section>
     </main>
