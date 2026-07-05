@@ -36,6 +36,12 @@ services:
       JWT_TTL_HOURS: ${JWT_TTL_HOURS:-168}
       ALLOW_DEV_AUTH: ${ALLOW_DEV_AUTH:-false}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost}
+      ADMIN_ENABLED: ${ADMIN_ENABLED:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-}
+      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-http://localhost:8081}
     networks:
       - app
 
@@ -47,6 +53,19 @@ services:
         VITE_API_BASE_URL: ""
     container_name: twingames_frontend
     restart: unless-stopped
+    networks:
+      - app
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: /
+    container_name: twingames_admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-8081}:80"
     networks:
       - app
 
