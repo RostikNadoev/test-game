@@ -90,8 +90,38 @@ func (WalletHandler) ExchangeTONToGame(c *gin.Context) {
 	})
 }
 
+func (WalletHandler) DevGrantGame(c *gin.Context) {
+	var req struct {
+		Coins int64 `json:"coins" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	user, err := services.GrantGameCoins(database.DB(), middleware.UserID(c), req.Coins)
+	if err != nil {
+		if errors.Is(err, services.ErrAmountTooSmall) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "coins amount must be >= 1"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "grant failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"coins":   req.Coins,
+		"balance": gin.H{
+			"ton":  user.BalanceTON,
+			"game": user.BalanceGame,
+		},
+	})
+}
+
 func (WalletHandler) DevAddTON(c *gin.Context) {
 	c.JSON(http.StatusGone, gin.H{
-		"error": "TON balance is deprecated. Use /api/v1/wallet/exchange-ton-to-game with coins instead.",
+		"error": "deprecated, use POST /api/v1/dev/grant-game",
 	})
 }

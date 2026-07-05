@@ -204,7 +204,7 @@ Request:
 
 ```json
 {
-  "amount": 3
+  "coins": 5
 }
 ```
 
@@ -213,9 +213,11 @@ Response 200:
 ```json
 {
   "success": true,
-  "exchanged": 3,
+  "rate": "1 GAME = 0.1 TON",
+  "coins": 5,
+  "spent_ton": 0.5,
+  "balance_game": 8,
   "balance": {
-    "ton": 7,
     "game": 8
   }
 }
@@ -224,8 +226,70 @@ Response 200:
 Errors:
 
 ```json
-{ "error": "amount must be greater than 0" }
-{ "error": "insufficient TON balance" }
+{ "error": "coins amount must be >= 1" }
+```
+
+> MVP: TON не списывается с баланса, endpoint начисляет GAME для тестов.
+
+---
+
+### POST `/api/v1/wallet/topup-quote`
+
+Headers:
+
+```txt
+Authorization: Bearer <jwt>
+```
+
+Request:
+
+```json
+{
+  "coins": 100
+}
+```
+
+Response 200:
+
+```json
+{
+  "coins": 100,
+  "required_ton": 10,
+  "rate": "1 GAME = 0.1 TON"
+}
+```
+
+---
+
+### POST `/api/v1/dev/grant-game` (только dev)
+
+Доступен когда `GIN_MODE != release` и `ALLOW_DEV_AUTH=true`.
+
+Headers:
+
+```txt
+Authorization: Bearer <jwt>
+```
+
+Request:
+
+```json
+{
+  "coins": 1000
+}
+```
+
+Response 200:
+
+```json
+{
+  "success": true,
+  "coins": 1000,
+  "balance": {
+    "ton": 0,
+    "game": 1000
+  }
+}
 ```
 
 ---
@@ -242,7 +306,10 @@ Errors:
 - `game` можно отправлять и с `_`, и с `-`: `plinko_pvp` / `plinko-pvp`.
 - Активные статусы: `waiting`, `playing`.
 - `finished` в списках активных лобби не возвращается.
-- Пока лобби хранятся in-memory. После рестарта backend активные лобби очищаются.
+- Лобби сохраняются в PostgreSQL и восстанавливаются после рестарта backend (`waiting` / `playing`).
+- При create/join ставка (`bet_coins`) резервируется с `balance_game`. При leave до старта — возврат.
+- В DTO лобби есть `players_info` с `id`, `tg_user`, `photo_url`.
+- Для WS-игр в join/create ответе может быть `ws_url`.
 
 ## Список игр
 
@@ -313,6 +380,9 @@ Response 200:
     "max_players": 2,
     "player_count": 1,
     "players": [1],
+    "players_info": [
+      { "id": 1, "tg_user": "@username", "photo_url": "https://..." }
+    ],
     "created_by": 1,
     "created_at": "2026-06-08T20:00:00Z",
     "updated_at": "2026-06-08T20:00:00Z"
@@ -327,6 +397,7 @@ Errors:
 { "error": "game is required" }
 { "error": "unsupported game" }
 { "error": "bet_coins must be greater than 0" }
+{ "error": "insufficient balance" }
 { "error": "user already has active lobby" }
 ```
 
@@ -436,6 +507,9 @@ Response 200:
     "max_players": 2,
     "player_count": 1,
     "players": [1],
+    "players_info": [
+      { "id": 1, "tg_user": "@username", "photo_url": "https://..." }
+    ],
     "created_by": 1,
     "created_at": "2026-06-08T20:00:00Z",
     "updated_at": "2026-06-08T20:00:00Z"
@@ -484,6 +558,11 @@ Response 200, если второй игрок вошел и лобби запо
     "max_players": 2,
     "player_count": 2,
     "players": [1, 2],
+    "players_info": [
+      { "id": 1, "tg_user": "@host", "photo_url": "" },
+      { "id": 2, "tg_user": "@guest", "photo_url": "" }
+    ],
+    "ws_url": "wss://BACKEND_DOMAIN/ws/plinko/LOBBY_ID?token=JWT",
     "created_by": 1,
     "created_at": "2026-06-08T20:00:00Z",
     "updated_at": "2026-06-08T20:01:00Z"
@@ -497,6 +576,7 @@ Errors:
 { "error": "lobby not found" }
 { "error": "lobby is not waiting" }
 { "error": "lobby is full" }
+{ "error": "insufficient balance" }
 { "error": "user already has active lobby" }
 ```
 
@@ -536,6 +616,9 @@ Response 200, если лобби осталось существовать:
     "max_players": 2,
     "player_count": 1,
     "players": [1],
+    "players_info": [
+      { "id": 1, "tg_user": "@username", "photo_url": "https://..." }
+    ],
     "created_by": 1,
     "created_at": "2026-06-08T20:00:00Z",
     "updated_at": "2026-06-08T20:02:00Z"
@@ -558,6 +641,111 @@ Errors:
 { "error": "lobby not found" }
 { "error": "user is not in lobby" }
 ```
+
+---
+
+## Завершение матча (client-authoritative игры)
+
+### POST `/api/v1/matches/finish`
+
+Headers:
+
+```txt
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "lobby_id": "a7f3b8c1d2e9f001",
+  "game": "plinko_pvp",
+  "winner_user_id": 2
+}
+```
+
+`winner_user_id: null` — ничья (обе ставки возвращаются).
+
+Response 200:
+
+```json
+{
+  "success": true,
+  "balance": {
+    "ton": 0,
+    "game": 19
+  },
+  "stats": {
+    "rating": 1025,
+    "wins": 1,
+    "losses": 0,
+    "total_games": 1,
+    "winrate": 100,
+    "favorite_mode": "plinko_pvp"
+  }
+}
+```
+
+Errors:
+
+```json
+{ "error": "lobby not found" }
+{ "error": "lobby is not playing" }
+{ "error": "user is not in this lobby" }
+{ "error": "game mismatch" }
+{ "error": "winner is not in lobby" }
+{ "error": "match not found" }
+```
+
+> Blackjack (`blackjack_duel`) завершается автоматически на сервере через WS callback.
+
+---
+
+## Leaderboard
+
+### GET `/api/v1/leaderboard?limit=50`
+
+Headers:
+
+```txt
+Authorization: Bearer <jwt>
+```
+
+Response 200:
+
+```json
+{
+  "players": [
+    {
+      "id": 1,
+      "tg_user": "@username",
+      "photo_url": "https://...",
+      "rating": 1025,
+      "wins": 12
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+## WebSocket игры
+
+Для `blackjack_duel`, `plinko_pvp`, `paper_io`, `street_race`, `tower_stack`:
+
+```txt
+GET /ws/blackjack/:lobby_id?token=<jwt>
+GET /ws/plinko/:lobby_id?token=<jwt>
+GET /ws/paper-io/:lobby_id?token=<jwt>
+GET /ws/street-race/:lobby_id?token=<jwt>
+GET /ws/tower-stack/:lobby_id?token=<jwt>
+```
+
+После join лобби в `playing` фронт может взять `ws_url` из ответа REST.
+
+Blackjack — authoritative game server. Остальные WS-игры используют координатор (start/relay/finish); settlement всё равно через escrow + `matches/finish` или WS finish event.
 
 ---
 

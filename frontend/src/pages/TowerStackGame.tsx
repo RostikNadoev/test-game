@@ -6,9 +6,10 @@ import {
   useState,
   type RefObject,
 } from 'react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 /* ============================================================================
- * TowerStackGame — premium 1v1 tower-stacking duel for a Telegram Mini App.
+ * TowerStackGame.tsx — premium 1v1 tower-stacking duel for a Telegram Mini App.
  *
  * Self-contained: React + TypeScript, canvas renderer, no external engines.
  * Architecture:
@@ -775,6 +776,12 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [countdown, setCountdown] = useState(COUNTDOWN_FROM);
   const [labels, setLabels] = useState<FloatLabel[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const finishLobbyMatch = useLobbyMatchFinish('tower_stack');
+
+  useEffect(() => {
+    if (!outcome) return;
+    void finishLobbyMatch(outcome === 'VICTORY' ? 'win' : outcome === 'DEFEAT' ? 'loss' : 'draw');
+  }, [outcome, finishLobbyMatch]);
 
   // Score refs let the end-of-round handler read final values without re-renders.
   const pScoreRef = useRef(0);

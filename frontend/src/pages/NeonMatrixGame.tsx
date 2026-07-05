@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 type Player = 'cyan' | 'magenta';
 type Phase = 'pickCyan' | 'handoff' | 'pickMagenta' | 'spinning' | 'impact' | 'result' | 'gameover';
@@ -558,6 +559,12 @@ export const NeonMatrixGame: React.FC = () => {
   const canPick = phase === 'pickCyan' || phase === 'pickMagenta';
 
   const matchWinner: Player | null = health.cyan <= 0 ? 'magenta' : health.magenta <= 0 ? 'cyan' : null;
+  const finishLobbyMatch = useLobbyMatchFinish('neon_matrix');
+
+  useEffect(() => {
+    if (phase !== 'gameover' || !matchWinner) return;
+    void finishLobbyMatch(matchWinner === 'cyan' ? 'win' : 'loss');
+  }, [phase, matchWinner, finishLobbyMatch]);
 
   const showWheelPicks =
     phase === 'spinning' || phase === 'impact' || phase === 'result' || phase === 'gameover';

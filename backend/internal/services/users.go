@@ -85,6 +85,49 @@ func GetUserProfile(db *gorm.DB, userID uint) (*models.User, error) {
 	return &user, nil
 }
 
+func GetUsersByIDs(db *gorm.DB, ids []uint) (map[uint]models.User, error) {
+	out := make(map[uint]models.User, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	var users []models.User
+	if err := db.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	for _, user := range users {
+		out[user.ID] = user
+	}
+
+	return out, nil
+}
+
+func UserDisplayLabel(user *models.User) string {
+	if user == nil {
+		return "Telegram User"
+	}
+
+	username := strings.TrimSpace(user.Username)
+	if username != "" {
+		if !strings.HasPrefix(username, "@") {
+			username = "@" + username
+		}
+		return username
+	}
+
+	name := strings.TrimSpace(strings.TrimSpace(user.FirstName) + " " + strings.TrimSpace(user.LastName))
+	if name != "" {
+		return name
+	}
+
+	if strings.TrimSpace(user.DisplayName) != "" {
+		return user.DisplayName
+	}
+
+	return "Telegram User"
+}
+
 func AddTONForDev(db *gorm.DB, userID uint, amount float64) (*models.User, error) {
 	var user models.User
 	err := db.Transaction(func(tx *gorm.DB) error {

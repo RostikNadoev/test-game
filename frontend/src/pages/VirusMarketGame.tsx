@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCcw, Trophy } from 'lucide-react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 type Direction = 'up' | 'down';
 type Phase = 'choose' | 'live' | 'result' | 'gameOver';
@@ -425,6 +426,12 @@ export const VirusMarketGame = () => {
   const [botPick, setBotPick] = useState<Direction | null>(null);
   const [result, setResult] = useState<RoundResult | null>(null);
   const [winner, setWinner] = useState<MatchWinner>(null);
+  const finishLobbyMatch = useLobbyMatchFinish('virus_market');
+
+  useEffect(() => {
+    if (phase !== 'gameOver' || !winner) return;
+    void finishLobbyMatch(winner === 'player' ? 'win' : 'loss');
+  }, [phase, winner, finishLobbyMatch]);
 
   const isOvertime = scores.player >= TARGET_SCORE && scores.bot >= TARGET_SCORE && scores.player === scores.bot;
   const liveLeftMs = phase === 'live'

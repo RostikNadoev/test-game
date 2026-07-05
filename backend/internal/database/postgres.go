@@ -24,6 +24,10 @@ func Init(cfg *config.Config) error {
 		&models.User{},
 		&models.UserStats{},
 		&models.WalletTransaction{},
+		&models.BetReservation{},
+		&models.Match{},
+		&models.LobbyRecord{},
+		&models.LobbyPlayerRecord{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -38,4 +42,15 @@ func DB() *gorm.DB {
 		panic("database is not initialized")
 	}
 	return db
+}
+
+func Ping() error {
+	if db == nil {
+		return fmt.Errorf("database is not initialized")
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Ping()
 }

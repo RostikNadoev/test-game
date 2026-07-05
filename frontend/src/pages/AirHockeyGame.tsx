@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 const SETTINGS = {
   puckSize: 16,
@@ -39,6 +40,12 @@ export const AirHockeyGame: React.FC = () => {
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
 
   const [score, setScore] = useState({ p1: 0, p2: 0 });
+  const finishLobbyMatch = useLobbyMatchFinish('air_hockey');
+
+  useEffect(() => {
+    if (score.p1 < 5 && score.p2 < 5) return;
+    void finishLobbyMatch(score.p1 >= 5 ? 'win' : score.p2 >= 5 ? 'loss' : 'draw');
+  }, [score.p1, score.p2, finishLobbyMatch]);
 
   const puck = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
   const p1 = useRef({ x: 0, y: 0, lastX: 0, lastY: 0, isDragging: false });

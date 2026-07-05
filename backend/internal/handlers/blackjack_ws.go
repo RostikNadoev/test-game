@@ -7,11 +7,8 @@ import (
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/realtime"
-	"tg-lobbies-base/internal/services"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 )
 
 type BlackjackWSHandler struct {
@@ -20,21 +17,13 @@ type BlackjackWSHandler struct {
 	Manager    *blackjack.Manager
 }
 
-var blackjackUpgrader = websocket.Upgrader{
-	CheckOrigin:       func(r *http.Request) bool { return true },
-	EnableCompression: true,
-	ReadBufferSize:    1024,
-	WriteBufferSize:   1024,
-	HandshakeTimeout:  10 * time.Second,
-}
-
 func (h BlackjackWSHandler) Connect(c *gin.Context) {
 	if h.Cfg == nil || h.LobbyStore == nil || h.Manager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "blackjack websocket is not configured"})
 		return
 	}
 
-	userID, ok := h.authUserID(c)
+	userID, ok := wsAuthUserID(c, h.Cfg)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "bad token"})
 		return
@@ -70,7 +59,8 @@ func (h BlackjackWSHandler) Connect(c *gin.Context) {
 	}
 	sort.Slice(players, func(i, j int) bool { return players[i] < players[j] })
 
-	conn, err := blackjackUpgrader.Upgrade(c.Writer, c.Request, nil)
+	upgrader := newPvpUpgrader(h.Cfg)
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
@@ -82,14 +72,3 @@ func (h BlackjackWSHandler) Connect(c *gin.Context) {
 	}
 }
 
-func (h BlackjackWSHandler) authUserID(c *gin.Context) (uint, bool) {
-	token := strings.TrimSpace(c.Query("token"))
-	if token == "" {
-		return 0, false
-	}
-	userID, err := services.ParseJWT(token, h.Cfg)
-	if err != nil || userID == 0 {
-		return 0, false
-	}
-	return userID, true
-}

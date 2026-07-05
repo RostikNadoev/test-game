@@ -160,3 +160,31 @@ export type ApiErrorBody = {
   details?: string;
   game?: string;
 };
+
+export type FinishMatchRequest = {
+  lobby_id: string;
+  game: string;
+  winner_user_id?: number | null;
+};
+
+export type FinishMatchResponse = {
+  success: boolean;
+  balance: {
+    ton: number;
+    game: number;
+  };
+  stats: UserStats;
+};
+
+export type LeaderboardEntry = {
+  id: number;
+  tg_user: string;
+  photo_url: string;
+  rating: number;
+  wins: number;
+};
+
+export type LeaderboardResponse = {
+  players: LeaderboardEntry[];
+  count: number;
+};

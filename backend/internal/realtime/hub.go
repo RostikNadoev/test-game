@@ -5,20 +5,42 @@ import (
 	"encoding/hex"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"tg-lobbies-base/internal/services"
+
+	"gorm.io/gorm"
 )
 
 type Hub struct {
 	mu      sync.RWMutex
 	lobbies map[string]*Lobby
+	db      *gorm.DB
 }
 
-func NewHub() *Hub {
-	return &Hub{
+func NewHub(db *gorm.DB) *Hub {
+	h := &Hub{
 		lobbies: make(map[string]*Lobby),
+		db:      db,
 	}
+
+	if db != nil {
+		if lobbies, err := loadActiveLobbies(db); err == nil {
+			for _, lobby := range lobbies {
+				h.lobbies[lobby.ID] = lobby
+			}
+		}
+	}
+
+	go h.cleanupLoop()
+	return h
+}
+
+func (h *Hub) DB() *gorm.DB {
+	return h.db
 }
 
 func (h *Hub) Snapshot() []LobbyDTO {
@@ -42,7 +64,7 @@ func (h *Hub) snapshot(activeOnly bool, game string) []LobbyDTO {
 		if game != "" && normalizeKey(lobby.Game) != game {
 			continue
 		}
-		out = append(out, lobby.DTO())
+		out = append(out, h.buildDTOLocked(lobby))
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -60,6 +82,62 @@ func (h *Hub) GetLobby(lobbyID string) (*Lobby, error) {
 		return nil, errors.New("lobby not found")
 	}
 	return cloneLobby(lobby), nil
+}
+
+func (h *Hub) GetLobbyDTO(lobbyID string) (LobbyDTO, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	lobby, ok := h.lobbies[strings.TrimSpace(lobbyID)]
+	if !ok {
+		return LobbyDTO{}, errors.New("lobby not found")
+	}
+	return h.buildDTOLocked(lobby), nil
+}
+
+func (h *Hub) BuildDTO(lobby *Lobby) LobbyDTO {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.buildDTOLocked(lobby)
+}
+
+func (h *Hub) buildDTOLocked(lobby *Lobby) LobbyDTO {
+	dto := lobby.DTO()
+	dto.PlayersInfo = h.playersInfoLocked(lobby)
+	return dto
+}
+
+func (h *Hub) playersInfoLocked(lobby *Lobby) []PlayerInfo {
+	if h.db == nil || lobby == nil || len(lobby.Players) == 0 {
+		return nil
+	}
+
+	ids := make([]uint, 0, len(lobby.Players))
+	for id := range lobby.Players {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	users, err := services.GetUsersByIDs(h.db, ids)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]PlayerInfo, 0, len(ids))
+	for _, id := range ids {
+		user, ok := users[id]
+		if !ok {
+			out = append(out, PlayerInfo{ID: id, TgUser: "Player #" + strconv.FormatUint(uint64(id), 10)})
+			continue
+		}
+		out = append(out, PlayerInfo{
+			ID:       id,
+			TgUser:   services.UserDisplayLabel(&user),
+			PhotoURL: user.PhotoURL,
+		})
+	}
+
+	return out
 }
 
 func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float64) (*Lobby, error) {
@@ -83,8 +161,19 @@ func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float6
 	}
 
 	now := time.Now().UTC()
+	lobbyID := randomID()
+
+	if h.db != nil {
+		if err := services.ReserveBet(h.db, userID, lobbyID, betCoins); err != nil {
+			if errors.Is(err, services.ErrInsufficientBalance) {
+				return nil, errors.New("insufficient balance")
+			}
+			return nil, err
+		}
+	}
+
 	lobby := &Lobby{
-		ID:         randomID(),
+		ID:         lobbyID,
 		Name:       name,
 		Game:       game,
 		Status:     LobbyStatusWaiting,
@@ -100,14 +189,24 @@ func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float6
 	defer h.mu.Unlock()
 
 	if h.userInActiveLobbyLocked(userID) {
+		if h.db != nil {
+			_ = services.RefundBet(h.db, userID, lobbyID)
+		}
 		return nil, errors.New("user already has active lobby")
 	}
 
 	h.lobbies[lobby.ID] = lobby
+	if h.db != nil {
+		_ = saveLobbyRecord(h.db, lobby)
+		_ = saveLobbyPlayer(h.db, lobby.ID, userID)
+	}
+
 	return cloneLobby(lobby), nil
 }
 
 func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
+	lobbyID = strings.TrimSpace(lobbyID)
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -118,7 +217,7 @@ func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
 		return nil, errors.New("user already has active lobby")
 	}
 
-	lobby, ok := h.lobbies[strings.TrimSpace(lobbyID)]
+	lobby, ok := h.lobbies[lobbyID]
 	if !ok {
 		return nil, errors.New("lobby not found")
 	}
@@ -132,15 +231,42 @@ func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
 		return nil, errors.New("lobby is full")
 	}
 
+	if h.db != nil {
+		if err := services.ReserveBet(h.db, userID, lobbyID, lobby.BetCoins); err != nil {
+			if errors.Is(err, services.ErrInsufficientBalance) {
+				return nil, errors.New("insufficient balance")
+			}
+			return nil, err
+		}
+	}
+
 	lobby.Players[userID] = true
+	startedMatch := false
 	if len(lobby.Players) >= lobby.MaxPlayers {
 		lobby.Status = LobbyStatusPlaying
+		startedMatch = true
 	}
 	lobby.UpdatedAt = time.Now().UTC()
+
+	if h.db != nil {
+		_ = saveLobbyPlayer(h.db, lobby.ID, userID)
+		_ = saveLobbyRecord(h.db, lobby)
+
+		if startedMatch {
+			playerIDs := make([]uint, 0, len(lobby.Players))
+			for id := range lobby.Players {
+				playerIDs = append(playerIDs, id)
+			}
+			_, _ = services.CreateMatch(h.db, lobby.ID, lobby.Game, lobby.BetCoins, playerIDs)
+		}
+	}
+
 	return cloneLobby(lobby), nil
 }
 
 func (h *Hub) LeaveLobby(userID uint, lobbyID string) (*Lobby, bool, error) {
+	lobbyID = strings.TrimSpace(lobbyID)
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -148,17 +274,27 @@ func (h *Hub) LeaveLobby(userID uint, lobbyID string) (*Lobby, bool, error) {
 		return nil, false, errors.New("bad user")
 	}
 
-	lobby, ok := h.lobbies[strings.TrimSpace(lobbyID)]
+	lobby, ok := h.lobbies[lobbyID]
 	if !ok {
 		return nil, false, errors.New("lobby not found")
 	}
 	if !lobby.Players[userID] {
 		return nil, false, errors.New("user is not in lobby")
 	}
+	if lobby.Status == LobbyStatusPlaying {
+		return nil, false, errors.New("cannot leave lobby while match is in progress")
+	}
+
+	if h.db != nil {
+		_ = services.RefundBet(h.db, userID, lobbyID)
+	}
 
 	delete(lobby.Players, userID)
 	if len(lobby.Players) == 0 {
 		delete(h.lobbies, lobby.ID)
+		if h.db != nil {
+			_ = deleteLobbyRecord(h.db, lobby.ID)
+		}
 		return nil, true, nil
 	}
 
@@ -166,6 +302,12 @@ func (h *Hub) LeaveLobby(userID uint, lobbyID string) (*Lobby, bool, error) {
 		lobby.Status = LobbyStatusWaiting
 	}
 	lobby.UpdatedAt = time.Now().UTC()
+
+	if h.db != nil {
+		_ = deleteLobbyPlayer(h.db, lobby.ID, userID)
+		_ = saveLobbyRecord(h.db, lobby)
+	}
+
 	return cloneLobby(lobby), false, nil
 }
 
@@ -279,5 +421,38 @@ func (h *Hub) FinishLobby(lobbyID string) (*Lobby, error) {
 	lobby.Status = LobbyStatusFinished
 	lobby.UpdatedAt = time.Now().UTC()
 
+	if h.db != nil {
+		_ = saveLobbyRecord(h.db, lobby)
+	}
+
 	return cloneLobby(lobby), nil
+}
+
+func (h *Hub) cleanupLoop() {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		h.cleanupFinished()
+	}
+}
+
+func (h *Hub) cleanupFinished() {
+	cutoff := time.Now().UTC().Add(-1 * time.Hour)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for id, lobby := range h.lobbies {
+		if lobby.Status != LobbyStatusFinished {
+			continue
+		}
+		if lobby.UpdatedAt.After(cutoff) {
+			continue
+		}
+		delete(h.lobbies, id)
+		if h.db != nil {
+			_ = deleteLobbyRecord(h.db, id)
+		}
+	}
 }

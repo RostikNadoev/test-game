@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
 
 /* ============================================================================
    PLINKO PvP — Telegram mini-app (mobile only)
@@ -559,6 +560,7 @@ export default function PlinkoPvpGame() {
 
   // Счёт — множитель от 1. Например: старт 1 → x5 = 5 → x5 = 25.
   const [scores, setScores] = useState<[number, number]>([1, 1]);
+  const finishLobbyMatch = useLobbyMatchFinish("plinko_pvp");
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
 
@@ -1462,6 +1464,11 @@ export default function PlinkoPvpGame() {
   /* ------------------------------- ПРОИЗВОДНОЕ ---------------------------- */
   const angleDeg = Math.round(liveAngle * CFG.ANGLE_MAX_DEG);
   const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
+
+  useEffect(() => {
+    if (phase !== "result") return;
+    void finishLobbyMatch(winner < 0 ? "draw" : winner === 0 ? "win" : "loss");
+  }, [phase, winner, finishLobbyMatch]);
 
   const ballCounters = useMemo<[number, number]>(() => {
     if (phase === "intro") return [0, 0];

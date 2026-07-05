@@ -118,14 +118,14 @@ type ClientMessage struct {
 type Manager struct {
 	mu          sync.Mutex
 	sessions    map[string]*Session
-	onMatchOver func(lobbyID string)
+	onMatchOver func(lobbyID string, winnerUserID uint)
 }
 
 func NewManager() *Manager {
 	return &Manager{sessions: make(map[string]*Session)}
 }
 
-func (m *Manager) SetOnMatchOver(fn func(lobbyID string)) {
+func (m *Manager) SetOnMatchOver(fn func(lobbyID string, winnerUserID uint)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -152,6 +152,24 @@ func (m *Manager) Connect(lobbyID string, playerIDs []uint, userID uint, conn *w
 	m.mu.Unlock()
 
 	return s.Attach(userID, conn)
+}
+
+func (m *Manager) RemoveSession(lobbyID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, lobbyID)
+}
+
+func (m *Manager) CleanupLoop() {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		m.mu.Lock()
+		for id := range m.sessions {
+			delete(m.sessions, id)
+		}
+		m.mu.Unlock()
+	}
 }
 
 func containsPlayer(players []uint, userID uint) bool {
@@ -199,11 +217,11 @@ type Session struct {
 	nextRoundTimer *time.Timer
 	roundResult    *RoundResult
 	matchWinnerID  uint
-	onMatchOver    func(lobbyID string)
+	onMatchOver    func(lobbyID string, winnerUserID uint)
 	matchClosed    bool
 }
 
-func NewSession(lobbyID string, playerIDs []uint, onMatchOver func(lobbyID string)) *Session {
+func NewSession(lobbyID string, playerIDs []uint, onMatchOver func(lobbyID string, winnerUserID uint)) *Session {
 	ids := append([]uint(nil), playerIDs...)
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
@@ -548,9 +566,10 @@ func (s *Session) finishRoundLocked(reason string) {
 
 			if s.onMatchOver != nil {
 				lobbyID := s.lobbyID
+				winnerID := s.matchWinnerID
 				onMatchOver := s.onMatchOver
 
-				go onMatchOver(lobbyID)
+				go onMatchOver(lobbyID, winnerID)
 			}
 
 			return

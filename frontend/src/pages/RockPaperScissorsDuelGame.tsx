@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 type Move = 'rock' | 'paper' | 'scissors';
 type Phase = 'choosing' | 'reveal' | 'matchOver';
@@ -62,6 +63,12 @@ export const RockPaperScissorsDuelGame: React.FC = () => {
 
   const matchWinner: 'player' | 'bot' | null =
     score.player >= WIN_TARGET ? 'player' : score.bot >= WIN_TARGET ? 'bot' : null;
+  const finishLobbyMatch = useLobbyMatchFinish('rps_duel');
+
+  useEffect(() => {
+    if (phase !== 'matchOver' || !matchWinner) return;
+    void finishLobbyMatch(matchWinner === 'player' ? 'win' : 'loss');
+  }, [phase, matchWinner, finishLobbyMatch]);
 
   const clearTimer = useCallback(() => {
     if (timeoutRef.current !== null) {

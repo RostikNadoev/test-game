@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getTelegramWebApp } from "../types/telegram";
+import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
 
 /* =========================================================================
    GRIDLOCK / QUORIDOR — app-style version
@@ -282,6 +283,13 @@ export const GridLockGame: React.FC = () => {
   const [turn, setTurn] = useState<PlayerId>("p1");
   const [left, setLeft] = useState<Record<PlayerId, number>>({ p1: WALLS, p2: WALLS });
   const [winner, setWinner] = useState<PlayerId | null>(null);
+  const finishLobbyMatch = useLobbyMatchFinish("grid_lock");
+
+  useEffect(() => {
+    if (!winner) return;
+    void finishLobbyMatch(winner === "p1" ? "win" : "loss");
+  }, [winner, finishLobbyMatch]);
+
   const [preview, setPreview] = useState<Preview | null>(null);
   const [notice, setNotice] = useState("");
   const [clocks, setClocks] = useState<Record<PlayerId, number>>({ p1: TOTAL_SECONDS, p2: TOTAL_SECONDS });

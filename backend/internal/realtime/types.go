@@ -44,18 +44,25 @@ type Lobby struct {
 	UpdatedAt  time.Time     `json:"updated_at"`
 }
 
+type PlayerInfo struct {
+	ID       uint   `json:"id"`
+	TgUser   string `json:"tg_user"`
+	PhotoURL string `json:"photo_url"`
+}
+
 type LobbyDTO struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Game        string    `json:"game"`
-	Status      string    `json:"status"`
-	BetCoins    float64   `json:"bet_coins"`
-	MaxPlayers  int       `json:"max_players"`
-	PlayerCount int       `json:"player_count"`
-	Players     []uint    `json:"players"`
-	CreatedBy   uint      `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	Game         string       `json:"game"`
+	Status       string       `json:"status"`
+	BetCoins     float64      `json:"bet_coins"`
+	MaxPlayers   int          `json:"max_players"`
+	PlayerCount  int          `json:"player_count"`
+	Players      []uint       `json:"players"`
+	PlayersInfo  []PlayerInfo `json:"players_info,omitempty"`
+	CreatedBy    uint         `json:"created_by"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 func (l *Lobby) DTO() LobbyDTO {

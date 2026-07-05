@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 type Player = 'amber' | 'violet';
 type Phase = 'ready' | 'rolling' | 'decision' | 'rerolling' | 'reveal' | 'gameover';
@@ -151,6 +152,13 @@ export const DiceDuelGame: React.FC = () => {
 
   const total = useMemo(() => sumDice(activeDice), [activeDice]);
   const matchWinner = scores.amber >= TARGET_SCORE ? 'amber' : scores.violet >= TARGET_SCORE ? 'violet' : null;
+  const finishLobbyMatch = useLobbyMatchFinish('dice_duel');
+
+  useEffect(() => {
+    if (phase !== 'gameover' || !matchWinner) return;
+    void finishLobbyMatch(matchWinner === 'amber' ? 'win' : 'loss');
+  }, [phase, matchWinner, finishLobbyMatch]);
+
   const isBusy = phase === 'rolling' || phase === 'rerolling';
   const canSelectDie = phase === 'decision' && !usedReroll;
   const canRisk = phase === 'decision' && !usedReroll && selectedDie !== null;

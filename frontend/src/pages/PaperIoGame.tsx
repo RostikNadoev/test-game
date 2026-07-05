@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getTelegramWebApp } from "../types/telegram";
+import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
 
 /* =========================================================================
    PAPER IO — mobile / Telegram mini app
@@ -464,6 +465,12 @@ export const PaperIoGame = () => {
   const [kills, setKills] = useState(0);
   const [didWin, setDidWin] = useState(false);
   const [timeLeft, setTimeLeft] = useState(DURATION);
+  const finishLobbyMatch = useLobbyMatchFinish("paper_io");
+
+  useEffect(() => {
+    if (phase !== "over") return;
+    void finishLobbyMatch(didWin ? "win" : p1pct === p2pct ? "draw" : "loss");
+  }, [phase, didWin, p1pct, p2pct, finishLobbyMatch]);
 
   // блокируем скролл/свайпы (в т.ч. закрытие TG mini app вертикальным свайпом)
   useEffect(() => {

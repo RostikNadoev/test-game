@@ -4,6 +4,8 @@ import { lobbiesApi } from './lobbies';
 import { usersApi } from './users';
 import { walletApi } from './wallet';
 import { blackjackWsApi } from './blackjackWs';
+import { matchesApi } from './matches';
+import { leaderboardApi } from './leaderboard';
 import type { HealthResponse } from './types';
 
 export * from './types';
@@ -13,6 +15,8 @@ export * from './users';
 export * from './wallet';
 export * from './lobbies';
 export * from './blackjackWs';
+export * from './matches';
+export * from './leaderboard';
 export { getOpponentInfo, resolvePlayersInfo } from './lobbyUtils';
 
 export const api = {
@@ -23,5 +27,7 @@ export const api = {
   users: usersApi,
   wallet: walletApi,
   lobbies: lobbiesApi,
+  matches: matchesApi,
+  leaderboard: leaderboardApi,
   blackjackWs: blackjackWsApi,
 };

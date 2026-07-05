@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"fmt"
 
 	"github.com/joho/godotenv"
 )
@@ -23,7 +24,7 @@ type Config struct {
 func Load() *Config {
 	_ = godotenv.Load()
 
-	return &Config{
+	cfg := &Config{
 		Port:             getEnv("PORT", "8080"),
 		GinMode:          getEnv("GIN_MODE", "debug"),
 		AppEnv:           getEnv("APP_ENV", "local"),
@@ -34,6 +35,15 @@ func Load() *Config {
 		AllowDevAuth:     getEnvAsBool("ALLOW_DEV_AUTH", false),
 		CORSAllowOrigins: splitCSV(getEnv("CORS_ALLOW_ORIGINS", "*")),
 	}
+
+	return cfg
+}
+
+func (c *Config) Validate() error {
+	if c.GinMode == "release" && c.JWTSecret == "change_me" {
+		return fmt.Errorf("JWT_SECRET must be set in release mode")
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {

@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
 
 /* ============================================================================
  * RaceGame.tsx — TwinGames arcade drift racer
@@ -1702,6 +1703,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     const netT = useRef(0);
     const trailT = useRef(0);
     const startedRef = useRef(false);
+    const raceFinishedRef = useRef(false);
+    const pendingRaceFinishRef = useRef(false);
+
+    const finishLobbyMatch = useLobbyMatchFinish('street_race');
+    const [raceOutcome, setRaceOutcome] = useState<'win' | 'loss' | null>(null);
 
     const [started, setStarted] = useState(false);
     const [stickActive, setStickActive] = useState(false);
@@ -1710,6 +1716,11 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       lap: 1,
       lapTime: 0,
     });
+
+    useEffect(() => {
+      if (!raceOutcome) return;
+      void finishLobbyMatch(raceOutcome);
+    }, [raceOutcome, finishLobbyMatch]);
 
     const doReset = useCallback(() => {
       car.current = makeCar();
@@ -1743,6 +1754,9 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
       };
 
       startedRef.current = false;
+      raceFinishedRef.current = false;
+      pendingRaceFinishRef.current = false;
+      setRaceOutcome(null);
       setStarted(false);
       setStickActive(false);
 
@@ -2010,6 +2024,10 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           // Drift scoring/popups are intentionally removed: this is a clean 1v1 race.
           if (result.crossedFinish) {
             timing.current.lapStart = now;
+
+            if (c.lap >= TOTAL_LAPS) {
+              pendingRaceFinishRef.current = true;
+            }
           }
         }
 
@@ -2042,6 +2060,12 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         const playerRace = (c.lap - 1) + c.progress;
         const rivalRaceScore = remoteRival ? (c.lap - 1) + rivalTrack.progress : rivalRace.current;
         const position = playerRace >= rivalRaceScore ? 1 : 2;
+
+        if (pendingRaceFinishRef.current && !raceFinishedRef.current) {
+          raceFinishedRef.current = true;
+          pendingRaceFinishRef.current = false;
+          setRaceOutcome(position === 1 ? 'win' : 'loss');
+        }
 
         const camK = 1 - Math.exp(-dtSec / 0.16);
 
@@ -2333,7 +2357,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
           </div>
         </div>
 
-        {!started && (
+        {!started && !raceOutcome && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="mx-6 rounded-[22px] border border-white/[0.07] bg-[#050610]/72 px-5 py-4 text-center shadow-[0_20px_70px_rgba(0,0,0,0.45)] backdrop-blur-md">
               <div className="text-sm font-bold text-white">Тяни стик — машина поедет туда</div>
@@ -2341,6 +2365,19 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
                 Управление как в аркаде: стик задаёт направление, машина сама уходит в{' '}
                 <span className="text-[#52FFE5]">мягкий дрифт</span>, вниз —{' '}
                 <span className="text-[#F2C766]">ручник</span>.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {raceOutcome && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+            <div className="mx-6 rounded-[22px] border border-white/[0.07] bg-[#050610]/82 px-6 py-5 text-center shadow-[0_20px_70px_rgba(0,0,0,0.45)] backdrop-blur-md">
+              <div className="text-lg font-extrabold text-white">
+                {raceOutcome === 'win' ? 'Победа!' : 'Поражение'}
+              </div>
+              <div className="mt-1 text-[11px] text-white/50">
+                {raceOutcome === 'win' ? 'Вы финишировали первым' : 'Соперник финишировал раньше'}
               </div>
             </div>
           </div>

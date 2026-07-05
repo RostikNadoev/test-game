@@ -32,12 +32,20 @@ func (h AuthHandler) TelegramAuth(c *gin.Context) {
 		h.Cfg.AllowDevAuth,
 	)
 	if err != nil {
+		if h.Cfg.GinMode == "release" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "telegram auth failed"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "telegram auth failed", "details": err.Error()})
 		return
 	}
 
 	user, err := services.UpsertTelegramUser(database.DB(), parsed.User)
 	if err != nil {
+		if h.Cfg.GinMode == "release" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user", "details": err.Error()})
 		return
 	}

@@ -4,42 +4,91 @@ import (
 	"log"
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
+	"tg-lobbies-base/internal/games/blackjack"
+	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/handlers"
 	"tg-lobbies-base/internal/middleware"
 	"tg-lobbies-base/internal/realtime"
-
-	"tg-lobbies-base/internal/games/blackjack"
+	"tg-lobbies-base/internal/services"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
+func settleLobbyMatch(lobbyStore *realtime.Hub, lobbyID string, winnerUserID *uint) {
+	db := database.DB()
+	if err := services.SettleMatchFromLobby(db, lobbyID, winnerUserID); err != nil {
+		log.Printf("match settlement failed for lobby %s: %v", lobbyID, err)
+		return
+	}
+	if _, err := lobbyStore.FinishLobby(lobbyID); err != nil {
+		log.Printf("finish lobby failed for %s: %v", lobbyID, err)
+	}
+}
+
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("❌ invalid config: %v", err)
+	}
 	gin.SetMode(cfg.GinMode)
 
 	if err := database.Init(cfg); err != nil {
 		log.Fatalf("❌ database init failed: %v", err)
 	}
 
-	lobbyStore := realtime.NewHub()
+	db := database.DB()
+	lobbyStore := realtime.NewHub(db)
+
 	blackjackManager := blackjack.NewManager()
-	blackjackManager.SetOnMatchOver(func(lobbyID string) {
-		_, _ = lobbyStore.FinishLobby(lobbyID)
+	go blackjackManager.CleanupLoop()
+	blackjackManager.SetOnMatchOver(func(lobbyID string, winnerUserID uint) {
+		winner := winnerUserID
+		settleLobbyMatch(lobbyStore, lobbyID, &winner)
 	})
+
+	pvpManager := pvp.NewManager()
+	pvpManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
 	authHandler := handlers.AuthHandler{Cfg: cfg}
 	userHandler := handlers.UserHandler{}
 	walletHandler := handlers.WalletHandler{}
 	lobbyHandler := handlers.LobbyHandler{Hub: lobbyStore}
+	matchHandler := handlers.MatchHandler{Hub: lobbyStore}
+	leaderboardHandler := handlers.LeaderboardHandler{}
+
 	blackjackWSHandler := handlers.BlackjackWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
 		Manager:    blackjackManager,
 	}
+
+	plinkoWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "plinko_pvp"}
+	paperWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "paper_io"}
+	raceWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "street_race"}
+	towerWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "tower_stack"}
+
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
+
 	router.GET("/ws/blackjack/:lobby_id", blackjackWSHandler.Connect)
+	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
+	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
+	router.GET("/ws/street-race/:lobby_id", raceWSHandler.Connect)
+	router.GET("/ws/tower-stack/:lobby_id", towerWSHandler.Connect)
 
 	router.GET("/health", func(c *gin.Context) {
+		if err := database.Ping(); err != nil {
+			c.JSON(503, gin.H{
+				"status":   "degraded",
+				"app":      "tg-lobbies-base",
+				"database": "down",
+			})
+			return
+		}
+
 		c.JSON(200, gin.H{
 			"status":   "ok",
 			"app":      "tg-lobbies-base",
@@ -51,9 +100,11 @@ func main() {
 	{
 		auth := api.Group("/auth")
 		{
-			auth.POST("/telegram", authHandler.TelegramAuth)
+			auth.POST("/telegram", middleware.RateLimit(20, time.Minute), authHandler.TelegramAuth)
 			auth.GET("/me", middleware.AuthRequired(cfg), authHandler.Me)
 		}
+
+		api.GET("/leaderboard", middleware.AuthRequired(cfg), leaderboardHandler.List)
 
 		users := api.Group("/users")
 		users.Use(middleware.AuthRequired(cfg))
@@ -75,18 +126,24 @@ func main() {
 			lobbies.POST("/leave", lobbyHandler.Leave)
 		}
 
+		matches := api.Group("/matches")
+		matches.Use(middleware.AuthRequired(cfg))
+		{
+			matches.POST("/finish", matchHandler.Finish)
+		}
+
 		wallet := api.Group("/wallet")
 		wallet.Use(middleware.AuthRequired(cfg))
 		{
-			wallet.POST("/topup-quote", walletHandler.TopUpQuote)
-			wallet.POST("/exchange-ton-to-game", walletHandler.ExchangeTONToGame)
+			wallet.POST("/topup-quote", middleware.RateLimit(60, time.Minute), walletHandler.TopUpQuote)
+			wallet.POST("/exchange-ton-to-game", middleware.RateLimit(30, time.Minute), walletHandler.ExchangeTONToGame)
 		}
 
-		// Только локально/для теста. В проде выключить ALLOW_DEV_AUTH=false и GIN_MODE=release.
 		if cfg.GinMode != "release" && cfg.AllowDevAuth {
 			dev := api.Group("/dev")
 			dev.Use(middleware.AuthRequired(cfg))
 			{
+				dev.POST("/grant-game", walletHandler.DevGrantGame)
 				dev.POST("/add-ton", walletHandler.DevAddTON)
 			}
 		}
