@@ -1,6 +1,9 @@
 package realtime
 
-import "time"
+import (
+	"time"
+	"tg-lobbies-base/internal/games/catalog"
+)
 
 const (
 	LobbyStatusWaiting  = "waiting"
@@ -13,21 +16,13 @@ type GameInfo struct {
 	DisplayName string `json:"display_name"`
 }
 
-var SupportedGames = []GameInfo{
-	{Code: "plinko_pvp", DisplayName: "Plinko PvP"},
-	{Code: "descent_duel", DisplayName: "Descent Duel"},
-	{Code: "paper_io", DisplayName: "Paper IO"},
-	{Code: "tower_stack", DisplayName: "Tower Stack"},
-	{Code: "crash_duel", DisplayName: "Crash Duel"},
-	{Code: "virus_market", DisplayName: "Virus Market"},
-	{Code: "rps_duel", DisplayName: "RPS Duel"},
-	{Code: "grid_lock", DisplayName: "Grid Lock"},
-	{Code: "blackjack_duel", DisplayName: "Blackjack Duel"},
-	{Code: "dice_duel", DisplayName: "Dice Duel"},
-	{Code: "neon_matrix", DisplayName: "Neon Matrix"},
-	{Code: "street_race", DisplayName: "Street Race"},
-	{Code: "air_hockey", DisplayName: "Air Hockey"},
-}
+var SupportedGames = func() []GameInfo {
+	out := make([]GameInfo, len(catalog.PvpGames))
+	for i, g := range catalog.PvpGames {
+		out[i] = GameInfo{Code: g.Code, DisplayName: g.DisplayName}
+	}
+	return out
+}()
 
 const LobbyMaxPlayers = 2
 

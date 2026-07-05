@@ -5,6 +5,7 @@ import (
 	"log"
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/models"
+	"tg-lobbies-base/internal/services"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -32,11 +33,16 @@ func Init(cfg *config.Config) error {
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
 		&models.SoloSession{},
+		&models.GameSetting{},
+		&models.AdminAuditLog{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
 	db = conn
+	if err := services.SeedGameSettingsIfEmpty(conn); err != nil {
+		return fmt.Errorf("seed game settings: %w", err)
+	}
 	log.Println("✅ PostgreSQL connected and migrated")
 	return nil
 }

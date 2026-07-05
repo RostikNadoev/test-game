@@ -23,6 +23,11 @@ type User struct {
 	BalanceTON  float64 `gorm:"not null;default:0" json:"balance_ton"`
 	BalanceGame float64 `gorm:"not null;default:0" json:"balance_game"`
 
+	IsBlocked       bool       `gorm:"not null;default:false;index" json:"is_blocked"`
+	BlockedReason   string     `json:"blocked_reason,omitempty"`
+	BlockedAt       *time.Time `json:"blocked_at,omitempty"`
+	BlockedByAdmin  string     `json:"blocked_by_admin,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Stats     UserStats `gorm:"constraint:OnDelete:CASCADE" json:"stats"`
@@ -163,4 +168,30 @@ type UserSoloStats struct {
 	LastPlayedAt    *time.Time `json:"last_played_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type GameSetting struct {
+	Code                string    `gorm:"primaryKey" json:"code"`
+	Kind                string    `gorm:"index;not null" json:"kind"`
+	Enabled             bool      `gorm:"not null;default:true;index" json:"enabled"`
+	Title               string    `gorm:"not null" json:"title"`
+	MinBet              float64   `gorm:"not null;default:1" json:"min_bet"`
+	MaxBet              float64   `gorm:"not null;default:500" json:"max_bet"`
+	MaintenanceMessage  string    `json:"maintenance_message,omitempty"`
+	SortOrder           int       `gorm:"not null;default:0" json:"sort_order"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type AdminAuditLog struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	AdminUsername  string    `gorm:"index;not null" json:"admin_username"`
+	Action         string    `gorm:"index;not null" json:"action"`
+	TargetType     string    `gorm:"index" json:"target_type,omitempty"`
+	TargetID       string    `gorm:"index" json:"target_id,omitempty"`
+	Reason         string    `json:"reason,omitempty"`
+	BeforeJSON     string    `gorm:"type:jsonb;not null;default:'{}'" json:"before_json"`
+	AfterJSON      string    `gorm:"type:jsonb;not null;default:'{}'" json:"after_json"`
+	IP             string    `json:"ip,omitempty"`
+	CreatedAt      time.Time `gorm:"index" json:"created_at"`
 }

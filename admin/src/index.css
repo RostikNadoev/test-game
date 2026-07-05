@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply m-0 min-h-screen bg-slate-950 text-slate-100 antialiased;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+.card {
+  @apply rounded-xl border border-slate-800 bg-card p-4 shadow-lg;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
+}
+
+.btn-primary {
+  @apply btn bg-sky-500 text-slate-950 hover:bg-sky-400;
+}
+
+.btn-secondary {
+  @apply btn border border-slate-700 bg-slate-800 hover:bg-slate-700;
+}
+
+.btn-danger {
+  @apply btn bg-rose-600 text-white hover:bg-rose-500;
+}
+
+.input {
+  @apply w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none ring-sky-500 focus:ring-2;
+}
+
+.table {
+  @apply w-full text-left text-sm;
+}
+
+.table th {
+  @apply border-b border-slate-800 px-3 py-2 font-medium text-slate-400;
+}
+
+.table td {
+  @apply border-b border-slate-900 px-3 py-2;
+}
+
+.badge {
+  @apply inline-flex rounded-full px-2 py-0.5 text-xs font-medium;
+}
+
+.badge-green {
+  @apply badge bg-emerald-500/20 text-emerald-300;
+}
+
+.badge-red {
+  @apply badge bg-rose-500/20 text-rose-300;
+}
+
+.badge-amber {
+  @apply badge bg-amber-500/20 text-amber-300;
+}

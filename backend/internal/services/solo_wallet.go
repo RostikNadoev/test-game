@@ -68,11 +68,14 @@ func buildSoloSessionResult(session models.SoloSession, balance float64, stats S
 }
 
 func SoloSpin(db *gorm.DB, userID uint, game string, bet float64, idempotencyKey string) (*SoloSpinResult, error) {
-	game = solo.NormalizeGame(game)
-	if err := solo.ValidateBet(game, bet); err != nil {
+	if err := EnsureUserNotBlocked(db, userID); err != nil {
 		return nil, err
 	}
-	if !solo.IsInstant(game) {
+	game = solo.NormalizeGame(game)
+	if err := ValidateSoloBet(game, bet); err != nil {
+		return nil, err
+	}
+	if !IsSoloInstant(game) {
 		return nil, solo.ErrUnsupportedGame
 	}
 
@@ -192,11 +195,14 @@ func SoloSpin(db *gorm.DB, userID uint, game string, bet float64, idempotencyKey
 }
 
 func StartSoloSession(db *gorm.DB, userID uint, game string, bet float64) (*SoloSessionResult, error) {
-	game = solo.NormalizeGame(game)
-	if err := solo.ValidateBet(game, bet); err != nil {
+	if err := EnsureUserNotBlocked(db, userID); err != nil {
 		return nil, err
 	}
-	if !solo.IsSession(game) {
+	game = solo.NormalizeGame(game)
+	if err := ValidateSoloBet(game, bet); err != nil {
+		return nil, err
+	}
+	if !IsSoloSession(game) {
 		return nil, solo.ErrUnsupportedGame
 	}
 

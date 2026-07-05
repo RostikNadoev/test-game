@@ -21,6 +21,9 @@ func TestSoloSpinHandlerAcceptsJSONBody(t *testing.T) {
 	db := testdb.Open(t)
 	database.SetTestDB(db)
 	t.Cleanup(database.ResetTestDB)
+	if err := services.ReloadGameSettingsCache(db); err != nil {
+		t.Fatalf("reload game settings: %v", err)
+	}
 
 	user := testdb.SeedUser(t, db, 1, 100)
 	cfg := &config.Config{JWTSecret: "test-secret", JWTTTLHours: 24}

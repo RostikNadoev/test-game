@@ -1,22 +1,20 @@
 package middleware
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"tg-lobbies-base/internal/config"
-	"tg-lobbies-base/internal/database"
 	"tg-lobbies-base/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
 
-const UserIDKey = "user_id"
+const AdminUsernameKey = "admin_username"
 
-func CORS(cfg *config.Config) gin.HandlerFunc {
-	allowed := make(map[string]bool, len(cfg.CORSAllowOrigins))
+func AdminCORS(cfg *config.Config) gin.HandlerFunc {
+	allowed := make(map[string]bool, len(cfg.AdminAllowedOrigins))
 	allowAll := false
-	for _, origin := range cfg.CORSAllowOrigins {
+	for _, origin := range cfg.AdminAllowedOrigins {
 		if origin == "*" {
 			allowAll = true
 		}
@@ -44,49 +42,38 @@ func CORS(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-func AuthRequired(cfg *config.Config) gin.HandlerFunc {
+func AdminRequired(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if cfg == nil || !cfg.AdminEnabled {
+			c.JSON(http.StatusNotFound, gin.H{"error": "admin panel disabled"})
+			c.Abort()
+			return
+		}
+
 		token := BearerToken(c.GetHeader("Authorization"))
 		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization bearer token required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "admin authorization required"})
 			c.Abort()
 			return
 		}
 
-		userID, err := services.ParseJWT(token, cfg)
+		username, err := services.ParseAdminJWT(token, cfg)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid admin token"})
 			c.Abort()
 			return
 		}
 
-		c.Set(UserIDKey, userID)
-
-		if err := services.EnsureUserNotBlocked(database.DB(), userID); err != nil {
-			if errors.Is(err, services.ErrUserBlocked) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "account blocked"})
-				c.Abort()
-				return
-			}
-		}
-
+		c.Set(AdminUsernameKey, username)
 		c.Next()
 	}
 }
 
-func BearerToken(header string) string {
-	parts := strings.Fields(header)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-		return parts[1]
-	}
-	return ""
-}
-
-func UserID(c *gin.Context) uint {
-	v, ok := c.Get(UserIDKey)
+func AdminUsername(c *gin.Context) string {
+	v, ok := c.Get(AdminUsernameKey)
 	if !ok {
-		return 0
+		return ""
 	}
-	id, _ := v.(uint)
-	return id
+	name, _ := v.(string)
+	return strings.TrimSpace(name)
 }

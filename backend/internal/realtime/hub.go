@@ -194,6 +194,27 @@ func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float6
 		return nil, errors.New("bet_coins must be greater than 0")
 	}
 
+	if !services.IsPvpGameSupported(game) {
+		return nil, errors.New("game is disabled")
+	}
+	if setting, ok := services.GetGameSetting(game); ok {
+		if betCoins < setting.MinBet-1e-9 || betCoins > setting.MaxBet+1e-9 {
+			return nil, errors.New("invalid bet amount")
+		}
+		if setting.MaintenanceMessage != "" {
+			return nil, errors.New(setting.MaintenanceMessage)
+		}
+	}
+
+	if h.db != nil {
+		if err := services.EnsureUserNotBlocked(h.db, userID); err != nil {
+			if errors.Is(err, services.ErrUserBlocked) {
+				return nil, errors.New("account blocked")
+			}
+			return nil, err
+		}
+	}
+
 	now := time.Now().UTC()
 	lobbyID := randomID()
 
@@ -261,6 +282,14 @@ func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
 
 	if userID == 0 {
 		return nil, errors.New("bad user")
+	}
+	if h.db != nil {
+		if err := services.EnsureUserNotBlocked(h.db, userID); err != nil {
+			if errors.Is(err, services.ErrUserBlocked) {
+				return nil, errors.New("account blocked")
+			}
+			return nil, err
+		}
 	}
 	if h.userInActiveLobbyLocked(userID) {
 		return nil, errors.New("user already has active lobby")

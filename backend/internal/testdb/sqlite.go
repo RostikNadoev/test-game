@@ -3,6 +3,7 @@ package testdb
 import (
 	"testing"
 
+	"tg-lobbies-base/internal/games/catalog"
 	"tg-lobbies-base/internal/models"
 
 	"gorm.io/driver/sqlite"
@@ -29,8 +30,13 @@ func Open(t *testing.T) *gorm.DB {
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
 		&models.SoloSession{},
+		&models.GameSetting{},
+		&models.AdminAuditLog{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	if err := catalog.SeedGameSettingsIfEmpty(db); err != nil {
+		t.Fatalf("seed game settings: %v", err)
 	}
 
 	return db

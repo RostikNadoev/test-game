@@ -174,6 +174,31 @@ func main() {
 		}
 	}
 
+	if cfg.AdminEnabled {
+		adminHandler := handlers.AdminHandler{Cfg: cfg, Hub: lobbyStore}
+		adminAPI := router.Group("/api/v1/admin")
+		adminAPI.Use(middleware.AdminCORS(cfg))
+		{
+			adminAPI.POST("/auth/login", adminHandler.Login)
+			protected := adminAPI.Group("")
+			protected.Use(middleware.AdminRequired(cfg))
+			{
+				protected.GET("/auth/me", adminHandler.Me)
+				protected.GET("/dashboard", adminHandler.Dashboard)
+				protected.GET("/users", adminHandler.ListUsers)
+				protected.GET("/users/:id", adminHandler.GetUser)
+				protected.POST("/users/:id/block", adminHandler.BlockUser)
+				protected.POST("/users/:id/unblock", adminHandler.UnblockUser)
+				protected.POST("/users/:id/wallet/adjust", adminHandler.AdjustWallet)
+				protected.GET("/sessions", adminHandler.ListSessions)
+				protected.POST("/sessions/solo/:id/abandon", adminHandler.AbandonSoloSession)
+				protected.GET("/games", adminHandler.ListGames)
+				protected.PATCH("/games/:code", adminHandler.PatchGame)
+				protected.GET("/audit", adminHandler.ListAudit)
+			}
+		}
+	}
+
 	log.Printf("🚀 backend server started on :%s", cfg.Port)
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("❌ server failed: %v", err)

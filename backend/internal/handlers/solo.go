@@ -35,7 +35,7 @@ func soloResponse(c *gin.Context, balance float64, stats services.SoloStatsDTO, 
 }
 
 func (SoloHandler) Games(c *gin.Context) {
-	games := solo.ListGames()
+	games := services.ListEnabledSoloGames()
 	c.JSON(http.StatusOK, gin.H{"games": games, "count": len(games)})
 }
 
