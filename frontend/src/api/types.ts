@@ -188,3 +188,74 @@ export type LeaderboardResponse = {
   players: LeaderboardEntry[];
   count: number;
 };
+
+export type SoloGameInfo = {
+  code: string;
+  title: string;
+  mode: 'instant' | 'session';
+  min_bet: number;
+  max_bet: number;
+};
+
+export type SoloStats = {
+  total_spins: number;
+  total_wagered: number;
+  total_won: number;
+  biggest_win: number;
+  favorite_solo_game: string;
+  last_played_at?: string | null;
+};
+
+export type SoloGamesResponse = {
+  games: SoloGameInfo[];
+  count: number;
+};
+
+export type SoloStatsResponse = {
+  solo_stats: SoloStats;
+};
+
+export type SoloSpinResponse = {
+  success: boolean;
+  round_id: string;
+  game: string;
+  bet_coins: number;
+  payout_coins: number;
+  net_coins: number;
+  outcome: unknown;
+  balance: { game: number };
+  solo_stats: SoloStats;
+};
+
+export type SoloSessionStartResponse = {
+  success: boolean;
+  session_id: string;
+  game: string;
+  bet_coins: number;
+  status: string;
+  multiplier: number;
+  opened_steps: number;
+  balance: { game: number };
+  solo_stats: SoloStats;
+};
+
+export type SoloSessionStepResponse = SoloSessionStartResponse & {
+  event?: unknown;
+  payout_coins?: number;
+};
+
+export type SoloCashoutResponse = SoloSessionStepResponse;
+
+export type SoloHistoryRound = {
+  id: string;
+  game: string;
+  bet_coins: number;
+  payout_coins: number;
+  net_coins: number;
+  created_at: string;
+};
+
+export type SoloHistoryResponse = {
+  rounds: SoloHistoryRound[];
+  count: number;
+};

@@ -20,11 +20,14 @@ func Open(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.UserStats{},
+		&models.UserSoloStats{},
 		&models.WalletTransaction{},
 		&models.BetReservation{},
 		&models.Match{},
 		&models.LobbyRecord{},
 		&models.LobbyPlayerRecord{},
+		&models.SoloRound{},
+		&models.SoloSession{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

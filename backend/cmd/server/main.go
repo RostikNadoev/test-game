@@ -58,6 +58,17 @@ func main() {
 	lobbyHandler := handlers.LobbyHandler{Hub: lobbyStore}
 	matchHandler := handlers.MatchHandler{Hub: lobbyStore}
 	leaderboardHandler := handlers.LeaderboardHandler{}
+	soloHandler := handlers.SoloHandler{}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := services.ExpireStaleSoloSessions(db, 30*time.Minute); err != nil {
+				log.Printf("solo session cleanup failed: %v", err)
+			}
+		}
+	}()
 
 	blackjackWSHandler := handlers.BlackjackWSHandler{
 		Cfg:        cfg,
@@ -130,6 +141,18 @@ func main() {
 		matches.Use(middleware.AuthRequired(cfg))
 		{
 			matches.POST("/finish", matchHandler.Finish)
+		}
+
+		solo := api.Group("/solo")
+		solo.Use(middleware.AuthRequired(cfg))
+		{
+			solo.GET("/games", soloHandler.Games)
+			solo.GET("/stats", soloHandler.Stats)
+			solo.GET("/history", soloHandler.History)
+			solo.POST("/spin", middleware.RateLimit(30, time.Minute), soloHandler.Spin)
+			solo.POST("/sessions", middleware.RateLimit(30, time.Minute), soloHandler.StartSession)
+			solo.POST("/sessions/:id/step", middleware.RateLimit(120, time.Minute), soloHandler.SessionStep)
+			solo.POST("/sessions/:id/cashout", middleware.RateLimit(60, time.Minute), soloHandler.CashoutSession)
 		}
 
 		wallet := api.Group("/wallet")

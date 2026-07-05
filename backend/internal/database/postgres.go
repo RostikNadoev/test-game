@@ -23,11 +23,14 @@ func Init(cfg *config.Config) error {
 	if err := conn.AutoMigrate(
 		&models.User{},
 		&models.UserStats{},
+		&models.UserSoloStats{},
 		&models.WalletTransaction{},
 		&models.BetReservation{},
 		&models.Match{},
 		&models.LobbyRecord{},
 		&models.LobbyPlayerRecord{},
+		&models.SoloRound{},
+		&models.SoloSession{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

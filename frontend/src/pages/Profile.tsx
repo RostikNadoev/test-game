@@ -7,11 +7,15 @@ import {
   Gem,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Swords,
   TrendingUp,
   Trophy,
   UserRound,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { soloApi } from '../api/solo';
+import type { SoloStats } from '../api/types';
 import { useAuth } from '../auth/useAuth';
 
 const formatNumber = (value: number) =>
@@ -37,6 +41,12 @@ const getInitials = (name?: string) => {
 
 export const Profile = () => {
   const { user, isLoading, error, refreshProfile } = useAuth();
+  const [soloStats, setSoloStats] = useState<SoloStats | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    void soloApi.stats().then((response) => setSoloStats(response.solo_stats)).catch(() => setSoloStats(null));
+  }, [user]);
 
   if (isLoading) {
     return (
@@ -167,6 +177,30 @@ export const Profile = () => {
             <h3 className="favorite-mode-title">{favoriteMode}</h3>
             <p className="favorite-mode-text">Любимый режим появится после накопления активности в играх.</p>
           </div>
+        </div>
+      </section>
+
+      <section className="minimal-panel page-reveal">
+        <div className="minimal-section-head">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="minimal-head-icon"><Sparkles size={16} /></div>
+            <div className="min-w-0"><h2>Solo-игры</h2><p className="favorite-subtitle">Статистика отдельно от PvP рейтинга</p></div>
+          </div>
+        </div>
+        <div className="profile-stats-grid">
+          {[
+            { label: 'Спинов', value: soloStats ? String(soloStats.total_spins) : '—' },
+            { label: 'Ставок всего', value: soloStats ? `${soloStats.total_wagered} GAME` : '—' },
+            { label: 'Выиграно', value: soloStats ? `${soloStats.total_won} GAME` : '—' },
+            { label: 'Лучший выигрыш', value: soloStats ? `${soloStats.biggest_win} GAME` : '—' },
+            { label: 'Любимая solo', value: soloStats?.favorite_solo_game || '—' },
+            { label: 'Последняя игра', value: soloStats?.last_played_at ? formatDate(soloStats.last_played_at) : '—' },
+          ].map((item) => (
+            <div key={item.label} className="profile-stat-card">
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
         </div>
       </section>
     </main>

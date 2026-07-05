@@ -749,6 +749,199 @@ Blackjack — authoritative game server. Остальные WS-игры испо
 
 ---
 
+## Solo games API
+
+Server-authoritative solo games: instant spins and session-based risk games. Все операции списывают/начисляют `balance_game`. Solo-статистика отдельна от PvP `rating`.
+
+### GET `/api/v1/solo/games`
+
+Headers:
+
+```txt
+Authorization: Bearer <jwt>
+```
+
+Response 200:
+
+```json
+{
+  "games": [
+    {
+      "code": "neon_scratch",
+      "title": "Neon Scratch",
+      "mode": "instant",
+      "min_bet": 1,
+      "max_bet": 500
+    }
+  ],
+  "count": 5
+}
+```
+
+Коды игр: `neon_scratch`, `fruit_cascade` (instant); `royal_5x5`, `crystal_mines`, `turbo_tower` (session).
+
+### POST `/api/v1/solo/spin`
+
+Instant-игры. Атомарно: debit → server RNG → credit → `SoloRound` + solo stats.
+
+Body:
+
+```json
+{
+  "game": "neon_scratch",
+  "bet_coins": 10,
+  "idempotency_key": "optional-client-key"
+}
+```
+
+Header (альтернатива): `Idempotency-Key: <key>`
+
+Response 200:
+
+```json
+{
+  "success": true,
+  "round_id": "abc123",
+  "game": "neon_scratch",
+  "bet_coins": 10,
+  "payout_coins": 13,
+  "net_coins": 3,
+  "outcome": {},
+  "balance": { "game": 103 },
+  "solo_stats": {
+    "total_spins": 1,
+    "total_wagered": 10,
+    "total_won": 13,
+    "biggest_win": 13,
+    "favorite_solo_game": "neon_scratch",
+    "last_played_at": "2026-07-05T00:00:00Z"
+  }
+}
+```
+
+Errors:
+
+```json
+{ "error": "insufficient balance" }
+{ "error": "invalid bet amount" }
+{ "error": "unsupported solo game" }
+```
+
+### POST `/api/v1/solo/sessions`
+
+Старт session-игры. Списывает ставку сразу. Один active session на `(user, game)`.
+
+Body:
+
+```json
+{
+  "game": "royal_5x5",
+  "bet_coins": 10
+}
+```
+
+Response 200:
+
+```json
+{
+  "success": true,
+  "session_id": "def456",
+  "game": "royal_5x5",
+  "bet_coins": 10,
+  "status": "active",
+  "multiplier": 1,
+  "opened_steps": 0,
+  "balance": { "game": 90 },
+  "solo_stats": {}
+}
+```
+
+Errors:
+
+```json
+{ "error": "active solo session already exists" }
+```
+
+### POST `/api/v1/solo/sessions/:id/step`
+
+Body:
+
+```json
+{
+  "action": "pick",
+  "payload": { "row": 0, "col": 2 }
+}
+```
+
+Payload по играм:
+
+| Game | payload |
+|------|---------|
+| `royal_5x5` | `{ "row": 0..6, "col": 0..4 }` |
+| `crystal_mines` | `{ "cell_index": 0..24 }` |
+| `turbo_tower` | `{ "floor": 0..7, "door": 0..2 }` |
+
+Response 200 — поля как у start + `event`, при settle также `payout_coins`. `event.status`: `playing` | `bust` | `completed`.
+
+### POST `/api/v1/solo/sessions/:id/cashout`
+
+Без body. Доступен после хотя бы одного safe pick.
+
+Response 200:
+
+```json
+{
+  "success": true,
+  "session_id": "def456",
+  "status": "cashed_out",
+  "payout_coins": 11,
+  "balance": { "game": 101 },
+  "solo_stats": {}
+}
+```
+
+### GET `/api/v1/solo/stats`
+
+Response 200:
+
+```json
+{
+  "solo_stats": {
+    "total_spins": 12,
+    "total_wagered": 120,
+    "total_won": 98,
+    "biggest_win": 45,
+    "favorite_solo_game": "fruit_cascade",
+    "last_played_at": "2026-07-05T00:00:00Z"
+  }
+}
+```
+
+### GET `/api/v1/solo/history?game=neon_scratch&limit=20`
+
+Response 200:
+
+```json
+{
+  "rounds": [
+    {
+      "id": "...",
+      "game": "neon_scratch",
+      "bet_coins": 10,
+      "payout_coins": 0,
+      "net_coins": -10,
+      "outcome_json": "{}",
+      "created_at": "..."
+    }
+  ],
+  "count": 1
+}
+```
+
+> Abandoned active sessions старше 30 минут автоматически expire с refund ставки (`solo_refund`).
+
+---
+
 ## Проверочный сценарий для фронта
 
 1. Открыть Mini App из Telegram.

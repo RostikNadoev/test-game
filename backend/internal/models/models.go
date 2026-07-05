@@ -104,3 +104,54 @@ type LobbyPlayerRecord struct {
 	UserID    uint      `gorm:"index;not null;uniqueIndex:idx_lobby_player" json:"user_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+const (
+	SoloRoundStatusSettled = "settled"
+
+	SoloSessionStatusActive    = "active"
+	SoloSessionStatusCashedOut = "cashed_out"
+	SoloSessionStatusBust      = "bust"
+	SoloSessionStatusCompleted = "completed"
+	SoloSessionStatusExpired   = "expired"
+)
+
+type SoloRound struct {
+	ID             string    `gorm:"primaryKey" json:"id"`
+	UserID         uint      `gorm:"index;not null" json:"user_id"`
+	Game           string    `gorm:"index;not null" json:"game"`
+	BetCoins       float64   `gorm:"not null" json:"bet_coins"`
+	PayoutCoins    float64   `gorm:"not null" json:"payout_coins"`
+	NetCoins       float64   `gorm:"not null" json:"net_coins"`
+	OutcomeJSON    string    `gorm:"type:jsonb;not null;default:'{}'" json:"outcome"`
+	IdempotencyKey *string   `gorm:"uniqueIndex" json:"idempotency_key,omitempty"`
+	Status         string    `gorm:"index;not null;default:'settled'" json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type SoloSession struct {
+	ID                 string     `gorm:"primaryKey" json:"id"`
+	UserID             uint       `gorm:"index;not null" json:"user_id"`
+	Game               string     `gorm:"index;not null" json:"game"`
+	BetCoins           float64    `gorm:"not null" json:"bet_coins"`
+	Status             string     `gorm:"index;not null;default:'active'" json:"status"`
+	StateJSON          string     `gorm:"type:jsonb;not null;default:'{}'" json:"state"`
+	CurrentMultiplier  float64    `gorm:"not null;default:1" json:"current_multiplier"`
+	OpenedSteps        int        `gorm:"not null;default:0" json:"opened_steps"`
+	PayoutCoins        float64    `gorm:"not null;default:0" json:"payout_coins"`
+	SettledAt          *time.Time `json:"settled_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type UserSoloStats struct {
+	ID              uint       `gorm:"primaryKey" json:"id"`
+	UserID          uint       `gorm:"uniqueIndex;not null" json:"user_id"`
+	TotalSpins      int        `gorm:"not null;default:0" json:"total_spins"`
+	TotalWagered    float64    `gorm:"not null;default:0" json:"total_wagered"`
+	TotalWon        float64    `gorm:"not null;default:0" json:"total_won"`
+	BiggestWin      float64    `gorm:"not null;default:0" json:"biggest_win"`
+	FavoriteSoloGame string    `gorm:"not null;default:'none'" json:"favorite_solo_game"`
+	LastPlayedAt    *time.Time `json:"last_played_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
+import { useSoloSession } from '../../hooks/useSoloSession';
+import { useSoloWallet } from '../../hooks/useSoloWallet';
 
 import trailImg from '../../assets/solo/apples/trail.webp';
 import logoImg from '../../assets/solo/apples/logo.webp';
@@ -43,9 +46,6 @@ const formatMoney = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 
 const makeCellKey = (row: number, col: number) => `${row}:${col}`;
-
-const makeBombs = () =>
-  Array.from({ length: ROWS }, () => Math.floor(Math.random() * COLS));
 
 const getCashoutMultiplier = (openedRows: number) => {
   if (openedRows <= 0) return 1;
@@ -1547,7 +1547,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
           <h3>Ставка</h3>
           <p>
             Текущая ставка: {formatMoney(bet)}. Значение вводится целым числом. Сейчас кнопка
-            запуска не привязана к беку и не списывает баланс.
+            Сейчас ставка списывается через solo API, исход определяет сервер.
           </p>
         </section>
       </div>
@@ -1590,12 +1590,14 @@ const FinalOverlay = ({
 };
 
 export const Royal5x5SoloGame = () => {
+  const { balance, canAfford, error: walletError, setError: setWalletError } = useSoloWallet();
+  const session = useSoloSession('royal_5x5');
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [phase, setPhase] = useState<GamePhase>('idle');
   const [bet, setBet] = useState(1);
   const [betInput, setBetInput] = useState('1');
-  const [bombs, setBombs] = useState<number[]>(() => makeBombs());
+  const [bombs, setBombs] = useState<number[]>(() => Array.from({ length: ROWS }, () => -1));
   const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
   const [pickedByRow, setPickedByRow] = useState<Array<number | null>>(() =>
     Array.from({ length: ROWS }, () => null),
@@ -1618,8 +1620,8 @@ export const Royal5x5SoloGame = () => {
   const cashMultiplier = getCashoutMultiplier(currentRow);
   const nextMultiplier = phase === 'playing' ? MULTIPLIERS[currentRow] ?? cashMultiplier : cashMultiplier;
   const cashoutValue = roundMoney(bet * cashMultiplier);
-  const canCashout = phase === 'playing' && currentRow > 0 && !isRevealingAll;
-  const canStart = phase !== 'playing' && !isRevealingAll;
+  const canCashout = phase === 'playing' && currentRow > 0 && !isRevealingAll && !session.loading;
+  const canStart = phase !== 'playing' && !isRevealingAll && !session.loading;
 
   const haptic = useCallback((kind: 'tap' | 'start' | 'apple' | 'bomb' | 'cash' | 'win') => {
     const tgHaptics = getTelegramHaptics();
@@ -1765,7 +1767,7 @@ export const Royal5x5SoloGame = () => {
   const resetRound = useCallback(() => {
     revealRunRef.current += 1;
 
-    setBombs(makeBombs());
+    setBombs(Array.from({ length: ROWS }, () => -1));
     setRevealed(new Set());
     setPickedByRow(Array.from({ length: ROWS }, () => null));
     setCurrentRow(0);
@@ -1774,14 +1776,25 @@ export const Royal5x5SoloGame = () => {
     setIsRevealingAll(false);
   }, []);
 
-  const startRound = () => {
+  const startRound = async () => {
     if (!canStart) return;
+    if (!canAfford(bet)) {
+      setWalletError('insufficient balance');
+      return;
+    }
 
     haptic('start');
     playSound('start');
 
     resetRound();
-    setPhase('playing');
+    session.reset();
+
+    try {
+      await session.start(bet);
+      setPhase('playing');
+    } catch {
+      // error in session.error
+    }
   };
 
   const endRound = useCallback(
@@ -1814,69 +1827,80 @@ export const Royal5x5SoloGame = () => {
     [haptic, playSound, revealAllByRows],
   );
 
-  const pickTile = (row: number, col: number) => {
+  const pickTile = async (row: number, col: number) => {
     if (phase !== 'playing') return;
-    if (isRevealingAll) return;
+    if (isRevealingAll || session.loading) return;
     if (row !== currentRow) return;
 
     const key = makeCellKey(row, col);
 
     if (revealed.has(key)) return;
 
-    const isBomb = bombs[row] === col;
+    try {
+      const response = await session.step('pick', { row, col });
+      const event = response.event as {
+        safe: boolean;
+        status: string;
+        bombs?: number[];
+        payout?: number;
+        current_row?: number;
+      };
 
-    setRevealed((prev) => {
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
+      setRevealed((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
 
-    setPickedByRow((prev) => {
-      const next = [...prev];
-      next[row] = col;
-      return next;
-    });
+      setPickedByRow((prev) => {
+        const next = [...prev];
+        next[row] = col;
+        return next;
+      });
 
-    if (isBomb) {
-      haptic('bomb');
-      playSound('bomb');
+      if (event.bombs?.length) {
+        setBombs(event.bombs);
+      }
+
+      if (!event.safe || event.status === 'bust') {
+        haptic('bomb');
+        playSound('bomb');
+        window.setTimeout(() => {
+          void endRound('lost', response.payout_coins ?? 0, row);
+        }, 760);
+        return;
+      }
+
+      haptic('apple');
+      playSound('apple');
+
+      if (event.status === 'completed') {
+        window.setTimeout(() => {
+          void endRound('completed', response.payout_coins ?? 0, row + 1);
+        }, 760);
+        return;
+      }
 
       window.setTimeout(() => {
-        void endRound('lost', 0, currentRow);
-      }, 760);
-
-      return;
+        setCurrentRow(event.current_row ?? row + 1);
+      }, 430);
+    } catch {
+      // session error shown elsewhere
     }
-
-    haptic('apple');
-    playSound('apple');
-
-    const nextRow = row + 1;
-
-    if (nextRow >= ROWS) {
-      const win = roundMoney(bet * MULTIPLIERS[ROWS - 1]);
-
-      window.setTimeout(() => {
-        void endRound('completed', win, nextRow);
-      }, 760);
-
-      return;
-    }
-
-    window.setTimeout(() => {
-      setCurrentRow(nextRow);
-    }, 430);
   };
 
-  const cashout = () => {
+  const cashout = async () => {
     if (!canCashout) return;
-
-    const win = roundMoney(bet * cashMultiplier);
 
     haptic('cash');
     playSound('cash');
 
-    void endRound('cashed', win, currentRow);
+    try {
+      const response = await session.cashout();
+      void endRound('cashed', response.payout_coins ?? 0, currentRow);
+    } catch {
+      // handled
+    }
   };
 
   const handleBetInput = (value: string) => {
@@ -1994,6 +2018,8 @@ export const Royal5x5SoloGame = () => {
             {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
           </button>
         </div>
+
+        <SoloBalanceBar balance={balance} error={session.error ?? walletError} />
 
         <div className="at-main-layout">
           <section className="at-board-shell">

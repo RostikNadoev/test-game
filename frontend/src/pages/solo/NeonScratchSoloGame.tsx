@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
+import { useSoloWallet } from '../../hooks/useSoloWallet';
 
 import loadingCardImg from '../../assets/solo/scratch/loading-card.webp';
 import titleImg from '../../assets/solo/scratch/title.webp';
@@ -195,10 +197,6 @@ const PRIZES: PrizeDef[] = [
   },
 ];
 
-const WEIGHT_TABLE = PRIZES.flatMap((prize) =>
-  Array.from({ length: prize.weight }, () => prize),
-);
-
 let cardSeq = 1;
 
 const getTelegramHaptics = () =>
@@ -219,13 +217,35 @@ const sanitizeBetInput = (value: string) => {
   return onlyDigits.replace(/^0+(\d)/, '$1');
 };
 
-const pickPrize = () => WEIGHT_TABLE[Math.floor(Math.random() * WEIGHT_TABLE.length)];
+type ServerScratchOutcome = {
+  cards: Array<{
+    index: number;
+    prize: { id: string; label: string; multiplier: number; icon: ScratchIconKey };
+  }>;
+  total_multiplier: number;
+  total_win: number;
+};
 
-const makeCards = (): ScratchCardData[] =>
-  Array.from({ length: CARD_COUNT }, (_, index) => ({
+const prizeFromServer = (prize: ServerScratchOutcome['cards'][number]['prize']): PrizeDef => {
+  const found = PRIZES.find((item) => item.id === prize.id);
+  if (found) return found;
+  return {
+    id: prize.id,
+    label: prize.label,
+    multiplier: prize.multiplier,
+    weight: 0,
+    icon: prize.icon,
+    tone: '#768194',
+    glow: 'rgba(141, 151, 171, .20)',
+    text: 'rgba(231, 238, 255, .72)',
+  };
+};
+
+const cardsFromOutcome = (outcome: ServerScratchOutcome): ScratchCardData[] =>
+  outcome.cards.map((card, index) => ({
     id: cardSeq++,
-    index,
-    prize: pickPrize(),
+    index: card.index ?? index,
+    prize: prizeFromServer(card.prize),
   }));
 
 const drawRoundedRect = (
@@ -2036,8 +2056,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         <section>
           <h3>Ставка</h3>
           <p>
-            Текущая ставка: {formatMoney(bet)}. Сейчас механика локальная, без списания баланса и
-            без подключения к беку.
+            Текущая ставка: {formatMoney(bet)}. Выигрыш и списание идут через серверный solo API.
           </p>
         </section>
       </div>
@@ -2079,6 +2098,7 @@ const FinalOverlay = ({
 };
 
 export const NeonScratchSoloGame = () => {
+  const { balance, spin, loading: walletLoading, error: walletError, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [phase, setPhase] = useState<GamePhase>('idle');
@@ -2089,6 +2109,8 @@ export const NeonScratchSoloGame = () => {
   const [muted, setMuted] = useState(() => localStorage.getItem('neon-scratch-muted') === '1');
   const [showInfo, setShowInfo] = useState(false);
   const [showFinal, setShowFinal] = useState(false);
+  const [serverWin, setServerWin] = useState(0);
+  const [serverMult, setServerMult] = useState(0);
 
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
@@ -2110,7 +2132,8 @@ export const NeonScratchSoloGame = () => {
     cards.reduce((sum, card) => sum + card.prize.multiplier, 0),
   );
 
-  const totalWin = roundMoney(bet * totalMultiplier);
+  const totalWin = serverWin > 0 ? serverWin : roundMoney(bet * totalMultiplier);
+  const displayMult = serverMult > 0 ? serverMult : totalMultiplier;
   const isPlaying = phase === 'scratching';
 
   const haptic = useCallback((kind: 'tap' | 'start' | 'scratch' | 'card' | 'win') => {
@@ -2212,7 +2235,11 @@ export const NeonScratchSoloGame = () => {
   }, []);
 
   const startRound = async () => {
-    if (isPlaying) return;
+    if (isPlaying || walletLoading) return;
+    if (!canAfford(bet)) {
+      setError('insufficient balance');
+      return;
+    }
 
     haptic('start');
     playSound('start');
@@ -2221,12 +2248,23 @@ export const NeonScratchSoloGame = () => {
     setPhase('idle');
     setRevealedIds(new Set());
     setCards([]);
+    setServerWin(0);
+    setServerMult(0);
 
-    await waitFrame();
-    await sleep(80);
+    try {
+      const response = await spin('neon_scratch', bet);
+      const outcome = response.outcome as ServerScratchOutcome;
+      setServerWin(response.payout_coins);
+      setServerMult(outcome.total_multiplier ?? 0);
 
-    setCards(makeCards());
-    setPhase('scratching');
+      await waitFrame();
+      await sleep(80);
+
+      setCards(cardsFromOutcome(outcome));
+      setPhase('scratching');
+    } catch {
+      // error surfaced via walletError
+    }
   };
 
   const handleCardReveal = useCallback(
@@ -2377,6 +2415,8 @@ export const NeonScratchSoloGame = () => {
           </button>
         </div>
 
+        <SoloBalanceBar balance={balance} error={walletError} />
+
         <main className="ns-board-area">
           <section className="ns-cards">
             {cards.length > 0 ? (
@@ -2464,7 +2504,7 @@ export const NeonScratchSoloGame = () => {
         </footer>
       </div>
 
-      {showFinal && <FinalOverlay win={totalWin} totalMultiplier={totalMultiplier} />}
+      {showFinal && <FinalOverlay win={totalWin} totalMultiplier={displayMult} />}
 
       {showInfo && <InfoModal bet={bet} onClose={() => setShowInfo(false)} />}
     </div>

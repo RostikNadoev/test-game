@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
+import { useSoloWallet } from '../../hooks/useSoloWallet';
 
 import cherryImg from '../../assets/solo/fruit/cherry.webp';
 import lemonImg from '../../assets/solo/fruit/lemon.webp';
@@ -18,7 +20,6 @@ const COLS = 6;
 const ROWS = 5;
 const CELL_COUNT = COLS * ROWS;
 const MIN_CLUSTER = 5;
-const MAX_CASCADES = 10;
 
 const DROP_MS = 510;
 const HIGHLIGHT_MS = 220;
@@ -110,7 +111,6 @@ let toastSeq = 1;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 const randomSym = () => WEIGHT_TABLE[Math.floor(Math.random() * WEIGHT_TABLE.length)];
-const boardIndex = (row: number, col: number) => row * COLS + col;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 const formatMoney = (value: number) =>
@@ -128,6 +128,33 @@ const makeCell = (phase: CellPhase = 'idle', delay = 0, drop = 0): Cell => ({
   rot: Math.round((Math.random() - 0.5) * 10),
 });
 
+const boardFromSymbols = (symbols: SymbolId[], phase: CellPhase = 'idle'): Cell[] =>
+  symbols.map((sym, index) => {
+    const row = Math.floor(index / COLS);
+    const col = index % COLS;
+    return {
+      id: cellSeq++,
+      sym,
+      phase,
+      delay: col * 16 + row * 22,
+      drop: phase === 'drop' ? row + 2 : 0,
+      rot: 0,
+    };
+  });
+
+type ServerFruitOutcome = {
+  initial_board: SymbolId[];
+  steps: Array<{
+    cascade: number;
+    winning: number[];
+    step_win: number;
+    next_board: SymbolId[];
+    total_win: number;
+  }>;
+  total_win: number;
+  big_tier?: string;
+};
+
 const makeBoard = (phase: CellPhase = 'idle'): Cell[] =>
   Array.from({ length: CELL_COUNT }, (_, index) => {
     const row = Math.floor(index / COLS);
@@ -135,94 +162,6 @@ const makeBoard = (phase: CellPhase = 'idle'): Cell[] =>
 
     return makeCell(phase, col * 16 + row * 22, phase === 'drop' ? row + 2 : 0);
   });
-
-const injectStarterCluster = (board: Cell[], chance = 0.42) => {
-  if (Math.random() > chance) return board;
-
-  const next = board.map((cell) => ({ ...cell }));
-  const symPool: SymbolId[] = ['cherry', 'lemon', 'orange', 'grape', 'strawberry'];
-  const sym = symPool[Math.floor(Math.random() * symPool.length)];
-  const startRow = Math.floor(Math.random() * (ROWS - 1));
-  const startCol = Math.floor(Math.random() * (COLS - 2));
-
-  const shape = [
-    [0, 0],
-    [0, 1],
-    [1, 0],
-    [1, 1],
-    [Math.random() > 0.5 ? 0 : 1, 2],
-  ];
-
-  shape.forEach(([dr, dc]) => {
-    const index = boardIndex(startRow + dr, startCol + dc);
-    next[index] = { ...next[index], sym };
-  });
-
-  return next;
-};
-
-const findClusters = (board: Cell[]) => {
-  const result: number[][] = [];
-  const usedKeys = new Set<string>();
-
-  SYMBOL_ORDER.filter((sym) => sym !== 'wild').forEach((targetSym) => {
-    const visited = new Array<boolean>(CELL_COUNT).fill(false);
-
-    for (let row = 0; row < ROWS; row += 1) {
-      for (let col = 0; col < COLS; col += 1) {
-        const start = boardIndex(row, col);
-
-        if (visited[start]) continue;
-        if (board[start].sym !== targetSym && board[start].sym !== 'wild') continue;
-
-        const stack = [start];
-        const group: number[] = [];
-
-        visited[start] = true;
-
-        while (stack.length > 0) {
-          const current = stack.pop()!;
-          group.push(current);
-
-          const currentRow = Math.floor(current / COLS);
-          const currentCol = current % COLS;
-
-          const neighbors = [
-            [currentRow - 1, currentCol],
-            [currentRow + 1, currentCol],
-            [currentRow, currentCol - 1],
-            [currentRow, currentCol + 1],
-          ];
-
-          neighbors.forEach(([nextRow, nextCol]) => {
-            if (nextRow < 0 || nextRow >= ROWS || nextCol < 0 || nextCol >= COLS) return;
-
-            const nextIndex = boardIndex(nextRow, nextCol);
-
-            if (visited[nextIndex]) return;
-            if (board[nextIndex].sym !== targetSym && board[nextIndex].sym !== 'wild') return;
-
-            visited[nextIndex] = true;
-            stack.push(nextIndex);
-          });
-        }
-
-        const realSymbols = group.filter((index) => board[index].sym === targetSym).length;
-
-        if (group.length >= MIN_CLUSTER && realSymbols > 0) {
-          const key = [...group].sort((a, b) => a - b).join('-');
-
-          if (!usedKeys.has(key)) {
-            usedKeys.add(key);
-            result.push(group);
-          }
-        }
-      }
-    }
-  });
-
-  return result;
-};
 
 const SymbolIcon = memo(
   ({
@@ -1506,6 +1445,8 @@ const cellStyle = (cell: Cell): CSSProperties =>
   }) as CSSProperties;
 
 export const FruitCascadeSoloGame = () => {
+  const { balance, spin: soloSpin, loading: walletLoading, error: walletError, canAfford, setError } =
+    useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadPct, setLoadPct] = useState(0);
   const [board, setBoard] = useState<Cell[]>(() => makeBoard());
@@ -1672,47 +1613,15 @@ export const FruitCascadeSoloGame = () => {
     }, 860);
   }, []);
 
-  const collapseBoard = useCallback((current: Cell[], winning: Set<number>) => {
-    const next: Cell[] = new Array<Cell>(CELL_COUNT);
-
-    for (let col = 0; col < COLS; col += 1) {
-      const survivors: Array<{ cell: Cell; row: number }> = [];
-
-      for (let row = ROWS - 1; row >= 0; row -= 1) {
-        const currentIndex = boardIndex(row, col);
-
-        if (!winning.has(currentIndex)) {
-          survivors.push({ cell: current[currentIndex], row });
-        }
-      }
-
-      let writeRow = ROWS - 1;
-
-      survivors.forEach(({ cell, row }) => {
-        const distance = Math.max(0, writeRow - row);
-
-        next[boardIndex(writeRow, col)] = {
-          ...cell,
-          phase: distance > 0 ? 'drop' : 'idle',
-          drop: distance,
-          delay: distance > 0 ? col * 11 + (ROWS - writeRow) * 8 : 0,
-        };
-
-        writeRow -= 1;
-      });
-
-      for (let row = writeRow; row >= 0; row -= 1) {
-        next[boardIndex(row, col)] = makeCell('drop', col * 11 + row * 18, row + 2);
-      }
+  const spin = useCallback(async () => {
+    if (spinningRef.current || walletLoading) return;
+    if (!canAfford(bet)) {
+      setError('insufficient balance');
+      return;
     }
 
-    return next;
-  }, []);
-
-  const spin = useCallback(async () => {
-    if (spinningRef.current) return;
-
     setSpinning(true);
+    spinningRef.current = true;
     setBigTier(null);
     setMultiplier(1);
     setWinCells(new Set());
@@ -1724,82 +1633,15 @@ export const FruitCascadeSoloGame = () => {
     haptic('spin');
     playSound('spin');
 
-    const freshBoard = injectStarterCluster(makeBoard('drop'));
+    try {
+      const response = await soloSpin('fruit_cascade', bet);
+      const outcome = response.outcome as ServerFruitOutcome;
 
-    setBoard(freshBoard);
-    await sleep(DROP_MS + 65);
+      const freshBoard = boardFromSymbols(outcome.initial_board, 'drop');
+      setBoard(freshBoard);
+      await sleep(DROP_MS + 65);
 
-    let current = freshBoard.map((cell) => ({
-      ...cell,
-      phase: 'idle' as CellPhase,
-      delay: 0,
-      drop: 0,
-    }));
-
-    setBoard(current);
-    await sleep(50);
-
-    let totalWin = 0;
-    let cascade = 0;
-
-    while (cascade < MAX_CASCADES) {
-      const clusters = findClusters(current);
-
-      if (clusters.length === 0) break;
-
-      cascade += 1;
-      setMultiplier(cascade);
-
-      const winning = new Set<number>();
-      let stepWin = 0;
-
-      clusters.forEach((group) => {
-        const baseIndex = group.find((index) => current[index].sym !== 'wild') ?? group[0];
-        const baseSym = current[baseIndex].sym === 'wild' ? 'wild' : current[baseIndex].sym;
-        const wildCount = group.filter((index) => current[index].sym === 'wild').length;
-        const sizeBoost = 1 + Math.max(0, group.length - MIN_CLUSTER) * 0.42;
-        const wildBoost = 1 + wildCount * 0.24;
-
-        stepWin += SYMBOLS[baseSym].pay * group.length * sizeBoost * wildBoost * (bet / 10) * cascade;
-
-        group.forEach((index) => winning.add(index));
-      });
-
-      stepWin = roundMoney(stepWin);
-      totalWin = roundMoney(totalWin + stepWin);
-
-      setWinCells(winning);
-      setBoard(current.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'win' } : cell)));
-
-      haptic('win');
-      playSound('win');
-      pushToast(stepWin);
-      setWinValue(totalWin);
-      animateWinNumber(totalWin);
-
-      await sleep(HIGHLIGHT_MS);
-
-      setBoard((prev) =>
-        prev.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'pop' } : cell)),
-      );
-
-      setBoardFlash(true);
-      haptic('pop');
-      playSound('pop');
-
-      window.setTimeout(() => setBoardFlash(false), 230);
-
-      await sleep(POP_MS);
-
-      const next = collapseBoard(current, winning);
-
-      setWinCells(new Set());
-      setBoard(next);
-      playSound('drop');
-
-      await sleep(DROP_MS + 18);
-
-      current = next.map((cell) => ({
+      let current = freshBoard.map((cell) => ({
         ...cell,
         phase: 'idle' as CellPhase,
         delay: 0,
@@ -1807,29 +1649,86 @@ export const FruitCascadeSoloGame = () => {
       }));
 
       setBoard(current);
+      await sleep(50);
 
-      await sleep(AFTER_DROP_MS);
-    }
+      let totalWin = outcome.total_win ?? response.payout_coins;
 
-    if (totalWin > 0) {
-      const ratio = totalWin / bet;
-      const tier: BigTier = ratio >= 14 ? 'epic' : ratio >= 7 ? 'mega' : ratio >= 3 ? 'big' : null;
+      for (const step of outcome.steps ?? []) {
+        setMultiplier(step.cascade);
+        const winning = new Set(step.winning);
 
-      if (tier) {
-        setBigAmount(totalWin);
-        setBigTier(tier);
-        haptic('big');
-        playSound('big');
+        setWinCells(winning);
+        setBoard(current.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'win' } : cell)));
 
-        await sleep(tier === 'epic' ? 2200 : tier === 'mega' ? 1950 : 1650);
+        haptic('win');
+        playSound('win');
+        pushToast(step.step_win);
+        totalWin = step.total_win;
+        setWinValue(totalWin);
+        animateWinNumber(totalWin);
 
-        setBigTier(null);
+        await sleep(HIGHLIGHT_MS);
+
+        setBoard((prev) =>
+          prev.map((cell, index) => (winning.has(index) ? { ...cell, phase: 'pop' } : cell)),
+        );
+
+        setBoardFlash(true);
+        haptic('pop');
+        playSound('pop');
+        window.setTimeout(() => setBoardFlash(false), 230);
+
+        await sleep(POP_MS);
+
+        current = boardFromSymbols(step.next_board, 'drop');
+        setWinCells(new Set());
+        setBoard(current);
+        playSound('drop');
+
+        await sleep(DROP_MS + 18);
+
+        current = current.map((cell) => ({
+          ...cell,
+          phase: 'idle' as CellPhase,
+          delay: 0,
+          drop: 0,
+        }));
+
+        setBoard(current);
+        await sleep(AFTER_DROP_MS);
       }
+
+      if (totalWin > 0) {
+        const ratio = totalWin / bet;
+        const tier: BigTier = ratio >= 14 ? 'epic' : ratio >= 7 ? 'mega' : ratio >= 3 ? 'big' : null;
+
+        if (tier) {
+          setBigAmount(totalWin);
+          setBigTier(tier);
+          haptic('big');
+          playSound('big');
+          await sleep(tier === 'epic' ? 2200 : tier === 'mega' ? 1950 : 1650);
+          setBigTier(null);
+        }
+      }
+    } catch {
+      // wallet error shown in bar
     }
 
     setMultiplier(1);
     setSpinning(false);
-  }, [animateWinNumber, bet, collapseBoard, haptic, playSound, pushToast]);
+    spinningRef.current = false;
+  }, [
+    animateWinNumber,
+    bet,
+    canAfford,
+    haptic,
+    playSound,
+    pushToast,
+    setError,
+    soloSpin,
+    walletLoading,
+  ]);
 
   useEffect(() => {
     document.documentElement.classList.add('fruit-cascade-active');
@@ -1918,6 +1817,8 @@ export const FruitCascadeSoloGame = () => {
       <StyleBlock />
 
       <div className="fc-content">
+        <SoloBalanceBar balance={balance} error={walletError} />
+
         <div className="fc-top">
           <button
             type="button"
