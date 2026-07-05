@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getTelegramWebApp } from "../types/telegram";
 import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
+import { MatchFinishStatus } from "../components/Match/MatchFinishStatus";
 
 /* =========================================================================
    GRIDLOCK / QUORIDOR — app-style version
@@ -283,7 +284,7 @@ export const GridLockGame: React.FC = () => {
   const [turn, setTurn] = useState<PlayerId>("p1");
   const [left, setLeft] = useState<Record<PlayerId, number>>({ p1: WALLS, p2: WALLS });
   const [winner, setWinner] = useState<PlayerId | null>(null);
-  const finishLobbyMatch = useLobbyMatchFinish("grid_lock");
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish("grid_lock");
 
   useEffect(() => {
     if (!winner) return;
@@ -667,6 +668,7 @@ export const GridLockGame: React.FC = () => {
       className="gl-root relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden text-white"
       onContextMenu={(e) => e.preventDefault()}
     >
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .gl-root {
           background: transparent;

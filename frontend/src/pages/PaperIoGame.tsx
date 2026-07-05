@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getTelegramWebApp } from "../types/telegram";
 import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
+import { MatchFinishStatus } from "../components/Match/MatchFinishStatus";
 
 /* =========================================================================
    PAPER IO — mobile / Telegram mini app
@@ -465,7 +466,7 @@ export const PaperIoGame = () => {
   const [kills, setKills] = useState(0);
   const [didWin, setDidWin] = useState(false);
   const [timeLeft, setTimeLeft] = useState(DURATION);
-  const finishLobbyMatch = useLobbyMatchFinish("paper_io");
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish("paper_io");
 
   useEffect(() => {
     if (phase !== "over") return;
@@ -833,6 +834,7 @@ export const PaperIoGame = () => {
   /* ----------------------------- UI ----------------------------- */
   return (
     <div className="paperio-root">
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .paperio-root {
           position: relative;

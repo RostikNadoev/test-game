@@ -10,7 +10,7 @@
 4. Backend валидирует Telegram initData по `TELEGRAM_BOT_TOKEN`.
 5. Backend возвращает JWT.
 6. Все REST-запросы идут с `Authorization: Bearer <jwt>`.
-7. Лобби работают через REST. WebSocket для лобби больше не используется.
+7. Лобби работают через REST. WebSocket используется только для in-game синхронизации отдельных PvP режимов, не для REST-лобби CRUD.
 
 ## Base URL
 
@@ -208,18 +208,12 @@ Request:
 }
 ```
 
-Response 200:
+Response 503 (temporary):
 
 ```json
 {
-  "success": true,
-  "rate": "1 GAME = 0.1 TON",
-  "coins": 5,
-  "spent_ton": 0.5,
-  "balance_game": 8,
-  "balance": {
-    "game": 8
-  }
+  "error": "exchange temporarily disabled",
+  "details": "payment provider is not configured yet"
 }
 ```
 
@@ -229,7 +223,7 @@ Errors:
 { "error": "coins amount must be >= 1" }
 ```
 
-> MVP: TON не списывается с баланса, endpoint начисляет GAME для тестов.
+> Exchange is temporarily disabled until an external payment provider confirms TON transfers. Use `POST /api/v1/dev/grant-game` only in local/dev environments.
 
 ---
 
@@ -644,9 +638,11 @@ Errors:
 
 ---
 
-## Завершение матча (client-authoritative игры)
+## Завершение матча (dual confirmation)
 
 ### POST `/api/v1/matches/finish`
+
+Каждый игрок отправляет свой результат. Settlement происходит только после **двух согласованных голосов** по одному `lobby_id`.
 
 Headers:
 
@@ -665,9 +661,19 @@ Request:
 }
 ```
 
-`winner_user_id: null` — ничья (обе ставки возвращаются).
+`winner_user_id: null` — голос за ничью.
 
-Response 200:
+Response 202 (первый игрок, ждем подтверждение):
+
+```json
+{
+  "success": true,
+  "pending": true,
+  "message": "waiting for opponent confirmation"
+}
+```
+
+Response 200 (после согласованного settlement):
 
 ```json
 {
@@ -696,9 +702,13 @@ Errors:
 { "error": "game mismatch" }
 { "error": "winner is not in lobby" }
 { "error": "match not found" }
+{ "error": "invalid match state" }
 ```
 
+> Если игроки отправили разные `winner_user_id`, матч завершится как draw/refund.
 > Blackjack (`blackjack_duel`) завершается автоматически на сервере через WS callback.
+> Игры с WS backend: `blackjack_duel`, `plinko_pvp`, `paper_io`, `street_race`, `tower_stack`.
+> Остальные PvP режимы завершаются client-side и подтверждаются через `POST /api/v1/matches/finish`.
 
 ---
 
@@ -745,7 +755,7 @@ GET /ws/tower-stack/:lobby_id?token=<jwt>
 
 После join лобби в `playing` фронт может взять `ws_url` из ответа REST.
 
-Blackjack — authoritative game server. Остальные WS-игры используют координатор (start/relay/finish); settlement всё равно через escrow + `matches/finish` или WS finish event.
+Blackjack — authoritative game server. Остальные WS-игры используют координатор (start/relay/finish). PvP payout settlement требует согласованные голоса обоих игроков через `POST /api/v1/matches/finish`; одиночный client-side winner claim больше не засчитывается.
 
 ---
 
@@ -851,10 +861,17 @@ Response 200:
   "status": "active",
   "multiplier": 1,
   "opened_steps": 0,
+  "public_state": {
+    "current_row": 0,
+    "opened_rows": 0,
+    "picked_by_row": [-1, -1, -1, -1, -1, -1, -1]
+  },
   "balance": { "game": 90 },
   "solo_stats": {}
 }
 ```
+
+`public_state` содержит только безопасные для клиента поля (без скрытых мин/бомб/ловушек) и используется для resume UI.
 
 Errors:
 
@@ -939,6 +956,24 @@ Response 200:
 ```
 
 > Abandoned active sessions старше 30 минут автоматически expire с refund ставки (`solo_refund`).
+
+### GET `/api/v1/solo/sessions/active?game=crystal_mines`
+
+Возвращает активную session пользователя для указанной игры. Используется фронтом для resume после refresh.
+
+Response 200 — поля как у `POST /api/v1/solo/sessions`, включая `public_state` для resume UI (без скрытых мин/бомб/ловушек).
+
+Errors:
+
+```json
+{ "error": "solo session not found" }
+```
+
+### POST `/api/v1/solo/sessions/:id/abandon`
+
+Завершает active session вручную и возвращает ставку (`solo_refund`).
+
+Response 200 — поля как у cashout, `status: "expired"`.
 
 ---
 

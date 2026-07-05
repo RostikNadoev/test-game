@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +23,35 @@ type Hub struct {
 	db      *gorm.DB
 }
 
+type lobbySnapshot struct {
+	status    string
+	updatedAt time.Time
+	players   map[uint]bool
+}
+
+var createMatchFn = services.CreateMatch
+
+func snapshotLobby(lobby *Lobby) lobbySnapshot {
+	players := make(map[uint]bool, len(lobby.Players))
+	for id, ok := range lobby.Players {
+		players[id] = ok
+	}
+	return lobbySnapshot{
+		status:    lobby.Status,
+		updatedAt: lobby.UpdatedAt,
+		players:   players,
+	}
+}
+
+func restoreLobby(lobby *Lobby, snap lobbySnapshot) {
+	lobby.Status = snap.status
+	lobby.UpdatedAt = snap.updatedAt
+	lobby.Players = make(map[uint]bool, len(snap.players))
+	for id, ok := range snap.players {
+		lobby.Players[id] = ok
+	}
+}
+
 func NewHub(db *gorm.DB) *Hub {
 	h := &Hub{
 		lobbies: make(map[string]*Lobby),
@@ -28,7 +59,10 @@ func NewHub(db *gorm.DB) *Hub {
 	}
 
 	if db != nil {
-		if lobbies, err := loadActiveLobbies(db); err == nil {
+		lobbies, err := loadActiveLobbies(db)
+		if err != nil {
+			log.Printf("failed to load active lobbies: %v", err)
+		} else {
 			for _, lobby := range lobbies {
 				h.lobbies[lobby.ID] = lobby
 			}
@@ -190,15 +224,30 @@ func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float6
 
 	if h.userInActiveLobbyLocked(userID) {
 		if h.db != nil {
-			_ = services.RefundBet(h.db, userID, lobbyID)
+			if err := services.RefundBet(h.db, userID, lobbyID); err != nil {
+				return nil, fmt.Errorf("refund bet after active lobby conflict: %w", err)
+			}
 		}
 		return nil, errors.New("user already has active lobby")
 	}
 
 	h.lobbies[lobby.ID] = lobby
 	if h.db != nil {
-		_ = saveLobbyRecord(h.db, lobby)
-		_ = saveLobbyPlayer(h.db, lobby.ID, userID)
+		if err := saveLobbyRecord(h.db, lobby); err != nil {
+			delete(h.lobbies, lobby.ID)
+			if refundErr := services.RefundBet(h.db, userID, lobbyID); refundErr != nil {
+				return nil, fmt.Errorf("save lobby failed (%v) and refund failed: %w", err, refundErr)
+			}
+			return nil, fmt.Errorf("save lobby record: %w", err)
+		}
+		if err := saveLobbyPlayer(h.db, lobby.ID, userID); err != nil {
+			delete(h.lobbies, lobby.ID)
+			_ = deleteLobbyRecord(h.db, lobby.ID)
+			if refundErr := services.RefundBet(h.db, userID, lobbyID); refundErr != nil {
+				return nil, fmt.Errorf("save lobby player failed (%v) and refund failed: %w", err, refundErr)
+			}
+			return nil, fmt.Errorf("save lobby player: %w", err)
+		}
 	}
 
 	return cloneLobby(lobby), nil
@@ -231,6 +280,8 @@ func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
 		return nil, errors.New("lobby is full")
 	}
 
+	snap := snapshotLobby(lobby)
+
 	if h.db != nil {
 		if err := services.ReserveBet(h.db, userID, lobbyID, lobby.BetCoins); err != nil {
 			if errors.Is(err, services.ErrInsufficientBalance) {
@@ -241,23 +292,45 @@ func (h *Hub) JoinLobby(userID uint, lobbyID string) (*Lobby, error) {
 	}
 
 	lobby.Players[userID] = true
-	startedMatch := false
-	if len(lobby.Players) >= lobby.MaxPlayers {
+	startedMatch := len(lobby.Players) >= lobby.MaxPlayers
+	if startedMatch {
 		lobby.Status = LobbyStatusPlaying
-		startedMatch = true
 	}
 	lobby.UpdatedAt = time.Now().UTC()
 
 	if h.db != nil {
-		_ = saveLobbyPlayer(h.db, lobby.ID, userID)
-		_ = saveLobbyRecord(h.db, lobby)
+		if err := saveLobbyPlayer(h.db, lobby.ID, userID); err != nil {
+			restoreLobby(lobby, snap)
+			if refundErr := services.RefundBet(h.db, userID, lobbyID); refundErr != nil {
+				return nil, fmt.Errorf("save lobby player failed (%v) and refund failed: %w", err, refundErr)
+			}
+			return nil, fmt.Errorf("save lobby player: %w", err)
+		}
+		if err := saveLobbyRecord(h.db, lobby); err != nil {
+			_ = deleteLobbyPlayer(h.db, lobby.ID, userID)
+			restoreLobby(lobby, snap)
+			if refundErr := services.RefundBet(h.db, userID, lobbyID); refundErr != nil {
+				return nil, fmt.Errorf("save lobby record failed (%v) and refund failed: %w", err, refundErr)
+			}
+			return nil, fmt.Errorf("save lobby record: %w", err)
+		}
 
 		if startedMatch {
 			playerIDs := make([]uint, 0, len(lobby.Players))
 			for id := range lobby.Players {
 				playerIDs = append(playerIDs, id)
 			}
-			_, _ = services.CreateMatch(h.db, lobby.ID, lobby.Game, lobby.BetCoins, playerIDs)
+			if _, err := createMatchFn(h.db, lobby.ID, lobby.Game, lobby.BetCoins, playerIDs); err != nil {
+				_ = deleteLobbyPlayer(h.db, lobby.ID, userID)
+				restoreLobby(lobby, snap)
+				if saveErr := saveLobbyRecord(h.db, lobby); saveErr != nil {
+					return nil, fmt.Errorf("create match failed (%v) and rollback save failed: %w", err, saveErr)
+				}
+				if refundErr := services.RefundBet(h.db, userID, lobbyID); refundErr != nil {
+					return nil, fmt.Errorf("create match failed (%v) and refund failed: %w", err, refundErr)
+				}
+				return nil, fmt.Errorf("create match: %w", err)
+			}
 		}
 	}
 
@@ -285,27 +358,39 @@ func (h *Hub) LeaveLobby(userID uint, lobbyID string) (*Lobby, bool, error) {
 		return nil, false, errors.New("cannot leave lobby while match is in progress")
 	}
 
+	snap := snapshotLobby(lobby)
+
 	if h.db != nil {
-		_ = services.RefundBet(h.db, userID, lobbyID)
+		if err := services.RefundBet(h.db, userID, lobbyID); err != nil {
+			return nil, false, fmt.Errorf("refund bet: %w", err)
+		}
 	}
 
 	delete(lobby.Players, userID)
-	if len(lobby.Players) == 0 {
-		delete(h.lobbies, lobby.ID)
-		if h.db != nil {
-			_ = deleteLobbyRecord(h.db, lobby.ID)
-		}
-		return nil, true, nil
-	}
-
-	if len(lobby.Players) < lobby.MaxPlayers && lobby.Status != LobbyStatusFinished {
+	lobbyEmpty := len(lobby.Players) == 0
+	if !lobbyEmpty && len(lobby.Players) < lobby.MaxPlayers && lobby.Status != LobbyStatusFinished {
 		lobby.Status = LobbyStatusWaiting
 	}
 	lobby.UpdatedAt = time.Now().UTC()
 
 	if h.db != nil {
-		_ = deleteLobbyPlayer(h.db, lobby.ID, userID)
-		_ = saveLobbyRecord(h.db, lobby)
+		if lobbyEmpty {
+			if err := deleteLobbyRecord(h.db, lobby.ID); err != nil {
+				restoreLobby(lobby, snap)
+				return nil, false, fmt.Errorf("delete lobby record: %w", err)
+			}
+			delete(h.lobbies, lobby.ID)
+			return nil, true, nil
+		}
+
+		if err := deleteLobbyPlayer(h.db, lobby.ID, userID); err != nil {
+			restoreLobby(lobby, snap)
+			return nil, false, fmt.Errorf("delete lobby player: %w", err)
+		}
+		if err := saveLobbyRecord(h.db, lobby); err != nil {
+			restoreLobby(lobby, snap)
+			return nil, false, fmt.Errorf("save lobby record: %w", err)
+		}
 	}
 
 	return cloneLobby(lobby), false, nil
@@ -418,12 +503,19 @@ func (h *Hub) FinishLobby(lobbyID string) (*Lobby, error) {
 		return nil, errors.New("lobby not found")
 	}
 
-	lobby.Status = LobbyStatusFinished
-	lobby.UpdatedAt = time.Now().UTC()
+	finishedAt := time.Now().UTC()
 
 	if h.db != nil {
-		_ = saveLobbyRecord(h.db, lobby)
+		persisted := cloneLobby(lobby)
+		persisted.Status = LobbyStatusFinished
+		persisted.UpdatedAt = finishedAt
+		if err := saveLobbyRecordFn(h.db, persisted); err != nil {
+			return nil, fmt.Errorf("save lobby record: %w", err)
+		}
 	}
+
+	lobby.Status = LobbyStatusFinished
+	lobby.UpdatedAt = finishedAt
 
 	return cloneLobby(lobby), nil
 }
@@ -450,9 +542,13 @@ func (h *Hub) cleanupFinished() {
 		if lobby.UpdatedAt.After(cutoff) {
 			continue
 		}
+		snap := cloneLobby(lobby)
 		delete(h.lobbies, id)
 		if h.db != nil {
-			_ = deleteLobbyRecord(h.db, id)
+			if err := deleteLobbyRecord(h.db, id); err != nil {
+				log.Printf("lobby cleanup failed for %s: %v", id, err)
+				h.lobbies[id] = snap
+			}
 		}
 	}
 }

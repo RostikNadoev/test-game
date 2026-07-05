@@ -86,6 +86,15 @@ type Match struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
+type MatchFinishVote struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	LobbyID      string    `gorm:"index;not null;uniqueIndex:idx_match_vote_lobby_user" json:"lobby_id"`
+	UserID       uint      `gorm:"index;not null;uniqueIndex:idx_match_vote_lobby_user" json:"user_id"`
+	WinnerUserID *uint     `gorm:"index" json:"winner_user_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type LobbyRecord struct {
 	ID         string    `gorm:"primaryKey" json:"id"`
 	Name       string    `gorm:"not null" json:"name"`
@@ -117,13 +126,13 @@ const (
 
 type SoloRound struct {
 	ID             string    `gorm:"primaryKey" json:"id"`
-	UserID         uint      `gorm:"index;not null" json:"user_id"`
+	UserID         uint      `gorm:"index;not null;uniqueIndex:idx_solo_round_user_idempotency,priority:1" json:"user_id"`
 	Game           string    `gorm:"index;not null" json:"game"`
 	BetCoins       float64   `gorm:"not null" json:"bet_coins"`
 	PayoutCoins    float64   `gorm:"not null" json:"payout_coins"`
 	NetCoins       float64   `gorm:"not null" json:"net_coins"`
 	OutcomeJSON    string    `gorm:"type:jsonb;not null;default:'{}'" json:"outcome"`
-	IdempotencyKey *string   `gorm:"uniqueIndex" json:"idempotency_key,omitempty"`
+	IdempotencyKey *string   `gorm:"uniqueIndex:idx_solo_round_user_idempotency,priority:2" json:"idempotency_key,omitempty"`
 	Status         string    `gorm:"index;not null;default:'settled'" json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
 }

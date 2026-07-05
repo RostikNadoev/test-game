@@ -149,10 +149,12 @@ func main() {
 			solo.GET("/games", soloHandler.Games)
 			solo.GET("/stats", soloHandler.Stats)
 			solo.GET("/history", soloHandler.History)
-			solo.POST("/spin", middleware.RateLimit(30, time.Minute), soloHandler.Spin)
-			solo.POST("/sessions", middleware.RateLimit(30, time.Minute), soloHandler.StartSession)
-			solo.POST("/sessions/:id/step", middleware.RateLimit(120, time.Minute), soloHandler.SessionStep)
-			solo.POST("/sessions/:id/cashout", middleware.RateLimit(60, time.Minute), soloHandler.CashoutSession)
+			solo.GET("/sessions/active", soloHandler.ActiveSession)
+			solo.POST("/spin", middleware.RateLimitByUser(30, time.Minute), soloHandler.Spin)
+			solo.POST("/sessions", middleware.RateLimitByUser(30, time.Minute), soloHandler.StartSession)
+			solo.POST("/sessions/:id/step", middleware.RateLimitByUser(120, time.Minute), soloHandler.SessionStep)
+			solo.POST("/sessions/:id/cashout", middleware.RateLimitByUser(60, time.Minute), soloHandler.CashoutSession)
+			solo.POST("/sessions/:id/abandon", middleware.RateLimitByUser(30, time.Minute), soloHandler.AbandonSession)
 		}
 
 		wallet := api.Group("/wallet")

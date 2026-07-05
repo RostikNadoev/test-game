@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 type Player = 'amber' | 'violet';
 type Phase = 'ready' | 'rolling' | 'decision' | 'rerolling' | 'reveal' | 'gameover';
@@ -152,7 +153,7 @@ export const DiceDuelGame: React.FC = () => {
 
   const total = useMemo(() => sumDice(activeDice), [activeDice]);
   const matchWinner = scores.amber >= TARGET_SCORE ? 'amber' : scores.violet >= TARGET_SCORE ? 'violet' : null;
-  const finishLobbyMatch = useLobbyMatchFinish('dice_duel');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('dice_duel');
 
   useEffect(() => {
     if (phase !== 'gameover' || !matchWinner) return;
@@ -384,6 +385,7 @@ export const DiceDuelGame: React.FC = () => {
 
   return (
     <div className="dd-page">
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .dd-page {
           position: relative;

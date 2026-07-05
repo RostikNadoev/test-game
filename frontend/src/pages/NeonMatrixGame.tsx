@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 type Player = 'cyan' | 'magenta';
 type Phase = 'pickCyan' | 'handoff' | 'pickMagenta' | 'spinning' | 'impact' | 'result' | 'gameover';
@@ -559,7 +560,7 @@ export const NeonMatrixGame: React.FC = () => {
   const canPick = phase === 'pickCyan' || phase === 'pickMagenta';
 
   const matchWinner: Player | null = health.cyan <= 0 ? 'magenta' : health.magenta <= 0 ? 'cyan' : null;
-  const finishLobbyMatch = useLobbyMatchFinish('neon_matrix');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('neon_matrix');
 
   useEffect(() => {
     if (phase !== 'gameover' || !matchWinner) return;
@@ -837,6 +838,7 @@ export const NeonMatrixGame: React.FC = () => {
 
   return (
     <div className={`rd-page rd-${phase}`}>
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .rd-page {
           --mint: #5BB7FF;

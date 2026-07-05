@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
+import type { Royal5x5PublicState } from '../../api/types';
 import { useSoloSession } from '../../hooks/useSoloSession';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
+import {
+  deriveRoyal5x5CurrentRow,
+  deriveRoyal5x5PickedByRow,
+  deriveRoyal5x5Revealed,
+  makeCellKey,
+  mergeRevealedSets,
+} from '../../utils/soloSessionState';
 
 import trailImg from '../../assets/solo/apples/trail.webp';
 import logoImg from '../../assets/solo/apples/logo.webp';
@@ -44,8 +52,6 @@ const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 const formatMoney = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
-
-const makeCellKey = (row: number, col: number) => `${row}:${col}`;
 
 const getCashoutMultiplier = (openedRows: number) => {
   if (openedRows <= 0) return 1;
@@ -1592,6 +1598,7 @@ const FinalOverlay = ({
 export const Royal5x5SoloGame = () => {
   const { balance, canAfford, error: walletError, setError: setWalletError } = useSoloWallet();
   const session = useSoloSession('royal_5x5');
+  const { markPublicStateHydrated, publicState, resumed, status, isSessionPlayable, openedSteps } = session;
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [phase, setPhase] = useState<GamePhase>('idle');
@@ -1617,11 +1624,51 @@ export const Royal5x5SoloGame = () => {
     mutedRef.current = muted;
   }, [muted]);
 
-  const cashMultiplier = getCashoutMultiplier(currentRow);
-  const nextMultiplier = phase === 'playing' ? MULTIPLIERS[currentRow] ?? cashMultiplier : cashMultiplier;
-  const cashoutValue = roundMoney(bet * cashMultiplier);
-  const canCashout = phase === 'playing' && currentRow > 0 && !isRevealingAll && !session.loading;
-  const canStart = phase !== 'playing' && !isRevealingAll && !session.loading;
+  const effectivePhase: GamePhase =
+    session.sessionId && status === 'active' && isSessionPlayable ? 'playing' : phase;
+  const effectiveBet =
+    session.sessionId && status === 'active' && session.betCoins > 0
+      ? session.betCoins
+      : bet;
+
+  const derivedPickedByRow = deriveRoyal5x5PickedByRow(
+    publicState as Royal5x5PublicState | null,
+    ROWS,
+  );
+  const derivedRevealed = deriveRoyal5x5Revealed(publicState as Royal5x5PublicState | null);
+  const derivedCurrentRow = deriveRoyal5x5CurrentRow(
+    publicState as Royal5x5PublicState | null,
+    currentRow,
+  );
+  const effectivePickedByRow = isSessionPlayable ? pickedByRow : derivedPickedByRow;
+  const effectiveRevealed = mergeRevealedSets(revealed, derivedRevealed);
+  const effectiveRow =
+    resumed && status === 'active' && !isSessionPlayable
+      ? derivedCurrentRow
+      : effectivePhase === 'playing'
+        ? currentRow
+        : openedSteps;
+
+  const cashMultiplier = getCashoutMultiplier(effectiveRow);
+  const nextMultiplier =
+    effectivePhase === 'playing' ? MULTIPLIERS[effectiveRow] ?? cashMultiplier : cashMultiplier;
+  const cashoutValue = roundMoney(effectiveBet * cashMultiplier);
+  const canCashout =
+    effectivePhase === 'playing' && effectiveRow > 0 && !isRevealingAll && !session.loading;
+  const canStart = effectivePhase !== 'playing' && !isRevealingAll && !session.loading;
+
+  useEffect(() => {
+    if (!resumed || status !== 'active') return;
+    const state = publicState as Royal5x5PublicState | null;
+    if (!state) return;
+    setPickedByRow(
+      state.picked_by_row.map((value) => (value >= 0 ? value : null)),
+    );
+    setRevealed(deriveRoyal5x5Revealed(state));
+    setCurrentRow(state.current_row);
+    setPhase('playing');
+    markPublicStateHydrated();
+  }, [markPublicStateHydrated, publicState, resumed, status]);
 
   const haptic = useCallback((kind: 'tap' | 'start' | 'apple' | 'bomb' | 'cash' | 'win') => {
     const tgHaptics = getTelegramHaptics();
@@ -1828,13 +1875,14 @@ export const Royal5x5SoloGame = () => {
   );
 
   const pickTile = async (row: number, col: number) => {
-    if (phase !== 'playing') return;
-    if (isRevealingAll || session.loading) return;
-    if (row !== currentRow) return;
+    if (effectivePhase !== 'playing') return;
+    if (isRevealingAll || session.loading || !isSessionPlayable) return;
+    if (row !== effectiveRow) return;
 
     const key = makeCellKey(row, col);
 
-    if (revealed.has(key)) return;
+    if (effectiveRevealed.has(key)) return;
+    if (effectivePickedByRow[row] !== null) return;
 
     try {
       const response = await session.step('pick', { row, col });
@@ -1904,7 +1952,7 @@ export const Royal5x5SoloGame = () => {
   };
 
   const handleBetInput = (value: string) => {
-    if (phase === 'playing' || isRevealingAll) return;
+    if (effectivePhase === 'playing' || isRevealingAll) return;
 
     const cleaned = sanitizeBetInput(value);
     setBetInput(cleaned);
@@ -1928,7 +1976,7 @@ export const Royal5x5SoloGame = () => {
   };
 
   const chooseQuickBet = (value: number) => {
-    if (phase === 'playing' || isRevealingAll) return;
+    if (effectivePhase === 'playing' || isRevealingAll) return;
 
     haptic('tap');
     playSound('tap');
@@ -2032,19 +2080,21 @@ export const Royal5x5SoloGame = () => {
                     <div className="at-row-cells">
                       {Array.from({ length: COLS }, (_, col) => {
                         const key = makeCellKey(row, col);
-                        const isRevealed = revealed.has(key);
+                        const isRevealed = effectiveRevealed.has(key);
                         const isBomb = bombs[row] === col;
-                        const isPicked = pickedByRow[row] === col;
+                        const isPicked = effectivePickedByRow[row] === col;
                         const isAvailable =
-                          phase === 'playing' &&
-                          row === currentRow &&
+                          effectivePhase === 'playing' &&
+                          row === effectiveRow &&
                           !isRevealed &&
-                          !isRevealingAll;
+                          effectivePickedByRow[row] === null &&
+                          !isRevealingAll &&
+                          isSessionPlayable;
                         const isLocked =
-                          phase === 'playing' && row !== currentRow && !isRevealed;
+                          effectivePhase === 'playing' && row !== effectiveRow && !isRevealed;
                         const shouldDim =
                           isRevealed &&
-                          phase !== 'playing' &&
+                          effectivePhase !== 'playing' &&
                           !isPicked &&
                           !(phase === 'lost' && isBomb);
 
@@ -2093,7 +2143,7 @@ export const Royal5x5SoloGame = () => {
               const row = ROWS - 1 - visualIndex;
               const multiplier = MULTIPLIERS[row];
               const isReached = row < currentRow;
-              const isActive = phase === 'playing' && row === currentRow;
+              const isActive = effectivePhase === 'playing' && row === effectiveRow;
 
               return (
                 <div
@@ -2115,7 +2165,7 @@ export const Royal5x5SoloGame = () => {
           <div className="at-result-card">
             <span className="at-result-label">Выигрыш</span>
             <strong className="at-result-value">
-              {phase === 'playing' ? formatMoney(cashoutValue) : formatMoney(lastWin)}
+              {effectivePhase === 'playing' ? formatMoney(cashoutValue) : formatMoney(lastWin)}
             </strong>
           </div>
 
@@ -2130,7 +2180,7 @@ export const Royal5x5SoloGame = () => {
             </button>
 
             <div className="at-current-mult">
-              Сейчас: <b>X{phase === 'playing' ? cashMultiplier : getCashoutMultiplier(currentRow)}</b>
+              Сейчас: <b>X{effectivePhase === 'playing' ? cashMultiplier : getCashoutMultiplier(effectiveRow)}</b>
               {' '} / Далее: <b>X{nextMultiplier}</b>
             </div>
           </div>
@@ -2144,7 +2194,7 @@ export const Royal5x5SoloGame = () => {
               <input
                 className="at-bet-input"
                 value={betInput}
-                disabled={phase === 'playing' || isRevealingAll}
+                disabled={effectivePhase === 'playing' || isRevealingAll}
                 onChange={(event) => handleBetInput(event.target.value)}
                 onBlur={commitBetInput}
                 inputMode="numeric"
@@ -2159,7 +2209,7 @@ export const Royal5x5SoloGame = () => {
                 key={value}
                 type="button"
                 className="at-bet-quick"
-                disabled={phase === 'playing' || isRevealingAll}
+                disabled={effectivePhase === 'playing' || isRevealingAll}
                 onClick={() => chooseQuickBet(value)}
               >
                 {value}
@@ -2176,9 +2226,9 @@ export const Royal5x5SoloGame = () => {
             >
               <span className="at-main-ring" />
               <span className="at-main-core">
-                <span className="at-main-title">{phase === 'playing' ? 'PLAY' : 'START'}</span>
+                <span className="at-main-title">{effectivePhase === 'playing' ? 'PLAY' : 'START'}</span>
                 <span className="at-main-subtitle">
-                  {phase === 'playing' ? 'Идёт раунд' : 'Начать'}
+                  {effectivePhase === 'playing' ? 'Идёт раунд' : 'Начать'}
                 </span>
               </span>
             </button>

@@ -15,11 +15,17 @@ import (
 const matchRakePercent = 0.05
 
 var (
-	ErrMatchNotFound      = errors.New("match not found")
+	ErrMatchNotFound       = errors.New("match not found")
 	ErrMatchAlreadySettled = errors.New("match already settled")
-	ErrBetNotFound        = errors.New("bet reservation not found")
-	ErrInvalidMatchState  = errors.New("invalid match state")
+	ErrBetNotFound         = errors.New("bet reservation not found")
+	ErrInvalidMatchState   = errors.New("invalid match state")
+	ErrMatchVotePending    = errors.New("waiting for opponent confirmation")
 )
+
+type MatchFinishSubmitResult struct {
+	Settled bool
+	Pending bool
+}
 
 func ReserveBet(db *gorm.DB, userID uint, lobbyID string, amount float64) error {
 	if userID == 0 || lobbyID == "" || amount <= 0 {
@@ -277,6 +283,102 @@ func SettleMatchFromLobby(db *gorm.DB, lobbyID string, winnerUserID *uint) error
 		return nil
 	}
 	return err
+}
+
+func winnerPtrEqual(a, b *uint) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func SubmitMatchFinishVote(db *gorm.DB, lobbyID string, userID uint, winnerUserID *uint) (*MatchFinishSubmitResult, error) {
+	var result MatchFinishSubmitResult
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var match models.Match
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("lobby_id = ?", lobbyID).
+			First(&match).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrMatchNotFound
+			}
+			return err
+		}
+
+		if match.Status == models.MatchStatusFinished && match.SettledAt != nil {
+			result.Settled = true
+			return nil
+		}
+
+		if userID != match.Player1ID && userID != match.Player2ID {
+			return ErrInvalidMatchState
+		}
+
+		if winnerUserID != nil && *winnerUserID != match.Player1ID && *winnerUserID != match.Player2ID {
+			return ErrInvalidMatchState
+		}
+
+		vote := models.MatchFinishVote{
+			LobbyID:      lobbyID,
+			UserID:       userID,
+			WinnerUserID: winnerUserID,
+		}
+		var existing models.MatchFinishVote
+		findErr := tx.Where("lobby_id = ? AND user_id = ?", lobbyID, userID).First(&existing).Error
+		if findErr == nil {
+			existing.WinnerUserID = winnerUserID
+			if err := tx.Save(&existing).Error; err != nil {
+				return err
+			}
+		} else if errors.Is(findErr, gorm.ErrRecordNotFound) {
+			if err := tx.Create(&vote).Error; err != nil {
+				return err
+			}
+		} else {
+			return findErr
+		}
+
+		var votes []models.MatchFinishVote
+		if err := tx.Where("lobby_id = ?", lobbyID).Find(&votes).Error; err != nil {
+			return err
+		}
+		if len(votes) < 2 {
+			result.Pending = true
+			return nil
+		}
+
+		agreedWinner := votes[0].WinnerUserID
+		for _, voteItem := range votes[1:] {
+			if !winnerPtrEqual(agreedWinner, voteItem.WinnerUserID) {
+				agreedWinner = nil
+				break
+			}
+		}
+
+		if _, err := SettleMatch(tx, lobbyID, agreedWinner); err != nil {
+			if errors.Is(err, ErrMatchAlreadySettled) {
+				result.Settled = true
+				return tx.Where("lobby_id = ?", lobbyID).Delete(&models.MatchFinishVote{}).Error
+			}
+			return err
+		}
+
+		if err := tx.Where("lobby_id = ?", lobbyID).Delete(&models.MatchFinishVote{}).Error; err != nil {
+			return err
+		}
+
+		result.Settled = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func refundReservedBetTx(tx *gorm.DB, userID uint, lobbyID string) error {

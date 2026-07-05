@@ -43,6 +43,12 @@ func (c *Config) Validate() error {
 	if c.GinMode == "release" && c.JWTSecret == "change_me" {
 		return fmt.Errorf("JWT_SECRET must be set in release mode")
 	}
+	if c.AllowDevAuth && c.GinMode == "release" {
+		return fmt.Errorf("ALLOW_DEV_AUTH cannot be enabled in release mode")
+	}
+	if c.AllowDevAuth && c.AppEnv != "local" && c.AppEnv != "docker" {
+		return fmt.Errorf("ALLOW_DEV_AUTH is only allowed in local/docker app env")
+	}
 	return nil
 }
 

@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
 import { useSoloSession } from '../../hooks/useSoloSession';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
-
+import type { TurboTowerPublicState } from '../../api/types';
+import {
+  deriveTurboTowerFloor,
+  deriveTurboTowerPicked,
+} from '../../utils/soloSessionState';
 const FLOORS = 8;
 const DOORS = 3;
 const MIN_BET = 1;
@@ -27,6 +31,7 @@ type StepEvent = {
 export const TurboTowerSoloGame = () => {
   const { balance, canAfford, error: walletError, setError: setWalletError } = useSoloWallet();
   const session = useSoloSession('turbo_tower');
+  const { markPublicStateHydrated, publicState, resumed, status, isSessionPlayable } = session;
   const [bet, setBet] = useState(10);
   const [phase, setPhase] = useState<Phase>('idle');
   const [currentFloor, setCurrentFloor] = useState(0);
@@ -34,12 +39,55 @@ export const TurboTowerSoloGame = () => {
   const [traps, setTraps] = useState<number[]>(() => Array.from({ length: FLOORS }, () => -1));
   const [lastWin, setLastWin] = useState(0);
 
-  const canStart = phase === 'idle' && !session.loading;
-  const canPick = phase === 'playing' && !session.loading;
-  const canCashout = phase === 'playing' && session.openedSteps > 0 && !session.loading;
+  const effectivePhase: Phase =
+    session.sessionId && status === 'active' && isSessionPlayable ? 'playing' : phase;
+  const effectiveBet =
+    session.sessionId && session.status === 'active' && session.betCoins > 0
+      ? session.betCoins
+      : bet;
+
+  const hydratedFloor = useMemo(
+    () => deriveTurboTowerFloor(publicState as TurboTowerPublicState | null, currentFloor),
+    [currentFloor, publicState],
+  );
+  const hydratedPicked = useMemo(
+    () => deriveTurboTowerPicked(publicState as TurboTowerPublicState | null, FLOORS),
+    [publicState],
+  );
+  const effectiveFloor =
+    resumed && status === 'active' && !isSessionPlayable
+      ? hydratedFloor
+      : currentFloor;
+  const effectivePicked = isSessionPlayable
+    ? picked
+    : hydratedPicked.some((door) => door >= 0)
+      ? hydratedPicked
+      : picked;
+
+  const canStart = effectivePhase === 'idle' && !session.loading;
+  const canPick = effectivePhase === 'playing' && isSessionPlayable && !session.loading;
+  const canCashout = effectivePhase === 'playing' && session.openedSteps > 0 && !session.loading;
+
+  useEffect(() => {
+    if (!resumed || status !== 'active') return;
+    const state = publicState as TurboTowerPublicState | null;
+    if (!state) return;
+    setCurrentFloor(state.current_floor);
+    setPicked(
+      state.picked?.length === FLOORS
+        ? [...state.picked]
+        : Array.from({ length: FLOORS }, () => -1),
+    );
+    setTraps(Array.from({ length: FLOORS }, () => -1));
+    setPhase('playing');
+    markPublicStateHydrated();
+  }, [markPublicStateHydrated, publicState, resumed, status]);
 
   const multiplier = session.multiplier || 1;
-  const cashoutValue = useMemo(() => formatMoney(bet * multiplier), [bet, multiplier]);
+  const cashoutValue = useMemo(
+    () => formatMoney(effectiveBet * multiplier),
+    [effectiveBet, multiplier],
+  );
 
   const resetVisual = () => {
     setCurrentFloor(0);
@@ -65,18 +113,19 @@ export const TurboTowerSoloGame = () => {
 
   const pickDoor = async (door: number) => {
     if (!canPick) return;
+    if (effectivePicked[effectiveFloor] >= 0) return;
     try {
-      const response = await session.step('pick', { floor: currentFloor, door });
+      const response = await session.step('pick', { floor: effectiveFloor, door });
       const event = response.event as StepEvent;
       setPicked((prev) => {
         const next = [...prev];
-        next[currentFloor] = door;
+        next[effectiveFloor] = door;
         return next;
       });
       if (typeof event.trap_door === 'number') {
         setTraps((prev) => {
           const next = [...prev];
-          next[currentFloor] = event.trap_door ?? -1;
+          next[effectiveFloor] = event.trap_door ?? -1;
           return next;
         });
       }
@@ -138,13 +187,13 @@ export const TurboTowerSoloGame = () => {
       <div className="tt-tower">
         {Array.from({ length: FLOORS }, (_, floor) => {
           const reverseFloor = FLOORS - 1 - floor;
-          const isActive = phase === 'playing' && currentFloor === reverseFloor;
+          const isActive = effectivePhase === 'playing' && effectiveFloor === reverseFloor;
           return (
             <div key={reverseFloor} className={`tt-floor ${isActive ? 'active' : ''}`}>
               <div className="tt-floor-label">Этаж {reverseFloor + 1}</div>
               <div className="tt-doors">
                 {Array.from({ length: DOORS }, (_, door) => {
-                  const pickedDoor = picked[reverseFloor];
+                  const pickedDoor = effectivePicked[reverseFloor];
                   const trapDoor = traps[reverseFloor];
                   const revealed = pickedDoor >= 0 || trapDoor >= 0;
                   const isTrap = revealed && trapDoor === door;
@@ -154,7 +203,7 @@ export const TurboTowerSoloGame = () => {
                       key={door}
                       type="button"
                       className={`tt-door ${isTrap ? 'trap' : ''} ${isSafePick ? 'safe' : ''}`}
-                      disabled={!isActive}
+                      disabled={!isActive || pickedDoor >= 0}
                       onClick={() => void pickDoor(door)}
                     >
                       {revealed ? (isTrap ? 'X' : isSafePick ? 'OK' : '') : door + 1}
@@ -170,7 +219,7 @@ export const TurboTowerSoloGame = () => {
       <div className="tt-panel">
         <div className="tt-stat"><span>Множитель</span><strong>x{multiplier.toFixed(2)}</strong></div>
         <div className="tt-stat"><span>Cashout</span><strong>{cashoutValue}</strong></div>
-        {phase === 'finished' ? (
+        {effectivePhase === 'finished' ? (
           <div className="tt-stat"><span>Итог</span><strong>{formatMoney(lastWin)}</strong></div>
         ) : null}
 
@@ -180,7 +229,7 @@ export const TurboTowerSoloGame = () => {
               key={value}
               type="button"
               className={`tt-chip ${bet === value ? 'active' : ''}`}
-              disabled={phase === 'playing'}
+              disabled={effectivePhase === 'playing'}
               onClick={() => setBet(value)}
             >
               {value}
@@ -189,9 +238,9 @@ export const TurboTowerSoloGame = () => {
         </div>
 
         <div className="tt-actions">
-          {phase === 'idle' || phase === 'finished' ? (
+          {effectivePhase === 'idle' || effectivePhase === 'finished' ? (
             <button type="button" className="tt-btn" disabled={!canStart} onClick={() => void start()}>
-              {phase === 'finished' ? 'Снова' : 'Старт'}
+              {effectivePhase === 'finished' ? 'Снова' : 'Старт'}
             </button>
           ) : (
             <>
@@ -199,7 +248,7 @@ export const TurboTowerSoloGame = () => {
                 Cashout
               </button>
               <button type="button" className="tt-btn" disabled>
-                Этаж {currentFloor + 1}/{FLOORS}
+                Этаж {effectiveFloor + 1}/{FLOORS}
               </button>
             </>
           )}

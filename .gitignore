@@ -54,6 +54,8 @@ Thumbs.db
 .parcel-cache/
 .vite/
 frontend/.vite/
+frontend/node_modules/.tmp/
+frontend/node_modules/.vite/
 
 # TypeScript
 *.tsbuildinfo

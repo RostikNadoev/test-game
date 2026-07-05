@@ -169,11 +169,13 @@ export type FinishMatchRequest = {
 
 export type FinishMatchResponse = {
   success: boolean;
-  balance: {
+  pending?: boolean;
+  message?: string;
+  balance?: {
     ton: number;
     game: number;
   };
-  stats: UserStats;
+  stats?: UserStats;
 };
 
 export type LeaderboardEntry = {
@@ -227,6 +229,28 @@ export type SoloSpinResponse = {
   solo_stats: SoloStats;
 };
 
+export type CrystalMinesPublicState = {
+  picked: number[];
+  safe_picks: number;
+};
+
+export type TurboTowerPublicState = {
+  current_floor: number;
+  cleared_floors: number;
+  picked: number[];
+};
+
+export type Royal5x5PublicState = {
+  current_row: number;
+  opened_rows: number;
+  picked_by_row: number[];
+};
+
+export type SoloSessionPublicState =
+  | CrystalMinesPublicState
+  | TurboTowerPublicState
+  | Royal5x5PublicState;
+
 export type SoloSessionStartResponse = {
   success: boolean;
   session_id: string;
@@ -235,6 +259,7 @@ export type SoloSessionStartResponse = {
   status: string;
   multiplier: number;
   opened_steps: number;
+  public_state?: SoloSessionPublicState;
   balance: { game: number };
   solo_stats: SoloStats;
 };

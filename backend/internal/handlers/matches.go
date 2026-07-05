@@ -60,17 +60,30 @@ func (h MatchHandler) Finish(c *gin.Context) {
 	}
 
 	db := database.DB()
-	if _, err := services.SettleMatch(db, req.LobbyID, req.WinnerUserID); err != nil {
-		if errors.Is(err, services.ErrMatchNotFound) {
+	submit, err := services.SubmitMatchFinishVote(db, req.LobbyID, userID, req.WinnerUserID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrMatchNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "match not found"})
-			return
+		case errors.Is(err, services.ErrInvalidMatchState):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid match state"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to submit match result"})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to settle match", "details": err.Error()})
+		return
+	}
+
+	if submit.Pending {
+		c.JSON(http.StatusAccepted, gin.H{
+			"success": true,
+			"pending": true,
+			"message": "waiting for opponent confirmation",
+		})
 		return
 	}
 
 	if _, err := h.Hub.FinishLobby(req.LobbyID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to finish lobby"})
 		return
 	}
 

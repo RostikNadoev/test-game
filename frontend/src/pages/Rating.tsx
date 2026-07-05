@@ -54,7 +54,7 @@ export const Rating = () => {
     if (!user?.id) return null;
     const index = players.findIndex((player) => player.id === user.id);
     return index >= 0 ? index + 1 : null;
-  }, [players, user?.id]);
+  }, [players, user]);
 
   return (
     <main className="app-scroll page-shell rating-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">

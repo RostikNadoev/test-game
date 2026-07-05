@@ -27,6 +27,7 @@ func Init(cfg *config.Config) error {
 		&models.WalletTransaction{},
 		&models.BetReservation{},
 		&models.Match{},
+		&models.MatchFinishVote{},
 		&models.LobbyRecord{},
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
@@ -45,6 +46,14 @@ func DB() *gorm.DB {
 		panic("database is not initialized")
 	}
 	return db
+}
+
+func SetTestDB(conn *gorm.DB) {
+	db = conn
+}
+
+func ResetTestDB() {
+	db = nil
 }
 
 func Ping() error {

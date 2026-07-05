@@ -60,6 +60,33 @@ func TestSoloSpinIdempotency(t *testing.T) {
 	}
 }
 
+func TestSoloSpinIdempotencyDifferentUsersSameKey(t *testing.T) {
+	db := testdb.Open(t)
+	testdb.SeedUser(t, db, 1, 100)
+	testdb.SeedUser(t, db, 2, 100)
+
+	first, err := SoloSpin(db, 1, "neon_scratch", 10, "shared-key")
+	if err != nil {
+		t.Fatalf("user 1 spin: %v", err)
+	}
+	second, err := SoloSpin(db, 2, "neon_scratch", 10, "shared-key")
+	if err != nil {
+		t.Fatalf("user 2 spin with same key: %v", err)
+	}
+	if first.RoundID == second.RoundID {
+		t.Fatalf("different users should not share round id: %s", first.RoundID)
+	}
+
+	user1 := testdb.ReloadUser(t, db, 1)
+	user2 := testdb.ReloadUser(t, db, 2)
+	if user1.BalanceGame != roundMoney(100-10+first.PayoutCoins) {
+		t.Fatalf("user1 balance = %.2f", user1.BalanceGame)
+	}
+	if user2.BalanceGame != roundMoney(100-10+second.PayoutCoins) {
+		t.Fatalf("user2 balance = %.2f", user2.BalanceGame)
+	}
+}
+
 func TestStartSessionCashout(t *testing.T) {
 	db := testdb.Open(t)
 	testdb.SeedUser(t, db, 1, 100)

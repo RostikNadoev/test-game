@@ -6,6 +6,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var saveLobbyRecordFn = saveLobbyRecord
+
 func saveLobbyRecord(db *gorm.DB, lobby *Lobby) error {
 	if db == nil || lobby == nil {
 		return nil

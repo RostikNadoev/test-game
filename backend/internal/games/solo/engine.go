@@ -93,6 +93,9 @@ func SessionStep(game string, state any, action string, payload map[string]any, 
 		if action != "pick" {
 			return SessionStepResult{}, ErrInvalidAction
 		}
+		if row != s.CurrentRow || col < 0 || col >= royalCols || s.PickedByRow[row] >= 0 {
+			return SessionStepResult{}, ErrInvalidAction
+		}
 		next, event, done, payout := RoyalStep(s, row, col, bet)
 		return SessionStepResult{State: next, Event: event, Done: done, Payout: payout, Multiplier: event.Multiplier}, nil
 	case "crystal_mines":
@@ -102,6 +105,9 @@ func SessionStep(game string, state any, action string, payload map[string]any, 
 		}
 		cell := intNum(payload["cell_index"])
 		if action != "pick" {
+			return SessionStepResult{}, ErrInvalidAction
+		}
+		if cell < 0 || cell >= minesGridSize || containsInt(s.Picked, cell) {
 			return SessionStepResult{}, ErrInvalidAction
 		}
 		next, event, done, payout := CrystalStep(s, cell, bet)
@@ -114,6 +120,9 @@ func SessionStep(game string, state any, action string, payload map[string]any, 
 		floor := intNum(payload["floor"])
 		door := intNum(payload["door"])
 		if action != "pick" {
+			return SessionStepResult{}, ErrInvalidAction
+		}
+		if floor != s.CurrentFloor || door < 0 || door >= towerDoors || s.Picked[floor] >= 0 {
 			return SessionStepResult{}, ErrInvalidAction
 		}
 		next, event, done, payout := TurboStep(s, floor, door, bet)

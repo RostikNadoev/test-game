@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MatchFinishStatus } from "../components/Match/MatchFinishStatus";
 import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
 
 /* ============================================================================
@@ -560,7 +561,7 @@ export default function PlinkoPvpGame() {
 
   // Счёт — множитель от 1. Например: старт 1 → x5 = 5 → x5 = 25.
   const [scores, setScores] = useState<[number, number]>([1, 1]);
-  const finishLobbyMatch = useLobbyMatchFinish("plinko_pvp");
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish("plinko_pvp");
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
 
@@ -1515,6 +1516,7 @@ export default function PlinkoPvpGame() {
 
   return (
     <div className="plinko-root relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white">
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{PLINKO_UI_CSS}</style>
 
       <div ref={wrapRef} className="absolute inset-0 z-10">

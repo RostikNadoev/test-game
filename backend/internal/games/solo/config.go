@@ -1,6 +1,9 @@
 package solo
 
-import "errors"
+import (
+	"errors"
+	"sort"
+)
 
 const (
 	ModeInstant  = "instant"
@@ -29,7 +32,7 @@ type GameConfig struct {
 var catalog = map[string]GameConfig{
 	"neon_scratch":  {Code: "neon_scratch", Title: "Neon Scratch", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
 	"fruit_cascade": {Code: "fruit_cascade", Title: "Fruit Cascade", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
-	"royal_5x5":     {Code: "royal_5x5", Title: "Royal 5x5", Mode: ModeSession, MinBet: 1, MaxBet: 500},
+	"royal_5x5":     {Code: "royal_5x5", Title: "Apple Trail", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 	"crystal_mines": {Code: "crystal_mines", Title: "Crystal Mines", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 	"turbo_tower":   {Code: "turbo_tower", Title: "Turbo Tower", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 }
@@ -64,6 +67,9 @@ func ListGames() []GameConfig {
 	for _, item := range catalog {
 		out = append(out, item)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Code < out[j].Code
+	})
 	return out
 }
 

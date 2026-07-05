@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCcw, Trophy } from 'lucide-react';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 type Direction = 'up' | 'down';
 type Phase = 'choose' | 'live' | 'result' | 'gameOver';
@@ -426,7 +427,7 @@ export const VirusMarketGame = () => {
   const [botPick, setBotPick] = useState<Direction | null>(null);
   const [result, setResult] = useState<RoundResult | null>(null);
   const [winner, setWinner] = useState<MatchWinner>(null);
-  const finishLobbyMatch = useLobbyMatchFinish('virus_market');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('virus_market');
 
   useEffect(() => {
     if (phase !== 'gameOver' || !winner) return;
@@ -579,6 +580,7 @@ export const VirusMarketGame = () => {
 
   return (
     <div className="bo-page">
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .bo-page {
           position: relative;

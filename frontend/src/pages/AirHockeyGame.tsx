@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 const SETTINGS = {
   puckSize: 16,
@@ -40,7 +41,7 @@ export const AirHockeyGame: React.FC = () => {
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
 
   const [score, setScore] = useState({ p1: 0, p2: 0 });
-  const finishLobbyMatch = useLobbyMatchFinish('air_hockey');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('air_hockey');
 
   useEffect(() => {
     if (score.p1 < 5 && score.p2 < 5) return;
@@ -421,6 +422,7 @@ export const AirHockeyGame: React.FC = () => {
       ref={containerRef}
       className="relative h-full w-full touch-none overscroll-none select-none overflow-hidden bg-[#0A0A0F]"
     >
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-25">
         <div className="text-6xl font-black text-blue-500">{score.p2}</div>
         <div className="w-12 h-1 bg-white/20" />

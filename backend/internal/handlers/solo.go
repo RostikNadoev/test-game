@@ -96,6 +96,27 @@ func (SoloHandler) Spin(c *gin.Context) {
 	})
 }
 
+func sessionExtras(result services.SoloSessionResult) gin.H {
+	extra := gin.H{
+		"session_id":   result.SessionID,
+		"game":         result.Game,
+		"bet_coins":    result.BetCoins,
+		"status":       result.Status,
+		"multiplier":   result.Multiplier,
+		"opened_steps": result.OpenedSteps,
+	}
+	if result.PublicState != nil {
+		extra["public_state"] = result.PublicState
+	}
+	if result.Event != nil {
+		extra["event"] = result.Event
+	}
+	if result.PayoutCoins > 0 {
+		extra["payout_coins"] = result.PayoutCoins
+	}
+	return extra
+}
+
 type soloSessionStartRequest struct {
 	Game     string  `json:"game" binding:"required"`
 	BetCoins float64 `json:"bet_coins" binding:"required"`
@@ -115,14 +136,7 @@ func (SoloHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	soloResponse(c, result.BalanceGame, result.SoloStats, gin.H{
-		"session_id":   result.SessionID,
-		"game":         result.Game,
-		"bet_coins":    result.BetCoins,
-		"status":       result.Status,
-		"multiplier":   result.Multiplier,
-		"opened_steps": result.OpenedSteps,
-	})
+	soloResponse(c, result.BalanceGame, result.SoloStats, sessionExtras(*result))
 }
 
 type soloStepRequest struct {
@@ -145,16 +159,7 @@ func (SoloHandler) SessionStep(c *gin.Context) {
 		return
 	}
 
-	soloResponse(c, result.BalanceGame, result.SoloStats, gin.H{
-		"session_id":   result.SessionID,
-		"game":         result.Game,
-		"bet_coins":    result.BetCoins,
-		"status":       result.Status,
-		"multiplier":   result.Multiplier,
-		"opened_steps": result.OpenedSteps,
-		"event":        result.Event,
-		"payout_coins": result.PayoutCoins,
-	})
+	soloResponse(c, result.BalanceGame, result.SoloStats, sessionExtras(*result))
 }
 
 func (SoloHandler) CashoutSession(c *gin.Context) {
@@ -167,15 +172,37 @@ func (SoloHandler) CashoutSession(c *gin.Context) {
 		return
 	}
 
-	soloResponse(c, result.BalanceGame, result.SoloStats, gin.H{
-		"session_id":   result.SessionID,
-		"game":         result.Game,
-		"bet_coins":    result.BetCoins,
-		"status":       result.Status,
-		"multiplier":   result.Multiplier,
-		"opened_steps": result.OpenedSteps,
-		"payout_coins": result.PayoutCoins,
-	})
+	soloResponse(c, result.BalanceGame, result.SoloStats, sessionExtras(*result))
+}
+
+func (SoloHandler) ActiveSession(c *gin.Context) {
+	userID := middleware.UserID(c)
+	game := strings.TrimSpace(c.Query("game"))
+	if game == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "game is required"})
+		return
+	}
+
+	result, err := services.GetActiveSoloSession(database.DB(), userID, game)
+	if err != nil {
+		writeSoloError(c, err)
+		return
+	}
+
+	soloResponse(c, result.BalanceGame, result.SoloStats, sessionExtras(*result))
+}
+
+func (SoloHandler) AbandonSession(c *gin.Context) {
+	userID := middleware.UserID(c)
+	sessionID := strings.TrimSpace(c.Param("id"))
+
+	result, err := services.AbandonSoloSession(database.DB(), userID, sessionID)
+	if err != nil {
+		writeSoloError(c, err)
+		return
+	}
+
+	soloResponse(c, result.BalanceGame, result.SoloStats, sessionExtras(*result))
 }
 
 func writeSoloError(c *gin.Context, err error) {
@@ -195,6 +222,6 @@ func writeSoloError(c *gin.Context, err error) {
 	case errors.Is(err, solo.ErrInvalidAction):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session action"})
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "solo operation failed"})
 	}
 }

@@ -24,9 +24,9 @@ export const SOLO_GAMES: SoloGame[] = [
   {
     id: 'royal_5x5',
     slug: 'royal-5x5',
-    title: 'Royal 5x5',
-    tag: 'Lines slot',
-    icon: '👑',
+    title: 'Apple Trail',
+    tag: 'Risk picks',
+    icon: '🍎',
     route: '/solo/royal-5x5',
     tone: 'amber',
   },

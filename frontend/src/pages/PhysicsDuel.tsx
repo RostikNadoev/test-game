@@ -33,6 +33,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import upback from '../assets/upback.png';
 import { getTelegramWebApp } from '../types/telegram';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 /* ===========================================================================
  * Tuning constants  (safe to tweak; all in px / seconds / radians)
@@ -513,7 +514,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const [playerM, setPlayerM] = useState(0);
   const [botM, setBotM] = useState(0);
   const [outcome, setOutcome] = useState<Outcome>(null);
-  const finishLobbyMatch = useLobbyMatchFinish('descent_duel');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('descent_duel');
 
   useEffect(() => {
     if (phase !== 'result' || !outcome) return;
@@ -1543,6 +1544,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       onPointerUp={onAreaUp}
       onPointerCancel={onAreaUp}
     >
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .pd-root {
           position: relative;

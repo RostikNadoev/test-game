@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 /* ============================================================================
  * RaceGame.tsx — TwinGames arcade drift racer
@@ -1706,7 +1707,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
     const raceFinishedRef = useRef(false);
     const pendingRaceFinishRef = useRef(false);
 
-    const finishLobbyMatch = useLobbyMatchFinish('street_race');
+    const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('street_race');
     const [raceOutcome, setRaceOutcome] = useState<'win' | 'loss' | null>(null);
 
     const [started, setStarted] = useState(false);
@@ -2256,6 +2257,7 @@ export const RaceGame = forwardRef<DriftRaceHandle, DriftRaceProps>(
         ref={wrapRef}
         className="race-wrap relative h-full min-h-0 w-full select-none overflow-hidden overscroll-none bg-[#050610] font-mono text-white"
       >
+        <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
         <style>{`
           .race-wrap {
             height: min(100%, calc(100dvh - var(--race-top-offset, 120px)));

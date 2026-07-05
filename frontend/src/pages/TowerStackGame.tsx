@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from 'react';
 import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
+import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
 /* ============================================================================
  * TowerStackGame.tsx — premium 1v1 tower-stacking duel for a Telegram Mini App.
@@ -776,7 +777,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [countdown, setCountdown] = useState(COUNTDOWN_FROM);
   const [labels, setLabels] = useState<FloatLabel[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const finishLobbyMatch = useLobbyMatchFinish('tower_stack');
+  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('tower_stack');
 
   useEffect(() => {
     if (!outcome) return;
@@ -950,6 +951,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
   return (
     <div className="ts-root" ref={rootRef}>
+      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{STYLES}</style>
 
       <div className="ts-hud">

@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SoloBalanceBar } from '../../components/Solo/SoloBalanceBar';
 import { useSoloSession } from '../../hooks/useSoloSession';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
-
+import type { CrystalMinesPublicState } from '../../api/types';
+import {
+  deriveCrystalMinesPicked,
+  mergePickedSets,
+} from '../../utils/soloSessionState';
 const GRID = 25;
 const MIN_BET = 1;
 const QUICK_BETS = [10, 50, 100].filter((value) => value >= MIN_BET);
@@ -24,18 +28,48 @@ type StepEvent = {
 export const CrystalMinesSoloGame = () => {
   const { balance, canAfford, error: walletError, setError: setWalletError } = useSoloWallet();
   const session = useSoloSession('crystal_mines');
+  const { markPublicStateHydrated, publicState, resumed, status, isSessionPlayable } = session;
   const [bet, setBet] = useState(10);
   const [phase, setPhase] = useState<Phase>('idle');
   const [picked, setPicked] = useState<Set<number>>(() => new Set());
   const [revealedMines, setRevealedMines] = useState<number[]>([]);
   const [lastWin, setLastWin] = useState(0);
 
-  const canStart = phase === 'idle' && !session.loading;
-  const canPick = phase === 'playing' && !session.loading;
-  const canCashout = phase === 'playing' && session.openedSteps > 0 && !session.loading;
+  const effectivePhase: Phase =
+    session.sessionId && status === 'active' && isSessionPlayable ? 'playing' : phase;
+  const effectiveBet =
+    session.sessionId && status === 'active' && session.betCoins > 0
+      ? session.betCoins
+      : bet;
+
+  const derivedPicked = useMemo(
+    () => deriveCrystalMinesPicked(publicState as CrystalMinesPublicState | null),
+    [publicState],
+  );
+  const effectivePicked = useMemo(
+    () => mergePickedSets(picked, derivedPicked),
+    [derivedPicked, picked],
+  );
+
+  const canStart = effectivePhase === 'idle' && !session.loading;
+  const canPick = effectivePhase === 'playing' && isSessionPlayable && !session.loading;
+  const canCashout = effectivePhase === 'playing' && session.openedSteps > 0 && !session.loading;
+
+  useEffect(() => {
+    if (!resumed || status !== 'active') return;
+    const state = publicState as CrystalMinesPublicState | null;
+    if (!state) return;
+    setPicked(new Set(state.picked));
+    setRevealedMines([]);
+    setPhase('playing');
+    markPublicStateHydrated();
+  }, [markPublicStateHydrated, publicState, resumed, status]);
 
   const multiplier = session.multiplier || 1;
-  const cashoutValue = useMemo(() => formatMoney(bet * multiplier), [bet, multiplier]);
+  const cashoutValue = useMemo(
+    () => formatMoney(effectiveBet * multiplier),
+    [effectiveBet, multiplier],
+  );
 
   const start = async () => {
     if (!canAfford(bet)) {
@@ -55,7 +89,7 @@ export const CrystalMinesSoloGame = () => {
   };
 
   const pickCell = async (index: number) => {
-    if (!canPick || picked.has(index)) return;
+    if (!canPick || effectivePicked.has(index)) return;
     try {
       const response = await session.step('pick', { cell_index: index });
       const event = response.event as StepEvent;
@@ -112,14 +146,14 @@ export const CrystalMinesSoloGame = () => {
 
       <div className="cm-grid">
         {Array.from({ length: GRID }, (_, index) => {
-          const isPicked = picked.has(index);
+          const isPicked = effectivePicked.has(index);
           const isMine = revealedMines.includes(index);
           return (
             <button
               key={index}
               type="button"
               className={`cm-cell ${isPicked ? (isMine ? 'mine' : 'safe') : ''}`}
-              disabled={!canPick || isPicked || phase !== 'playing'}
+              disabled={!canPick || isPicked || effectivePhase !== 'playing'}
               onClick={() => void pickCell(index)}
             >
               {isPicked ? (isMine ? '💣' : '💎') : ''}
@@ -141,7 +175,7 @@ export const CrystalMinesSoloGame = () => {
               key={value}
               type="button"
               className={`cm-chip ${bet === value ? 'active' : ''}`}
-              disabled={phase === 'playing'}
+              disabled={effectivePhase === 'playing'}
               onClick={() => setBet(value)}
             >
               {value}
@@ -150,9 +184,9 @@ export const CrystalMinesSoloGame = () => {
         </div>
 
         <div className="cm-actions">
-          {phase === 'idle' || phase === 'finished' ? (
+          {effectivePhase === 'idle' || effectivePhase === 'finished' ? (
             <button type="button" className="cm-btn" disabled={!canStart} onClick={() => void start()}>
-              {phase === 'finished' ? 'Снова' : 'Старт'}
+              {effectivePhase === 'finished' ? 'Снова' : 'Старт'}
             </button>
           ) : (
             <>

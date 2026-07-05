@@ -27,6 +27,8 @@ http://localhost:8080/health
 
 When using the full stack, API is available through nginx at `/api/v1/...`.
 
+Versioned SQL migrations live in [migrations/](migrations/). AutoMigrate still runs on startup for local bootstrap, but production should apply SQL migrations explicitly.
+
 ## API docs
 
 See [docs/FRONTEND_API.md](docs/FRONTEND_API.md).

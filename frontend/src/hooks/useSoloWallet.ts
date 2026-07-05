@@ -13,7 +13,7 @@ const emptyStats: SoloStats = {
 };
 
 export function useSoloWallet() {
-  const { user, refreshBalance, refreshProfile } = useAuth();
+  const { user, refreshBalance } = useAuth();
   const [soloStats, setSoloStats] = useState<SoloStats>(emptyStats);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,17 +39,17 @@ export function useSoloWallet() {
         setSoloStats(response.solo_stats);
       }
       await refreshBalance();
-      await refreshProfile();
     },
-    [refreshBalance, refreshProfile],
+    [refreshBalance],
   );
 
   const spin = useCallback(
     async (game: string, betCoins: number, idempotencyKey?: string) => {
       setLoading(true);
       setError(null);
+      const key = idempotencyKey ?? crypto.randomUUID();
       try {
-        const response = await soloApi.spin(game, betCoins, idempotencyKey);
+        const response = await soloApi.spin(game, betCoins, key);
         await applySoloResponse(response);
         return response;
       } catch (err) {

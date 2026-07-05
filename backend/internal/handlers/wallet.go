@@ -58,9 +58,15 @@ func (WalletHandler) ExchangeTONToGame(c *gin.Context) {
 		return
 	}
 
-	user, requiredTON, err := services.TopUpGameByCoins(database.DB(), middleware.UserID(c), req.Coins)
+	user, requiredTON, err := services.ExchangeTONToGame(database.DB(), middleware.UserID(c), req.Coins)
 	if err != nil {
 		switch {
+		case errors.Is(err, services.ErrExchangeDisabled):
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   "exchange temporarily disabled",
+				"details": "payment provider is not configured yet",
+			})
+			return
 		case errors.Is(err, services.ErrAmountTooSmall):
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":     "coins amount must be >= 1",
@@ -70,10 +76,7 @@ func (WalletHandler) ExchangeTONToGame(c *gin.Context) {
 			return
 
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "top up failed",
-				"details": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "top up failed"})
 			return
 		}
 	}
