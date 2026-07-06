@@ -17,19 +17,47 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
+if command -v docker-compose >/dev/null 2>&1; then
+  compose() { docker-compose "$@"; }
+elif docker compose version >/dev/null 2>&1; then
+  compose() { docker compose "$@"; }
+else
+  echo "Docker Compose is not installed."
+  exit 1
 fi
+
+load_dotenv() {
+  if [ ! -f .env ]; then
+    return 0
+  fi
+  # Strip Windows CRLF; ignore comments and blank lines.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(printf '%s' "$line" | tr -d '\r')
+    case "$line" in
+      ''|\#*) continue ;;
+    esac
+    key=${line%%=*}
+    val=${line#*=}
+    key=$(printf '%s' "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    val=$(printf '%s' "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//; s/^"\(.*\)"$/\1/; s/^'\''\(.*\)'\''$/\1/')
+    [ -n "$key" ] || continue
+    export "$key=$val"
+  done < .env
+}
+
+load_dotenv
 
 PRIMARY_DOMAIN="${PRIMARY_DOMAIN:-tw1ngames.duckdns.org}"
 ADMIN_DOMAIN="${ADMIN_DOMAIN:-tw1ngames2.duckdns.org}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
+if [ -z "$CERTBOT_EMAIL" ] && [ -f .env ]; then
+  CERTBOT_EMAIL=$(grep -E '^[[:space:]]*CERTBOT_EMAIL=' .env | tail -1 | cut -d= -f2- | tr -d '\r"'\'' ')
+fi
+
 if [ -z "$CERTBOT_EMAIL" ]; then
   echo "CERTBOT_EMAIL is required. Add it to .env and rerun."
+  echo "Quick check: grep CERTBOT_EMAIL .env"
   exit 1
 fi
 
@@ -50,7 +78,7 @@ fi
 if [ ! -d "$DATA_PATH/conf/live/$PRIMARY_DOMAIN" ]; then
   echo "Creating temporary self-signed certificate..."
   mkdir -p "$DATA_PATH/conf/live/$PRIMARY_DOMAIN"
-  docker compose run --rm --entrypoint "\
+  compose run --rm --entrypoint "\
     openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
       -keyout /etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem \
       -out /etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem \
@@ -63,10 +91,10 @@ fi
 
 echo "Starting nginx with bootstrap HTTP config..."
 cp nginx/default.bootstrap.conf nginx/default.conf
-docker compose up -d nginx
+compose up -d nginx
 
 echo "Requesting Let's Encrypt certificate..."
-docker compose run --rm --entrypoint "\
+compose run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
     --email $CERTBOT_EMAIL \
     --agree-tos --no-eff-email \
@@ -76,7 +104,7 @@ docker compose run --rm --entrypoint "\
 
 echo "Switching nginx to HTTPS config..."
 cp nginx/default.ssl.conf nginx/default.conf
-docker compose exec nginx nginx -s reload || docker compose up -d --force-recreate nginx
+compose exec nginx nginx -s reload || compose up -d --force-recreate nginx
 
 echo
 echo "Done."
@@ -88,4 +116,4 @@ echo "  PUBLIC_URL=https://$PRIMARY_DOMAIN"
 echo "  CORS_ALLOW_ORIGINS=https://$PRIMARY_DOMAIN"
 echo "  ADMIN_ALLOWED_ORIGINS=https://$ADMIN_DOMAIN"
 echo
-echo "Renewal: docker compose run --rm certbot renew && docker compose exec nginx nginx -s reload"
+echo "Renewal: docker-compose run --rm certbot renew && docker-compose exec nginx nginx -s reload"

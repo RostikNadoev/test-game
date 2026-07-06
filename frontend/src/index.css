@@ -11,7 +11,19 @@
 }
 
 :root {
-  --telegram-top-offset: 44.9px;
+  --telegram-top-offset: 0px;
+  --telegram-bottom-offset: 0px;
+  --telegram-left-offset: 0px;
+  --telegram-right-offset: 0px;
+
+  --app-shell-max-width: min(100vw, 520px);
+  --app-gutter: clamp(12px, 3.6vw, 18px);
+  --app-viewport-height: 100dvh;
+  --app-bottom-nav-offset: calc(84px + env(safe-area-inset-bottom, 0px) + var(--telegram-bottom-offset));
+  --app-page-padding-bottom: var(--app-bottom-nav-offset);
+  --app-header-gap: clamp(8px, 2vw, 12px);
+  --app-hero-height: clamp(148px, 34vw, 210px);
+  --app-card-radius: clamp(20px, 5vw, 27px);
 
   --bg-primary: #09090d;
   --bg-card: rgba(18, 18, 24, 0.9);
@@ -105,11 +117,14 @@ img {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 460px;
-  height: 100%;
+  width: min(100%, var(--app-shell-max-width));
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  max-height: var(--app-viewport-height);
   margin: 0 auto;
   overflow: hidden;
+  padding-left: var(--telegram-left-offset);
+  padding-right: var(--telegram-right-offset);
   background:
     radial-gradient(circle at 18% -12%, rgba(47, 140, 255, 0.12), transparent 30%),
     radial-gradient(circle at 88% -14%, rgba(255, 143, 45, 0.12), transparent 28%),
@@ -118,6 +133,24 @@ img {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.03),
     0 28px 90px rgba(0, 0, 0, 0.55);
+}
+
+.app-shell {
+  position: relative;
+  display: flex;
+  width: min(100%, var(--app-shell-max-width));
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  max-height: var(--app-viewport-height);
+  margin-inline: auto;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: max(0px, var(--telegram-top-offset));
+}
+
+.app-page {
+  padding-inline: var(--app-gutter);
+  padding-bottom: var(--app-page-padding-bottom);
 }
 
 .app-scroll {
@@ -330,9 +363,10 @@ img {
 
 .hero-banner {
   position: relative;
-  height: 190px;
+  height: var(--app-hero-height);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: var(--app-card-radius);
   background: #121218;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045),
@@ -3525,9 +3559,48 @@ img {
 .solo-game-clean-mount {
   position: relative;
   width: 100%;
-  min-height: calc(100dvh - 112px - var(--telegram-top-offset));
+  min-height: calc(var(--app-viewport-height) - var(--app-bottom-nav-offset) - var(--telegram-top-offset));
   overflow: hidden;
   background: transparent;
+}
+
+@media (max-width: 360px) {
+  :root {
+    --app-gutter: 10px;
+    --app-hero-height: 138px;
+  }
+
+  .header-panel {
+    border-radius: 18px !important;
+  }
+
+  .balance-pill {
+    padding-inline: 7px !important;
+  }
+
+  .lobby-card {
+    min-width: 162px !important;
+  }
+}
+
+@media (max-height: 700px) {
+  :root {
+    --app-hero-height: clamp(128px, 30vw, 168px);
+    --app-bottom-nav-offset: calc(76px + env(safe-area-inset-bottom, 0px) + var(--telegram-bottom-offset));
+  }
+}
+
+@media (min-width: 521px) {
+  body {
+    background:
+      radial-gradient(circle at 50% 0%, rgba(47, 140, 255, 0.08), transparent 42%),
+      #050507;
+  }
+
+  #root {
+    margin-top: max(0px, calc((100dvh - var(--app-viewport-height)) / 2));
+    border-radius: 24px;
+  }
 }
 
 @media (max-height: 690px) {

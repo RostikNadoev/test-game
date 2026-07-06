@@ -22,7 +22,7 @@ export const BottomNav = () => {
   );
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-[460px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))]">
+    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-[var(--app-shell-max-width)] -translate-x-1/2 px-[var(--app-gutter)] pb-[calc(10px+env(safe-area-inset-bottom)+var(--telegram-bottom-offset))]">
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#09090d] via-[#09090d]/90 to-transparent" />
 
       <div

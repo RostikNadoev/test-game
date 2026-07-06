@@ -11,6 +11,7 @@ import { Lobbies } from './pages/Lobbies';
 import { CreateLobby } from './pages/CreateLobby';
 import { LobbyRoom } from './pages/LobbyRoom';
 import { LOCKED_GAME_ROUTES } from './data/games';
+import { applyTelegramViewportMetrics, getTelegramWebApp } from './types/telegram';
 import appLoaderGif from './assets/app-loader.gif';
 
 const FruitCascadeSoloGame = lazy(() =>
@@ -68,10 +69,6 @@ type TelegramWebApp = {
     offClick?: (callback: () => void) => void;
   };
 };
-
-function getTelegramWebApp() {
-  return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
-}
 
 function isSoloPath(pathname: string) {
   return pathname === SOLO_ROUTE_PREFIX || pathname.startsWith(`${SOLO_ROUTE_PREFIX}/`);
@@ -143,7 +140,7 @@ function AppInitialLoader({ onFinish }: { onFinish: () => void }) {
   }, [durationMs]);
 
   return (
-    <div className="relative mx-auto flex h-full min-h-screen w-full max-w-[480px] items-center justify-center overflow-hidden bg-[#09090d]">
+    <div className="relative mx-auto flex h-full w-full max-w-[var(--app-shell-max-width)] items-center justify-center overflow-hidden bg-[#09090d]">
       {durationMs !== null && (
         <img
           key={`app-loader-${durationMs}`}
@@ -197,15 +194,27 @@ function AppShell() {
   }, [location.pathname]);
 
   useEffect(() => {
-    const tg = getTelegramWebApp();
+    const tg = getTelegramWebApp() as TelegramWebApp | undefined;
 
     tg?.ready?.();
     tg?.expand?.();
     tg?.disableVerticalSwipes?.();
+    applyTelegramViewportMetrics();
+    tg?.onEvent?.('contentSafeAreaChanged', applyTelegramViewportMetrics);
+    tg?.onEvent?.('viewportChanged', applyTelegramViewportMetrics);
+    window.visualViewport?.addEventListener('resize', applyTelegramViewportMetrics);
+    window.addEventListener('resize', applyTelegramViewportMetrics);
 
     if (!tg?.isVersionAtLeast || tg.isVersionAtLeast('8.0')) {
       tg?.lockOrientation?.();
     }
+
+    return () => {
+      tg?.offEvent?.('contentSafeAreaChanged', applyTelegramViewportMetrics);
+      tg?.offEvent?.('viewportChanged', applyTelegramViewportMetrics);
+      window.visualViewport?.removeEventListener('resize', applyTelegramViewportMetrics);
+      window.removeEventListener('resize', applyTelegramViewportMetrics);
+    };
   }, []);
 
   useEffect(() => {
@@ -251,7 +260,7 @@ function AppShell() {
   return (
     <div
       className={[
-        'relative mx-auto flex h-full min-h-screen w-full max-w-[480px] flex-col overflow-hidden overflow-x-hidden pt-[var(--telegram-top-offset)]',
+        'app-shell',
         isSoloRoute ? 'solo-app-shell bg-[#060b14]' : 'bg-[#09090d]',
         isFruitCascadeRoute ? 'fruit-cascade-app-shell' : '',
       ].join(' ')}

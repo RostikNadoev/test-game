@@ -5,7 +5,7 @@ Monorepo layout:
 ```txt
 frontend/   React + Vite Mini App
 backend/    Go API + WebSocket (blackjack)
-tgbot/      Telegram bot placeholder
+tgbot/      Telegram bot (commands + Mini App button)
 nginx/      Single public entrypoint
 ```
 
@@ -96,4 +96,9 @@ npm run build
 
 ## TGbot
 
-The `tgbot` service is currently a health stub. See [tgbot/README.md](tgbot/README.md).
+Basic Telegram bot with `/start`, `/play`, `/help`, menu button, and Mini App link. See [tgbot/README.md](tgbot/README.md).
+
+```powershell
+docker compose up -d --build tgbot
+docker compose logs -f tgbot
+```

@@ -2,10 +2,12 @@ FROM golang:1.23-alpine AS build
 
 WORKDIR /app
 
-COPY go.mod ./
-COPY cmd ./cmd
+COPY go.mod go.sum ./
+RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /tgbot ./cmd/stub
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /tgbot ./cmd/bot
 
 FROM alpine:3.20
 

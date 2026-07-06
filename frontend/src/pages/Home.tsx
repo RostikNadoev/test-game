@@ -251,7 +251,7 @@ export const Home = () => {
   };
 
   return (
-    <main className="app-scroll home-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-4">
+    <main className="app-scroll app-page home-page relative min-h-full overflow-y-auto overflow-x-hidden pt-4">
       <section className="animate-fade-in mb-4">
         <div className="hero-banner rounded-[27px]">
           <img
@@ -315,7 +315,7 @@ export const Home = () => {
         {isRefreshing || isLoadingLobbies ? (
           <LobbyRefreshSpinner />
         ) : (
-          <div className="lobby-scroll -mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1">
+          <div className="lobby-scroll flex gap-2.5 overflow-x-auto pb-1" style={{ marginInline: 'calc(var(--app-gutter) * -1)', paddingInline: 'var(--app-gutter)' }}>
             {joinableOrOwnLobbies.map((lobby, index) => {
               const game = getGameByCode(lobby.game) as GameWithMedia | undefined;
               const tone = getGameTone(index);

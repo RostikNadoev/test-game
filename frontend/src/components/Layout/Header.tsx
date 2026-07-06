@@ -91,7 +91,7 @@ export const Header = () => {
 
   return (
     <>
-      <header className="relative z-50 shrink-0 px-4 pt-[calc(var(--telegram-top-offset)+12px)] pb-1">
+      <header className="relative z-50 shrink-0 px-[var(--app-gutter)] pt-[var(--app-header-gap)] pb-1">
         <div className={`app-panel header-panel rounded-[23px] px-3 py-2 ${isSoloSection ? 'solo-header-panel' : ''}`}>
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1">

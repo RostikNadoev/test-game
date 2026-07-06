@@ -77,6 +77,7 @@ services:
       PORT: 8090
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       FRONTEND_PUBLIC_URL: ${PUBLIC_URL:-https://tw1ngames.duckdns.org}
+      BOT_MENU_TEXT: ${BOT_MENU_TEXT:-Играть}
     networks:
       - app
 
@@ -103,6 +104,9 @@ services:
     container_name: twingames_certbot
     profiles:
       - certbot
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - ./certbot/www:/var/www/certbot
       - ./certbot/conf:/etc/letsencrypt

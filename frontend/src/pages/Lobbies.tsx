@@ -104,7 +104,7 @@ export const Lobbies = () => {
   };
 
   return (
-    <main className="app-scroll relative min-h-full w-full min-w-0 overflow-y-auto overflow-x-hidden px-3 pb-28 pt-1 text-white">
+    <main className="app-scroll relative min-h-full w-full min-w-0 overflow-y-auto overflow-x-hidden app-page pt-1 text-white">
       <div className="pointer-events-none absolute inset-0 grid-fade opacity-60" />
 
       <div className="relative mb-3 flex items-center justify-between gap-2">

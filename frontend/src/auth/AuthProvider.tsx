@@ -15,35 +15,14 @@ import {
   type ApiUser,
 } from '../api';
 import { AuthContext, type AuthContextValue } from './authContext';
-
-type TelegramWebApp = {
-  initData?: string;
-  ready?: () => void;
-  expand?: () => void;
-};
+import { waitForTelegramInitData } from './waitForTelegramInitData';
 
 const TOKEN_STORAGE_KEY = 'twingames_jwt_token';
-
-const getTelegramWebApp = () =>
-  (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return 'Неизвестная ошибка';
-};
-
-const resolveInitData = () => {
-  const tg = getTelegramWebApp();
-  const initData = tg?.initData || '';
-
-  if (initData) return initData;
-
-  if (import.meta.env.DEV && import.meta.env.VITE_DEV_INIT_DATA) {
-    return import.meta.env.VITE_DEV_INIT_DATA;
-  }
-
-  return '';
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -85,23 +64,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [saveToken]);
 
   const loginWithTelegram = useCallback(async () => {
-    const tg = getTelegramWebApp();
-
-    tg?.ready?.();
-
-    const initData = resolveInitData();
+    const initData = await waitForTelegramInitData();
 
     if (import.meta.env.DEV) {
-      console.log('[TG AUTH DEBUG]', {
-        hasTelegram: Boolean((window as Window & { Telegram?: unknown }).Telegram),
-        hasWebApp: Boolean(tg),
-        initDataLength: initData.length,
-        usedDevInitData: Boolean(!tg?.initData && import.meta.env.VITE_DEV_INIT_DATA),
-      });
-    }
-
-    if (!initData) {
-      throw new Error('Нет Telegram initData. Проверь, что приложение открыто именно как Telegram Mini App.');
+      console.log('[TG AUTH DEBUG]', { initDataLength: initData.length });
     }
 
     const data = await api.auth.telegram(initData);

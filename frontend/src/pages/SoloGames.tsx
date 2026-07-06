@@ -29,7 +29,7 @@ export const SoloGames = () => {
   const heroGame = SOLO_GAMES[0];
 
   return (
-    <main className="app-scroll solo-page solo-page-v3 relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-2">
+    <main className="app-scroll solo-page solo-page-v3 relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-2">
       <section className="solo-hero-v3 page-reveal">
         <SoloArtwork game={heroGame} variant="hero" />
 

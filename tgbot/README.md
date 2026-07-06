@@ -1,27 +1,38 @@
-# TGbot (placeholder)
+# TGbot
 
-This folder is reserved for the Telegram bot service.
+Telegram bot for TwinGames Mini App.
 
-## Planned responsibilities
+## Features
 
-- `/start` command and welcome flow
-- Menu Button / Web App URL setup via Bot API
-- Optional webhooks and payment notifications
+- `/start` — welcome message + Web App button
+- `/play` — open games
+- `/help` — command list
+- Menu button (left of input) opens the Mini App
+- `GET /health` — container health check
 
 ## Environment
 
 See [`.env.example`](.env.example):
 
 - `TELEGRAM_BOT_TOKEN` — same token as backend auth validation
-- `FRONTEND_PUBLIC_URL` — public Mini App URL (nginx entrypoint)
-- `PORT` — stub health server port (default `8090`)
+- `FRONTEND_PUBLIC_URL` — public Mini App URL (from root `PUBLIC_URL`)
+- `BOT_MENU_TEXT` — menu button label (default: `Играть`)
+- `PORT` — health server port (default `8090`)
 
-## Current state
+## Run locally
 
-The container runs a minimal HTTP stub with:
-
-```txt
-GET /health -> {"status":"stub","service":"tgbot"}
+```bash
+cd tgbot
+export TELEGRAM_BOT_TOKEN=...
+export FRONTEND_PUBLIC_URL=https://tw1ngames.duckdns.org
+go run ./cmd/bot
 ```
 
-Bot logic will be added later.
+## Docker
+
+Built as `tgbot` service in root `docker-compose.yml`.
+
+```bash
+docker-compose up -d --build tgbot
+docker-compose logs -f tgbot
+```

@@ -57,7 +57,7 @@ export const Rating = () => {
   }, [players, user]);
 
   return (
-    <main className="app-scroll page-shell rating-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+    <main className="app-scroll page-shell rating-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
       <section className="rating-head minimal-panel page-reveal">
         <div className="rating-head-glow" />
         <div className="relative z-10 flex items-start justify-between gap-3">

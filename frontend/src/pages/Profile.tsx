@@ -50,7 +50,7 @@ export const Profile = () => {
 
   if (isLoading) {
     return (
-      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
         <section className="minimal-status-card page-reveal">
           <div className="minimal-loader">
             <RefreshCw size={20} className="animate-spin" />
@@ -63,7 +63,7 @@ export const Profile = () => {
 
   if (!user) {
     return (
-      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
         <section className="minimal-status-card is-error page-reveal">
           <div className="minimal-error-icon"><UserRound size={20} /></div>
           <h1 className="text-safe mt-3 text-[16px] font-bold text-white">Профиль недоступен</h1>
@@ -79,7 +79,7 @@ export const Profile = () => {
   const favoriteMode = stats.favorite_mode && stats.favorite_mode !== 'none' ? stats.favorite_mode : 'Пока нет';
 
   return (
-    <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden px-4 pb-28 pt-3 text-white">
+    <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
       <section className="profile-head minimal-panel page-reveal">
         <div className="profile-head-glow" />
         <div className="relative z-10 flex items-start justify-between gap-3">
