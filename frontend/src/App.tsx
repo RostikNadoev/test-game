@@ -51,25 +51,6 @@ const FRUIT_CASCADE_ROUTE = '/solo/fruit-cascade';
 const APP_LOADER_FALLBACK_MS = 3600;
 const SOLO_PAGE_LOADER_MS = 620;
 
-type TelegramWebApp = {
-  ready?: () => void;
-  expand?: () => void;
-  disableVerticalSwipes?: () => void;
-  enableVerticalSwipes?: () => void;
-  setHeaderColor?: (color: string) => void;
-  setBackgroundColor?: (color: string) => void;
-  isVersionAtLeast?: (version: string) => boolean;
-  lockOrientation?: () => void;
-  unlockOrientation?: () => void;
-  isOrientationLocked?: boolean;
-  BackButton?: {
-    show: () => void;
-    hide: () => void;
-    onClick: (callback: () => void) => void;
-    offClick?: (callback: () => void) => void;
-  };
-};
-
 function isSoloPath(pathname: string) {
   return pathname === SOLO_ROUTE_PREFIX || pathname.startsWith(`${SOLO_ROUTE_PREFIX}/`);
 }
@@ -194,7 +175,7 @@ function AppShell() {
   }, [location.pathname]);
 
   useEffect(() => {
-    const tg = getTelegramWebApp() as TelegramWebApp | undefined;
+    const tg = getTelegramWebApp();
 
     tg?.ready?.();
     tg?.expand?.();

@@ -16,8 +16,20 @@ export type TelegramWebApp = {
   viewportStableHeight?: number;
   safeAreaInset?: TelegramSafeAreaInset;
   contentSafeAreaInset?: TelegramSafeAreaInset;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  isVersionAtLeast?: (version: string) => boolean;
+  lockOrientation?: () => void;
+  unlockOrientation?: () => void;
+  isOrientationLocked?: boolean;
   onEvent?: (event: string, callback: () => void) => void;
   offEvent?: (event: string, callback: () => void) => void;
+  BackButton?: {
+    show: () => void;
+    hide: () => void;
+    onClick: (callback: () => void) => void;
+    offClick?: (callback: () => void) => void;
+  };
   HapticFeedback?: {
     notificationOccurred?: (type: string) => void;
     impactOccurred?: (type: string) => void;
