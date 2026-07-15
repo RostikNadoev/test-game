@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   airHockeyWsApi,
   type AirHockeyBody,
+  type AirHockeyPhase,
   type AirHockeySocketClient,
   type AirHockeyStateMessage,
 } from '../api/airHockeyWs';
@@ -11,8 +12,19 @@ import { useAuth } from '../auth/useAuth';
 
 const DEFAULT_BOARD = { width: 1, height: 1.72 };
 const MAX_DPR = 1.5;
-const INPUT_INTERVAL_MS = 50; // 20 сообщений в секунду.
-const MAX_EXTRAPOLATION_SECONDS = 0.1;
+const INPUT_INTERVAL_MS = 33;
+const INTERPOLATION_DELAY_MS = 72;
+const MAX_EXTRAPOLATION_SECONDS = 0.045;
+const SNAPSHOT_BUFFER_SIZE = 12;
+const LOCAL_PADDLE_MAX_SPEED = 4.8;
+const PADDLE_RADIUS = 0.07;
+const PUCK_RADIUS = 0.035;
+const VISUAL_COLLISION_SKIN = 0.003;
+const VISUAL_PUCK_MAX_SPEED = 2.05;
+const VISUAL_OVERRIDE_MS = 115;
+
+const PLAYERS_STORAGE_KEY = 'twingames_air_hockey_players_info';
+const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
 
 type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
 
@@ -40,13 +52,33 @@ type TrailPoint = {
 type LocalPaddle = {
   x: number;
   y: number;
+  targetX: number;
+  targetY: number;
+  vx: number;
+  vy: number;
   dragging: boolean;
+  initialized: boolean;
 };
 
-type VisualState = {
+type NetworkSnapshot = {
+  tick: number;
+  receivedAt: number;
+  phase: AirHockeyPhase;
+  goalSeq: number;
+  puck: AirHockeyBody;
+  opponent: AirHockeyBody;
+};
+
+type NetworkVisual = {
   initialized: boolean;
   puck: AirHockeyBody;
   opponent: AirHockeyBody;
+};
+
+type VisualPuckOverride = {
+  active: boolean;
+  until: number;
+  body: AirHockeyBody;
 };
 
 const emptyBody = (): AirHockeyBody => ({ x: 0.5, y: 0.86, vx: 0, vy: 0 });
@@ -54,9 +86,31 @@ const emptyBody = (): AirHockeyBody => ({ x: 0.5, y: 0.86, vx: 0, vy: 0 });
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
-const damp = (current: number, target: number, speed: number, dt: number) => {
-  const factor = 1 - Math.exp(-speed * dt);
-  return current + (target - current) * factor;
+const lerp = (from: number, to: number, amount: number) =>
+  from + (to - from) * amount;
+
+const lerpBody = (from: AirHockeyBody, to: AirHockeyBody, amount: number): AirHockeyBody => ({
+  x: lerp(from.x, to.x, amount),
+  y: lerp(from.y, to.y, amount),
+  vx: lerp(from.vx, to.vx, amount),
+  vy: lerp(from.vy, to.vy, amount),
+});
+
+const extrapolateBody = (body: AirHockeyBody, seconds: number): AirHockeyBody => ({
+  ...body,
+  x: body.x + body.vx * seconds,
+  y: body.y + body.vy * seconds,
+});
+
+const clampBodySpeed = (body: AirHockeyBody, maxSpeed: number): AirHockeyBody => {
+  const speed = Math.hypot(body.vx, body.vy);
+  if (speed <= maxSpeed || speed === 0) return body;
+
+  return {
+    ...body,
+    vx: (body.vx / speed) * maxSpeed,
+    vy: (body.vy / speed) * maxSpeed,
+  };
 };
 
 const transformToLocal = (
@@ -65,7 +119,7 @@ const transformToLocal = (
   boardWidth: number,
   boardHeight: number,
 ): AirHockeyBody => {
-  if (side === 0) return body;
+  if (side === 0) return { ...body };
 
   return {
     x: boardWidth - body.x,
@@ -89,7 +143,9 @@ const transformToServer = (
 const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
   if (typeof window === 'undefined') return [];
 
-  const raw = window.sessionStorage.getItem('twingames_blackjack_players_info');
+  const raw =
+    window.sessionStorage.getItem(PLAYERS_STORAGE_KEY) ||
+    window.sessionStorage.getItem(LEGACY_PLAYERS_STORAGE_KEY);
   if (!raw) return [];
 
   try {
@@ -105,11 +161,115 @@ const getInitials = (name: string) => {
   return clean.slice(0, 2).toUpperCase() || 'TG';
 };
 
-const Avatar = ({ player, fallback }: { player?: LobbyPlayerInfo; fallback: string }) => {
+const sampleSnapshots = (
+  snapshots: NetworkSnapshot[],
+  now: number,
+): { puck: AirHockeyBody; opponent: AirHockeyBody } | null => {
+  if (snapshots.length === 0) return null;
+
+  const renderAt = now - INTERPOLATION_DELAY_MS;
+
+  while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) {
+    snapshots.shift();
+  }
+
+  const first = snapshots[0];
+  const second = snapshots[1];
+
+  if (second && first.receivedAt <= renderAt && renderAt <= second.receivedAt) {
+    const span = Math.max(1, second.receivedAt - first.receivedAt);
+    const amount = clamp((renderAt - first.receivedAt) / span, 0, 1);
+
+    return {
+      puck: lerpBody(first.puck, second.puck, amount),
+      opponent: lerpBody(first.opponent, second.opponent, amount),
+    };
+  }
+
+  const latest = snapshots[snapshots.length - 1];
+  if (renderAt > latest.receivedAt && latest.phase === 'playing') {
+    const seconds = clamp(
+      (renderAt - latest.receivedAt) / 1000,
+      0,
+      MAX_EXTRAPOLATION_SECONDS,
+    );
+
+    return {
+      puck: extrapolateBody(latest.puck, seconds),
+      opponent: extrapolateBody(latest.opponent, seconds),
+    };
+  }
+
+  return {
+    puck: { ...first.puck },
+    opponent: { ...first.opponent },
+  };
+};
+
+const makeVisualPaddleCollision = (
+  puck: AirHockeyBody,
+  paddle: LocalPaddle,
+): AirHockeyBody | null => {
+  const dx = puck.x - paddle.x;
+  const dy = puck.y - paddle.y;
+  const minDistance = PUCK_RADIUS + PADDLE_RADIUS;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance >= minDistance) return null;
+
+  let nx = 0;
+  let ny = -1;
+  if (distance > 0.000001) {
+    nx = dx / distance;
+    ny = dy / distance;
+  } else {
+    const relativeSpeed = Math.hypot(puck.vx - paddle.vx, puck.vy - paddle.vy);
+    if (relativeSpeed > 0.000001) {
+      nx = -(puck.vx - paddle.vx) / relativeSpeed;
+      ny = -(puck.vy - paddle.vy) / relativeSpeed;
+    }
+  }
+
+  const relativeVX = puck.vx - paddle.vx;
+  const relativeVY = puck.vy - paddle.vy;
+  const approach = relativeVX * nx + relativeVY * ny;
+
+  let vx = puck.vx;
+  let vy = puck.vy;
+
+  if (approach < 0) {
+    const reflectedVX = relativeVX - 1.96 * approach * nx;
+    const reflectedVY = relativeVY - 1.96 * approach * ny;
+    vx = reflectedVX + paddle.vx * 0.78;
+    vy = reflectedVY + paddle.vy * 0.78;
+  }
+
+  return clampBodySpeed(
+    {
+      x: paddle.x + nx * (minDistance + VISUAL_COLLISION_SKIN),
+      y: paddle.y + ny * (minDistance + VISUAL_COLLISION_SKIN),
+      vx,
+      vy,
+    },
+    VISUAL_PUCK_MAX_SPEED,
+  );
+};
+
+const Avatar = ({
+  player,
+  fallback,
+  className = '',
+}: {
+  player?: LobbyPlayerInfo;
+  fallback: string;
+  className?: string;
+}) => {
   const nickname = player?.tg_user || fallback;
 
   return (
-    <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-[10px] font-black text-white">
+    <div
+      className={`grid shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-white/[0.07] text-[9px] font-black text-white shadow-[0_0_18px_rgba(0,0,0,0.35)] ${className}`}
+    >
       {player?.photo_url ? (
         <img
           src={player.photo_url}
@@ -134,7 +294,6 @@ export const AirHockeyGame: React.FC = () => {
   const rafRef = useRef<number | null>(null);
   const socketRef = useRef<AirHockeySocketClient | null>(null);
   const serverStateRef = useRef<AirHockeyStateMessage | null>(null);
-  const receivedAtRef = useRef(0);
   const sideRef = useRef<0 | 1>(0);
   const inputSeqRef = useRef(0);
   const inputDirtyRef = useRef(false);
@@ -142,16 +301,28 @@ export const AirHockeyGame: React.FC = () => {
   const matchHandledRef = useRef(false);
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
   const lastFrameRef = useRef(0);
+  const snapshotBufferRef = useRef<NetworkSnapshot[]>([]);
+  const lastSnapshotPhaseRef = useRef<AirHockeyPhase | null>(null);
 
   const localPaddleRef = useRef<LocalPaddle>({
     x: DEFAULT_BOARD.width / 2,
     y: DEFAULT_BOARD.height - 0.16,
+    targetX: DEFAULT_BOARD.width / 2,
+    targetY: DEFAULT_BOARD.height - 0.16,
+    vx: 0,
+    vy: 0,
     dragging: false,
+    initialized: false,
   });
-  const visualRef = useRef<VisualState>({
+  const networkVisualRef = useRef<NetworkVisual>({
     initialized: false,
     puck: emptyBody(),
     opponent: { x: 0.5, y: 0.16, vx: 0, vy: 0 },
+  });
+  const visualPuckOverrideRef = useRef<VisualPuckOverride>({
+    active: false,
+    until: 0,
+    body: emptyBody(),
   });
   const particlesRef = useRef<Particle[]>([]);
   const trailRef = useRef<TrailPoint[]>([]);
@@ -216,10 +387,7 @@ export const AirHockeyGame: React.FC = () => {
       window.sessionStorage.setItem('twingames_active_lobby_id', lobbyId);
       window.sessionStorage.setItem('twingames_active_game', 'air_hockey');
       if (playersInfo.length) {
-        window.sessionStorage.setItem(
-          'twingames_blackjack_players_info',
-          JSON.stringify(playersInfo),
-        );
+        window.sessionStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(playersInfo));
       }
     }
 
@@ -240,6 +408,10 @@ export const AirHockeyGame: React.FC = () => {
           onOpen: () => {
             if (!alive) return;
             reconnectAttempt = 0;
+            localPaddleRef.current.initialized = false;
+            snapshotBufferRef.current = [];
+            networkVisualRef.current.initialized = false;
+            visualPuckOverrideRef.current.active = false;
             setConnectionStatus('open');
             client.requestState();
           },
@@ -266,7 +438,6 @@ export const AirHockeyGame: React.FC = () => {
             if (!alive) return;
 
             serverStateRef.current = state;
-            receivedAtRef.current = performance.now();
             setServerState(state);
             setSocketError(null);
 
@@ -282,22 +453,52 @@ export const AirHockeyGame: React.FC = () => {
 
             if (myPaddle) {
               inputSeqRef.current = Math.max(inputSeqRef.current, myPaddle.input_seq);
-            }
-
-            if (myPaddle && !localPaddleRef.current.dragging) {
               const local = transformToLocal(myPaddle, side, boardWidth, boardHeight);
-              if (!visualRef.current.initialized) {
-                localPaddleRef.current.x = local.x;
-                localPaddleRef.current.y = local.y;
+
+              if (!localPaddleRef.current.initialized) {
+                localPaddleRef.current = {
+                  x: local.x,
+                  y: local.y,
+                  targetX: local.x,
+                  targetY: local.y,
+                  vx: 0,
+                  vy: 0,
+                  dragging: false,
+                  initialized: true,
+                };
               }
             }
 
-            if (!visualRef.current.initialized && opponentPaddle) {
-              visualRef.current = {
-                initialized: true,
+            if (opponentPaddle) {
+              const receivedAt = performance.now();
+              const snapshot: NetworkSnapshot = {
+                tick: state.tick,
+                receivedAt,
+                phase: state.phase,
+                goalSeq: state.goal_seq,
                 puck: transformToLocal(state.puck, side, boardWidth, boardHeight),
                 opponent: transformToLocal(opponentPaddle, side, boardWidth, boardHeight),
               };
+
+              const phaseChanged = lastSnapshotPhaseRef.current !== state.phase;
+              if (phaseChanged || state.phase !== 'playing') {
+                snapshotBufferRef.current = [snapshot];
+                networkVisualRef.current = {
+                  initialized: true,
+                  puck: { ...snapshot.puck },
+                  opponent: { ...snapshot.opponent },
+                };
+                visualPuckOverrideRef.current.active = false;
+              } else {
+                const last = snapshotBufferRef.current.at(-1);
+                if (!last || state.tick > last.tick || state.goal_seq !== last.goalSeq) {
+                  snapshotBufferRef.current.push(snapshot);
+                  if (snapshotBufferRef.current.length > SNAPSHOT_BUFFER_SIZE) {
+                    snapshotBufferRef.current.shift();
+                  }
+                }
+              }
+              lastSnapshotPhaseRef.current = state.phase;
             }
 
             if (state.goal_seq > lastGoalSeqRef.current) {
@@ -305,6 +506,7 @@ export const AirHockeyGame: React.FC = () => {
               const scoredByMe = state.goal_scorer_user_id === currentUserId;
               createGoalEffect(scoredByMe, scoredByMe ? '#ef4444' : '#3b82f6');
               trailRef.current = [];
+              visualPuckOverrideRef.current.active = false;
             }
           },
         },
@@ -335,8 +537,8 @@ export const AirHockeyGame: React.FC = () => {
       const boardHeight = state.board_height || DEFAULT_BOARD.height;
       const local = localPaddleRef.current;
       const serverPoint = transformToServer(
-        local.x,
-        local.y,
+        local.targetX,
+        local.targetY,
         sideRef.current,
         boardWidth,
         boardHeight,
@@ -420,81 +622,100 @@ export const AirHockeyGame: React.FC = () => {
 
     const loop = (now: number) => {
       const previous = lastFrameRef.current || now;
-      const dt = Math.min(0.033, (now - previous) / 1000);
+      const dt = Math.min(0.033, Math.max(0.001, (now - previous) / 1000));
       lastFrameRef.current = now;
 
       const { w, h } = sizeRef.current;
       const state = serverStateRef.current;
       const boardWidth = state?.board_width || DEFAULT_BOARD.width;
       const boardHeight = state?.board_height || DEFAULT_BOARD.height;
-      const side = sideRef.current;
-      const currentUserId = user?.id || state?.player_order?.[0] || 0;
-      const opponentId = state?.player_order.find((id) => id !== currentUserId) || 0;
-      const myServerPaddle = state?.paddles[String(currentUserId)];
-      const opponentServerPaddle = state?.paddles[String(opponentId)];
+      const localPaddle = localPaddleRef.current;
 
-      if (state && opponentServerPaddle) {
-        const snapshotAge = Math.min(
-          MAX_EXTRAPOLATION_SECONDS,
-          Math.max(0, (now - receivedAtRef.current) / 1000),
+      const oldLocalX = localPaddle.x;
+      const oldLocalY = localPaddle.y;
+      const dx = localPaddle.targetX - localPaddle.x;
+      const dy = localPaddle.targetY - localPaddle.y;
+      const distance = Math.hypot(dx, dy);
+      const maxMove = LOCAL_PADDLE_MAX_SPEED * dt;
+
+      if (distance <= maxMove || distance === 0) {
+        localPaddle.x = localPaddle.targetX;
+        localPaddle.y = localPaddle.targetY;
+      } else {
+        localPaddle.x += (dx / distance) * maxMove;
+        localPaddle.y += (dy / distance) * maxMove;
+      }
+
+      localPaddle.x = clamp(localPaddle.x, PADDLE_RADIUS, boardWidth - PADDLE_RADIUS);
+      localPaddle.y = clamp(
+        localPaddle.y,
+        boardHeight / 2 + PADDLE_RADIUS,
+        boardHeight - PADDLE_RADIUS,
+      );
+      localPaddle.vx = (localPaddle.x - oldLocalX) / dt;
+      localPaddle.vy = (localPaddle.y - oldLocalY) / dt;
+
+      const sampled = sampleSnapshots(snapshotBufferRef.current, now);
+      if (sampled) {
+        networkVisualRef.current = {
+          initialized: true,
+          puck: sampled.puck,
+          opponent: sampled.opponent,
+        };
+      }
+
+      let visualPuck = networkVisualRef.current.puck;
+      const override = visualPuckOverrideRef.current;
+
+      if (override.active) {
+        override.body.x += override.body.vx * dt;
+        override.body.y += override.body.vy * dt;
+        const friction = Math.pow(0.994, dt * 60);
+        override.body.vx *= friction;
+        override.body.vy *= friction;
+
+        const authoritativeDistance = Math.hypot(
+          networkVisualRef.current.puck.x - localPaddle.x,
+          networkVisualRef.current.puck.y - localPaddle.y,
         );
-        const predictedPuck = state.phase === 'playing'
-          ? {
-              ...state.puck,
-              x: state.puck.x + state.puck.vx * snapshotAge,
-              y: state.puck.y + state.puck.vy * snapshotAge,
-            }
-          : state.puck;
+        const authoritativeMovingAway =
+          (networkVisualRef.current.puck.x - localPaddle.x) *
+              (networkVisualRef.current.puck.vx - localPaddle.vx) +
+            (networkVisualRef.current.puck.y - localPaddle.y) *
+              (networkVisualRef.current.puck.vy - localPaddle.vy) >
+          0;
 
-        const targetPuck = transformToLocal(predictedPuck, side, boardWidth, boardHeight);
-        const targetOpponent = transformToLocal(
-          opponentServerPaddle,
-          side,
-          boardWidth,
-          boardHeight,
-        );
-
-        if (!visualRef.current.initialized) {
-          visualRef.current.initialized = true;
-          visualRef.current.puck = targetPuck;
-          visualRef.current.opponent = targetOpponent;
+        if (
+          now >= override.until ||
+          (authoritativeDistance > (PUCK_RADIUS + PADDLE_RADIUS) * 1.18 &&
+            authoritativeMovingAway)
+        ) {
+          override.active = false;
+          visualPuck = networkVisualRef.current.puck;
         } else {
-          visualRef.current.puck.x = damp(visualRef.current.puck.x, targetPuck.x, 22, dt);
-          visualRef.current.puck.y = damp(visualRef.current.puck.y, targetPuck.y, 22, dt);
-          visualRef.current.puck.vx = targetPuck.vx;
-          visualRef.current.puck.vy = targetPuck.vy;
-          visualRef.current.opponent.x = damp(
-            visualRef.current.opponent.x,
-            targetOpponent.x,
-            18,
-            dt,
-          );
-          visualRef.current.opponent.y = damp(
-            visualRef.current.opponent.y,
-            targetOpponent.y,
-            18,
-            dt,
-          );
+          visualPuck = override.body;
         }
       }
 
-      if (myServerPaddle && !localPaddleRef.current.dragging) {
-        const targetMy = transformToLocal(myServerPaddle, side, boardWidth, boardHeight);
-        localPaddleRef.current.x = damp(localPaddleRef.current.x, targetMy.x, 20, dt);
-        localPaddleRef.current.y = damp(localPaddleRef.current.y, targetMy.y, 20, dt);
+      if (!override.active && state?.phase === 'playing') {
+        const collisionBody = makeVisualPaddleCollision(visualPuck, localPaddle);
+        if (collisionBody) {
+          override.active = true;
+          override.until = now + VISUAL_OVERRIDE_MS;
+          override.body = collisionBody;
+          visualPuck = collisionBody;
+        }
       }
 
-      const puck = visualRef.current.puck;
-      const opponent = visualRef.current.opponent;
-      const myPaddle = localPaddleRef.current;
+      const opponent = networkVisualRef.current.opponent;
       const toX = (value: number) => (value / boardWidth) * w;
       const toY = (value: number) => (value / boardHeight) * h;
-      const puckX = toX(puck.x);
-      const puckY = toY(puck.y);
+      const puckX = toX(visualPuck.x);
+      const puckY = toY(visualPuck.y);
       const opponentX = toX(opponent.x);
       const opponentY = toY(opponent.y);
-      const myX = toX(myPaddle.x);
-      const myY = toY(myPaddle.y);
+      const myX = toX(localPaddle.x);
+      const myY = toY(localPaddle.y);
       const paddleRadius = clamp(w * 0.075, 24, 34);
       const puckRadius = clamp(w * 0.035, 12, 18);
 
@@ -596,7 +817,7 @@ export const AirHockeyGame: React.FC = () => {
       if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [user?.id]);
+  }, []);
 
   const pointFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -605,14 +826,12 @@ export const AirHockeyGame: React.FC = () => {
 
     const boardWidth = state.board_width || DEFAULT_BOARD.width;
     const boardHeight = state.board_height || DEFAULT_BOARD.height;
-    const paddleRadius = 0.07;
-
     const x = ((event.clientX - rect.left) / rect.width) * boardWidth;
     const y = ((event.clientY - rect.top) / rect.height) * boardHeight;
 
     return {
-      x: clamp(x, paddleRadius, boardWidth - paddleRadius),
-      y: clamp(y, boardHeight / 2 + paddleRadius, boardHeight - paddleRadius),
+      x: clamp(x, PADDLE_RADIUS, boardWidth - PADDLE_RADIUS),
+      y: clamp(y, boardHeight / 2 + PADDLE_RADIUS, boardHeight - PADDLE_RADIUS),
       boardWidth,
       boardHeight,
     };
@@ -630,14 +849,17 @@ export const AirHockeyGame: React.FC = () => {
     const paddlePx = clamp(rect.width * 0.075, 24, 34);
     const paddleX = (localPaddleRef.current.x / point.boardWidth) * rect.width;
     const paddleY = (localPaddleRef.current.y / point.boardHeight) * rect.height;
-    const distance = Math.hypot(event.clientX - rect.left - paddleX, event.clientY - rect.top - paddleY);
+    const distance = Math.hypot(
+      event.clientX - rect.left - paddleX,
+      event.clientY - rect.top - paddleY,
+    );
 
     if (distance > paddlePx * 2.4) return;
 
     event.currentTarget.setPointerCapture(event.pointerId);
     localPaddleRef.current.dragging = true;
-    localPaddleRef.current.x = point.x;
-    localPaddleRef.current.y = point.y;
+    localPaddleRef.current.targetX = point.x;
+    localPaddleRef.current.targetY = point.y;
     inputDirtyRef.current = true;
   };
 
@@ -647,8 +869,8 @@ export const AirHockeyGame: React.FC = () => {
     const point = pointFromPointer(event);
     if (!point) return;
 
-    localPaddleRef.current.x = point.x;
-    localPaddleRef.current.y = point.y;
+    localPaddleRef.current.targetX = point.x;
+    localPaddleRef.current.targetY = point.y;
     inputDirtyRef.current = true;
   };
 
@@ -687,42 +909,53 @@ export const AirHockeyGame: React.FC = () => {
       ref={containerRef}
       className="relative h-full min-h-[440px] w-full touch-none select-none overflow-hidden bg-[#0A0A0F] text-white"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex items-center justify-center px-3">
-        <div className="flex w-full max-w-[420px] items-center justify-between rounded-[20px] border border-white/[0.08] bg-black/35 px-3 py-2 backdrop-blur-xl">
-          <div className="flex min-w-0 items-center gap-2">
-            <Avatar player={myPlayerInfo} fallback={user?.tg_user || 'Ты'} />
-            <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[10px] font-black">
-                {myPlayerInfo?.tg_user || user?.tg_user || 'Ты'}
-              </div>
-              <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.16em] text-red-400/70">
-                Ты
-              </div>
-            </div>
-          </div>
+      <div className="pointer-events-none absolute left-2 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center opacity-75 drop-shadow-[0_3px_14px_rgba(0,0,0,0.75)]">
+        <Avatar
+          player={opponentPlayerInfo}
+          fallback="VS"
+          className="h-8 w-8 border-blue-300/20"
+        />
+        <div className="mt-1 max-w-[56px] truncate text-[7px] font-black uppercase tracking-[0.11em] text-blue-200/55">
+          {opponentPlayerInfo?.tg_user || 'Враг'}
+        </div>
+        <div className="mt-1 text-[29px] font-black leading-none tabular-nums text-blue-400/80">
+          {opponentScore}
+        </div>
 
-          <div className="text-center">
-            <div className="text-[22px] font-black tabular-nums tracking-[-0.08em]">
-              <span className="text-red-400">{myScore}</span>
-              <span className="mx-2 text-white/20">:</span>
-              <span className="text-blue-400">{opponentScore}</span>
-            </div>
-            <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.17em] text-white/35">
-              до {targetGoals} · {connectionStatus}
-            </div>
-          </div>
+        <div className="my-2 flex flex-col items-center gap-1">
+          {Array.from({ length: Math.max(1, targetGoals) }).map((_, index) => (
+            <span
+              key={index}
+              className={`h-1 w-1 rounded-full ${
+                index < Math.max(myScore, opponentScore) ? 'bg-white/30' : 'bg-white/10'
+              }`}
+            />
+          ))}
+        </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-2 text-right">
-            <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[10px] font-black">
-                {opponentPlayerInfo?.tg_user || 'Соперник'}
-              </div>
-              <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.16em] text-blue-400/70">
-                Враг
-              </div>
-            </div>
-            <Avatar player={opponentPlayerInfo} fallback="VS" />
-          </div>
+        <div className="text-[29px] font-black leading-none tabular-nums text-red-400/85">
+          {myScore}
+        </div>
+        <div className="mt-1 max-w-[56px] truncate text-[7px] font-black uppercase tracking-[0.11em] text-red-200/55">
+          {myPlayerInfo?.tg_user || user?.tg_user || 'Ты'}
+        </div>
+        <Avatar
+          player={myPlayerInfo}
+          fallback={user?.tg_user || 'Ты'}
+          className="mt-1 h-8 w-8 border-red-300/20"
+        />
+
+        <div className="mt-2 flex items-center gap-1 text-[6px] font-black uppercase tracking-[0.12em] text-white/25">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              connectionStatus === 'open'
+                ? 'bg-emerald-400/70'
+                : connectionStatus === 'error'
+                  ? 'bg-red-400/70'
+                  : 'bg-white/25'
+            }`}
+          />
+          до {targetGoals}
         </div>
       </div>
 
@@ -784,6 +1017,7 @@ export const AirHockeyGame: React.FC = () => {
                 <Avatar
                   player={isWinner ? myPlayerInfo : opponentPlayerInfo}
                   fallback={isWinner ? user?.tg_user || 'WIN' : 'VS'}
+                  className="h-11 w-11"
                 />
               </div>
               <div className="mt-4 text-[10px] font-black uppercase tracking-[0.28em] text-white/35">

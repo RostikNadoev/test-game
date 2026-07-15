@@ -1,6 +1,7 @@
 package airhockey
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -70,5 +71,50 @@ func TestThirdGoalFinishesMatch(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("match over callback was not called")
+	}
+}
+
+func TestSweptCircleDetectsPassThrough(t *testing.T) {
+	radius := puckRadius + paddleRadius
+	start := Vec2{X: -radius * 2, Y: 0}
+	delta := Vec2{X: radius * 4, Y: 0}
+
+	hitTime, hit := sweptCircleHitTime(start, delta, radius)
+	if !hit {
+		t.Fatal("expected swept collision")
+	}
+	if hitTime <= 0 || hitTime >= 1 {
+		t.Fatalf("expected collision inside the segment, got %f", hitTime)
+	}
+}
+
+func TestSweptPaddleCollisionReflectsPuck(t *testing.T) {
+	s := NewSession("lobby", []uint{1, 2}, nil, nil)
+	defer s.Close()
+
+	s.mu.Lock()
+	paddle := s.paddles[1]
+	paddle.X = 0.5
+	paddle.Y = 1.2
+	paddle.VX = 0
+	paddle.VY = 0
+
+	start := Vec2{X: 0.5, Y: 1.0}
+	s.puck = MovingBody{X: 0.5, Y: 1.35, VX: 0, VY: 1.4}
+	s.resolveSweptPaddleCollisionLocked(
+		paddle,
+		Vec2{X: paddle.X, Y: paddle.Y},
+		start,
+		0.1,
+	)
+	vy := s.puck.VY
+	distance := math.Hypot(s.puck.X-paddle.X, s.puck.Y-paddle.Y)
+	s.mu.Unlock()
+
+	if vy >= 0 {
+		t.Fatalf("expected puck to reflect upward, got vy=%f", vy)
+	}
+	if distance < puckRadius+paddleRadius {
+		t.Fatalf("puck remained inside paddle, distance=%f", distance)
 	}
 }

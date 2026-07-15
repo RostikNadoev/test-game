@@ -19,7 +19,7 @@ const (
 	BoardHeight = 1.72
 
 	SimulationHz = 60
-	SnapshotHz   = 20
+	SnapshotHz   = 30
 
 	PhaseWaiting   = "waiting"
 	PhasePlaying   = "playing"
@@ -31,13 +31,17 @@ const (
 	goalMinX     = 0.30
 	goalMaxX     = 0.70
 
-	paddleMaxSpeed = 3.4
-	puckMaxSpeed   = 1.75
-	serveSpeed     = 0.72
+	paddleMaxSpeed = 4.8
+	puckMaxSpeed   = 2.05
+	serveSpeed     = 0.76
 	wallBounce     = 0.92
 	paddleBounce   = 0.96
-	paddleTransfer = 0.72
+	paddleTransfer = 0.78
 	frictionPer60  = 0.994
+
+	maxPhysicsSubsteps = 10
+	collisionSkin      = 0.0015
+	minimumHitSpeed    = 0.42
 
 	goalPause = 900 * time.Millisecond
 )
@@ -460,17 +464,64 @@ func (s *Session) stepLocked(dt float64, now time.Time) {
 		return
 	}
 
-	for _, userID := range s.playerOrder {
-		s.movePaddleLocked(userID, dt)
+	dt = clamp(dt, 1.0/240.0, 1.0/30.0)
+	combinedSpeed := math.Hypot(s.puck.VX, s.puck.VY) + paddleMaxSpeed
+	maxTravelPerSubstep := (puckRadius + paddleRadius) * 0.18
+	substeps := int(math.Ceil(combinedSpeed * dt / maxTravelPerSubstep))
+	if substeps < 1 {
+		substeps = 1
 	}
+	if substeps > maxPhysicsSubsteps {
+		substeps = maxPhysicsSubsteps
+	}
+	subDT := dt / float64(substeps)
 
-	s.puck.X += s.puck.VX * dt
-	s.puck.Y += s.puck.VY * dt
+	for step := 0; step < substeps; step++ {
+		paddleStarts := make(map[uint]Vec2, len(s.playerOrder))
+		for _, userID := range s.playerOrder {
+			paddle := s.paddles[userID]
+			if paddle == nil {
+				continue
+			}
+			paddleStarts[userID] = Vec2{X: paddle.X, Y: paddle.Y}
+			s.movePaddleLocked(userID, subDT)
+		}
 
-	friction := math.Pow(frictionPer60, dt*SimulationHz)
-	s.puck.VX *= friction
-	s.puck.VY *= friction
+		puckStart := Vec2{X: s.puck.X, Y: s.puck.Y}
+		s.puck.X += s.puck.VX * subDT
+		s.puck.Y += s.puck.VY * subDT
 
+		friction := math.Pow(frictionPer60, subDT*60.0)
+		s.puck.VX *= friction
+		s.puck.VY *= friction
+
+		for _, userID := range s.playerOrder {
+			s.resolveSweptPaddleCollisionLocked(
+				s.paddles[userID],
+				paddleStarts[userID],
+				puckStart,
+				subDT,
+			)
+		}
+
+		clampBodySpeed(&s.puck, puckMaxSpeed)
+		s.resolveArenaLocked()
+
+		insideGoal := s.puck.X > goalMinX && s.puck.X < goalMaxX
+		if insideGoal && s.puck.Y < -puckRadius {
+			// Верхние ворота: забил нижний игрок playerOrder[0].
+			s.goalLocked(s.playerOrder[0], -1)
+			return
+		}
+		if insideGoal && s.puck.Y > BoardHeight+puckRadius {
+			// Нижние ворота: забил верхний игрок playerOrder[1].
+			s.goalLocked(s.playerOrder[1], 1)
+			return
+		}
+	}
+}
+
+func (s *Session) resolveArenaLocked() {
 	if s.puck.X < puckRadius {
 		s.puck.X = puckRadius
 		s.puck.VX = math.Abs(s.puck.VX) * wallBounce
@@ -486,19 +537,6 @@ func (s *Session) stepLocked(dt float64, now time.Time) {
 	} else if s.puck.Y > BoardHeight-puckRadius && !insideGoal {
 		s.puck.Y = BoardHeight - puckRadius
 		s.puck.VY = -math.Abs(s.puck.VY) * wallBounce
-	}
-
-	for _, userID := range s.playerOrder {
-		s.resolvePaddleCollisionLocked(s.paddles[userID])
-	}
-	clampBodySpeed(&s.puck, puckMaxSpeed)
-
-	if insideGoal && s.puck.Y < -puckRadius {
-		// Верхние ворота: забил нижний игрок playerOrder[0].
-		s.goalLocked(s.playerOrder[0], -1)
-	} else if insideGoal && s.puck.Y > BoardHeight+puckRadius {
-		// Нижние ворота: забил верхний игрок playerOrder[1].
-		s.goalLocked(s.playerOrder[1], 1)
 	}
 }
 
@@ -527,44 +565,116 @@ func (s *Session) movePaddleLocked(userID uint, dt float64) {
 	paddle.VY = (paddle.Y - oldY) / dt
 }
 
-func (s *Session) resolvePaddleCollisionLocked(paddle *paddleState) {
-	if paddle == nil {
+func (s *Session) resolveSweptPaddleCollisionLocked(
+	paddle *paddleState,
+	paddleStart Vec2,
+	puckStart Vec2,
+	dt float64,
+) {
+	if paddle == nil || dt <= 0 {
 		return
 	}
 
-	dx := s.puck.X - paddle.X
-	dy := s.puck.Y - paddle.Y
-	distance := math.Hypot(dx, dy)
-	minDistance := puckRadius + paddleRadius
-	if distance >= minDistance {
-		return
+	paddleEnd := Vec2{X: paddle.X, Y: paddle.Y}
+	puckEnd := Vec2{X: s.puck.X, Y: s.puck.Y}
+	relativeStart := Vec2{
+		X: puckStart.X - paddleStart.X,
+		Y: puckStart.Y - paddleStart.Y,
 	}
+	relativeDelta := Vec2{
+		X: (puckEnd.X - puckStart.X) - (paddleEnd.X - paddleStart.X),
+		Y: (puckEnd.Y - puckStart.Y) - (paddleEnd.Y - paddleStart.Y),
+	}
+
+	minDistance := puckRadius + paddleRadius
+	hitTime, hit := sweptCircleHitTime(relativeStart, relativeDelta, minDistance)
+	if !hit {
+		dx := puckEnd.X - paddleEnd.X
+		dy := puckEnd.Y - paddleEnd.Y
+		if dx*dx+dy*dy >= minDistance*minDistance {
+			return
+		}
+		hitTime = 1
+	}
+
+	paddleAtHit := Vec2{
+		X: paddleStart.X + (paddleEnd.X-paddleStart.X)*hitTime,
+		Y: paddleStart.Y + (paddleEnd.Y-paddleStart.Y)*hitTime,
+	}
+	puckAtHit := Vec2{
+		X: puckStart.X + (puckEnd.X-puckStart.X)*hitTime,
+		Y: puckStart.Y + (puckEnd.Y-puckStart.Y)*hitTime,
+	}
+
+	dx := puckAtHit.X - paddleAtHit.X
+	dy := puckAtHit.Y - paddleAtHit.Y
+	distance := math.Hypot(dx, dy)
+
+	paddleVX := (paddleEnd.X - paddleStart.X) / dt
+	paddleVY := (paddleEnd.Y - paddleStart.Y) / dt
 	if distance < 0.000001 {
-		dx, dy, distance = 0, -1, 1
+		relVX := s.puck.VX - paddleVX
+		relVY := s.puck.VY - paddleVY
+		relSpeed := math.Hypot(relVX, relVY)
+		if relSpeed > 0.000001 {
+			dx = -relVX / relSpeed
+			dy = -relVY / relSpeed
+		} else {
+			dx, dy = 0, -1
+		}
+		distance = 1
 	}
 
 	nx := dx / distance
 	ny := dy / distance
-	s.puck.X = paddle.X + nx*minDistance
-	s.puck.Y = paddle.Y + ny*minDistance
+	s.puck.X = paddleAtHit.X + nx*(minDistance+collisionSkin)
+	s.puck.Y = paddleAtHit.Y + ny*(minDistance+collisionSkin)
 
-	relVX := s.puck.VX - paddle.VX
-	relVY := s.puck.VY - paddle.VY
+	relVX := s.puck.VX - paddleVX
+	relVY := s.puck.VY - paddleVY
 	approach := relVX*nx + relVY*ny
-	if approach >= 0 {
-		return
+	if approach < 0 {
+		reflectedVX := relVX - (1+paddleBounce)*approach*nx
+		reflectedVY := relVY - (1+paddleBounce)*approach*ny
+
+		s.puck.VX = reflectedVX + paddleVX*paddleTransfer
+		s.puck.VY = reflectedVY + paddleVY*paddleTransfer
+
+		if math.Hypot(s.puck.VX, s.puck.VY) < minimumHitSpeed {
+			s.puck.VX += nx * minimumHitSpeed
+			s.puck.VY += ny * minimumHitSpeed
+		}
+
+		remaining := dt * (1 - hitTime)
+		if remaining > 0 {
+			s.puck.X += s.puck.VX * remaining
+			s.puck.Y += s.puck.VY * remaining
+		}
+	}
+}
+
+func sweptCircleHitTime(relativeStart, relativeDelta Vec2, radius float64) (float64, bool) {
+	c := relativeStart.X*relativeStart.X + relativeStart.Y*relativeStart.Y - radius*radius
+	if c <= 0 {
+		return 0, true
 	}
 
-	reflectedVX := relVX - (1+paddleBounce)*approach*nx
-	reflectedVY := relVY - (1+paddleBounce)*approach*ny
-
-	s.puck.VX = reflectedVX + paddle.VX*paddleTransfer
-	s.puck.VY = reflectedVY + paddle.VY*paddleTransfer
-
-	if math.Hypot(s.puck.VX, s.puck.VY) < 0.38 {
-		s.puck.VX += nx * 0.38
-		s.puck.VY += ny * 0.38
+	a := relativeDelta.X*relativeDelta.X + relativeDelta.Y*relativeDelta.Y
+	if a < 0.0000000001 {
+		return 0, false
 	}
+
+	b := 2 * (relativeStart.X*relativeDelta.X + relativeStart.Y*relativeDelta.Y)
+	discriminant := b*b - 4*a*c
+	if discriminant < 0 {
+		return 0, false
+	}
+
+	t := (-b - math.Sqrt(discriminant)) / (2 * a)
+	if t < 0 || t > 1 {
+		return 0, false
+	}
+	return t, true
 }
 
 func (s *Session) goalLocked(scorerUserID uint, serveDirection float64) {
