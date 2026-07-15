@@ -6,6 +6,7 @@ import (
 	"tg-lobbies-base/internal/database"
 	"tg-lobbies-base/internal/games/airhockey"
 	"tg-lobbies-base/internal/games/blackjack"
+	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
 	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/games/towerstack"
@@ -57,6 +58,12 @@ func main() {
 		settleLobbyMatch(lobbyStore, lobbyID, &winner)
 	})
 
+	neonMatrixManager := neonmatrix.NewManager()
+	go neonMatrixManager.CleanupLoop()
+	neonMatrixManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
 	paperManager := paperio.NewManager()
 	go paperManager.CleanupLoop()
 	paperManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
@@ -104,6 +111,12 @@ func main() {
 		Manager:    blackjackManager,
 	}
 
+	neonMatrixWSHandler := handlers.NeonMatrixWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    neonMatrixManager,
+	}
+
 	paperWSHandler := handlers.PaperIoWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -124,6 +137,7 @@ func main() {
 
 	router.GET("/ws/air-hockey/:lobby_id", airHockeyWSHandler.Connect)
 	router.GET("/ws/blackjack/:lobby_id", blackjackWSHandler.Connect)
+	router.GET("/ws/neon-matrix/:lobby_id", neonMatrixWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
 	router.GET("/ws/street-race/:lobby_id", raceWSHandler.Connect)

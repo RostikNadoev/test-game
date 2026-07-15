@@ -29,6 +29,8 @@ func wsURLForGame(game, lobbyID string) string {
 		return "/ws/air-hockey/" + lobbyID
 	case "blackjack_duel":
 		return "/ws/blackjack/" + lobbyID
+	case "neon_matrix":
+		return "/ws/neon-matrix/" + lobbyID
 	case "plinko_pvp":
 		return "/ws/plinko/" + lobbyID
 	case "paper_io":

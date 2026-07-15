@@ -1,9 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
-import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  neonMatrixWsApi,
+  type NeonMatrixRoundOutcome,
+  type NeonMatrixSocketClient,
+  type NeonMatrixStateMessage,
+} from '../api/neonMatrixWs';
+import { useAuth } from '../auth/useAuth';
 
 type Player = 'cyan' | 'magenta';
-type Phase = 'pickCyan' | 'handoff' | 'pickMagenta' | 'spinning' | 'impact' | 'result' | 'gameover';
+type Phase = 'pickCyan' | 'pickMagenta' | 'spinning' | 'impact' | 'result' | 'gameover';
 
 type PickState = Record<Player, number | null>;
 type HealthState = Record<Player, number>;
@@ -43,10 +49,7 @@ type TelegramWebApp = {
 const START_HP = 100;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
-const CIRCLE_SIZE = MAX_NUMBER - MIN_NUMBER + 1;
 const SPIN_MS = 5000;
-const DAMAGE_APPLY_MS = 1600;
-const RESULT_SHOW_MS = 3900;
 const PARTICLE_LIMIT = 32;
 const WHEEL_MARKS = Array.from({ length: 60 }, (_, index) => ({
   index,
@@ -88,7 +91,6 @@ const PLAYERS: Record<
 let lastSelectionHapticAt = 0;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const randomNumber = () => MIN_NUMBER + Math.floor(Math.random() * MAX_NUMBER);
 const formatHp = (value: number) => Math.max(0, value).toString();
 
 const cssVars = (vars: Record<string, string | number>) => vars as React.CSSProperties;
@@ -146,58 +148,8 @@ const hapticNotify = (type: 'error' | 'success' | 'warning') => {
   fallbackVibrate([12, 18, 12]);
 };
 
-const circularDistance = (a: number, b: number) => {
-  const direct = Math.abs(a - b);
-  const circular = CIRCLE_SIZE - direct;
-  return Math.min(direct, circular);
-};
-
 const numberToAngle = (value: number) => {
   return ((value - MIN_NUMBER) / (MAX_NUMBER - MIN_NUMBER)) * 360;
-};
-
-const getSpinAngle = (currentAngle: number, targetNumber: number) => {
-  const normalized = ((currentAngle % 360) + 360) % 360;
-  const targetAngle = numberToAngle(targetNumber);
-  const delta = (targetAngle - normalized + 360) % 360;
-  const fullSpins = 7 * 360;
-
-  return currentAngle + fullSpins + delta;
-};
-
-const getRoundOutcome = (target: number, picks: PickState): RoundOutcome | null => {
-  if (picks.cyan === null || picks.magenta === null) return null;
-
-  const cyanDistance = circularDistance(picks.cyan, target);
-  const magentaDistance = circularDistance(picks.magenta, target);
-  const damage = Math.abs(cyanDistance - magentaDistance);
-
-  if (damage === 0) {
-    return {
-      target,
-      cyanPick: picks.cyan,
-      magentaPick: picks.magenta,
-      cyanDistance,
-      magentaDistance,
-      damage: 0,
-      attacker: null,
-      defender: null,
-    };
-  }
-
-  const attacker: Player = cyanDistance < magentaDistance ? 'cyan' : 'magenta';
-  const defender: Player = attacker === 'cyan' ? 'magenta' : 'cyan';
-
-  return {
-    target,
-    cyanPick: picks.cyan,
-    magentaPick: picks.magenta,
-    cyanDistance,
-    magentaDistance,
-    damage,
-    attacker,
-    defender,
-  };
 };
 
 const HealthBar = ({
@@ -292,6 +244,7 @@ const Wheel = ({
   picks,
   outcome,
   showPicks,
+  spinMs,
 }: {
   angle: number;
   displayNumber: number;
@@ -300,6 +253,7 @@ const Wheel = ({
   picks: PickState;
   outcome: RoundOutcome | null;
   showPicks: boolean;
+  spinMs: number;
 }) => {
   const showDistances = phase === 'impact' || phase === 'result' || phase === 'gameover';
 
@@ -382,7 +336,7 @@ const Wheel = ({
         className="rd-arrow"
         style={cssVars({
           '--angle': `${angle}deg`,
-          '--spin-ms': `${SPIN_MS}ms`,
+          '--spin-ms': `${spinMs}ms`,
         })}
       >
         <div className="rd-arrow-line" />
@@ -542,6 +496,19 @@ const NumberPicker = ({
 };
 
 export const NeonMatrixGame: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user } = useAuth();
+
+  const socketRef = useRef<NeonMatrixSocketClient | null>(null);
+  const timersRef = useRef<number[]>([]);
+  const lastRoundRef = useRef(0);
+  const lastServerPhaseRef = useRef<string>('');
+  const verifiedRevealRef = useRef<string>('');
+
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [serverState, setServerState] = useState<NeonMatrixStateMessage | null>(null);
   const [phase, setPhase] = useState<Phase>('pickCyan');
   const [health, setHealth] = useState<HealthState>({ cyan: START_HP, magenta: START_HP });
   const [round, setRound] = useState(1);
@@ -550,45 +517,47 @@ export const NeonMatrixGame: React.FC = () => {
   const [target, setTarget] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [arrowAngle, setArrowAngle] = useState(numberToAngle(50));
-  const [message, setMessage] = useState('Выбери число ближе к финалу.');
+  const [wheelSpinMs, setWheelSpinMs] = useState(SPIN_MS);
+  const [message, setMessage] = useState('Подключение к матчу...');
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [submissionPending, setSubmissionPending] = useState(false);
 
-  const timersRef = useRef<number[]>([]);
-
-  const activePlayer: Player = phase === 'pickMagenta' ? 'magenta' : 'cyan';
-  const handoffPlayer: Player = picks.cyan === null ? 'cyan' : 'magenta';
-  const canPick = phase === 'pickCyan' || phase === 'pickMagenta';
-
-  const matchWinner: Player | null = health.cyan <= 0 ? 'magenta' : health.magenta <= 0 ? 'cyan' : null;
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('neon_matrix');
-
-  useEffect(() => {
-    if (phase !== 'gameover' || !matchWinner) return;
-    void finishLobbyMatch(matchWinner === 'cyan' ? 'win' : 'loss');
-  }, [phase, matchWinner, finishLobbyMatch]);
-
-  const showWheelPicks =
-    phase === 'spinning' || phase === 'impact' || phase === 'result' || phase === 'gameover';
-
-  const resultText = useMemo(() => {
-    if (!outcome) return '';
-
-    if (outcome.damage === 0) {
-      return `Одинаково близко: Δ${outcome.cyanDistance}. Урона нет.`;
-    }
-
-    const attacker = PLAYERS[outcome.attacker!].short;
-    const defender = PLAYERS[outcome.defender!].short;
-
-    return `${attacker} ближе. ${defender} получает -${outcome.damage} HP.`;
-  }, [outcome]);
-
-  const clearTimers = () => {
-    timersRef.current.forEach((id) => window.clearTimeout(id));
-    timersRef.current = [];
+  const routeState = (location.state || {}) as {
+    lobbyId?: string;
+    game?: string;
   };
 
-  const schedule = (callback: () => void, delay: number) => {
+  const gameId = useMemo(() => {
+    if (routeState.game) return routeState.game;
+    if (typeof window === 'undefined') return 'neon_matrix';
+    return window.sessionStorage.getItem('twingames_active_game') || 'neon_matrix';
+  }, [routeState.game]);
+
+  const lobbyId = useMemo(() => {
+    const query = new URLSearchParams(location.search);
+    return (
+      routeState.lobbyId ||
+      query.get('lobby_id') ||
+      query.get('lobbyId') ||
+      (typeof window !== 'undefined'
+        ? window.sessionStorage.getItem('twingames_active_lobby_id') ||
+          window.sessionStorage.getItem('twingames_blackjack_lobby_id') ||
+          ''
+        : '')
+    );
+  }, [location.search, routeState.lobbyId]);
+
+  const playerOrder = serverState?.player_order || [];
+  const myUserId = Number(user?.id || 0);
+  const opponentUserId = playerOrder.find((id) => id !== myUserId) || 0;
+  const activePlayer: Player = 'cyan';
+
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach((id) => window.clearTimeout(id));
+    timersRef.current = [];
+  }, []);
+
+  const schedule = useCallback((callback: () => void, delay: number) => {
     const id = window.setTimeout(() => {
       timersRef.current = timersRef.current.filter((timerId) => timerId !== id);
       callback();
@@ -596,16 +565,12 @@ export const NeonMatrixGame: React.FC = () => {
 
     timersRef.current.push(id);
     return id;
-  };
-
-  useEffect(() => {
-    return () => clearTimers();
   }, []);
 
-  const burst = (tone: Particle['tone'], x: string, y: string, amount = 18) => {
-    // Tasteful cap — keeps impact feedback premium instead of noisy.
-    const count = Math.max(4, Math.min(amount, 10));
+  useEffect(() => clearTimers, [clearTimers]);
 
+  const burst = useCallback((tone: Particle['tone'], x: string, y: string, amount = 18) => {
+    const count = Math.max(4, Math.min(amount, 10));
     const items = Array.from({ length: count }, (_, index) => ({
       id: Date.now() + Math.random() + index,
       x,
@@ -616,216 +581,330 @@ export const NeonMatrixGame: React.FC = () => {
       tone,
       delay: Math.random() * 60,
     }));
-
     const ids = new Set(items.map((item) => item.id));
 
     setParticles((prev) => [...prev, ...items].slice(-PARTICLE_LIMIT));
-
     window.setTimeout(() => {
       setParticles((prev) => prev.filter((item) => !ids.has(item.id)));
     }, 850);
-  };
+  }, []);
+
+  const getMappedPick = useCallback(
+    (state: NeonMatrixStateMessage, userId: number) => {
+      const value = state.picks[String(userId)];
+      return typeof value === 'number' ? value : null;
+    },
+    [],
+  );
+
+  const mapOutcome = useCallback(
+    (raw: NeonMatrixRoundOutcome | undefined): RoundOutcome | null => {
+      if (!raw || !myUserId || !opponentUserId) return null;
+
+      const myIsPlayer1 = raw.player1_user_id === myUserId;
+      const cyanPick = myIsPlayer1 ? raw.player1_pick : raw.player2_pick;
+      const magentaPick = myIsPlayer1 ? raw.player2_pick : raw.player1_pick;
+      const cyanDistance = myIsPlayer1 ? raw.player1_distance : raw.player2_distance;
+      const magentaDistance = myIsPlayer1 ? raw.player2_distance : raw.player1_distance;
+
+      return {
+        target: raw.target,
+        cyanPick,
+        magentaPick,
+        cyanDistance,
+        magentaDistance,
+        damage: raw.damage,
+        attacker:
+          raw.attacker_user_id === myUserId
+            ? 'cyan'
+            : raw.attacker_user_id === opponentUserId
+              ? 'magenta'
+              : null,
+        defender:
+          raw.defender_user_id === myUserId
+            ? 'cyan'
+            : raw.defender_user_id === opponentUserId
+              ? 'magenta'
+              : null,
+      };
+    },
+    [myUserId, opponentUserId],
+  );
+
+  const revealAngle = useCallback((currentAngle: number, targetNumber: number) => {
+    const normalized = ((currentAngle % 360) + 360) % 360;
+    const targetAngle = numberToAngle(targetNumber);
+    const delta = (targetAngle - normalized + 360) % 360;
+    return currentAngle + 360 + delta;
+  }, []);
+
+  const verifyCommitment = useCallback(async (state: NeonMatrixStateMessage) => {
+    if (!state.commitment || state.target === undefined || !state.reveal_nonce) return;
+
+    const verificationKey = `${state.round}:${state.commitment}`;
+    if (verifiedRevealRef.current === verificationKey) return;
+    verifiedRevealRef.current = verificationKey;
+
+    if (!window.crypto?.subtle) return;
+
+    const payload = `${state.lobby_id}:${state.round}:${state.target}:${state.reveal_nonce}`;
+    const digest = await window.crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(payload),
+    );
+    const actual = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+
+    if (actual !== state.commitment) {
+      setSocketError('Проверка честности раунда не пройдена');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!lobbyId || !token) return;
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('twingames_active_lobby_id', lobbyId);
+      window.sessionStorage.setItem('twingames_active_game', gameId);
+    }
+
+    let alive = true;
+    setConnectionStatus('connecting');
+    setSocketError(null);
+
+    const client = neonMatrixWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          if (!alive) return;
+          setConnectionStatus('open');
+          client.requestState();
+        },
+        onClose: () => {
+          if (!alive) return;
+          setConnectionStatus('closed');
+        },
+        onSocketError: () => {
+          if (!alive) return;
+          setConnectionStatus('error');
+          setSocketError('Ошибка подключения к WebSocket');
+        },
+        onServerError: (error) => {
+          if (!alive) return;
+          setSocketError(error.details || error.error);
+          setSubmissionPending(false);
+        },
+        onState: (state) => {
+          if (!alive) return;
+          setServerState(state);
+          setSocketError(null);
+        },
+      },
+    });
+
+    socketRef.current = client;
+
+    return () => {
+      alive = false;
+      socketRef.current = null;
+      client.close();
+    };
+  }, [gameId, lobbyId, token]);
+
+  useEffect(() => {
+    if (!serverState || !myUserId || !opponentUserId) return;
+
+    const myHealth = serverState.health[String(myUserId)] ?? START_HP;
+    const opponentHealth = serverState.health[String(opponentUserId)] ?? START_HP;
+    const mappedPicks: PickState = {
+      cyan: getMappedPick(serverState, myUserId),
+      magenta: getMappedPick(serverState, opponentUserId),
+    };
+    const mappedOutcome = mapOutcome(serverState.outcome);
+    const previousPhase = lastServerPhaseRef.current;
+    const isNewRound = lastRoundRef.current !== serverState.round;
+
+    lastServerPhaseRef.current = serverState.phase;
+    lastRoundRef.current = serverState.round;
+    setRound(serverState.round);
+    setPicks(mappedPicks);
+    setMessage(serverState.message || '');
+    setSubmissionPending(false);
+
+    if (serverState.phase === 'picking') {
+      clearTimers();
+      setPhase('pickCyan');
+      setHealth({ cyan: myHealth, magenta: opponentHealth });
+      setTarget(null);
+      setOutcome(null);
+      setWheelSpinMs(SPIN_MS);
+
+      if (isNewRound) {
+        setDraftValue(50);
+        setArrowAngle(numberToAngle(50));
+        setParticles([]);
+      }
+
+      if (mappedPicks.cyan !== null) {
+        setDraftValue(mappedPicks.cyan);
+        setArrowAngle(numberToAngle(mappedPicks.cyan));
+      }
+      return;
+    }
+
+    if (serverState.phase === 'spinning') {
+      clearTimers();
+      setTarget(null);
+      setOutcome(null);
+      setWheelSpinMs(SPIN_MS);
+      setPhase('spinning');
+      setArrowAngle((current) => current + 7 * 360 + 197);
+
+      if (previousPhase !== 'spinning') {
+        burst('gold', '50%', '43%', 10);
+        hapticImpact('medium');
+      }
+      return;
+    }
+
+    if (serverState.target !== undefined) {
+      void verifyCommitment(serverState);
+    }
+
+    if (serverState.phase === 'impact') {
+      if (serverState.target === undefined || !mappedOutcome) return;
+
+      setTarget(serverState.target);
+      setOutcome(mappedOutcome);
+
+      const applyImpact = () => {
+        setHealth({ cyan: myHealth, magenta: opponentHealth });
+        setPhase('impact');
+        setMessage(serverState.message || 'Финальное число раскрыто.');
+        hapticImpact('heavy');
+
+        if (mappedOutcome.damage === 0) {
+          burst('green', '50%', '43%', 18);
+          hapticNotify('success');
+        } else {
+          const defenderX = mappedOutcome.defender === 'cyan' ? '22%' : '78%';
+          burst(mappedOutcome.defender === 'cyan' ? 'magenta' : 'cyan', defenderX, '14%', 16);
+          burst('red', defenderX, '14%', 14);
+          hapticNotify(myHealth <= 0 || opponentHealth <= 0 ? 'error' : 'warning');
+        }
+      };
+
+      if (previousPhase === 'spinning') {
+        setWheelSpinMs(650);
+        setArrowAngle((current) => revealAngle(current, serverState.target!));
+        schedule(applyImpact, 680);
+      } else {
+        setWheelSpinMs(0);
+        setArrowAngle(numberToAngle(serverState.target));
+        applyImpact();
+      }
+      return;
+    }
+
+    setHealth({ cyan: myHealth, magenta: opponentHealth });
+    setTarget(serverState.target ?? null);
+    setOutcome(mappedOutcome);
+
+    if (serverState.phase === 'result') {
+      setPhase('result');
+      return;
+    }
+
+    if (serverState.phase === 'match_over') {
+      clearTimers();
+      setPhase('gameover');
+      hapticNotify(serverState.winner_user_id === myUserId ? 'success' : 'error');
+    }
+  }, [
+    burst,
+    clearTimers,
+    getMappedPick,
+    mapOutcome,
+    myUserId,
+    opponentUserId,
+    revealAngle,
+    schedule,
+    serverState,
+    verifyCommitment,
+  ]);
+
+  useEffect(() => {
+    if (serverState?.phase !== 'match_over') return;
+
+    const timer = window.setTimeout(() => {
+      navigate(`/game/${gameId}/lobbies`, { replace: true });
+    }, 3400);
+
+    return () => window.clearTimeout(timer);
+  }, [gameId, navigate, serverState?.phase]);
+
+  const myPicked = Boolean(serverState?.picked[String(myUserId)]);
+  const myReady = Boolean(serverState?.ready[String(myUserId)]);
+  const canPick =
+    connectionStatus === 'open' &&
+    serverState?.phase === 'picking' &&
+    !myPicked &&
+    !submissionPending;
+
+  const matchWinner: Player | null =
+    serverState?.winner_user_id === myUserId
+      ? 'cyan'
+      : serverState?.winner_user_id === opponentUserId
+        ? 'magenta'
+        : null;
+
+  const showWheelPicks =
+    phase === 'spinning' || phase === 'impact' || phase === 'result' || phase === 'gameover';
+
+  const resultText = useMemo(() => {
+    if (!outcome) return '';
+    if (outcome.damage === 0) {
+      return `Одинаково близко: Δ${outcome.cyanDistance}. Урона нет.`;
+    }
+
+    const attacker = PLAYERS[outcome.attacker!].short;
+    const defender = PLAYERS[outcome.defender!].short;
+    return `${attacker} ближе. ${defender} получает -${outcome.damage} HP.`;
+  }, [outcome]);
 
   const changeDraft = (value: number) => {
     if (!canPick) return;
-
     const nextValue = clamp(Math.round(value), MIN_NUMBER, MAX_NUMBER);
-
     setDraftValue(nextValue);
     setArrowAngle(numberToAngle(nextValue));
     hapticSelect();
   };
 
-  const finishRound = (finalTarget: number, finalPicks: PickState) => {
-    const nextOutcome = getRoundOutcome(finalTarget, finalPicks);
+  const handlePrimary = () => {
+    setSocketError(null);
 
-    if (!nextOutcome) return;
-
-    setTarget(finalTarget);
-    setOutcome(nextOutcome);
-    setPhase('impact');
-
-    hapticImpact('heavy');
-
-    if (nextOutcome.damage === 0) {
-      setMessage('Одинаковая дистанция. Урона нет.');
-      burst('green', '50%', '43%', 18);
-      hapticNotify('success');
-
-      schedule(() => {
-        setPhase('result');
-      }, RESULT_SHOW_MS);
-
-      return;
-    }
-
-    const nextHealth: HealthState = {
-      ...health,
-      [nextOutcome.defender!]: clamp(health[nextOutcome.defender!] - nextOutcome.damage, 0, START_HP),
-    };
-
-    setMessage(`${PLAYERS[nextOutcome.attacker!].short} ближе. Урон ${nextOutcome.damage} HP.`);
-
-    schedule(() => {
-      hapticImpact('heavy');
-    }, 860);
-
-    schedule(() => {
-      setHealth(nextHealth);
-      hapticNotify(nextHealth.cyan <= 0 || nextHealth.magenta <= 0 ? 'error' : 'warning');
-      burst(nextOutcome.defender === 'cyan' ? 'magenta' : 'cyan', nextOutcome.defender === 'cyan' ? '24%' : '76%', '12%', 16);
-      burst('red', nextOutcome.defender === 'cyan' ? '22%' : '78%', '14%', 14);
-    }, DAMAGE_APPLY_MS);
-
-    schedule(() => {
-      if (nextHealth.cyan <= 0 || nextHealth.magenta <= 0) {
-        setPhase('gameover');
-        setMessage(`${nextHealth.cyan <= 0 ? 'P2' : 'P1'} выиграл матч.`);
-        hapticNotify('success');
+    if (serverState?.phase === 'picking' && canPick) {
+      const sent = socketRef.current?.pick(draftValue);
+      if (!sent) {
+        setSocketError('Нет подключения к игре');
         return;
       }
-
-      setPhase('result');
-    }, RESULT_SHOW_MS);
-  };
-
-  const startSpin = (finalPicks: PickState) => {
-    clearTimers();
-
-    const finalTarget = randomNumber();
-
-    setTarget(null);
-    setOutcome(null);
-    setPhase('spinning');
-    setMessage('Рулетка крутится...');
-    burst('gold', '50%', '43%', 10);
-    hapticImpact('medium');
-
-    schedule(() => {
-      setArrowAngle((current) => getSpinAngle(current, finalTarget));
-    }, 60);
-
-    schedule(() => {
-      burst('gold', '50%', '43%', 16);
-      hapticImpact('heavy');
-      finishRound(finalTarget, finalPicks);
-    }, SPIN_MS + 160);
-  };
-
-  const confirmPick = () => {
-    if (!canPick) return;
-
-    const player = activePlayer;
-    const nextPicks: PickState = {
-      ...picks,
-      [player]: draftValue,
-    };
-
-    setPicks(nextPicks);
-    burst(player, player === 'cyan' ? '34%' : '66%', '43%', 12);
-    hapticImpact('medium');
-
-    const missingPlayer: Player | null =
-      nextPicks.cyan === null ? 'cyan' : nextPicks.magenta === null ? 'magenta' : null;
-
-    if (missingPlayer) {
-      setPhase('handoff');
-      setMessage(`${PLAYERS[player].short} сохранён. Передай телефон ${PLAYERS[missingPlayer].short}.`);
+      setSubmissionPending(true);
+      burst('cyan', '34%', '43%', 12);
+      hapticImpact('medium');
       return;
     }
 
-    // Both picks are in: lock controls immediately so a fast double-tap
-    // can't queue a second spin during the 320ms pre-roll.
-    setPhase('spinning');
-    setMessage('Оба выбора сохранены.');
-    schedule(() => startSpin(nextPicks), 320);
-  };
-
-  const continueToSecondPlayer = () => {
-    const nextPlayer: Player = picks.cyan === null ? 'cyan' : 'magenta';
-
-    setDraftValue(50);
-    setArrowAngle(numberToAngle(50));
-    setTarget(null);
-    setOutcome(null);
-    setPhase(nextPlayer === 'cyan' ? 'pickCyan' : 'pickMagenta');
-    setMessage(`${PLAYERS[nextPlayer].label} выбирает число.`);
-    hapticSelect(true);
-  };
-
-  const nextRound = () => {
-    clearTimers();
-
-    const starter: Player = round % 2 === 1 ? 'magenta' : 'cyan';
-
-    setRound((value) => value + 1);
-    setDraftValue(50);
-    setPicks({ cyan: null, magenta: null });
-    setTarget(null);
-    setOutcome(null);
-    setArrowAngle(numberToAngle(50));
-    setPhase(starter === 'cyan' ? 'pickCyan' : 'pickMagenta');
-    setMessage(`${PLAYERS[starter].label} выбирает число.`);
-    hapticSelect(true);
-  };
-
-  const resetMatch = () => {
-    clearTimers();
-
-    setPhase('pickCyan');
-    setHealth({ cyan: START_HP, magenta: START_HP });
-    setRound(1);
-    setDraftValue(50);
-    setPicks({ cyan: null, magenta: null });
-    setTarget(null);
-    setOutcome(null);
-    setArrowAngle(numberToAngle(50));
-    setMessage('Выбери число ближе к финалу.');
-    setParticles([]);
-    hapticSelect(true);
-  };
-
-  const primaryLabel =
-    phase === 'handoff'
-      ? `${PLAYERS[handoffPlayer].short} готов`
-      : phase === 'result'
-        ? 'Дальше'
-        : phase === 'gameover'
-          ? 'Новый матч'
-          : phase === 'spinning'
-            ? 'Крутится'
-            : phase === 'impact'
-              ? 'Удар'
-              : 'Выбрать';
-
-  const handlePrimary = () => {
-    if (phase === 'handoff') {
-      continueToSecondPlayer();
-      return;
+    if (serverState?.phase === 'result' && !myReady) {
+      const sent = socketRef.current?.ready();
+      if (!sent) setSocketError('Нет подключения к игре');
     }
-
-    if (phase === 'result') {
-      nextRound();
-      return;
-    }
-
-    if (phase === 'gameover') {
-      resetMatch();
-      return;
-    }
-
-    confirmPick();
   };
 
-  const hiddenCyan =
-    target === null &&
-    picks.cyan !== null &&
-    (phase === 'handoff' || phase === 'pickCyan' || phase === 'pickMagenta');
-
-  const hiddenMagenta =
-    target === null &&
-    picks.magenta !== null &&
-    (phase === 'handoff' || phase === 'pickCyan' || phase === 'pickMagenta');
+  const hiddenCyan = false;
+  const hiddenMagenta = picks.magenta === null;
 
   const title =
     phase === 'gameover' && matchWinner
@@ -836,9 +915,36 @@ export const NeonMatrixGame: React.FC = () => {
           ? 'Damage'
           : 'Duel';
 
+  const primaryLabel =
+    socketError
+      ? 'Ошибка'
+      : connectionStatus !== 'open'
+        ? 'Подключение'
+        : serverState?.phase === 'picking'
+          ? canPick
+            ? 'Выбрать'
+            : 'Ждём соперника'
+          : serverState?.phase === 'spinning'
+            ? 'Крутится'
+            : serverState?.phase === 'impact'
+              ? 'Удар'
+              : serverState?.phase === 'result'
+                ? myReady
+                  ? 'Ждём соперника'
+                  : 'Дальше'
+                : 'Завершено';
+
+  const buttonDisabled =
+    connectionStatus !== 'open' ||
+    Boolean(socketError) ||
+    serverState?.phase === 'spinning' ||
+    serverState?.phase === 'impact' ||
+    serverState?.phase === 'match_over' ||
+    (serverState?.phase === 'picking' && !canPick) ||
+    (serverState?.phase === 'result' && myReady);
+
   return (
     <div className={`rd-page rd-${phase}`}>
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{`
         .rd-page {
           --mint: #5BB7FF;
@@ -1823,9 +1929,7 @@ export const NeonMatrixGame: React.FC = () => {
                   ? 'round result'
                   : phase === 'gameover'
                     ? 'match'
-                    : phase === 'handoff'
-                      ? 'secret pick'
-                      : PLAYERS[activePlayer].label}
+                    : PLAYERS[activePlayer].label}
           </small>
           <h1>{title}</h1>
         </div>
@@ -1838,6 +1942,7 @@ export const NeonMatrixGame: React.FC = () => {
           picks={picks}
           outcome={outcome}
           showPicks={showWheelPicks}
+          spinMs={wheelSpinMs}
         />
 
         <PickPreview
@@ -1849,27 +1954,13 @@ export const NeonMatrixGame: React.FC = () => {
           phase={phase}
         />
 
-        {phase === 'handoff' && (
-          <div className="rd-card">
-            <div className="rd-card-icon">🤫</div>
-            <h2>Передай телефон</h2>
-            <p>Выбор сохранён и скрыт. Теперь выбирает {PLAYERS[handoffPlayer].short}.</p>
-            <button type="button" className="rd-button" onClick={continueToSecondPlayer}>
-              {PLAYERS[handoffPlayer].short} готов
-            </button>
-          </div>
-        )}
-
         {phase === 'gameover' && (
           <div className="rd-card">
             <div className="rd-card-icon">🏆</div>
-            <h2>{matchWinner === 'cyan' ? 'P1 победил' : 'P2 победил'}</h2>
+            <h2>{matchWinner === 'cyan' ? 'Ты победил' : 'Соперник победил'}</h2>
             <p>
-              Финальное здоровье: P1 {formatHp(health.cyan)} HP · P2 {formatHp(health.magenta)} HP.
+              Финальное здоровье: ты {formatHp(health.cyan)} HP · соперник {formatHp(health.magenta)} HP.
             </p>
-            <button type="button" className="rd-button" onClick={resetMatch}>
-              Новый матч
-            </button>
           </div>
         )}
 
@@ -1901,7 +1992,7 @@ export const NeonMatrixGame: React.FC = () => {
 
       <div className="rd-bottom">
         <div className="rd-message">
-          {matchWinner ? `${matchWinner === 'cyan' ? 'P1' : 'P2'} выиграл матч.` : resultText || message}
+          {socketError || (matchWinner ? `${matchWinner === 'cyan' ? 'Ты' : 'Соперник'} выиграл матч.` : resultText || message)}
         </div>
 
         {canPick && <NumberPicker value={draftValue} activePlayer={activePlayer} onChange={changeDraft} />}
@@ -1910,7 +2001,7 @@ export const NeonMatrixGame: React.FC = () => {
           type="button"
           className="rd-button"
           onClick={handlePrimary}
-          disabled={phase === 'spinning' || phase === 'impact'}
+          disabled={buttonDisabled}
         >
           {primaryLabel}
         </button>
