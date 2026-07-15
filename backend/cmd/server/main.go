@@ -6,7 +6,9 @@ import (
 	"tg-lobbies-base/internal/database"
 	"tg-lobbies-base/internal/games/airhockey"
 	"tg-lobbies-base/internal/games/blackjack"
+	"tg-lobbies-base/internal/games/paperio"
 	"tg-lobbies-base/internal/games/pvp"
+	"tg-lobbies-base/internal/games/towerstack"
 	"tg-lobbies-base/internal/handlers"
 	"tg-lobbies-base/internal/middleware"
 	"tg-lobbies-base/internal/realtime"
@@ -55,6 +57,18 @@ func main() {
 		settleLobbyMatch(lobbyStore, lobbyID, &winner)
 	})
 
+	paperManager := paperio.NewManager()
+	go paperManager.CleanupLoop()
+	paperManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
+	towerManager := towerstack.NewManager()
+	go towerManager.CleanupLoop()
+	towerManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
 	pvpManager := pvp.NewManager()
 	pvpManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
@@ -90,10 +104,20 @@ func main() {
 		Manager:    blackjackManager,
 	}
 
+	paperWSHandler := handlers.PaperIoWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    paperManager,
+	}
+
+	towerWSHandler := handlers.TowerStackWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    towerManager,
+	}
+
 	plinkoWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "plinko_pvp"}
-	paperWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "paper_io"}
 	raceWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "street_race"}
-	towerWSHandler := handlers.PvpWSHandler{Cfg: cfg, LobbyStore: lobbyStore, Manager: pvpManager, GameCode: "tower_stack"}
 
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))

@@ -6,8 +6,14 @@ import {
   useState,
   type RefObject,
 } from 'react';
-import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
-import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/useAuth';
+import {
+  towerStackWsApi,
+  type TowerStackPlayerState,
+  type TowerStackSocketClient,
+  type TowerStackStateMessage,
+} from '../api/towerStackWs';
 
 /* ============================================================================
  * TowerStackGame.tsx — premium 1v1 tower-stacking duel for a Telegram Mini App.
@@ -18,10 +24,9 @@ import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
  *     entirely inside TowerEngine and runs on refs + requestAnimationFrame.
  *     It NEVER touches React state.
  *   - React state changes only on meaningful events: block placed (score /
- *     combo / floating label), rival event, phase change, 1s timer tick, FX.
- *   - The opponent is abstracted behind OpponentDriver. Today it is a bot;
- *     swapping in a real WebSocket opponent needs no game-code changes
- *     (see the note above useOpponentFeed).
+ *     combo / floating label), rival event, phase change, timer tick and FX.
+ *   - Both players share one authoritative WebSocket match. Rival tower
+ *     geometry stays private; only score and last placement quality are shown.
  * ========================================================================== */
 
 /* ------------------------------ Public types ------------------------------ */
@@ -33,18 +38,6 @@ export interface TowerStackGameProps {
   onExit?: () => void;
 }
 
-export interface OpponentEvent {
-  quality: Quality;
-  scoreDelta: number;
-  totalScore: number;
-  combo: number;
-  ts: number;
-}
-
-interface OpponentDriver {
-  start: (emit: (event: OpponentEvent) => void) => void;
-  stop: () => void;
-}
 
 /* -------------------------------- Constants ------------------------------- */
 /* All tuning lives here — no magic values scattered through the logic.       */
@@ -65,6 +58,7 @@ const BLOCK_HEIGHT = 34;
 const PODIUM_H = 26;
 const PAD = 14;
 const MIN_WIDTH = 16;
+const SERVER_WORLD_WIDTH = 360;
 
 // World / camera
 const FLOOR_Y_RATIO = 0.86; // podium top, as a fraction of stage height from the top
@@ -94,19 +88,16 @@ const COMBO_STEP = 4; // bonus per combo level beyond COMBO_MIN
 const COMBO_BONUS_MAX = 32; // hard cap so long streaks never explode the score
 
 // Round / flow
-const ROUND_SECONDS = 40;
+const ROUND_SECONDS = 30;
 const COUNTDOWN_FROM = 3;
 const LABEL_TTL = 900; // ms, matches the tsFloat animation duration
 
-// Opponent bot pacing
-const BOT_MIN_MS = 620;
-const BOT_MAX_MS = 1080;
 
 /* -------------------------------- Helpers --------------------------------- */
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/** Shared scoring so the player engine and the bot speak the same language. */
+/** Local visual scoring mirrors the authoritative backend scoring table. */
 function scoreFor(quality: Quality, comboAfter: number) {
   const base = SCORE[quality];
   let bonus = 0;
@@ -146,86 +137,6 @@ interface TgWebApp {
 }
 function getTelegram(): TgWebApp | undefined {
   return (window as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp;
-}
-
-/* ----------------------------- Opponent drivers --------------------------- */
-
-function pickBotQuality(): Quality {
-  // Weighted toward solid-but-imperfect play so the rival feels human.
-  const r = Math.random();
-  if (r < 0.18) return 'PERFECT';
-  if (r < 0.6) return 'GREAT';
-  if (r < 0.92) return 'GOOD';
-  return 'MISS';
-}
-
-/** A clean simulated opponent. Emits believable, accumulating score updates. */
-function createBotDriver(): OpponentDriver {
-  let timer: number | null = null;
-  let stopped = false;
-  let total = 0;
-  let combo = 0;
-
-  const tick = (emit: (e: OpponentEvent) => void) => {
-    if (stopped) return;
-    const quality = pickBotQuality();
-    if (quality === 'PERFECT' || quality === 'GREAT') combo += 1;
-    else combo = 0;
-    const { delta } = scoreFor(quality, combo);
-    total = Math.max(0, total + delta);
-    emit({ quality, scoreDelta: delta, totalScore: total, combo, ts: Date.now() });
-    timer = window.setTimeout(
-      () => tick(emit),
-      BOT_MIN_MS + Math.random() * (BOT_MAX_MS - BOT_MIN_MS),
-    );
-  };
-
-  return {
-    start(emit) {
-      stopped = false;
-      total = 0;
-      combo = 0;
-      timer = window.setTimeout(() => tick(emit), 500 + Math.random() * 400);
-    },
-    stop() {
-      stopped = true;
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-    },
-  };
-}
-
-/*
- * To plug in a real opponent later, implement a driver with the SAME shape:
- *
- *   function createSocketDriver(url: string): OpponentDriver {
- *     let ws: WebSocket | null = null;
- *     return {
- *       start(emit) {
- *         ws = new WebSocket(url);
- *         ws.onmessage = (m) => emit(JSON.parse(m.data) as OpponentEvent);
- *       },
- *       stop() { ws?.close(); ws = null; },
- *     };
- *   }
- *
- * Then swap createBotDriver() for createSocketDriver(url) inside
- * useOpponentFeed below. No other game code changes.
- */
-
-function useOpponentFeed(opts: { active: boolean; onEvent: (e: OpponentEvent) => void }) {
-  const cbRef = useRef(opts.onEvent);
-
-  useEffect(() => {
-    cbRef.current = opts.onEvent;
-  }, [opts.onEvent]);
-
-  useEffect(() => {
-    if (!opts.active) return;
-    const driver = createBotDriver(); // <-- swap for createSocketDriver(url) for live PvP
-    driver.start((e) => cbRef.current(e));
-    return () => driver.stop();
-  }, [opts.active]);
 }
 
 /* ------------------------------- Game engine ------------------------------ */
@@ -330,6 +241,63 @@ class TowerEngine {
     this.raf = requestAnimationFrame(this.loop);
   }
 
+  syncFromServer(
+    player: TowerStackPlayerState,
+    worldWidth: number,
+    baseWidth: number,
+    estimatedServerNowMs: number,
+  ) {
+    if (this.cssW <= 0 || worldWidth <= 0) return;
+
+    const scale = this.cssW / worldWidth;
+    this.baseWidth = Math.max(MIN_WIDTH, baseWidth * scale);
+    this.blocks = player.blocks.map((block) => ({
+      left: block.left * scale,
+      width: block.width * scale,
+      level: block.level,
+      perfect: block.perfect,
+    }));
+    this.combo = player.combo;
+    this.speed = Math.max(0, player.active_speed * scale);
+
+    if (player.active_width <= 0 || player.active_start_ms <= 0) return;
+
+    const width = player.active_width * scale;
+    const minX = PAD * scale;
+    const maxX = this.cssW - width - PAD * scale;
+    const travel = Math.max(0, maxX - minX);
+
+    if (travel <= 0) {
+      this.active = { x: minX, w: width, dir: 1 };
+      return;
+    }
+
+    const elapsedSeconds = Math.max(
+      0,
+      (estimatedServerNowMs - player.active_start_ms) / 1000,
+    );
+    const distance = elapsedSeconds * player.active_speed * scale;
+    const period = travel * 2;
+    const position = distance % period;
+    let x: number;
+    let direction: number;
+
+    if (position <= travel) {
+      x = minX + position;
+      direction = 1;
+    } else {
+      x = maxX - (position - travel);
+      direction = -1;
+    }
+
+    if (!player.active_from_left) {
+      x = minX + maxX - x;
+      direction *= -1;
+    }
+
+    this.active = { x, w: width, dir: direction };
+  }
+
   stop() {
     this.running = false;
     cancelAnimationFrame(this.raf);
@@ -351,6 +319,11 @@ class TowerEngine {
     const aRight = aLeft + aW;
     const aCenter = aLeft + aW / 2;
 
+    const worldScale = this.cssW / SERVER_WORLD_WIDTH;
+    const perfectPx = PERFECT_PX * worldScale;
+    const minOverlapPx = MIN_OVERLAP_PX * worldScale;
+    const perfectRegrow = PERFECT_REGROW * worldScale;
+
     let quality: Quality;
     let newLeft = aLeft;
     let newWidth = aW;
@@ -361,7 +334,7 @@ class TowerEngine {
     if (n === 0) {
       // First block lands on the wide podium — forgiving, never a miss.
       const centerDelta = Math.abs(aCenter - this.cssW / 2);
-      quality = centerDelta <= PERFECT_PX ? 'PERFECT' : 'GREAT';
+      quality = centerDelta <= perfectPx ? 'PERFECT' : 'GREAT';
     } else {
       const b = this.blocks[n - 1];
       const bLeft = b.left;
@@ -372,12 +345,12 @@ class TowerEngine {
       const overlap = oR - oL;
       const centerDelta = Math.abs(aCenter - bCenter);
 
-      if (overlap <= MIN_OVERLAP_PX) {
+      if (overlap <= minOverlapPx) {
         quality = 'MISS';
         placed = false;
-      } else if (centerDelta <= PERFECT_PX) {
+      } else if (centerDelta <= perfectPx) {
         quality = 'PERFECT';
-        newWidth = Math.min(this.baseWidth, b.width + PERFECT_REGROW);
+        newWidth = Math.min(this.baseWidth, b.width + perfectRegrow);
         newLeft = bCenter - newWidth / 2;
       } else {
         quality = overlap / aW >= GREAT_RATIO ? 'GREAT' : 'GOOD';
@@ -759,16 +732,45 @@ interface FloatLabel {
 }
 let labelSeq = 0;
 
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+};
+
+type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
+
+const readLobbyId = (locationState: LocationState, search: string) => {
+  if (locationState.lobbyId) return locationState.lobbyId;
+  const query = new URLSearchParams(search);
+  return (
+    query.get('lobby_id') ||
+    query.get('lobbyId') ||
+    window.sessionStorage.getItem('twingames_active_lobby_id') ||
+    ''
+  );
+};
+
 export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
+  const routeState = (location.state || {}) as LocationState;
+  const lobbyId = readLobbyId(routeState, location.search);
+  const lobbiesPath = '/game/tower_stack/lobbies';
+
   const rootRef = useRef<HTMLDivElement | null>(null);
   const barFillRef = useRef<HTMLDivElement | null>(null);
   const vh = useViewportHeight(rootRef);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<TowerEngine | null>(null);
+  const socketRef = useRef<TowerStackSocketClient | null>(null);
   const timeoutsRef = useRef<number[]>([]);
+  const lastMyResultSeqRef = useRef(0);
+  const lastRivalResultSeqRef = useRef(0);
+  const lastDropVisualRef = useRef<{ x: number; y: number } | null>(null);
 
-  const [phase, setPhase] = useState<Phase>('countdown');
+  const [phase, setPhase] = useState<Phase>('ready');
   const [playerScore, setPlayerScore] = useState(0);
   const [rivalScore, setRivalScore] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -777,18 +779,16 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [countdown, setCountdown] = useState(COUNTDOWN_FROM);
   const [labels, setLabels] = useState<FloatLabel[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('tower_stack');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [readySent, setReadySent] = useState(false);
+  const [serverState, setServerState] = useState<TowerStackStateMessage | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
 
-  useEffect(() => {
-    if (!outcome) return;
-    void finishLobbyMatch(outcome === 'VICTORY' ? 'win' : outcome === 'DEFEAT' ? 'loss' : 'draw');
-  }, [outcome, finishLobbyMatch]);
-
-  // Score refs let the end-of-round handler read final values without re-renders.
-  const pScoreRef = useRef(0);
-  const rScoreRef = useRef(0);
-  pScoreRef.current = playerScore;
-  rScoreRef.current = rivalScore;
+  const myUserId = user?.id || 0;
+  const myServerPlayer = myUserId
+    ? serverState?.players[String(myUserId)]
+    : undefined;
 
   const haptic = useCallback((quality: Quality) => {
     const h = getTelegram()?.HapticFeedback;
@@ -808,19 +808,12 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     timeoutsRef.current.push(to);
   }, []);
 
-  const handlePlace = useCallback(
-    (info: PlaceInfo) => {
-      setPlayerScore((s) => Math.max(0, s + info.scoreDelta));
-      setCombo(info.combo);
-      const labelY = info.y - 34;
-      addLabel(info.quality, info.x, labelY);
-      if (info.comboBonus > 0 && info.combo >= COMBO_MIN) addLabel('COMBO', info.x, labelY - 28);
-      haptic(info.quality);
-    },
-    [addLabel, haptic],
-  );
+  const handlePlace = useCallback((info: PlaceInfo) => {
+    // Placement animation is optimistic and immediate. Quality, combo and
+    // points are shown only after the authoritative server response arrives.
+    lastDropVisualRef.current = { x: info.x, y: info.y };
+  }, []);
 
-  // Create the engine once; keep canvas sized to the stage via ResizeObserver.
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const stage = stageRef.current;
@@ -843,18 +836,16 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     };
   }, [handlePlace]);
 
-  // Telegram: expand to full height + signal ready (no-ops outside Telegram).
   useEffect(() => {
     const tg = getTelegram();
     tg?.ready?.();
     tg?.expand?.();
   }, []);
 
-  // Lock touch scrolling while a duel is live.
   useEffect(() => {
     const root = rootRef.current;
     if (!root || phase !== 'playing') return;
-    const prevent = (e: TouchEvent) => e.preventDefault();
+    const prevent = (event: TouchEvent) => event.preventDefault();
     root.addEventListener('touchmove', prevent, { passive: false });
     return () => root.removeEventListener('touchmove', prevent);
   }, [phase]);
@@ -867,91 +858,193 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     root.style.maxHeight = height;
   }, [vh]);
 
-  const progress = clamp(timeLeft / ROUND_SECONDS, 0, 1);
+  useEffect(() => {
+    if (!lobbyId || !token) return;
+    setConnectionStatus('connecting');
+    setSocketError(null);
 
+    const client = towerStackWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          setConnectionStatus('open');
+          client.requestState();
+        },
+        onClose: () => setConnectionStatus('closed'),
+        onSocketError: () => {
+          setConnectionStatus('error');
+          setSocketError('Ошибка подключения к игре');
+        },
+        onServerError: (error) => setSocketError(error.details || error.error),
+        onState: (state) => {
+          setServerState(state);
+          setSocketError(null);
+          setServerOffsetMs(Date.now() - state.server_ms);
+          const mine = myUserId ? state.players[String(myUserId)] : undefined;
+          const rivalId = state.player_order.find((id) => id !== myUserId) || 0;
+          const rival = rivalId ? state.players[String(rivalId)] : undefined;
+          if (mine) {
+            setPlayerScore(mine.score);
+            setCombo(mine.combo);
+          }
+          if (rival) {
+            setRivalScore(rival.score);
+            const result = rival.last_result;
+            if (result && result.seq > lastRivalResultSeqRef.current) {
+              lastRivalResultSeqRef.current = result.seq;
+              setRivalQuality(result.quality);
+            }
+          }
+        },
+      },
+    });
+    socketRef.current = client;
+    return () => {
+      socketRef.current = null;
+      client.close();
+    };
+  }, [lobbyId, myUserId, token]);
+
+  useEffect(() => {
+    const serverPhase = serverState?.phase;
+    if (!serverPhase) return;
+    if (serverPhase === 'playing') setPhase('playing');
+    else if (serverPhase === 'match_over') setPhase('result');
+    else if (serverPhase === 'countdown') setPhase('countdown');
+    else setPhase('ready');
+  }, [serverState?.phase]);
+
+  useEffect(() => {
+    if (phase === 'playing') {
+      engineRef.current?.start();
+      return () => engineRef.current?.stop();
+    }
+    engineRef.current?.stop();
+  }, [phase]);
+
+  useEffect(() => {
+    if (!myServerPlayer || !serverState || phase !== 'playing') return;
+    const estimatedServerNow = Date.now() - serverOffsetMs;
+    engineRef.current?.syncFromServer(
+      myServerPlayer,
+      serverState.world_width,
+      serverState.base_width,
+      estimatedServerNow,
+    );
+  }, [myServerPlayer, phase, serverOffsetMs, serverState]);
+
+  useEffect(() => {
+    const result = myServerPlayer?.last_result;
+    if (!result || result.seq <= lastMyResultSeqRef.current) return;
+    lastMyResultSeqRef.current = result.seq;
+
+    const stage = stageRef.current?.getBoundingClientRect();
+    const visual = lastDropVisualRef.current;
+    const x = visual?.x ?? (stage?.width || 320) / 2;
+    const y = (visual?.y ?? (stage?.height || 520) * 0.42) - 34;
+
+    addLabel(result.quality, x, y);
+    if (result.combo_bonus > 0 && result.combo >= COMBO_MIN) {
+      addLabel('COMBO', x, y - 28);
+    }
+    haptic(result.quality);
+  }, [addLabel, haptic, myServerPlayer?.last_result]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const state = serverState;
+      if (!state) return;
+      const serverNow = Date.now() - serverOffsetMs;
+      if (state.phase === 'countdown') {
+        setCountdown(Math.max(1, Math.ceil((state.start_at_ms - serverNow) / 1000)));
+        setTimeLeft(state.round_seconds);
+      } else if (state.phase === 'playing') {
+        setTimeLeft(Math.max(0, Math.ceil((state.deadline_ms - serverNow) / 1000)));
+      }
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [serverOffsetMs, serverState]);
+
+  useEffect(() => {
+    if (serverState?.phase !== 'match_over') return;
+    const winner = serverState.winner_user_id;
+    const nextOutcome: Outcome =
+      winner === undefined ? 'DRAW' : winner === myUserId ? 'VICTORY' : 'DEFEAT';
+    setOutcome(nextOutcome);
+    getTelegram()?.HapticFeedback?.notificationOccurred?.(
+      nextOutcome === 'VICTORY' ? 'success' : nextOutcome === 'DEFEAT' ? 'error' : 'warning',
+    );
+    void refreshBalance();
+    void refreshProfile();
+    const timer = window.setTimeout(() => navigate(lobbiesPath, { replace: true }), 3400);
+    return () => window.clearTimeout(timer);
+  }, [lobbiesPath, myUserId, navigate, refreshBalance, refreshProfile, serverState]);
+
+  const progress = clamp(timeLeft / Math.max(1, serverState?.round_seconds || ROUND_SECONDS), 0, 1);
   useEffect(() => {
     barFillRef.current?.style.setProperty('width', `${progress * 100}%`);
   }, [progress]);
 
-  // Countdown 3 -> 2 -> 1 -> play.
-  useEffect(() => {
-    if (phase !== 'countdown') return;
-    setCountdown(COUNTDOWN_FROM);
-    let n = COUNTDOWN_FROM;
-    const id = window.setInterval(() => {
-      n -= 1;
-      if (n <= 0) {
-        window.clearInterval(id);
-        setPhase('playing');
-      } else {
-        setCountdown(n);
-      }
-    }, 800);
-    return () => window.clearInterval(id);
-  }, [phase]);
-
-  // Playing: start the engine and run the round timer.
-  useEffect(() => {
-    if (phase !== 'playing') return;
-    engineRef.current?.start();
-    setTimeLeft(ROUND_SECONDS);
-    const end = Date.now() + ROUND_SECONDS * 1000;
-    const id = window.setInterval(() => {
-      const remain = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      setTimeLeft(remain);
-      if (remain <= 0) {
-        window.clearInterval(id);
-        engineRef.current?.stop();
-        const p = pScoreRef.current;
-        const r = rScoreRef.current;
-        setOutcome(p > r ? 'VICTORY' : p < r ? 'DEFEAT' : 'DRAW');
-        getTelegram()?.HapticFeedback?.notificationOccurred?.(p >= r ? 'success' : 'error');
-        setPhase('result');
-      }
-    }, 200);
-    return () => {
-      window.clearInterval(id);
-      engineRef.current?.stop();
-    };
-  }, [phase]);
-
-  const handleRivalEvent = useCallback((e: OpponentEvent) => {
-    setRivalScore(e.totalScore);
-    setRivalQuality(e.quality);
-  }, []);
-
-  // Opponent runs only while playing; a fresh rival each round.
-  useOpponentFeed({ active: phase === 'playing', onEvent: handleRivalEvent });
-
-  // Clear any in-flight label timers on unmount.
   useEffect(
     () => () => {
-      timeoutsRef.current.forEach((t) => clearTimeout(t));
+      timeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
       timeoutsRef.current = [];
     },
     [],
   );
 
   const startDuel = useCallback(() => {
-    setPlayerScore(0);
-    setRivalScore(0);
-    setCombo(0);
-    setRivalQuality(null);
-    setLabels([]);
-    setOutcome(null);
-    setTimeLeft(ROUND_SECONDS);
-    setPhase('countdown');
-  }, []);
+    if (connectionStatus !== 'open') {
+      setSocketError('Нет подключения к игре');
+      return;
+    }
+    if (socketRef.current?.ready()) {
+      setReadySent(true);
+      setSocketError(null);
+      setPlayerScore(0);
+      setRivalScore(0);
+      setCombo(0);
+      setRivalQuality(null);
+      setLabels([]);
+      setOutcome(null);
+      setTimeLeft(ROUND_SECONDS);
+    }
+  }, [connectionStatus]);
 
   const onStagePointerDown = useCallback(() => {
-    if (phase === 'playing') engineRef.current?.drop();
+    if (phase !== 'playing') return;
+    // Optimistic local placement keeps the original instant feel. The backend
+    // independently calculates the real placement and owns the score/result.
+    engineRef.current?.drop();
+    if (!socketRef.current?.drop()) setSocketError('Нет подключения к игре');
   }, [phase]);
+
+  const leave = useCallback(() => {
+    if (onExit) onExit();
+    else navigate(lobbiesPath, { replace: true });
+  }, [lobbiesPath, navigate, onExit]);
 
   const timeStr = `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, '0')}`;
 
+  if (!lobbyId || !token) {
+    return (
+      <div className="ts-root" ref={rootRef}>
+        <style>{STYLES}</style>
+        <div className="ts-overlay">
+          <div className="ts-panel">
+            <div className="ts-kicker">TOWER STACK</div>
+            <h1 className="ts-title">Нет подключения</h1>
+            <p className="ts-sub">Открывай игру через активное лобби.</p>
+            <button className="ts-btn ts-btn-go" onClick={leave}>В ЛОББИ</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="ts-root" ref={rootRef}>
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{STYLES}</style>
 
       <div className="ts-hud">
@@ -965,9 +1058,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
         </div>
         <div className="ts-hud-center">
           <span className="ts-timer">{timeStr}</span>
-          <div className="ts-bar">
-            <div ref={barFillRef} className="ts-bar-fill" />
-          </div>
+          <div className="ts-bar"><div ref={barFillRef} className="ts-bar-fill" /></div>
         </div>
         <div className="ts-hud-side ts-right">
           <div className="ts-hud-copy">
@@ -981,11 +1072,8 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
       <div className="ts-stage" ref={stageRef} onPointerDown={onStagePointerDown}>
         <canvas ref={canvasRef} className="ts-canvas" />
-
         <div className="ts-fx">
-          {labels.map((l) => (
-            <FloatLabelView key={l.id} label={l} />
-          ))}
+          {labels.map((label) => <FloatLabelView key={label.id} label={label} />)}
         </div>
 
         {phase === 'ready' && (
@@ -997,9 +1085,18 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
                 Tap to drop each slab. Stack clean for PERFECT hits, chain combos, and out-score
                 your rival before the clock runs out.
               </p>
-              <button className="ts-btn ts-btn-go" onClick={startDuel}>
-                START DUEL
+              <button
+                className="ts-btn ts-btn-go"
+                onClick={startDuel}
+                disabled={readySent || connectionStatus !== 'open'}
+              >
+                {connectionStatus !== 'open'
+                  ? 'CONNECTING...'
+                  : readySent
+                    ? 'WAITING FOR RIVAL...'
+                    : 'START DUEL'}
               </button>
+              {socketError && <div className="ts-kicker">{socketError}</div>}
               {onExit && (
                 <button className="ts-btn ts-btn-ghost" onClick={onExit}>
                   EXIT
@@ -1011,9 +1108,10 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
         {phase === 'countdown' && (
           <div className="ts-overlay ts-countdown">
-            <div className="ts-count-num" key={countdown}>
-              {countdown}
-            </div>
+            <div className="ts-count-num" key={countdown}>{countdown}</div>
+            {connectionStatus !== 'open' && (
+              <div className="ts-kicker">{socketError || 'CONNECTING'}</div>
+            )}
           </div>
         )}
 
@@ -1022,24 +1120,11 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
             <div className="ts-panel">
               <div className={`ts-result-tag r-${outcome ?? 'DRAW'}`}>{outcome}</div>
               <div className="ts-scores">
-                <div className="ts-score-col">
-                  <span className="ts-hud-cap">YOU</span>
-                  <span className="ts-big">{playerScore}</span>
-                </div>
+                <div className="ts-score-col"><span className="ts-hud-cap">YOU</span><span className="ts-big">{playerScore}</span></div>
                 <span className="ts-vs">VS</span>
-                <div className="ts-score-col">
-                  <span className="ts-hud-cap">RIVAL</span>
-                  <span className="ts-big">{rivalScore}</span>
-                </div>
+                <div className="ts-score-col"><span className="ts-hud-cap">RIVAL</span><span className="ts-big">{rivalScore}</span></div>
               </div>
-              <button className="ts-btn ts-btn-go" onClick={startDuel}>
-                PLAY AGAIN
-              </button>
-              {onExit && (
-                <button className="ts-btn ts-btn-ghost" onClick={onExit}>
-                  EXIT
-                </button>
-              )}
+              <button className="ts-btn ts-btn-go" onClick={leave}>В ЛОББИ</button>
             </div>
           </div>
         )}
@@ -1047,9 +1132,6 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     </div>
   );
 }
-
-/* --------------------------------- Styles --------------------------------- */
-/* Component-scoped. Inherits the global Supercell font with a safe fallback. */
 
 function FloatLabelView({ label }: { label: FloatLabel }) {
   const ref = useRef<HTMLSpanElement | null>(null);
