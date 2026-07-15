@@ -1,0 +1,52 @@
+package handlers
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"tg-lobbies-base/internal/config"
+	"tg-lobbies-base/internal/database"
+	"tg-lobbies-base/internal/middleware"
+	"tg-lobbies-base/internal/services"
+	"tg-lobbies-base/internal/testdb"
+
+	"github.com/gin-gonic/gin"
+)
+
+func TestSoloSpinHandlerAcceptsJSONBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := testdb.Open(t)
+	database.SetTestDB(db)
+	t.Cleanup(database.ResetTestDB)
+	if err := services.ReloadGameSettingsCache(db); err != nil {
+		t.Fatalf("reload game settings: %v", err)
+	}
+
+	user := testdb.SeedUser(t, db, 1, 100)
+	cfg := &config.Config{JWTSecret: "test-secret", JWTTTLHours: 24}
+	token, err := services.GenerateJWT(user.ID, cfg)
+	if err != nil {
+		t.Fatalf("generate jwt: %v", err)
+	}
+
+	router := gin.New()
+	router.POST("/api/v1/solo/spin", middleware.AuthRequired(cfg), SoloHandler{}.Spin)
+
+	body, _ := json.Marshal(map[string]any{
+		"game":            "neon_scratch",
+		"bet_coins":       10,
+		"idempotency_key": "handler-test-1",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/solo/spin", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}

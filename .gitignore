@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+admin/node_modules/
+.pnpm-store/
+
+# Build
+dist/
+frontend/dist/
+admin/dist/
+dist-ssr/
+*.local
+
+# Go
+backend/server
+backend/*.exe
+tgbot/tgbot
+tgbot/*.exe
+
+# Editor directories
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment
+.env
+.env.local
+.env.production
+.env.development
+backend/.env
+frontend/.env
+admin/.env
+tgbot/.env
+!.env.example
+!frontend/.env.example
+!backend/.env.example
+!tgbot/.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+.parcel-cache/
+.vite/
+frontend/.vite/
+admin/.vite/
+frontend/node_modules/.tmp/
+frontend/node_modules/.vite/
+admin/node_modules/.tmp/
+admin/node_modules/.vite/
+
+# TypeScript
+*.tsbuildinfo
+frontend/*.tsbuildinfo
+admin/*.tsbuildinfo
+
+# TLS certificates (generated on server)
+certbot/
+!certbot/.gitkeep

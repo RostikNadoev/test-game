@@ -1,0 +1,36 @@
+import { apiRequest } from './client';
+import { authApi } from './auth';
+import { lobbiesApi } from './lobbies';
+import { usersApi } from './users';
+import { walletApi } from './wallet';
+import { blackjackWsApi } from './blackjackWs';
+import { matchesApi } from './matches';
+import { leaderboardApi } from './leaderboard';
+import { soloApi } from './solo';
+import type { HealthResponse } from './types';
+
+export * from './types';
+export * from './client';
+export * from './auth';
+export * from './users';
+export * from './wallet';
+export * from './lobbies';
+export * from './blackjackWs';
+export * from './matches';
+export * from './leaderboard';
+export * from './solo';
+export { getOpponentInfo, resolvePlayersInfo } from './lobbyUtils';
+
+export const api = {
+  health() {
+    return apiRequest<HealthResponse>('/health', { auth: false });
+  },
+  auth: authApi,
+  users: usersApi,
+  wallet: walletApi,
+  lobbies: lobbiesApi,
+  matches: matchesApi,
+  leaderboard: leaderboardApi,
+  solo: soloApi,
+  blackjackWs: blackjackWsApi,
+};
