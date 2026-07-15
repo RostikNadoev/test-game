@@ -1,7 +1,10 @@
 package towerstack
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -29,7 +32,9 @@ const (
 	comboMin      = 4
 	comboStep     = 4
 	comboBonusMax = 32
-	stateInterval = 250 * time.Millisecond
+	loopInterval  = 100 * time.Millisecond
+	stateInterval = 1 * time.Second
+	syncInterval  = 2 * time.Second
 	cleanupAfter  = 10 * time.Minute
 )
 
@@ -57,18 +62,21 @@ type Block struct {
 }
 
 type PlaceResult struct {
-	Seq         int64   `json:"seq"`
-	Quality     Quality `json:"quality"`
-	ScoreDelta  int     `json:"score_delta"`
-	Combo       int     `json:"combo"`
-	ComboBonus  int     `json:"combo_bonus"`
-	Placed      bool    `json:"placed"`
-	Left        float64 `json:"left"`
-	Width       float64 `json:"width"`
-	ActiveX     float64 `json:"active_x"`
-	ActiveWidth float64 `json:"active_width"`
-	Level       int     `json:"level"`
-	ServerMS    int64   `json:"server_ms"`
+	Seq              int64   `json:"seq"`
+	ClaimedServerMS  int64   `json:"claimed_server_ms"`
+	AcceptedServerMS int64   `json:"accepted_server_ms"`
+	TimingCorrected  bool    `json:"timing_corrected"`
+	Quality          Quality `json:"quality"`
+	ScoreDelta       int     `json:"score_delta"`
+	Combo            int     `json:"combo"`
+	ComboBonus       int     `json:"combo_bonus"`
+	Placed           bool    `json:"placed"`
+	Left             float64 `json:"left"`
+	Width            float64 `json:"width"`
+	ActiveX          float64 `json:"active_x"`
+	ActiveWidth      float64 `json:"active_width"`
+	Level            int     `json:"level"`
+	ServerMS         int64   `json:"server_ms"`
 }
 
 type PlayerState struct {
@@ -82,6 +90,7 @@ type PlayerState struct {
 	ActiveSpeed    float64      `json:"active_speed"`
 	LastResult     *PlaceResult `json:"last_result,omitempty"`
 	LastInputMS    int64        `json:"-"`
+	LastSeq        int64        `json:"last_seq"`
 }
 
 type PublicState struct {
@@ -103,7 +112,23 @@ type PublicState struct {
 }
 
 type ClientMessage struct {
-	Type string `json:"type"`
+	Type              string `json:"type"`
+	Seq               int64  `json:"seq,omitempty"`
+	EstimatedServerMS int64  `json:"estimated_server_ms,omitempty"`
+	Nonce             string `json:"nonce,omitempty"`
+}
+
+type SyncMessage struct {
+	Type     string `json:"type"`
+	Nonce    string `json:"nonce"`
+	ServerMS int64  `json:"server_ms"`
+	RTTMS    int64  `json:"rtt_ms"`
+}
+
+type latencyState struct {
+	RTTMS       int64
+	Pending     map[string]time.Time
+	LastProbeAt time.Time
 }
 
 type Manager struct {
@@ -188,28 +213,32 @@ func (c *client) Send(value any) error {
 type Session struct {
 	mu sync.Mutex
 
-	lobbyID     string
-	playerOrder []uint
-	clients     map[uint]*client
-	ready       map[uint]bool
-	players     map[uint]*PlayerState
-	phase       string
-	startAt     time.Time
-	deadline    time.Time
-	winner      *uint
-	finished    bool
-	closed      bool
-	lastActive  time.Time
-	loopStop    chan struct{}
-	loopDone    chan struct{}
-	onMatchOver func(lobbyID string, winnerUserID *uint)
-	resultSeq   int64
+	lobbyID       string
+	playerOrder   []uint
+	clients       map[uint]*client
+	ready         map[uint]bool
+	players       map[uint]*PlayerState
+	latency       map[uint]*latencyState
+	phase         string
+	startAt       time.Time
+	deadline      time.Time
+	winner        *uint
+	finished      bool
+	closed        bool
+	lastActive    time.Time
+	loopStop      chan struct{}
+	loopDone      chan struct{}
+	onMatchOver   func(lobbyID string, winnerUserID *uint)
+	lastBroadcast time.Time
+	lastSync      time.Time
 }
 
 func newSession(lobbyID string, ids []uint, onMatchOver func(string, *uint)) *Session {
 	players := make(map[uint]*PlayerState, len(ids))
+	latency := make(map[uint]*latencyState, len(ids))
 	for _, id := range ids {
 		players[id] = initialPlayer(id, time.Time{})
+		latency[id] = &latencyState{RTTMS: 140, Pending: make(map[string]time.Time)}
 	}
 	return &Session{
 		lobbyID:     lobbyID,
@@ -217,6 +246,7 @@ func newSession(lobbyID string, ids []uint, onMatchOver func(string, *uint)) *Se
 		clients:     make(map[uint]*client),
 		ready:       make(map[uint]bool),
 		players:     players,
+		latency:     latency,
 		phase:       "waiting",
 		lastActive:  time.Now(),
 		loopStop:    make(chan struct{}),
@@ -246,6 +276,7 @@ func (s *Session) Attach(userID uint, conn *websocket.Conn) error {
 	s.clients[userID] = cl
 	s.lastActive = time.Now()
 	state := s.publicStateForLocked(userID, "connected")
+	s.sendSyncLocked(userID, time.Now())
 	s.mu.Unlock()
 
 	_ = cl.Send(state)
@@ -299,6 +330,8 @@ func (s *Session) Attach(userID uint, conn *websocket.Conn) error {
 
 func (s *Session) startMatchLocked(now time.Time) {
 	s.phase = "countdown"
+	s.lastBroadcast = time.Time{}
+	s.lastSync = time.Time{}
 	s.startAt = now.Add(CountdownSeconds * time.Second)
 	s.deadline = s.startAt.Add(RoundSeconds * time.Second)
 	for _, id := range s.playerOrder {
@@ -309,7 +342,7 @@ func (s *Session) startMatchLocked(now time.Time) {
 }
 
 func (s *Session) loop() {
-	ticker := time.NewTicker(stateInterval)
+	ticker := time.NewTicker(loopInterval)
 	defer ticker.Stop()
 	defer close(s.loopDone)
 
@@ -323,13 +356,18 @@ func (s *Session) loop() {
 				s.mu.Unlock()
 				return
 			}
-			if s.phase == "countdown" && !now.Before(s.startAt) {
-				s.phase = "playing"
+			s.updatePhaseLocked(now)
+
+			if s.lastBroadcast.IsZero() || now.Sub(s.lastBroadcast) >= stateInterval {
+				s.lastBroadcast = now
+				s.broadcastStateLocked("")
 			}
-			if s.phase == "playing" && !now.Before(s.deadline) {
-				s.finishLocked()
+			if s.lastSync.IsZero() || now.Sub(s.lastSync) >= syncInterval {
+				s.lastSync = now
+				for _, id := range s.playerOrder {
+					s.sendSyncLocked(id, now)
+				}
 			}
-			s.broadcastStateLocked("")
 			done := s.finished
 			s.mu.Unlock()
 			if done {
@@ -343,23 +381,27 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.lastActive = time.Now()
-	s.updatePhaseLocked(time.Now())
+	now := time.Now()
+	s.lastActive = now
+	s.updatePhaseLocked(now)
 
 	switch msg.Type {
 	case "state":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
+		s.sendSyncLocked(userID, now)
 	case "ready":
 		if s.phase == "waiting" {
 			s.ready[userID] = true
 			if len(s.clients) == len(s.playerOrder) && s.allReadyLocked() {
-				s.startMatchLocked(time.Now())
+				s.startMatchLocked(now)
 			} else {
 				s.broadcastStateLocked("ready")
 			}
 		}
 	case "drop":
-		s.dropLocked(userID, time.Now())
+		s.dropLocked(userID, msg, now)
+	case "sync_ack":
+		s.acceptSyncAckLocked(userID, msg.Nonce, now)
 	default:
 		s.sendErrorLocked(userID, "unknown command")
 	}
@@ -383,7 +425,7 @@ func (s *Session) updatePhaseLocked(now time.Time) {
 	}
 }
 
-func (s *Session) dropLocked(userID uint, now time.Time) {
+func (s *Session) dropLocked(userID uint, msg ClientMessage, now time.Time) {
 	if s.phase != "playing" || s.finished {
 		s.sendErrorLocked(userID, "round is not playing")
 		return
@@ -393,13 +435,47 @@ func (s *Session) dropLocked(userID uint, now time.Time) {
 		s.sendErrorLocked(userID, "player is not in match")
 		return
 	}
-	nowMS := now.UnixMilli()
-	if player.LastInputMS != 0 && nowMS-player.LastInputMS < 90 {
+	if msg.Seq <= player.LastSeq {
+		s.sendToLocked(userID, s.publicStateForLocked(userID, "duplicate drop"))
 		return
 	}
-	player.LastInputMS = nowMS
+	if msg.Seq != player.LastSeq+1 {
+		s.sendErrorLocked(userID, "invalid drop sequence")
+		return
+	}
 
-	x := activeX(*player, now)
+	nowMS := now.UnixMilli()
+	acceptedMS := s.acceptedDropMSLocked(userID, msg.EstimatedServerMS, nowMS)
+	if acceptedMS < s.startAt.UnixMilli() || acceptedMS >= s.deadline.UnixMilli() {
+		s.updatePhaseLocked(now)
+		s.sendErrorLocked(userID, "drop is outside round time")
+		return
+	}
+
+	if player.LastInputMS != 0 && nowMS-player.LastInputMS < 70 {
+		player.LastSeq = msg.Seq
+		player.LastResult = &PlaceResult{
+			Seq:              msg.Seq,
+			ClaimedServerMS:  msg.EstimatedServerMS,
+			AcceptedServerMS: acceptedMS,
+			TimingCorrected:  true,
+			Quality:          QualityMiss,
+			ScoreDelta:       0,
+			Combo:            player.Combo,
+			Placed:           false,
+			ActiveX:          activeX(*player, time.UnixMilli(acceptedMS)),
+			ActiveWidth:      player.ActiveWidth,
+			Level:            len(player.Blocks),
+			ServerMS:         nowMS,
+		}
+		s.broadcastStateLocked("drop rate limited")
+		return
+	}
+
+	player.LastInputMS = nowMS
+	player.LastSeq = msg.Seq
+	acceptedAt := time.UnixMilli(acceptedMS)
+	x := activeX(*player, acceptedAt)
 	w := player.ActiveWidth
 	center := x + w/2
 	placed := true
@@ -459,28 +535,91 @@ func (s *Session) dropLocked(userID uint, now time.Time) {
 			Perfect: quality == QualityPerfect,
 		})
 		player.ActiveWidth = newWidth
-		player.ActiveStartMS = nowMS
+		player.ActiveStartMS = acceptedMS
 		player.ActiveFromLeft = len(player.Blocks)%2 == 0
 		player.ActiveSpeed = math.Min(speedMax, baseSpeed+float64(len(player.Blocks))*speedStep)
 	}
 
-	s.resultSeq++
 	player.LastResult = &PlaceResult{
-		Seq:         s.resultSeq,
-		Quality:     quality,
-		ScoreDelta:  delta,
-		Combo:       player.Combo,
-		ComboBonus:  bonus,
-		Placed:      placed,
-		Left:        newLeft,
-		Width:       newWidth,
-		ActiveX:     x,
-		ActiveWidth: w,
-		Level:       level,
-		ServerMS:    nowMS,
+		Seq:              msg.Seq,
+		ClaimedServerMS:  msg.EstimatedServerMS,
+		AcceptedServerMS: acceptedMS,
+		TimingCorrected:  msg.EstimatedServerMS != 0 && msg.EstimatedServerMS != acceptedMS,
+		Quality:          quality,
+		ScoreDelta:       delta,
+		Combo:            player.Combo,
+		ComboBonus:       bonus,
+		Placed:           placed,
+		Left:             newLeft,
+		Width:            newWidth,
+		ActiveX:          x,
+		ActiveWidth:      w,
+		Level:            level,
+		ServerMS:         nowMS,
 	}
 
 	s.broadcastStateLocked("drop")
+}
+
+func (s *Session) acceptedDropMSLocked(userID uint, claimedMS, nowMS int64) int64 {
+	rtt := int64(140)
+	if state := s.latency[userID]; state != nil && state.RTTMS > 0 {
+		rtt = state.RTTMS
+	}
+	allowedRewind := clampInt64(rtt/2+70, 80, 260)
+	minMS := nowMS - allowedRewind
+	maxMS := nowMS + 25
+	if claimedMS <= 0 {
+		claimedMS = nowMS - rtt/2
+	}
+	return clampInt64(claimedMS, minMS, maxMS)
+}
+
+func (s *Session) sendSyncLocked(userID uint, now time.Time) {
+	cl := s.clients[userID]
+	state := s.latency[userID]
+	if cl == nil || state == nil {
+		return
+	}
+	nonce := randomNonce()
+	state.Pending[nonce] = now
+	state.LastProbeAt = now
+	for key, sentAt := range state.Pending {
+		if now.Sub(sentAt) > 10*time.Second {
+			delete(state.Pending, key)
+		}
+	}
+	payload := SyncMessage{Type: "sync", Nonce: nonce, ServerMS: now.UnixMilli(), RTTMS: state.RTTMS}
+	go func() { _ = cl.Send(payload) }()
+}
+
+func (s *Session) acceptSyncAckLocked(userID uint, nonce string, now time.Time) {
+	state := s.latency[userID]
+	if state == nil || nonce == "" {
+		return
+	}
+	sentAt, ok := state.Pending[nonce]
+	if !ok {
+		return
+	}
+	delete(state.Pending, nonce)
+	sample := now.Sub(sentAt).Milliseconds()
+	if sample < 1 || sample > 5000 {
+		return
+	}
+	if state.RTTMS <= 0 {
+		state.RTTMS = sample
+	} else {
+		state.RTTMS = (state.RTTMS*3 + sample) / 4
+	}
+}
+
+func randomNonce() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf[:])
 }
 
 func activeX(player PlayerState, now time.Time) float64 {
@@ -554,6 +693,7 @@ func (s *Session) publicStateForLocked(userID uint, message string) PublicState 
 			copyState.ActiveStartMS = 0
 			copyState.ActiveFromLeft = false
 			copyState.ActiveSpeed = 0
+			copyState.LastSeq = 0
 		}
 		if state.LastResult != nil {
 			result := *state.LastResult
@@ -652,4 +792,14 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func clampInt64(value, minValue, maxValue int64) int64 {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }

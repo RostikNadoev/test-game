@@ -12,6 +12,9 @@ export type TowerStackBlock = {
 
 export type TowerStackPlaceResult = {
   seq: number;
+  claimed_server_ms: number;
+  accepted_server_ms: number;
+  timing_corrected: boolean;
   quality: TowerStackQuality;
   score_delta: number;
   combo: number;
@@ -34,6 +37,7 @@ export type TowerStackPlayerState = {
   active_start_ms: number;
   active_from_left: boolean;
   active_speed: number;
+  last_seq: number;
   last_result?: TowerStackPlaceResult;
 };
 
@@ -55,6 +59,13 @@ export type TowerStackStateMessage = {
   message?: string;
 };
 
+export type TowerStackSyncMessage = {
+  type: 'sync';
+  nonce: string;
+  server_ms: number;
+  rtt_ms: number;
+};
+
 export type TowerStackErrorMessage = {
   type: 'error';
   error: string;
@@ -65,7 +76,8 @@ export type TowerStackSocketClient = {
   socket: WebSocket;
   requestState: () => boolean;
   ready: () => boolean;
-  drop: () => boolean;
+  drop: (seq: number, estimatedServerMs: number) => boolean;
+  syncAck: (nonce: string) => boolean;
   close: () => void;
 };
 
@@ -74,6 +86,7 @@ export type TowerStackSocketHandlers = {
   onClose?: (event: CloseEvent) => void;
   onSocketError?: (event: Event) => void;
   onState?: (state: TowerStackStateMessage) => void;
+  onSync?: (sync: TowerStackSyncMessage) => void;
   onServerError?: (error: TowerStackErrorMessage) => void;
 };
 
@@ -97,13 +110,18 @@ const normalizeBlock = (value: unknown): TowerStackBlock => {
 
 const normalizeResult = (value: unknown): TowerStackPlaceResult | undefined => {
   if (!isObject(value)) return undefined;
+
   const qualityRaw = typeof value.quality === 'string' ? value.quality : 'GOOD';
   const quality: TowerStackQuality =
     qualityRaw === 'PERFECT' || qualityRaw === 'GREAT' || qualityRaw === 'MISS'
       ? qualityRaw
       : 'GOOD';
+
   return {
     seq: numberValue(value.seq),
+    claimed_server_ms: numberValue(value.claimed_server_ms),
+    accepted_server_ms: numberValue(value.accepted_server_ms),
+    timing_corrected: Boolean(value.timing_corrected),
     quality,
     score_delta: numberValue(value.score_delta),
     combo: numberValue(value.combo),
@@ -120,6 +138,7 @@ const normalizeResult = (value: unknown): TowerStackPlaceResult | undefined => {
 
 const normalizePlayer = (value: unknown): TowerStackPlayerState => {
   const raw = isObject(value) ? value : {};
+
   return {
     user_id: numberValue(raw.user_id),
     score: numberValue(raw.score),
@@ -129,6 +148,7 @@ const normalizePlayer = (value: unknown): TowerStackPlayerState => {
     active_start_ms: numberValue(raw.active_start_ms),
     active_from_left: Boolean(raw.active_from_left),
     active_speed: numberValue(raw.active_speed, 150),
+    last_seq: numberValue(raw.last_seq),
     last_result: normalizeResult(raw.last_result),
   };
 };
@@ -140,6 +160,7 @@ const normalizeState = (raw: Record<string, unknown>): TowerStackStateMessage =>
       ? phaseRaw
       : 'waiting';
   const playersRaw = isObject(raw.players) ? raw.players : {};
+
   return {
     type: 'state',
     game: typeof raw.game === 'string' ? raw.game : 'tower_stack',
@@ -164,16 +185,25 @@ const normalizeState = (raw: Record<string, unknown>): TowerStackStateMessage =>
   };
 };
 
+const normalizeSync = (raw: Record<string, unknown>): TowerStackSyncMessage => ({
+  type: 'sync',
+  nonce: typeof raw.nonce === 'string' ? raw.nonce : '',
+  server_ms: numberValue(raw.server_ms),
+  rtt_ms: Math.max(0, numberValue(raw.rtt_ms, 140)),
+});
+
 const getWsBaseUrl = () => {
   if (API_BASE_URL) {
     const url = new URL(API_BASE_URL);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     return url.origin;
   }
+
   if (typeof window !== 'undefined') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}`;
   }
+
   return 'ws://localhost';
 };
 
@@ -188,6 +218,7 @@ export const towerStackWsApi = {
   }): TowerStackSocketClient {
     const { lobbyId, token, handlers } = params;
     const socket = new WebSocket(getTowerStackWsUrl(lobbyId, token));
+
     const send = (payload: unknown) => {
       if (socket.readyState !== WebSocket.OPEN) return false;
       socket.send(JSON.stringify(payload));
@@ -199,6 +230,7 @@ export const towerStackWsApi = {
     socket.addEventListener('error', (event) => handlers?.onSocketError?.(event));
     socket.addEventListener('message', (event) => {
       if (typeof event.data !== 'string') return;
+
       let raw: unknown;
       try {
         raw = JSON.parse(event.data) as unknown;
@@ -206,10 +238,20 @@ export const towerStackWsApi = {
         handlers?.onServerError?.({ type: 'error', error: 'Invalid WebSocket JSON' });
         return;
       }
+
       if (!isObject(raw)) return;
+
       if (raw.type === 'state') {
         handlers?.onState?.(normalizeState(raw));
-      } else if (raw.type === 'error') {
+        return;
+      }
+
+      if (raw.type === 'sync') {
+        handlers?.onSync?.(normalizeSync(raw));
+        return;
+      }
+
+      if (raw.type === 'error') {
         handlers?.onServerError?.({
           type: 'error',
           error: typeof raw.error === 'string' ? raw.error : 'WebSocket error',
@@ -222,7 +264,13 @@ export const towerStackWsApi = {
       socket,
       requestState: () => send({ type: 'state' }),
       ready: () => send({ type: 'ready' }),
-      drop: () => send({ type: 'drop' }),
+      drop: (seq, estimatedServerMs) =>
+        send({
+          type: 'drop',
+          seq,
+          estimated_server_ms: Math.round(estimatedServerMs),
+        }),
+      syncAck: (nonce) => send({ type: 'sync_ack', nonce }),
       close: () => socket.close(),
     };
   },

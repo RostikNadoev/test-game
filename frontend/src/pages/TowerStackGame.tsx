@@ -190,6 +190,7 @@ class TowerEngine {
   private cssH = 0;
   private floorY = 0;
   private baseWidth = 120;
+  private worldScale = 1;
 
   private blocks: Block[] = [];
   private active: { x: number; w: number; dir: number } | null = null;
@@ -224,8 +225,14 @@ class TowerEngine {
     if (!this.running) this.render(); // keep an idle frame painted behind overlays
   }
 
-  start() {
-    this.baseWidth = clamp(this.cssW * 0.42, 90, 160);
+  start(
+    worldWidth = SERVER_WORLD_WIDTH,
+    serverBaseWidth = SERVER_WORLD_WIDTH * 0.42,
+    activeStartMs = 0,
+    estimatedServerNowMs = 0,
+  ) {
+    this.worldScale = this.cssW / Math.max(1, worldWidth);
+    this.baseWidth = Math.max(MIN_WIDTH * this.worldScale, serverBaseWidth * this.worldScale);
     this.blocks = [];
     this.dust = [];
     this.slabs = [];
@@ -233,69 +240,72 @@ class TowerEngine {
     this.combo = 0;
     this.cameraY = 0;
     this.cameraTarget = 0;
-    this.speed = BASE_SPEED;
+    this.speed = BASE_SPEED * this.worldScale;
     this.spawnActive(this.baseWidth);
+
+    if (activeStartMs > 0 && estimatedServerNowMs > 0) {
+      this.alignActive(
+        this.baseWidth,
+        activeStartMs,
+        true,
+        BASE_SPEED,
+        estimatedServerNowMs,
+      );
+    }
+
     this.running = true;
     this.last = 0;
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  syncFromServer(
+  reconcileFromServer(
     player: TowerStackPlayerState,
     worldWidth: number,
-    baseWidth: number,
+    serverBaseWidth: number,
     estimatedServerNowMs: number,
   ) {
     if (this.cssW <= 0 || worldWidth <= 0) return;
 
     const scale = this.cssW / worldWidth;
-    this.baseWidth = Math.max(MIN_WIDTH, baseWidth * scale);
-    this.blocks = player.blocks.map((block) => ({
+    this.worldScale = scale;
+    this.baseWidth = Math.max(MIN_WIDTH * scale, serverBaseWidth * scale);
+
+    const serverBlocks = player.blocks.map((block) => ({
       left: block.left * scale,
       width: block.width * scale,
       level: block.level,
       perfect: block.perfect,
     }));
+
+    const geometryMismatch =
+      serverBlocks.length !== this.blocks.length ||
+      serverBlocks.some((block, index) => {
+        const local = this.blocks[index];
+        return (
+          !local ||
+          Math.abs(local.left - block.left) > 1.25 ||
+          Math.abs(local.width - block.width) > 1.25 ||
+          local.perfect !== block.perfect
+        );
+      });
+
+    if (geometryMismatch) {
+      this.blocks = serverBlocks;
+    }
+
     this.combo = player.combo;
     this.speed = Math.max(0, player.active_speed * scale);
 
     if (player.active_width <= 0 || player.active_start_ms <= 0) return;
 
-    const width = player.active_width * scale;
-    const minX = PAD * scale;
-    const maxX = this.cssW - width - PAD * scale;
-    const travel = Math.max(0, maxX - minX);
-
-    if (travel <= 0) {
-      this.active = { x: minX, w: width, dir: 1 };
-      return;
-    }
-
-    const elapsedSeconds = Math.max(
-      0,
-      (estimatedServerNowMs - player.active_start_ms) / 1000,
+    this.alignActive(
+      player.active_width * scale,
+      player.active_start_ms,
+      player.active_from_left,
+      player.active_speed,
+      estimatedServerNowMs,
     );
-    const distance = elapsedSeconds * player.active_speed * scale;
-    const period = travel * 2;
-    const position = distance % period;
-    let x: number;
-    let direction: number;
-
-    if (position <= travel) {
-      x = minX + position;
-      direction = 1;
-    } else {
-      x = maxX - (position - travel);
-      direction = -1;
-    }
-
-    if (!player.active_from_left) {
-      x = minX + maxX - x;
-      direction *= -1;
-    }
-
-    this.active = { x, w: width, dir: direction };
   }
 
   stop() {
@@ -310,8 +320,8 @@ class TowerEngine {
   }
 
   /** Drop the live block onto the stack. The single player input. */
-  drop() {
-    if (!this.running || !this.active) return;
+  drop(): PlaceInfo | null {
+    if (!this.running || !this.active) return null;
     const a = this.active;
     const n = this.blocks.length;
     const aLeft = a.x;
@@ -319,7 +329,7 @@ class TowerEngine {
     const aRight = aLeft + aW;
     const aCenter = aLeft + aW / 2;
 
-    const worldScale = this.cssW / SERVER_WORLD_WIDTH;
+    const worldScale = this.worldScale;
     const perfectPx = PERFECT_PX * worldScale;
     const minOverlapPx = MIN_OVERLAP_PX * worldScale;
     const perfectRegrow = PERFECT_REGROW * worldScale;
@@ -374,7 +384,7 @@ class TowerEngine {
 
     if (placed) {
       const level = n;
-      newWidth = Math.max(MIN_WIDTH, newWidth);
+      newWidth = Math.max(MIN_WIDTH * this.worldScale, newWidth);
       this.blocks.push({ left: newLeft, width: newWidth, level, perfect: quality === 'PERFECT' });
       const top = this.blockTop(level);
       const cx = newLeft + newWidth / 2;
@@ -402,27 +412,31 @@ class TowerEngine {
         });
       }
 
-      this.speed = Math.min(SPEED_MAX, BASE_SPEED + this.blocks.length * SPEED_STEP);
+      this.speed = Math.min(SPEED_MAX, BASE_SPEED + this.blocks.length * SPEED_STEP) * this.worldScale;
       this.spawnActive(newWidth);
-      this.cb.onPlace({
+      const info: PlaceInfo = {
         quality,
         scoreDelta: sc.delta,
         combo: this.combo,
         comboBonus: sc.bonus,
         x: cx,
         y: top,
-      });
+      };
+      this.cb.onPlace(info);
+      return info;
     } else {
       // Miss: no growth, the round simply continues. Keep the live block.
       this.flash = 0.03;
-      this.cb.onPlace({
+      const info: PlaceInfo = {
         quality,
         scoreDelta: sc.delta,
         combo: 0,
         comboBonus: 0,
         x: aCenter,
         y: this.blockTop(n),
-      });
+      };
+      this.cb.onPlace(info);
+      return info;
     }
   }
 
@@ -441,8 +455,9 @@ class TowerEngine {
     const a = this.active;
     if (a) {
       a.x += a.dir * this.speed * dt;
-      const minX = PAD;
-      const maxX = this.cssW - a.w - PAD;
+      const pad = PAD * this.worldScale;
+      const minX = pad;
+      const maxX = this.cssW - a.w - pad;
       if (a.x <= minX) {
         a.x = minX;
         a.dir = 1;
@@ -518,11 +533,52 @@ class TowerEngine {
     return this.floorY - (level + 1) * BLOCK_HEIGHT + this.cameraY;
   }
 
+  private alignActive(
+    width: number,
+    activeStartMs: number,
+    fromLeft: boolean,
+    speedWorld: number,
+    estimatedServerNowMs: number,
+  ) {
+    const pad = PAD * this.worldScale;
+    const minX = pad;
+    const maxX = this.cssW - width - pad;
+    const travel = Math.max(0, maxX - minX);
+
+    if (travel <= 0) {
+      this.active = { x: minX, w: width, dir: 1 };
+      return;
+    }
+
+    const elapsedSeconds = Math.max(0, (estimatedServerNowMs - activeStartMs) / 1000);
+    const distance = elapsedSeconds * speedWorld * this.worldScale;
+    const period = travel * 2;
+    const position = distance % period;
+    let x: number;
+    let direction: number;
+
+    if (position <= travel) {
+      x = minX + position;
+      direction = 1;
+    } else {
+      x = maxX - (position - travel);
+      direction = -1;
+    }
+
+    if (!fromLeft) {
+      x = minX + maxX - x;
+      direction *= -1;
+    }
+
+    this.active = { x, w: width, dir: direction };
+  }
+
   private spawnActive(width: number) {
-    const w = Math.min(width, this.cssW - 2 * PAD);
+    const pad = PAD * this.worldScale;
+    const w = Math.min(width, this.cssW - 2 * pad);
     const fromLeft = this.blocks.length % 2 === 0;
     this.active = {
-      x: fromLeft ? PAD : this.cssW - w - PAD,
+      x: fromLeft ? pad : this.cssW - w - pad,
       w,
       dir: fromLeft ? 1 : -1,
     };
@@ -769,6 +825,12 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const lastMyResultSeqRef = useRef(0);
   const lastRivalResultSeqRef = useRef(0);
   const lastDropVisualRef = useRef<{ x: number; y: number } | null>(null);
+  const serverOffsetRef = useRef(0);
+  const hasPreciseSyncRef = useRef(false);
+  const dropSeqRef = useRef(0);
+  const authoritativeScoreRef = useRef(0);
+  const authoritativeComboRef = useRef(0);
+  const pendingDropsRef = useRef(new Map<number, { delta: number; combo: number }>());
 
   const [phase, setPhase] = useState<Phase>('ready');
   const [playerScore, setPlayerScore] = useState(0);
@@ -783,7 +845,6 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [socketError, setSocketError] = useState<string | null>(null);
   const [readySent, setReadySent] = useState(false);
   const [serverState, setServerState] = useState<TowerStackStateMessage | null>(null);
-  const [serverOffsetMs, setServerOffsetMs] = useState(0);
 
   const myUserId = user?.id || 0;
   const myServerPlayer = myUserId
@@ -809,8 +870,6 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   }, []);
 
   const handlePlace = useCallback((info: PlaceInfo) => {
-    // Placement animation is optimistic and immediate. Quality, combo and
-    // points are shown only after the authoritative server response arrives.
     lastDropVisualRef.current = { x: info.x, y: info.y };
   }, []);
 
@@ -876,18 +935,71 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
           setConnectionStatus('error');
           setSocketError('Ошибка подключения к игре');
         },
-        onServerError: (error) => setSocketError(error.details || error.error),
+        onServerError: (error) => {
+          setSocketError(error.details || error.error);
+          client.requestState();
+        },
+        onSync: (sync) => {
+          const receivedAt = Date.now();
+          const sampleOffset = receivedAt - sync.server_ms - sync.rtt_ms / 2;
+          const previous = serverOffsetRef.current;
+          const nextOffset = hasPreciseSyncRef.current
+            ? previous * 0.72 + sampleOffset * 0.28
+            : sampleOffset;
+
+          hasPreciseSyncRef.current = true;
+          serverOffsetRef.current = nextOffset;
+          client.syncAck(sync.nonce);
+        },
         onState: (state) => {
           setServerState(state);
           setSocketError(null);
-          setServerOffsetMs(Date.now() - state.server_ms);
+
+          if (!hasPreciseSyncRef.current && state.server_ms > 0) {
+            const roughOffset = Date.now() - state.server_ms;
+            serverOffsetRef.current = roughOffset;
+          }
+
           const mine = myUserId ? state.players[String(myUserId)] : undefined;
           const rivalId = state.player_order.find((id) => id !== myUserId) || 0;
           const rival = rivalId ? state.players[String(rivalId)] : undefined;
+
           if (mine) {
-            setPlayerScore(mine.score);
-            setCombo(mine.combo);
+            const maxPendingSeq = Math.max(0, ...pendingDropsRef.current.keys());
+            dropSeqRef.current = Math.max(mine.last_seq || 0, maxPendingSeq);
+            const acknowledgedSeq = mine.last_result?.seq || mine.last_seq || 0;
+
+            if (
+              acknowledgedSeq > lastMyResultSeqRef.current ||
+              state.phase !== 'playing' ||
+              pendingDropsRef.current.size === 0
+            ) {
+              lastMyResultSeqRef.current = Math.max(
+                lastMyResultSeqRef.current,
+                acknowledgedSeq,
+              );
+              authoritativeScoreRef.current = mine.score;
+              authoritativeComboRef.current = mine.combo;
+
+              for (const seq of pendingDropsRef.current.keys()) {
+                if (seq <= acknowledgedSeq) pendingDropsRef.current.delete(seq);
+              }
+
+              let visibleScore = mine.score;
+              let visibleCombo = mine.combo;
+              const pending = [...pendingDropsRef.current.entries()].sort(
+                ([left], [right]) => left - right,
+              );
+              for (const [, optimistic] of pending) {
+                visibleScore = Math.max(0, visibleScore + optimistic.delta);
+                visibleCombo = optimistic.combo;
+              }
+
+              setPlayerScore(visibleScore);
+              setCombo(visibleCombo);
+            }
           }
+
           if (rival) {
             setRivalScore(rival.score);
             const result = rival.last_result;
@@ -899,6 +1011,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
         },
       },
     });
+
     socketRef.current = client;
     return () => {
       socketRef.current = null;
@@ -907,64 +1020,82 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   }, [lobbyId, myUserId, token]);
 
   useEffect(() => {
-    const serverPhase = serverState?.phase;
-    if (!serverPhase) return;
-    if (serverPhase === 'playing') setPhase('playing');
-    else if (serverPhase === 'match_over') setPhase('result');
-    else if (serverPhase === 'countdown') setPhase('countdown');
-    else setPhase('ready');
-  }, [serverState?.phase]);
+    const state = serverState;
+    if (!state) return;
+
+    if (state.phase === 'playing') {
+      setPhase('playing');
+    } else if (state.phase === 'match_over') {
+      setPhase('result');
+    } else if (state.phase === 'countdown') {
+      const serverNow = Date.now() - serverOffsetRef.current;
+      setPhase(serverNow >= state.start_at_ms ? 'playing' : 'countdown');
+    } else {
+      setPhase('ready');
+    }
+  }, [serverState]);
 
   useEffect(() => {
-    if (phase === 'playing') {
-      engineRef.current?.start();
+    if (phase === 'playing' && serverState) {
+      const estimatedServerNow = Date.now() - serverOffsetRef.current;
+      engineRef.current?.start(
+        serverState.world_width,
+        serverState.base_width,
+        serverState.start_at_ms,
+        estimatedServerNow,
+      );
       return () => engineRef.current?.stop();
     }
+
     engineRef.current?.stop();
-  }, [phase]);
+  }, [
+    phase,
+    serverState?.base_width,
+    serverState?.start_at_ms,
+    serverState?.world_width,
+  ]);
 
   useEffect(() => {
     if (!myServerPlayer || !serverState || phase !== 'playing') return;
-    const estimatedServerNow = Date.now() - serverOffsetMs;
-    engineRef.current?.syncFromServer(
+
+    const acknowledgedSeq = myServerPlayer.last_result?.seq || myServerPlayer.last_seq || 0;
+    if (acknowledgedSeq <= 0 && myServerPlayer.blocks.length === 0) return;
+
+    const estimatedServerNow = Date.now() - serverOffsetRef.current;
+    engineRef.current?.reconcileFromServer(
       myServerPlayer,
       serverState.world_width,
       serverState.base_width,
       estimatedServerNow,
     );
-  }, [myServerPlayer, phase, serverOffsetMs, serverState]);
-
-  useEffect(() => {
-    const result = myServerPlayer?.last_result;
-    if (!result || result.seq <= lastMyResultSeqRef.current) return;
-    lastMyResultSeqRef.current = result.seq;
-
-    const stage = stageRef.current?.getBoundingClientRect();
-    const visual = lastDropVisualRef.current;
-    const x = visual?.x ?? (stage?.width || 320) / 2;
-    const y = (visual?.y ?? (stage?.height || 520) * 0.42) - 34;
-
-    addLabel(result.quality, x, y);
-    if (result.combo_bonus > 0 && result.combo >= COMBO_MIN) {
-      addLabel('COMBO', x, y - 28);
-    }
-    haptic(result.quality);
-  }, [addLabel, haptic, myServerPlayer?.last_result]);
+  }, [
+    myServerPlayer?.last_result?.seq,
+    myServerPlayer?.last_seq,
+    phase,
+    serverState?.base_width,
+    serverState?.world_width,
+  ]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
       const state = serverState;
       if (!state) return;
-      const serverNow = Date.now() - serverOffsetMs;
+
+      const serverNow = Date.now() - serverOffsetRef.current;
       if (state.phase === 'countdown') {
-        setCountdown(Math.max(1, Math.ceil((state.start_at_ms - serverNow) / 1000)));
+        const leftMs = state.start_at_ms - serverNow;
+        setCountdown(Math.max(1, Math.ceil(leftMs / 1000)));
         setTimeLeft(state.round_seconds);
+        if (leftMs <= 0) setPhase('playing');
       } else if (state.phase === 'playing') {
-        setTimeLeft(Math.max(0, Math.ceil((state.deadline_ms - serverNow) / 1000)));
+        const leftMs = state.deadline_ms - serverNow;
+        setTimeLeft(Math.max(0, Math.ceil(leftMs / 1000)));
+        if (leftMs <= 0) engineRef.current?.stop();
       }
-    }, 100);
+    }, 50);
+
     return () => window.clearInterval(id);
-  }, [serverOffsetMs, serverState]);
+  }, [serverState]);
 
   useEffect(() => {
     if (serverState?.phase !== 'match_over') return;
@@ -1009,16 +1140,47 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
       setLabels([]);
       setOutcome(null);
       setTimeLeft(ROUND_SECONDS);
+      dropSeqRef.current = 0;
+      lastMyResultSeqRef.current = 0;
+      authoritativeScoreRef.current = 0;
+      authoritativeComboRef.current = 0;
+      pendingDropsRef.current.clear();
     }
   }, [connectionStatus]);
 
   const onStagePointerDown = useCallback(() => {
-    if (phase !== 'playing') return;
-    // Optimistic local placement keeps the original instant feel. The backend
-    // independently calculates the real placement and owns the score/result.
-    engineRef.current?.drop();
-    if (!socketRef.current?.drop()) setSocketError('Нет подключения к игре');
-  }, [phase]);
+    if (phase !== 'playing' || connectionStatus !== 'open') return;
+
+    const info = engineRef.current?.drop();
+    if (!info) return;
+
+    const visual = lastDropVisualRef.current;
+    const x = visual?.x ?? info.x;
+    const y = (visual?.y ?? info.y) - 34;
+
+    setPlayerScore((current) => Math.max(0, current + info.scoreDelta));
+    setCombo(info.combo);
+    addLabel(info.quality, x, y);
+    if (info.comboBonus > 0 && info.combo >= COMBO_MIN) {
+      addLabel('COMBO', x, y - 28);
+    }
+    haptic(info.quality);
+
+    const seq = dropSeqRef.current + 1;
+    dropSeqRef.current = seq;
+    pendingDropsRef.current.set(seq, {
+      delta: info.scoreDelta,
+      combo: info.combo,
+    });
+
+    const estimatedServerMs = Date.now() - serverOffsetRef.current;
+    if (!socketRef.current?.drop(seq, estimatedServerMs)) {
+      pendingDropsRef.current.delete(seq);
+      dropSeqRef.current = Math.max(0, seq - 1);
+      setSocketError('Нет подключения к игре');
+      socketRef.current?.requestState();
+    }
+  }, [addLabel, connectionStatus, haptic, phase]);
 
   const leave = useCallback(() => {
     if (onExit) onExit();
