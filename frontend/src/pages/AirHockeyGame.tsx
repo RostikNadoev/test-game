@@ -1,18 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
-import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  airHockeyWsApi,
+  type AirHockeyBody,
+  type AirHockeySocketClient,
+  type AirHockeyStateMessage,
+} from '../api/airHockeyWs';
+import type { LobbyPlayerInfo } from '../api/types';
+import { useAuth } from '../auth/useAuth';
 
-const SETTINGS = {
-  puckSize: 16,
-  paddleSize: 30,
-  friction: 0.992,
-  wallBounciness: 0.8,
-  maxPuckSpeed: 18,
-  goalCooldownMs: 450,
-  aiTrackSpeed: 0.08,
-  aiReturnSpeed: 0.03,
-  maxDpr: 1.5,
+const DEFAULT_BOARD = { width: 1, height: 1.72 };
+const MAX_DPR = 1.5;
+const INPUT_INTERVAL_MS = 50; // 20 сообщений в секунду.
+const MAX_EXTRAPOLATION_SECONDS = 0.1;
+
+type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
+
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+  playersInfo?: LobbyPlayerInfo[];
 };
 
 type Particle = {
@@ -30,236 +37,477 @@ type TrailPoint = {
   life: number;
 };
 
+type LocalPaddle = {
+  x: number;
+  y: number;
+  dragging: boolean;
+};
+
+type VisualState = {
+  initialized: boolean;
+  puck: AirHockeyBody;
+  opponent: AirHockeyBody;
+};
+
+const emptyBody = (): AirHockeyBody => ({ x: 0.5, y: 0.86, vx: 0, vy: 0 });
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const damp = (current: number, target: number, speed: number, dt: number) => {
+  const factor = 1 - Math.exp(-speed * dt);
+  return current + (target - current) * factor;
+};
+
+const transformToLocal = (
+  body: AirHockeyBody,
+  side: 0 | 1,
+  boardWidth: number,
+  boardHeight: number,
+): AirHockeyBody => {
+  if (side === 0) return body;
+
+  return {
+    x: boardWidth - body.x,
+    y: boardHeight - body.y,
+    vx: -body.vx,
+    vy: -body.vy,
+  };
+};
+
+const transformToServer = (
+  x: number,
+  y: number,
+  side: 0 | 1,
+  boardWidth: number,
+  boardHeight: number,
+) => {
+  if (side === 0) return { x, y };
+  return { x: boardWidth - x, y: boardHeight - y };
+};
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === 'undefined') return [];
+
+  const raw = window.sessionStorage.getItem('twingames_blackjack_players_info');
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as LobbyPlayerInfo[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const getInitials = (name: string) => {
+  const clean = name.replace('@', '').trim();
+  return clean.slice(0, 2).toUpperCase() || 'TG';
+};
+
+const Avatar = ({ player, fallback }: { player?: LobbyPlayerInfo; fallback: string }) => {
+  const nickname = player?.tg_user || fallback;
+
+  return (
+    <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-white/5 text-[10px] font-black text-white">
+      {player?.photo_url ? (
+        <img
+          src={player.photo_url}
+          alt={nickname}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        getInitials(nickname)
+      )}
+    </div>
+  );
+};
+
 export const AirHockeyGame: React.FC = () => {
+  const location = useLocation();
   const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
-  const lastFrameRef = useRef(0);
-  const lastGoalAtRef = useRef(0);
-  const scoreRef = useRef({ p1: 0, p2: 0 });
+  const socketRef = useRef<AirHockeySocketClient | null>(null);
+  const serverStateRef = useRef<AirHockeyStateMessage | null>(null);
+  const receivedAtRef = useRef(0);
+  const sideRef = useRef<0 | 1>(0);
+  const inputSeqRef = useRef(0);
+  const inputDirtyRef = useRef(false);
+  const lastGoalSeqRef = useRef(0);
+  const matchHandledRef = useRef(false);
   const sizeRef = useRef({ w: 0, h: 0, dpr: 1 });
+  const lastFrameRef = useRef(0);
 
-  const [score, setScore] = useState({ p1: 0, p2: 0 });
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('air_hockey');
+  const localPaddleRef = useRef<LocalPaddle>({
+    x: DEFAULT_BOARD.width / 2,
+    y: DEFAULT_BOARD.height - 0.16,
+    dragging: false,
+  });
+  const visualRef = useRef<VisualState>({
+    initialized: false,
+    puck: emptyBody(),
+    opponent: { x: 0.5, y: 0.16, vx: 0, vy: 0 },
+  });
+  const particlesRef = useRef<Particle[]>([]);
+  const trailRef = useRef<TrailPoint[]>([]);
 
-  useEffect(() => {
-    if (score.p1 < 5 && score.p2 < 5) return;
-    void finishLobbyMatch(score.p1 >= 5 ? 'win' : score.p2 >= 5 ? 'loss' : 'draw');
-  }, [score.p1, score.p2, finishLobbyMatch]);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [serverState, setServerState] = useState<AirHockeyStateMessage | null>(null);
 
-  const puck = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
-  const p1 = useRef({ x: 0, y: 0, lastX: 0, lastY: 0, isDragging: false });
-  const p2 = useRef({ x: 0, y: 0 });
-  const particles = useRef<Particle[]>([]);
-  const trail = useRef<TrailPoint[]>([]);
+  const routeState = (location.state || {}) as LocationState;
 
-  const resizeCanvas = () => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+  const lobbyId = useMemo(() => {
+    const query = new URLSearchParams(location.search);
+    return (
+      routeState.lobbyId ||
+      query.get('lobby_id') ||
+      query.get('lobbyId') ||
+      window.sessionStorage.getItem('twingames_active_lobby_id') ||
+      ''
+    );
+  }, [location.search, routeState.lobbyId]);
 
-    const dpr = Math.min(window.devicePixelRatio || 1, SETTINGS.maxDpr);
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+  const playersInfo = useMemo(
+    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    [routeState.playersInfo],
+  );
 
-    sizeRef.current = { w, h, dpr };
+  const playerOrder = serverState?.player_order || [];
+  const myUserId = user?.id || playerOrder[0] || 0;
+  const opponentUserId = playerOrder.find((id) => id !== myUserId) || 0;
+  const myPlayerInfo = playersInfo.find((player) => player.id === myUserId);
+  const opponentPlayerInfo = playersInfo.find((player) => player.id === opponentUserId);
 
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
+  const myScore = myUserId ? serverState?.score?.[String(myUserId)] || 0 : 0;
+  const opponentScore = opponentUserId
+    ? serverState?.score?.[String(opponentUserId)] || 0
+    : 0;
+  const targetGoals = serverState?.target_goals || 3;
+  const winnerUserId = serverState?.winner_user_id || 0;
+  const isWinner = Boolean(winnerUserId && winnerUserId === myUserId);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const createGoalEffect = useCallback((atTop: boolean, color: string) => {
+    const { w, h } = sizeRef.current;
+    const x = w / 2;
+    const y = atTop ? 12 : h - 12;
 
-    if (p1.current.x === 0 && p1.current.y === 0) {
-      spawnPuck(w, h, 'p1');
-      p1.current = {
-        x: w / 2,
-        y: h - 100,
-        lastX: w / 2,
-        lastY: h - 100,
-        isDragging: false,
-      };
-      p2.current = { x: w / 2, y: 100 };
-    } else {
-      p1.current.x = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, p1.current.x));
-      p1.current.y = Math.max(h / 2 + SETTINGS.paddleSize, Math.min(h - SETTINGS.paddleSize, p1.current.y));
-      p2.current.x = Math.max(SETTINGS.paddleSize, Math.min(w - SETTINGS.paddleSize, p2.current.x));
-    }
-  };
-
-  const spawnPuck = (w: number, h: number, targetPlayer: 'p1' | 'p2') => {
-    puck.current = {
-      x: w / 2,
-      y: targetPlayer === 'p1' ? h * 0.75 : h * 0.25,
-      vx: 0,
-      vy: 0,
-    };
-    trail.current = [];
-
-    if (targetPlayer === 'p2') {
-      window.setTimeout(() => {
-        puck.current.vx = (Math.random() - 0.5) * 5;
-        puck.current.vy = 8;
-      }, 320);
-    }
-  };
-
-  const updateAI = (w: number, h: number, dt60: number) => {
-    const targetX = puck.current.x;
-
-    if (puck.current.y < h / 2) {
-      const dx = targetX - p2.current.x;
-      p2.current.x += dx * SETTINGS.aiTrackSpeed * dt60;
-    } else {
-      const dx = w / 2 - p2.current.x;
-      p2.current.x += dx * SETTINGS.aiReturnSpeed * dt60;
-    }
-
-    if (p2.current.x < SETTINGS.paddleSize) p2.current.x = SETTINGS.paddleSize;
-    if (p2.current.x > w - SETTINGS.paddleSize) p2.current.x = w - SETTINGS.paddleSize;
-  };
-
-  const createGoalEffect = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 20; i += 1) {
-      particles.current.push({
+    for (let index = 0; index < 28; index += 1) {
+      particlesRef.current.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 12,
-        vy: (Math.random() - 0.5) * 12,
+        vx: (Math.random() - 0.5) * 14,
+        vy: (Math.random() - 0.5) * 14,
         life: 1,
         color,
       });
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!lobbyId || !token) return;
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('twingames_active_lobby_id', lobbyId);
+      window.sessionStorage.setItem('twingames_active_game', 'air_hockey');
+      if (playersInfo.length) {
+        window.sessionStorage.setItem(
+          'twingames_blackjack_players_info',
+          JSON.stringify(playersInfo),
+        );
+      }
+    }
+
+    let alive = true;
+    let reconnectTimer: number | null = null;
+    let reconnectAttempt = 0;
+
+    const connect = () => {
+      if (!alive) return;
+
+      setConnectionStatus('connecting');
+      setSocketError(null);
+
+      const client = airHockeyWsApi.connect({
+        lobbyId,
+        token,
+        handlers: {
+          onOpen: () => {
+            if (!alive) return;
+            reconnectAttempt = 0;
+            setConnectionStatus('open');
+            client.requestState();
+          },
+          onClose: () => {
+            if (!alive) return;
+            setConnectionStatus('closed');
+
+            if (serverStateRef.current?.phase === 'match_over') return;
+
+            const delay = Math.min(4000, 500 * 2 ** reconnectAttempt);
+            reconnectAttempt += 1;
+            reconnectTimer = window.setTimeout(connect, delay);
+          },
+          onSocketError: () => {
+            if (!alive) return;
+            setConnectionStatus('error');
+            setSocketError('Ошибка подключения к игре');
+          },
+          onServerError: (error) => {
+            if (!alive) return;
+            setSocketError(error.details || error.error);
+          },
+          onState: (state) => {
+            if (!alive) return;
+
+            serverStateRef.current = state;
+            receivedAtRef.current = performance.now();
+            setServerState(state);
+            setSocketError(null);
+
+            const currentUserId = user?.id || state.player_order[0] || 0;
+            const side: 0 | 1 = state.player_order[1] === currentUserId ? 1 : 0;
+            sideRef.current = side;
+
+            const boardWidth = state.board_width || DEFAULT_BOARD.width;
+            const boardHeight = state.board_height || DEFAULT_BOARD.height;
+            const myPaddle = state.paddles[String(currentUserId)];
+            const opponentId = state.player_order.find((id) => id !== currentUserId) || 0;
+            const opponentPaddle = state.paddles[String(opponentId)];
+
+            if (myPaddle) {
+              inputSeqRef.current = Math.max(inputSeqRef.current, myPaddle.input_seq);
+            }
+
+            if (myPaddle && !localPaddleRef.current.dragging) {
+              const local = transformToLocal(myPaddle, side, boardWidth, boardHeight);
+              if (!visualRef.current.initialized) {
+                localPaddleRef.current.x = local.x;
+                localPaddleRef.current.y = local.y;
+              }
+            }
+
+            if (!visualRef.current.initialized && opponentPaddle) {
+              visualRef.current = {
+                initialized: true,
+                puck: transformToLocal(state.puck, side, boardWidth, boardHeight),
+                opponent: transformToLocal(opponentPaddle, side, boardWidth, boardHeight),
+              };
+            }
+
+            if (state.goal_seq > lastGoalSeqRef.current) {
+              lastGoalSeqRef.current = state.goal_seq;
+              const scoredByMe = state.goal_scorer_user_id === currentUserId;
+              createGoalEffect(scoredByMe, scoredByMe ? '#ef4444' : '#3b82f6');
+              trailRef.current = [];
+            }
+          },
+        },
+      });
+
+      socketRef.current = client;
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [createGoalEffect, lobbyId, playersInfo, token, user?.id]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (!inputDirtyRef.current) return;
+
+      const state = serverStateRef.current;
+      const client = socketRef.current;
+      if (!state || !client || state.phase !== 'playing') return;
+
+      const boardWidth = state.board_width || DEFAULT_BOARD.width;
+      const boardHeight = state.board_height || DEFAULT_BOARD.height;
+      const local = localPaddleRef.current;
+      const serverPoint = transformToServer(
+        local.x,
+        local.y,
+        sideRef.current,
+        boardWidth,
+        boardHeight,
+      );
+
+      inputSeqRef.current += 1;
+      if (client.sendInput(serverPoint.x, serverPoint.y, inputSeqRef.current)) {
+        inputDirtyRef.current = false;
+      }
+    }, INPUT_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (serverState?.phase !== 'match_over' || matchHandledRef.current) return;
+
+    matchHandledRef.current = true;
+    const refreshTimer = window.setTimeout(() => {
+      void refreshBalance();
+      void refreshProfile();
+    }, 600);
+    const navigationTimer = window.setTimeout(() => {
+      navigate('/game/air_hockey/lobbies', { replace: true });
+    }, 3400);
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.clearTimeout(navigationTimer);
+    };
+  }, [navigate, refreshBalance, refreshProfile, serverState?.phase]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const prevent = (e: TouchEvent) => {
-      if (e.cancelable) e.preventDefault();
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      sizeRef.current = { w, h, dpr };
+
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+
+      const ctx = canvas.getContext('2d');
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
-    container.addEventListener('touchstart', prevent, { passive: false });
-    container.addEventListener('touchmove', prevent, { passive: false });
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    resize();
+    window.addEventListener('resize', resize);
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const loop = (now: number) => {
-      const { w, h } = sizeRef.current;
-      const p = puck.current;
+    const drawPaddle = (x: number, y: number, radius: number, fill: string) => {
+      const glow = ctx.createRadialGradient(x, y, 5, x, y, radius + 16);
+      glow.addColorStop(0, fill);
+      glow.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 14, 0, Math.PI * 2);
+      ctx.fill();
 
-      const prev = lastFrameRef.current || now;
-      const dtMs = Math.min(now - prev, 32);
-      const dt60 = dtMs / 16.6667;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#fff';
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.arc(x - radius * 0.28, y - radius * 0.28, radius * 0.27, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const loop = (now: number) => {
+      const previous = lastFrameRef.current || now;
+      const dt = Math.min(0.033, (now - previous) / 1000);
       lastFrameRef.current = now;
 
-      updateAI(w, h, dt60);
+      const { w, h } = sizeRef.current;
+      const state = serverStateRef.current;
+      const boardWidth = state?.board_width || DEFAULT_BOARD.width;
+      const boardHeight = state?.board_height || DEFAULT_BOARD.height;
+      const side = sideRef.current;
+      const currentUserId = user?.id || state?.player_order?.[0] || 0;
+      const opponentId = state?.player_order.find((id) => id !== currentUserId) || 0;
+      const myServerPaddle = state?.paddles[String(currentUserId)];
+      const opponentServerPaddle = state?.paddles[String(opponentId)];
 
-      p.x += p.vx * dt60;
-      p.y += p.vy * dt60;
+      if (state && opponentServerPaddle) {
+        const snapshotAge = Math.min(
+          MAX_EXTRAPOLATION_SECONDS,
+          Math.max(0, (now - receivedAtRef.current) / 1000),
+        );
+        const predictedPuck = state.phase === 'playing'
+          ? {
+              ...state.puck,
+              x: state.puck.x + state.puck.vx * snapshotAge,
+              y: state.puck.y + state.puck.vy * snapshotAge,
+            }
+          : state.puck;
 
-      p.vx *= Math.pow(SETTINGS.friction, dt60);
-      p.vy *= Math.pow(SETTINGS.friction, dt60);
+        const targetPuck = transformToLocal(predictedPuck, side, boardWidth, boardHeight);
+        const targetOpponent = transformToLocal(
+          opponentServerPaddle,
+          side,
+          boardWidth,
+          boardHeight,
+        );
 
-      const speed = Math.hypot(p.vx, p.vy);
-      if (speed > SETTINGS.maxPuckSpeed) {
-        p.vx = (p.vx / speed) * SETTINGS.maxPuckSpeed;
-        p.vy = (p.vy / speed) * SETTINGS.maxPuckSpeed;
-      }
-
-      if (p.x < SETTINGS.puckSize) {
-        p.x = SETTINGS.puckSize;
-        p.vx *= -SETTINGS.wallBounciness;
-      } else if (p.x > w - SETTINGS.puckSize) {
-        p.x = w - SETTINGS.puckSize;
-        p.vx *= -SETTINGS.wallBounciness;
-      }
-
-      const canScore = now - lastGoalAtRef.current > SETTINGS.goalCooldownMs;
-
-      if (p.y < SETTINGS.puckSize || p.y > h - SETTINGS.puckSize) {
-        const insideGoal = p.x > w * 0.3 && p.x < w * 0.7;
-
-        if (insideGoal && canScore) {
-          const isTopGoal = p.y < h / 2;
-          lastGoalAtRef.current = now;
-
-          createGoalEffect(p.x, p.y, isTopGoal ? '#3b82f6' : '#ef4444');
-
-          if (isTopGoal) {
-            scoreRef.current = { ...scoreRef.current, p1: scoreRef.current.p1 + 1 };
-            setScore(scoreRef.current);
-            spawnPuck(w, h, 'p2');
-          } else {
-            scoreRef.current = { ...scoreRef.current, p2: scoreRef.current.p2 + 1 };
-            setScore(scoreRef.current);
-            spawnPuck(w, h, 'p1');
-          }
-        } else if (!insideGoal) {
-          p.y = p.y < SETTINGS.puckSize ? SETTINGS.puckSize : h - SETTINGS.puckSize;
-          p.vy *= -SETTINGS.wallBounciness;
+        if (!visualRef.current.initialized) {
+          visualRef.current.initialized = true;
+          visualRef.current.puck = targetPuck;
+          visualRef.current.opponent = targetOpponent;
+        } else {
+          visualRef.current.puck.x = damp(visualRef.current.puck.x, targetPuck.x, 22, dt);
+          visualRef.current.puck.y = damp(visualRef.current.puck.y, targetPuck.y, 22, dt);
+          visualRef.current.puck.vx = targetPuck.vx;
+          visualRef.current.puck.vy = targetPuck.vy;
+          visualRef.current.opponent.x = damp(
+            visualRef.current.opponent.x,
+            targetOpponent.x,
+            18,
+            dt,
+          );
+          visualRef.current.opponent.y = damp(
+            visualRef.current.opponent.y,
+            targetOpponent.y,
+            18,
+            dt,
+          );
         }
       }
 
-      const handlePaddleCollision = (
-        paddleX: number,
-        paddleY: number,
-        isPlayer: boolean,
-      ) => {
-        const dx = p.x - paddleX;
-        const dy = p.y - paddleY;
-        const dist = Math.hypot(dx, dy) || 0.0001;
-        const minDist = SETTINGS.puckSize + SETTINGS.paddleSize;
+      if (myServerPaddle && !localPaddleRef.current.dragging) {
+        const targetMy = transformToLocal(myServerPaddle, side, boardWidth, boardHeight);
+        localPaddleRef.current.x = damp(localPaddleRef.current.x, targetMy.x, 20, dt);
+        localPaddleRef.current.y = damp(localPaddleRef.current.y, targetMy.y, 20, dt);
+      }
 
-        if (dist < minDist) {
-          const angle = Math.atan2(dy, dx);
-
-          p.x = paddleX + Math.cos(angle) * minDist;
-          p.y = paddleY + Math.sin(angle) * minDist;
-
-          const currentSpeed = Math.hypot(p.vx, p.vy);
-
-          if (isPlayer) {
-            const vx = (p1.current.x - p1.current.lastX) * 0.8;
-            const vy = (p1.current.y - p1.current.lastY) * 0.8;
-            p.vx = vx + Math.cos(angle) * (currentSpeed + 2);
-            p.vy = vy + Math.sin(angle) * (currentSpeed + 2);
-          } else {
-            p.vx = Math.cos(angle) * (currentSpeed + 1.5);
-            p.vy = Math.sin(angle) * (currentSpeed + 1.5);
-          }
-        }
-      };
-
-      handlePaddleCollision(p1.current.x, p1.current.y, true);
-      handlePaddleCollision(p2.current.x, p2.current.y, false);
-
-      p1.current.lastX = p1.current.x;
-      p1.current.lastY = p1.current.y;
-
-      trail.current.push({ x: p.x, y: p.y, life: 1 });
-      if (trail.current.length > 10) trail.current.shift();
+      const puck = visualRef.current.puck;
+      const opponent = visualRef.current.opponent;
+      const myPaddle = localPaddleRef.current;
+      const toX = (value: number) => (value / boardWidth) * w;
+      const toY = (value: number) => (value / boardHeight) * h;
+      const puckX = toX(puck.x);
+      const puckY = toY(puck.y);
+      const opponentX = toX(opponent.x);
+      const opponentY = toY(opponent.y);
+      const myX = toX(myPaddle.x);
+      const myY = toY(myPaddle.y);
+      const paddleRadius = clamp(w * 0.075, 24, 34);
+      const puckRadius = clamp(w * 0.035, 12, 18);
 
       ctx.fillStyle = '#0A0A0F';
       ctx.fillRect(0, 0, w, h);
 
-      const bgGlow = ctx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, h * 0.7);
-      bgGlow.addColorStop(0, 'rgba(255,255,255,0.025)');
+      const bgGlow = ctx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, h * 0.72);
+      bgGlow.addColorStop(0, 'rgba(255,255,255,0.03)');
       bgGlow.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = bgGlow;
       ctx.fillRect(0, 0, w, h);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, h / 2);
@@ -267,186 +515,295 @@ export const AirHockeyGame: React.FC = () => {
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(w / 2, h / 2, 40, 0, Math.PI * 2);
+      ctx.arc(w / 2, h / 2, Math.min(44, w * 0.12), 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.lineWidth = 5;
       ctx.strokeStyle = '#3b82f6';
-      ctx.strokeRect(w * 0.3, 0, w * 0.4, 5);
+      ctx.beginPath();
+      ctx.moveTo(w * 0.3, 2.5);
+      ctx.lineTo(w * 0.7, 2.5);
+      ctx.stroke();
       ctx.strokeStyle = '#ef4444';
-      ctx.strokeRect(w * 0.3, h - 5, w * 0.4, 5);
+      ctx.beginPath();
+      ctx.moveTo(w * 0.3, h - 2.5);
+      ctx.lineTo(w * 0.7, h - 2.5);
+      ctx.stroke();
 
-      for (let i = 0; i < trail.current.length; i += 1) {
-        const t = trail.current[i];
-        const alpha = (i + 1) / trail.current.length * 0.2;
+      if (state?.phase === 'playing') {
+        trailRef.current.push({ x: puckX, y: puckY, life: 1 });
+        if (trailRef.current.length > 12) trailRef.current.shift();
+      }
+
+      for (let index = 0; index < trailRef.current.length; index += 1) {
+        const point = trailRef.current[index];
+        const alpha = ((index + 1) / trailRef.current.length) * 0.22 * point.life;
         ctx.fillStyle = `rgba(255,255,255,${alpha})`;
         ctx.beginPath();
-        ctx.arc(t.x, t.y, 4 + i * 0.35, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, 3 + index * 0.35, 0, Math.PI * 2);
         ctx.fill();
-        t.life -= 0.08 * dt60;
+        point.life -= 0.08;
       }
-      trail.current = trail.current.filter(t => t.life > 0);
+      trailRef.current = trailRef.current.filter((point) => point.life > 0);
 
       const nextParticles: Particle[] = [];
-      for (let i = 0; i < particles.current.length; i += 1) {
-        const part = particles.current[i];
-        ctx.fillStyle = part.color;
-        ctx.globalAlpha = part.life;
+      for (const particle of particlesRef.current) {
+        ctx.globalAlpha = particle.life;
+        ctx.fillStyle = particle.color;
         ctx.beginPath();
-        ctx.arc(part.x, part.y, 2, 0, Math.PI * 2);
+        ctx.arc(particle.x, particle.y, 2.3, 0, Math.PI * 2);
         ctx.fill();
 
-        part.x += part.vx * dt60;
-        part.y += part.vy * dt60;
-        part.life -= 0.03 * dt60;
-
-        if (part.life > 0) nextParticles.push(part);
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vx *= 0.97;
+        particle.vy *= 0.97;
+        particle.life -= 0.035;
+        if (particle.life > 0) nextParticles.push(particle);
       }
-      particles.current = nextParticles;
+      particlesRef.current = nextParticles;
       ctx.globalAlpha = 1;
 
-      const puckGlow = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, SETTINGS.puckSize + 10);
+      const puckGlow = ctx.createRadialGradient(
+        puckX,
+        puckY,
+        2,
+        puckX,
+        puckY,
+        puckRadius + 12,
+      );
       puckGlow.addColorStop(0, 'rgba(255,255,255,1)');
       puckGlow.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = puckGlow;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, SETTINGS.puckSize + 10, 0, Math.PI * 2);
+      ctx.arc(puckX, puckY, puckRadius + 12, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(p.x, p.y, SETTINGS.puckSize, 0, Math.PI * 2);
+      ctx.arc(puckX, puckY, puckRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      const drawPaddle = (x: number, y: number, fill: string) => {
-        const glow = ctx.createRadialGradient(x, y, 5, x, y, SETTINGS.paddleSize + 14);
-        glow.addColorStop(0, fill);
-        glow.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath();
-        ctx.arc(x, y, SETTINGS.paddleSize + 12, 0, Math.PI * 2);
-        ctx.fill();
+      drawPaddle(opponentX, opponentY, paddleRadius, '#3b82f6');
+      drawPaddle(myX, myY, paddleRadius, '#ef4444');
 
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#fff';
-        ctx.fillStyle = fill;
-        ctx.beginPath();
-        ctx.arc(x, y, SETTINGS.paddleSize, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.beginPath();
-        ctx.arc(x - 8, y - 8, 8, 0, Math.PI * 2);
-        ctx.fill();
-      };
-
-      drawPaddle(p1.current.x, p1.current.y, '#ef4444');
-      drawPaddle(p2.current.x, p2.current.y, '#3b82f6');
-
-      rafRef.current = requestAnimationFrame(loop);
+      rafRef.current = window.requestAnimationFrame(loop);
     };
 
-    rafRef.current = requestAnimationFrame(loop);
+    rafRef.current = window.requestAnimationFrame(loop);
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      container.removeEventListener('touchstart', prevent);
-      container.removeEventListener('touchmove', prevent);
-      window.removeEventListener('resize', resizeCanvas);
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+      window.removeEventListener('resize', resize);
     };
-    // resizeCanvas is stable enough for mount-only setup.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
 
-  type PointerLike = React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>;
-
-  const getPoint = (e: PointerLike) => {
+  const pointFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return null;
+    const state = serverStateRef.current;
+    if (!rect || !state) return null;
 
-    const clientX =
-      'touches' in e && e.touches.length > 0
-        ? e.touches[0].clientX
-        : 'clientX' in e
-          ? e.clientX
-          : null;
-    const clientY =
-      'touches' in e && e.touches.length > 0
-        ? e.touches[0].clientY
-        : 'clientY' in e
-          ? e.clientY
-          : null;
+    const boardWidth = state.board_width || DEFAULT_BOARD.width;
+    const boardHeight = state.board_height || DEFAULT_BOARD.height;
+    const paddleRadius = 0.07;
 
-    if (clientX === null || clientY === null) return null;
+    const x = ((event.clientX - rect.left) / rect.width) * boardWidth;
+    const y = ((event.clientY - rect.top) / rect.height) * boardHeight;
 
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-      w: rect.width,
-      h: rect.height,
+      x: clamp(x, paddleRadius, boardWidth - paddleRadius),
+      y: clamp(y, boardHeight / 2 + paddleRadius, boardHeight - paddleRadius),
+      boardWidth,
+      boardHeight,
     };
   };
 
-  const handleStart = (e: PointerLike) => {
-    const point = getPoint(e);
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (serverStateRef.current?.phase !== 'playing') return;
+
+    const point = pointFromPointer(event);
     if (!point) return;
 
-    const dist = Math.hypot(point.x - p1.current.x, point.y - p1.current.y);
-    if (dist < SETTINGS.paddleSize * 2.5) {
-      p1.current.isDragging = true;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const paddlePx = clamp(rect.width * 0.075, 24, 34);
+    const paddleX = (localPaddleRef.current.x / point.boardWidth) * rect.width;
+    const paddleY = (localPaddleRef.current.y / point.boardHeight) * rect.height;
+    const distance = Math.hypot(event.clientX - rect.left - paddleX, event.clientY - rect.top - paddleY);
+
+    if (distance > paddlePx * 2.4) return;
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    localPaddleRef.current.dragging = true;
+    localPaddleRef.current.x = point.x;
+    localPaddleRef.current.y = point.y;
+    inputDirtyRef.current = true;
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!localPaddleRef.current.dragging) return;
+
+    const point = pointFromPointer(event);
+    if (!point) return;
+
+    localPaddleRef.current.x = point.x;
+    localPaddleRef.current.y = point.y;
+    inputDirtyRef.current = true;
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    localPaddleRef.current.dragging = false;
+    inputDirtyRef.current = true;
   };
 
-  const handleMove = (e: PointerLike) => {
-    if (!p1.current.isDragging) return;
-    const point = getPoint(e);
-    if (!point) return;
+  if (!lobbyId) {
+    return (
+      <div className="grid h-full min-h-[440px] place-items-center bg-[#0A0A0F] p-6 text-center text-white">
+        <div>
+          <div className="text-2xl font-black">Нет lobby id</div>
+          <div className="mt-2 text-sm text-white/40">Открывай аэрохоккей через комнату лобби.</div>
+        </div>
+      </div>
+    );
+  }
 
-    let nextX = point.x;
-    let nextY = point.y;
-
-    nextX = Math.max(SETTINGS.paddleSize, Math.min(point.w - SETTINGS.paddleSize, nextX));
-    nextY = Math.max(point.h / 2 + SETTINGS.paddleSize, Math.min(point.h - SETTINGS.paddleSize, nextY));
-
-    p1.current.x = nextX;
-    p1.current.y = nextY;
-  };
-
-  const handleEnd = () => {
-    p1.current.isDragging = false;
-  };
+  if (!token) {
+    return (
+      <div className="grid h-full min-h-[440px] place-items-center bg-[#0A0A0F] p-6 text-center text-white">
+        <div>
+          <div className="text-2xl font-black">Нет токена</div>
+          <div className="mt-2 text-sm text-white/40">Для WebSocket нужна Telegram-авторизация.</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full touch-none overscroll-none select-none overflow-hidden bg-[#0A0A0F]"
+      className="relative h-full min-h-[440px] w-full touch-none select-none overflow-hidden bg-[#0A0A0F] text-white"
     >
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
-      <div className="absolute top-1/2 left-6 -translate-y-1/2 flex flex-col items-center gap-4 z-10 pointer-events-none opacity-25">
-        <div className="text-6xl font-black text-blue-500">{score.p2}</div>
-        <div className="w-12 h-1 bg-white/20" />
-        <div className="text-6xl font-black text-red-500">{score.p1}</div>
+      <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex items-center justify-center px-3">
+        <div className="flex w-full max-w-[420px] items-center justify-between rounded-[20px] border border-white/[0.08] bg-black/35 px-3 py-2 backdrop-blur-xl">
+          <div className="flex min-w-0 items-center gap-2">
+            <Avatar player={myPlayerInfo} fallback={user?.tg_user || 'Ты'} />
+            <div className="min-w-0">
+              <div className="max-w-[92px] truncate text-[10px] font-black">
+                {myPlayerInfo?.tg_user || user?.tg_user || 'Ты'}
+              </div>
+              <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.16em] text-red-400/70">
+                Ты
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center">
+            <div className="text-[22px] font-black tabular-nums tracking-[-0.08em]">
+              <span className="text-red-400">{myScore}</span>
+              <span className="mx-2 text-white/20">:</span>
+              <span className="text-blue-400">{opponentScore}</span>
+            </div>
+            <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.17em] text-white/35">
+              до {targetGoals} · {connectionStatus}
+            </div>
+          </div>
+
+          <div className="flex min-w-0 items-center justify-end gap-2 text-right">
+            <div className="min-w-0">
+              <div className="max-w-[92px] truncate text-[10px] font-black">
+                {opponentPlayerInfo?.tg_user || 'Соперник'}
+              </div>
+              <div className="mt-0.5 text-[7px] font-black uppercase tracking-[0.16em] text-blue-400/70">
+                Враг
+              </div>
+            </div>
+            <Avatar player={opponentPlayerInfo} fallback="VS" />
+          </div>
+        </div>
       </div>
 
       <button
-        onClick={() => navigate('/')}
-        className="absolute top-6 right-6 z-20 text-white/25 text-[10px] border border-white/10 px-3 py-1 rounded tracking-widest uppercase bg-white/5"
+        type="button"
+        onClick={() => navigate('/game/air_hockey/lobbies')}
+        className="absolute bottom-4 right-4 z-20 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[8px] font-black uppercase tracking-[0.16em] text-white/35 backdrop-blur"
       >
         Exit
       </button>
 
       <canvas
         ref={canvasRef}
-        onMouseDown={handleStart}
-        onMouseMove={handleMove}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchStart={handleStart}
-        onTouchMove={handleMove}
-        onTouchEnd={handleEnd}
-        className="w-full h-full"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        className="h-full w-full touch-none"
       />
+
+      {(serverState?.phase === 'waiting' || connectionStatus !== 'open' || socketError) && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/35 p-5 backdrop-blur-[2px]">
+          <div className="rounded-[24px] border border-white/10 bg-[#111118]/95 px-6 py-5 text-center shadow-2xl">
+            <div className="text-lg font-black">
+              {socketError
+                ? 'Ошибка подключения'
+                : connectionStatus !== 'open'
+                  ? 'Подключение'
+                  : 'Ждём соперника'}
+            </div>
+            <div className="mt-2 max-w-[260px] text-[11px] font-bold text-white/40">
+              {socketError || serverState?.message || 'Игра начнётся, когда оба игрока подключатся.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {serverState?.phase === 'goal' && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center">
+          <div className="animate-pulse text-[54px] font-black uppercase tracking-[-0.08em] text-white drop-shadow-[0_0_30px_rgba(255,255,255,0.65)]">
+            Гол
+          </div>
+        </div>
+      )}
+
+      {serverState?.phase === 'match_over' && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-black/72 p-5 backdrop-blur-md">
+          <div className="relative w-full max-w-[340px] overflow-hidden rounded-[30px] border border-white/10 bg-[#111118] p-6 text-center shadow-2xl">
+            <div
+              className={`pointer-events-none absolute inset-0 ${
+                isWinner
+                  ? 'bg-[radial-gradient(circle_at_50%_0%,rgba(239,68,68,0.28),transparent_62%)]'
+                  : 'bg-[radial-gradient(circle_at_50%_0%,rgba(59,130,246,0.25),transparent_62%)]'
+              }`}
+            />
+
+            <div className="relative z-10">
+              <div className="mx-auto w-fit rounded-full border border-white/10 p-1">
+                <Avatar
+                  player={isWinner ? myPlayerInfo : opponentPlayerInfo}
+                  fallback={isWinner ? user?.tg_user || 'WIN' : 'VS'}
+                />
+              </div>
+              <div className="mt-4 text-[10px] font-black uppercase tracking-[0.28em] text-white/35">
+                Air Hockey
+              </div>
+              <div className="mt-2 text-[34px] font-black uppercase leading-none tracking-[-0.07em]">
+                {isWinner ? 'Победа' : 'Поражение'}
+              </div>
+              <div className="mt-4 text-[24px] font-black tabular-nums">
+                <span className="text-red-400">{myScore}</span>
+                <span className="mx-3 text-white/20">:</span>
+                <span className="text-blue-400">{opponentScore}</span>
+              </div>
+              <div className="mt-4 text-[11px] font-bold text-white/40">
+                Лобби закрывается, баланс обновляется…
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

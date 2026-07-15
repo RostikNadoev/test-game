@@ -25,6 +25,8 @@ type lobbyIDRequest struct {
 
 func wsURLForGame(game, lobbyID string) string {
 	switch realtime.NormalizeGameCode(game) {
+	case "air_hockey":
+		return "/ws/air-hockey/" + lobbyID
 	case "blackjack_duel":
 		return "/ws/blackjack/" + lobbyID
 	case "plinko_pvp":
@@ -174,4 +176,3 @@ func (h LobbyHandler) Games(c *gin.Context) {
 		"count": len(games),
 	})
 }
-

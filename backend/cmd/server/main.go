@@ -4,6 +4,7 @@ import (
 	"log"
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
+	"tg-lobbies-base/internal/games/airhockey"
 	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/handlers"
@@ -40,6 +41,13 @@ func main() {
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
 
+	airHockeyManager := airhockey.NewManager()
+	go airHockeyManager.CleanupLoop()
+	airHockeyManager.SetOnMatchOver(func(lobbyID string, winnerUserID uint) {
+		winner := winnerUserID
+		settleLobbyMatch(lobbyStore, lobbyID, &winner)
+	})
+
 	blackjackManager := blackjack.NewManager()
 	go blackjackManager.CleanupLoop()
 	blackjackManager.SetOnMatchOver(func(lobbyID string, winnerUserID uint) {
@@ -70,6 +78,12 @@ func main() {
 		}
 	}()
 
+	airHockeyWSHandler := handlers.AirHockeyWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    airHockeyManager,
+	}
+
 	blackjackWSHandler := handlers.BlackjackWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -84,6 +98,7 @@ func main() {
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
 
+	router.GET("/ws/air-hockey/:lobby_id", airHockeyWSHandler.Connect)
 	router.GET("/ws/blackjack/:lobby_id", blackjackWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
