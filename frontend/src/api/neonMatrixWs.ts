@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './client';
 
-export type NeonMatrixPhase = 'picking' | 'spinning' | 'impact' | 'result' | 'match_over';
+export type NeonMatrixPhase = 'picking' | 'spinning' | 'landing' | 'impact' | 'result' | 'match_over';
 
 export type NeonMatrixRoundOutcome = {
   target: number;
@@ -31,6 +31,7 @@ export type NeonMatrixStateMessage = {
   ready: Record<string, boolean>;
   commitment?: string;
   reveal_at_ms?: number;
+  stop_at_ms?: number;
   target?: number;
   reveal_nonce?: string;
   outcome?: NeonMatrixRoundOutcome;
@@ -118,6 +119,7 @@ const normalizeState = (raw: Record<string, unknown>): NeonMatrixStateMessage =>
   const phaseRaw = typeof raw.phase === 'string' ? raw.phase : 'picking';
   const phase: NeonMatrixPhase =
     phaseRaw === 'spinning' ||
+    phaseRaw === 'landing' ||
     phaseRaw === 'impact' ||
     phaseRaw === 'result' ||
     phaseRaw === 'match_over'
@@ -141,6 +143,8 @@ const normalizeState = (raw: Record<string, unknown>): NeonMatrixStateMessage =>
     commitment: typeof raw.commitment === 'string' ? raw.commitment : undefined,
     reveal_at_ms:
       raw.reveal_at_ms === undefined ? undefined : numberValue(raw.reveal_at_ms),
+    stop_at_ms:
+      raw.stop_at_ms === undefined ? undefined : numberValue(raw.stop_at_ms),
     target: raw.target === undefined ? undefined : numberValue(raw.target),
     reveal_nonce:
       typeof raw.reveal_nonce === 'string' ? raw.reveal_nonce : undefined,

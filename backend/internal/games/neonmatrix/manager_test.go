@@ -71,6 +71,43 @@ func TestSpinningStateDoesNotRevealTarget(t *testing.T) {
 	session.stopTimersLocked()
 }
 
+func TestLandingStateRevealsCommittedTargetBeforeVisualStop(t *testing.T) {
+	session := NewSession("lobby-landing", []uint{10, 20}, nil)
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	session.picks[10] = 14
+	session.picked[10] = true
+	session.picks[20] = 76
+	session.picked[20] = true
+	if err := session.beginSpinLocked(); err != nil {
+		t.Fatalf("begin spin failed: %v", err)
+	}
+
+	session.beginLandingLocked()
+
+	if session.phase != PhaseLanding {
+		t.Fatalf("expected landing phase, got %q", session.phase)
+	}
+
+	state := session.publicStateForLocked(10, "state")
+	if state.Target == nil || *state.Target != session.target {
+		t.Fatal("landing state must contain the committed target")
+	}
+	if state.RevealNonce == "" {
+		t.Fatal("landing state must contain reveal nonce")
+	}
+	if state.StopAtMS <= state.RevealAtMS {
+		t.Fatal("stop timestamp must be after landing start")
+	}
+	if state.Outcome != nil {
+		t.Fatal("damage outcome must not be published before the wheel stops")
+	}
+
+	session.stopTimersLocked()
+}
+
 func TestPickingStateHidesOpponentPick(t *testing.T) {
 	session := NewSession("lobby-picks", []uint{1, 2}, nil)
 

@@ -20,12 +20,14 @@ const (
 	MinNumber = 1
 	MaxNumber = 100
 
-	SpinDuration      = 5 * time.Second
+	BlindSpinDuration = 3200 * time.Millisecond
+	LandingDuration   = 1800 * time.Millisecond
 	ImpactDuration    = 3900 * time.Millisecond
 	AutoNextRoundWait = 12 * time.Second
 
 	PhasePicking   = "picking"
 	PhaseSpinning  = "spinning"
+	PhaseLanding   = "landing"
 	PhaseImpact    = "impact"
 	PhaseResult    = "result"
 	PhaseMatchOver = "match_over"
@@ -65,6 +67,7 @@ type PublicState struct {
 	Ready        map[uint]bool `json:"ready"`
 	Commitment   string        `json:"commitment,omitempty"`
 	RevealAtMS   int64         `json:"reveal_at_ms,omitempty"`
+	StopAtMS     int64         `json:"stop_at_ms,omitempty"`
 	Target       *int          `json:"target,omitempty"`
 	RevealNonce  string        `json:"reveal_nonce,omitempty"`
 	Outcome      *RoundOutcome `json:"outcome,omitempty"`
@@ -167,10 +170,12 @@ type Session struct {
 	nonce        string
 	commitment   string
 	revealAt     time.Time
+	stopAt       time.Time
 	outcome      *RoundOutcome
 	winnerUserID uint
 
 	revealTimer   *time.Timer
+	landingTimer  *time.Timer
 	resultTimer   *time.Timer
 	autoNextTimer *time.Timer
 
@@ -328,10 +333,12 @@ func (s *Session) beginSpinLocked() error {
 		return err
 	}
 
+	now := time.Now().UTC()
 	s.target = target
 	s.nonce = hex.EncodeToString(nonceBytes)
 	s.commitment = roundCommitment(s.lobbyID, s.round, s.target, s.nonce)
-	s.revealAt = time.Now().UTC().Add(SpinDuration)
+	s.revealAt = now.Add(BlindSpinDuration)
+	s.stopAt = s.revealAt.Add(LandingDuration)
 	s.phase = PhaseSpinning
 	s.outcome = nil
 	s.ready = make(map[uint]bool)
@@ -341,17 +348,35 @@ func (s *Session) beginSpinLocked() error {
 	if s.revealTimer != nil {
 		s.revealTimer.Stop()
 	}
-	s.revealTimer = time.AfterFunc(SpinDuration, func() {
+	s.revealTimer = time.AfterFunc(BlindSpinDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.revealLocked()
+		s.beginLandingLocked()
 	})
 
 	return nil
 }
 
-func (s *Session) revealLocked() {
+func (s *Session) beginLandingLocked() {
 	if s.phase != PhaseSpinning || !s.allPickedLocked() {
+		return
+	}
+
+	s.phase = PhaseLanding
+	s.broadcastLocked("state")
+
+	if s.landingTimer != nil {
+		s.landingTimer.Stop()
+	}
+	s.landingTimer = time.AfterFunc(LandingDuration, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.finishLandingLocked()
+	})
+}
+
+func (s *Session) finishLandingLocked() {
+	if s.phase != PhaseLanding || !s.allPickedLocked() {
 		return
 	}
 
@@ -440,6 +465,7 @@ func (s *Session) startNextRoundLocked() {
 	s.nonce = ""
 	s.commitment = ""
 	s.revealAt = time.Time{}
+	s.stopAt = time.Time{}
 	s.outcome = nil
 	s.broadcastLocked("state")
 }
@@ -515,10 +541,20 @@ func (s *Session) publicStateForLocked(userID uint, messageType string) PublicSt
 	case PhaseSpinning:
 		state.Commitment = s.commitment
 		state.RevealAtMS = s.revealAt.UnixMilli()
+		state.StopAtMS = s.stopAt.UnixMilli()
 		state.Message = "Оба выбора сохранены. Рулетка крутится."
+	case PhaseLanding:
+		state.Commitment = s.commitment
+		state.RevealAtMS = s.revealAt.UnixMilli()
+		state.StopAtMS = s.stopAt.UnixMilli()
+		target := s.target
+		state.Target = &target
+		state.RevealNonce = s.nonce
+		state.Message = "Рулетка замедляется."
 	case PhaseImpact, PhaseResult, PhaseMatchOver:
 		state.Commitment = s.commitment
 		state.RevealAtMS = s.revealAt.UnixMilli()
+		state.StopAtMS = s.stopAt.UnixMilli()
 		target := s.target
 		state.Target = &target
 		state.RevealNonce = s.nonce
@@ -579,6 +615,10 @@ func (s *Session) stopTimersLocked() {
 	if s.revealTimer != nil {
 		s.revealTimer.Stop()
 		s.revealTimer = nil
+	}
+	if s.landingTimer != nil {
+		s.landingTimer.Stop()
+		s.landingTimer = nil
 	}
 	if s.resultTimer != nil {
 		s.resultTimer.Stop()

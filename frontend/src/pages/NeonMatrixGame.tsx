@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../auth/useAuth';
 
 type Player = 'cyan' | 'magenta';
-type Phase = 'pickCyan' | 'pickMagenta' | 'spinning' | 'impact' | 'result' | 'gameover';
+type Phase = 'pickCyan' | 'pickMagenta' | 'spinning' | 'landing' | 'impact' | 'result' | 'gameover';
 
 type PickState = Record<Player, number | null>;
 type HealthState = Record<Player, number>;
@@ -49,7 +49,9 @@ type TelegramWebApp = {
 const START_HP = 100;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
-const SPIN_MS = 5000;
+const BLIND_SPIN_MS = 3200;
+const LANDING_MS = 1800;
+const SPIN_MS = BLIND_SPIN_MS + LANDING_MS;
 const PARTICLE_LIMIT = 32;
 const WHEEL_MARKS = Array.from({ length: 60 }, (_, index) => ({
   index,
@@ -152,6 +154,27 @@ const numberToAngle = (value: number) => {
   return ((value - MIN_NUMBER) / (MAX_NUMBER - MIN_NUMBER)) * 360;
 };
 
+const normalizeAngle = (value: number) => ((value % 360) + 360) % 360;
+
+const circularAngleDistance = (a: number, b: number) => {
+  const delta = Math.abs(normalizeAngle(a) - normalizeAngle(b));
+  return Math.min(delta, 360 - delta);
+};
+
+const readRenderedAngle = (element: HTMLElement | null, fallback: number) => {
+  if (!element) return normalizeAngle(fallback);
+
+  const transform = window.getComputedStyle(element).transform;
+  if (!transform || transform === 'none') return normalizeAngle(fallback);
+
+  try {
+    const matrix = new DOMMatrixReadOnly(transform);
+    return normalizeAngle((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
+  } catch {
+    return normalizeAngle(fallback);
+  }
+};
+
 const HealthBar = ({
   player,
   hp,
@@ -245,6 +268,7 @@ const Wheel = ({
   outcome,
   showPicks,
   spinMs,
+  arrowRef,
 }: {
   angle: number;
   displayNumber: number;
@@ -254,6 +278,7 @@ const Wheel = ({
   outcome: RoundOutcome | null;
   showPicks: boolean;
   spinMs: number;
+  arrowRef: React.RefObject<HTMLDivElement | null>;
 }) => {
   const showDistances = phase === 'impact' || phase === 'result' || phase === 'gameover';
 
@@ -333,6 +358,7 @@ const Wheel = ({
       )}
 
       <div
+        ref={arrowRef}
         className="rd-arrow"
         style={cssVars({
           '--angle': `${angle}deg`,
@@ -344,8 +370,8 @@ const Wheel = ({
       </div>
 
       <div className="rd-center">
-        <small>{phase === 'spinning' ? 'rolling' : target !== null ? 'final' : 'pick'}</small>
-        <strong>{phase === 'spinning' ? '•••' : target ?? displayNumber}</strong>
+        <small>{phase === 'spinning' || phase === 'landing' ? 'rolling' : target !== null ? 'final' : 'pick'}</small>
+        <strong>{phase === 'spinning' || phase === 'landing' ? '•••' : target ?? displayNumber}</strong>
       </div>
     </div>
   );
@@ -501,6 +527,11 @@ export const NeonMatrixGame: React.FC = () => {
   const { token, user } = useAuth();
 
   const socketRef = useRef<NeonMatrixSocketClient | null>(null);
+  const arrowRef = useRef<HTMLDivElement | null>(null);
+  const arrowAnimationRef = useRef<Animation | null>(null);
+  const arrowAngleRef = useRef(numberToAngle(50));
+  const animationStageRef = useRef('');
+  const serverOffsetRef = useRef<number | null>(null);
   const timersRef = useRef<number[]>([]);
   const lastRoundRef = useRef(0);
   const lastServerPhaseRef = useRef<string>('');
@@ -567,7 +598,73 @@ export const NeonMatrixGame: React.FC = () => {
     return id;
   }, []);
 
-  useEffect(() => clearTimers, [clearTimers]);
+  const cancelArrowAnimation = useCallback(() => {
+    arrowAnimationRef.current?.cancel();
+    arrowAnimationRef.current = null;
+  }, []);
+
+  const setStaticArrow = useCallback(
+    (angle: number) => {
+      cancelArrowAnimation();
+      const normalized = normalizeAngle(angle);
+      arrowAngleRef.current = normalized;
+      setArrowAngle(normalized);
+    },
+    [cancelArrowAnimation],
+  );
+
+  const animateArrow = useCallback(
+    (endAngle: number, durationMs: number, easing: string, finalAngle?: number) => {
+      const element = arrowRef.current;
+      const currentAngle = readRenderedAngle(element, arrowAngleRef.current);
+      cancelArrowAnimation();
+
+      if (!element || durationMs <= 16 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const normalized = normalizeAngle(finalAngle ?? endAngle);
+        arrowAngleRef.current = normalized;
+        setArrowAngle(normalized);
+        return;
+      }
+
+      const animation = element.animate(
+        [
+          { transform: `rotate(${currentAngle}deg)` },
+          { transform: `rotate(${endAngle}deg)` },
+        ],
+        {
+          duration: Math.max(16, durationMs),
+          easing,
+          fill: 'forwards',
+        },
+      );
+
+      arrowAnimationRef.current = animation;
+      animation.onfinish = () => {
+        if (arrowAnimationRef.current !== animation) return;
+        const normalized = normalizeAngle(finalAngle ?? endAngle);
+        arrowAngleRef.current = normalized;
+        setArrowAngle(normalized);
+        window.requestAnimationFrame(() => {
+          if (arrowAnimationRef.current === animation) {
+            animation.cancel();
+            arrowAnimationRef.current = null;
+          }
+        });
+      };
+    },
+    [cancelArrowAnimation],
+  );
+
+  const getEstimatedServerNow = useCallback(() => {
+    return Date.now() - (serverOffsetRef.current ?? 0);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearTimers();
+      cancelArrowAnimation();
+    };
+  }, [cancelArrowAnimation, clearTimers]);
 
   const burst = useCallback((tone: Particle['tone'], x: string, y: string, amount = 18) => {
     const count = Math.max(4, Math.min(amount, 10));
@@ -631,13 +728,6 @@ export const NeonMatrixGame: React.FC = () => {
     [myUserId, opponentUserId],
   );
 
-  const revealAngle = useCallback((currentAngle: number, targetNumber: number) => {
-    const normalized = ((currentAngle % 360) + 360) % 360;
-    const targetAngle = numberToAngle(targetNumber);
-    const delta = (targetAngle - normalized + 360) % 360;
-    return currentAngle + 360 + delta;
-  }, []);
-
   const verifyCommitment = useCallback(async (state: NeonMatrixStateMessage) => {
     if (!state.commitment || state.target === undefined || !state.reveal_nonce) return;
 
@@ -698,6 +788,15 @@ export const NeonMatrixGame: React.FC = () => {
         },
         onState: (state) => {
           if (!alive) return;
+
+          if (state.server_ms > 0) {
+            const sample = Date.now() - state.server_ms;
+            serverOffsetRef.current =
+              serverOffsetRef.current === null
+                ? sample
+                : serverOffsetRef.current * 0.8 + sample * 0.2;
+          }
+
           setServerState(state);
           setSocketError(null);
         },
@@ -735,6 +834,7 @@ export const NeonMatrixGame: React.FC = () => {
 
     if (serverState.phase === 'picking') {
       clearTimers();
+      animationStageRef.current = '';
       setPhase('pickCyan');
       setHealth({ cyan: myHealth, magenta: opponentHealth });
       setTarget(null);
@@ -743,13 +843,13 @@ export const NeonMatrixGame: React.FC = () => {
 
       if (isNewRound) {
         setDraftValue(50);
-        setArrowAngle(numberToAngle(50));
+        setStaticArrow(numberToAngle(50));
         setParticles([]);
       }
 
       if (mappedPicks.cyan !== null) {
         setDraftValue(mappedPicks.cyan);
-        setArrowAngle(numberToAngle(mappedPicks.cyan));
+        setStaticArrow(numberToAngle(mappedPicks.cyan));
       }
       return;
     }
@@ -758,13 +858,56 @@ export const NeonMatrixGame: React.FC = () => {
       clearTimers();
       setTarget(null);
       setOutcome(null);
-      setWheelSpinMs(SPIN_MS);
       setPhase('spinning');
-      setArrowAngle((current) => current + 7 * 360 + 197);
 
-      if (previousPhase !== 'spinning') {
+      const serverNow = getEstimatedServerNow();
+      const remaining = Math.max(
+        120,
+        (serverState.reveal_at_ms ?? serverNow + BLIND_SPIN_MS) - serverNow,
+      );
+      setWheelSpinMs(remaining);
+
+      const stageKey = `${serverState.round}:spinning`;
+      if (animationStageRef.current !== stageKey) {
+        animationStageRef.current = stageKey;
+        const currentAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
+        const turns = Math.max(5, Math.ceil(remaining / 520));
+        animateArrow(currentAngle + turns * 360 + 197, remaining, 'linear');
         burst('gold', '50%', '43%', 10);
         hapticImpact('medium');
+      }
+      return;
+    }
+
+    if (serverState.phase === 'landing') {
+      clearTimers();
+      if (serverState.target === undefined) return;
+
+      void verifyCommitment(serverState);
+      setTarget(null);
+      setOutcome(null);
+      setPhase('landing');
+
+      const serverNow = getEstimatedServerNow();
+      const remaining = Math.max(
+        80,
+        (serverState.stop_at_ms ?? serverNow + LANDING_MS) - serverNow,
+      );
+      setWheelSpinMs(remaining);
+
+      const stageKey = `${serverState.round}:landing`;
+      if (animationStageRef.current !== stageKey) {
+        animationStageRef.current = stageKey;
+        const currentAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
+        const targetAngle = numberToAngle(serverState.target);
+        const delta = (targetAngle - currentAngle + 360) % 360;
+        const turns = Math.max(1, Math.ceil(remaining / 900));
+        animateArrow(
+          currentAngle + turns * 360 + delta,
+          remaining,
+          'cubic-bezier(.08,.72,.12,1)',
+          targetAngle,
+        );
       }
       return;
     }
@@ -796,13 +939,23 @@ export const NeonMatrixGame: React.FC = () => {
         }
       };
 
-      if (previousPhase === 'spinning') {
-        setWheelSpinMs(650);
-        setArrowAngle((current) => revealAngle(current, serverState.target!));
-        schedule(applyImpact, 680);
+      const targetAngle = numberToAngle(serverState.target);
+      const renderedAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
+      const remainingError = circularAngleDistance(renderedAngle, targetAngle);
+
+      if (previousPhase === 'landing' && remainingError > 0.8) {
+        const delta = (targetAngle - renderedAngle + 360) % 360;
+        const correctionMs = Math.min(180, Math.max(70, remainingError * 2.2));
+        setWheelSpinMs(correctionMs);
+        animateArrow(
+          renderedAngle + delta,
+          correctionMs,
+          'cubic-bezier(.2,.8,.2,1)',
+          targetAngle,
+        );
+        schedule(applyImpact, correctionMs + 16);
       } else {
-        setWheelSpinMs(0);
-        setArrowAngle(numberToAngle(serverState.target));
+        setStaticArrow(targetAngle);
         applyImpact();
       }
       return;
@@ -820,18 +973,22 @@ export const NeonMatrixGame: React.FC = () => {
     if (serverState.phase === 'match_over') {
       clearTimers();
       setPhase('gameover');
+      setStaticArrow(numberToAngle(serverState.target ?? draftValue));
       hapticNotify(serverState.winner_user_id === myUserId ? 'success' : 'error');
     }
   }, [
+    animateArrow,
     burst,
     clearTimers,
+    draftValue,
+    getEstimatedServerNow,
     getMappedPick,
     mapOutcome,
     myUserId,
     opponentUserId,
-    revealAngle,
     schedule,
     serverState,
+    setStaticArrow,
     verifyCommitment,
   ]);
 
@@ -861,7 +1018,7 @@ export const NeonMatrixGame: React.FC = () => {
         : null;
 
   const showWheelPicks =
-    phase === 'spinning' || phase === 'impact' || phase === 'result' || phase === 'gameover';
+    phase === 'spinning' || phase === 'landing' || phase === 'impact' || phase === 'result' || phase === 'gameover';
 
   const resultText = useMemo(() => {
     if (!outcome) return '';
@@ -878,7 +1035,7 @@ export const NeonMatrixGame: React.FC = () => {
     if (!canPick) return;
     const nextValue = clamp(Math.round(value), MIN_NUMBER, MAX_NUMBER);
     setDraftValue(nextValue);
-    setArrowAngle(numberToAngle(nextValue));
+    setStaticArrow(numberToAngle(nextValue));
     hapticSelect();
   };
 
@@ -938,6 +1095,7 @@ export const NeonMatrixGame: React.FC = () => {
     connectionStatus !== 'open' ||
     Boolean(socketError) ||
     serverState?.phase === 'spinning' ||
+    serverState?.phase === 'landing' ||
     serverState?.phase === 'impact' ||
     serverState?.phase === 'match_over' ||
     (serverState?.phase === 'picking' && !canPick) ||
@@ -1239,7 +1397,8 @@ export const NeonMatrixGame: React.FC = () => {
             radial-gradient(circle at 50% 82%, rgba(0,0,0,.22), transparent 48%);
         }
 
-        .rd-spinning .rd-wheel-surface {
+        .rd-spinning .rd-wheel-surface,
+        .rd-landing .rd-wheel-surface {
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,.16),
             inset 0 -34px 58px rgba(0,0,0,.66),
@@ -1353,7 +1512,7 @@ export const NeonMatrixGame: React.FC = () => {
           pointer-events: none;
         }
 
-        .rd-spinning .rd-arrow { transition: transform var(--spin-ms) cubic-bezier(.06, .86, .05, 1); }
+        .rd-spinning .rd-arrow, .rd-landing .rd-arrow { transition: none; }
 
         .rd-arrow-line {
           position: absolute;
@@ -1400,7 +1559,7 @@ export const NeonMatrixGame: React.FC = () => {
 
         }
 
-        .rd-spinning .rd-center { box-shadow: 0 20px 48px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.1), 0 0 20px rgba(47,140,255,.10); }
+        .rd-spinning .rd-center, .rd-landing .rd-center { box-shadow: 0 20px 48px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.1), 0 0 20px rgba(47,140,255,.10); }
 
         .rd-center small {
           color: rgba(255,255,255,.48);
@@ -1912,7 +2071,7 @@ export const NeonMatrixGame: React.FC = () => {
 
         @media (prefers-reduced-motion: reduce) {
           .rd-page *, .rd-page *::before, .rd-page *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
-          .rd-arrow, .rd-spinning .rd-arrow { transition: transform var(--spin-ms) linear; }
+          .rd-arrow, .rd-spinning .rd-arrow, .rd-landing .rd-arrow { transition: none; }
         }
       `}</style>
 
@@ -1921,7 +2080,7 @@ export const NeonMatrixGame: React.FC = () => {
       <main className="rd-main">
         <div className="rd-title">
           <small>
-            {phase === 'spinning'
+            {phase === 'spinning' || phase === 'landing'
               ? 'roulette'
               : phase === 'impact'
                 ? 'distance clash'
@@ -1943,6 +2102,7 @@ export const NeonMatrixGame: React.FC = () => {
           outcome={outcome}
           showPicks={showWheelPicks}
           spinMs={wheelSpinMs}
+          arrowRef={arrowRef}
         />
 
         <PickPreview
