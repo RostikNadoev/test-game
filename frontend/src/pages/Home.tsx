@@ -211,8 +211,13 @@ export const Home = () => {
     void loadLobbies(false);
   }, 8000);
 
-  const openGame = (gameCode: string) => {
-    navigate(`/game/${gameCode}/lobbies`);
+  const openGame = (game: CatalogGame) => {
+    if (game.launchMode === 'direct') {
+      navigate(game.playPath);
+      return;
+    }
+
+    navigate(`/game/${game.code}/lobbies`);
   };
 
   const handleOpenOrJoinLobby = async (lobby: Lobby) => {
@@ -415,7 +420,7 @@ export const Home = () => {
               <button
                 key={game.code}
                 type="button"
-                onClick={() => openGame(game.code)}
+                onClick={() => openGame(game)}
                 className="pressable app-panel game-card overflow-hidden rounded-[25px] p-2 text-left"
               >
                 <GameImage game={game} tone={tone} />
@@ -426,7 +431,7 @@ export const Home = () => {
                   </h3>
 
                   <div className="mini-button mini-button-play w-full">
-                    Lobby
+                    {game.launchMode === 'direct' ? 'Play' : 'Lobby'}
                   </div>
                 </div>
               </button>

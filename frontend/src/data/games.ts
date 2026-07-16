@@ -25,7 +25,11 @@ export type GameCode =
   | 'neon_matrix'
   | 'street_race'
   | 'penalty_pvp'
-  | 'air_hockey';
+  | 'air_hockey'
+  | 'dunk_shot'
+  | 'stack_ball'
+  | 'spiral_jump'
+  | 'rail_grind';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -37,6 +41,7 @@ export type GameCatalogItem = {
   status?: string;
   playPath: string;
   coverUrl?: string;
+  launchMode?: 'lobby' | 'direct';
 };
 
 export const GAME_CATALOG: GameCatalogItem[] = [
@@ -83,27 +88,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/tower_stack/play',
     coverUrl: towerCover,
-  },
-  {
-    code: 'virus_market',
-    displayName: 'Virus Market',
-    icon: '🦠',
-    description: 'Мем-коины, памп и выход',
-    color: 'from-[#52FFE5]/22 via-[#F2C766]/10 to-transparent',
-    meta: 'Market',
-    status: 'Hot',
-    playPath: '/game/virus_market/play',
-    coverUrl: marketCover,
-  },
-  {
-    code: 'rps_duel',
-    displayName: 'RPS Duel',
-    icon: '✊',
-    description: 'Камень, ножницы, бумага',
-    color: 'from-[#FF7A90]/22 via-[#F2C766]/10 to-transparent',
-    meta: 'Mind Game',
-    playPath: '/game/rps_duel/play',
-    coverUrl: rpsCover,
   },
   {
     code: 'grid_lock',
@@ -166,6 +150,51 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/air_hockey/play',
     coverUrl: hockeyCover,
   },
+  {
+    code: 'dunk_shot',
+    displayName: 'Dunk Shot',
+    icon: '🏀',
+    description: 'Забрасывай мяч в кольца и собирай combo',
+    color: 'from-[#52FFE5]/22 via-[#F2A65A]/14 to-transparent',
+    meta: 'Arcade Preview',
+    status: 'Soon',
+    playPath: '/game/dunk_shot/play',
+    launchMode: 'direct',
+  },
+  {
+    code: 'stack_ball',
+    displayName: 'Stack Ball',
+    icon: '🔴',
+    description: 'Пробивай платформы и набирай огненные серии',
+    color: 'from-[#FF7A90]/24 via-[#9D7CFF]/12 to-transparent',
+    meta: 'Arcade Preview',
+    status: 'Soon',
+    playPath: '/game/stack_ball/play',
+    launchMode: 'direct',
+  },
+  {
+    code: 'spiral_jump',
+    displayName: 'Spiral Jump',
+    icon: '🌀',
+    description: 'Поднимайся по спирали точными прыжками',
+    color: 'from-[#52FFE5]/22 via-[#F2C766]/12 to-transparent',
+    meta: 'Arcade Preview',
+    status: 'Soon',
+    playPath: '/game/spiral_jump/play',
+    launchMode: 'direct',
+  },
+  {
+    code: 'rail_grind',
+    displayName: 'Rail Grind',
+    icon: '🛹',
+    description: 'Прыжки, рельсы и серии идеальных трюков',
+    color: 'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
+    meta: 'Arcade Preview',
+    status: 'Soon',
+    playPath: '/game/rail_grind/play',
+    launchMode: 'direct',
+  },
+
 ];
 
 export const FEATURED_GAME_CODES: GameCode[] = [

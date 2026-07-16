@@ -35,14 +35,16 @@ const AirHockeyGame = lazy(() =>
 );
 const BlackjackDuelGame = lazy(() => import('./pages/BlackjackDuelGame'));
 const GridLockGame = lazy(() => import('./pages/GridLockGame'));
-const RockPaperScissorsDuelGame = lazy(() => import('./pages/RockPaperScissorsDuelGame'));
 const DiceDuelGame = lazy(() => import('./pages/DiceDuelGame'));
 const NeonMatrixGame = lazy(() => import('./pages/NeonMatrixGame'));
-const VirusMarketGame = lazy(() => import('./pages/VirusMarketGame'));
 const PaperIoGame = lazy(() => import('./pages/PaperIoGame'));
 const TowerStackGame = lazy(() => import('./pages/TowerStackGame'));
 const PhysicsDuel = lazy(() => import('./pages/PhysicsDuel'));
 const PlinkoPvpGame = lazy(() => import('./pages/PlinkoPvpGame'));
+const DunkShotGame = lazy(() => import('./pages/DunkShotGame'));
+const StackBallGame = lazy(() => import('./pages/StackBallGame'));
+const SpiralJumpGame = lazy(() => import('./pages/SpiralJumpGame'));
+const RailGrindGame = lazy(() => import('./pages/RailGrindGame'));
 
 const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
 const SOLO_ROUTE_PREFIX = '/solo';
@@ -276,14 +278,16 @@ function AppShell() {
               <Route path="/game/descent_duel/play" element={<PhysicsDuel />} />
               <Route path="/game/paper_io/play" element={<PaperIoGame />} />
               <Route path="/game/tower_stack/play" element={<TowerStackGame />} />
-              <Route path="/game/virus_market/play" element={<VirusMarketGame />} />
-              <Route path="/game/rps_duel/play" element={<RockPaperScissorsDuelGame />} />
               <Route path="/game/grid_lock/play" element={<GridLockGame />} />
               <Route path="/game/blackjack_duel/play" element={<BlackjackDuelGame />} />
               <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
               <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
               <Route path="/game/street_race/play" element={<RaceGame />} />
               <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
+              <Route path="/game/dunk_shot/play" element={<DunkShotGame />} />
+              <Route path="/game/stack_ball/play" element={<StackBallGame />} />
+              <Route path="/game/spiral_jump/play" element={<SpiralJumpGame />} />
+              <Route path="/game/rail_grind/play" element={<RailGrindGame />} />
 
               <Route path="/profile" element={<Profile />} />
               <Route path="/rating" element={<Rating />} />
