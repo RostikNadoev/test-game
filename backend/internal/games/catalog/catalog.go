@@ -11,8 +11,6 @@ var PvpGames = []PvpGame{
 	{Code: "paper_io", DisplayName: "Paper IO"},
 	{Code: "tower_stack", DisplayName: "Tower Stack"},
 	{Code: "crash_duel", DisplayName: "Crash Duel"},
-	{Code: "virus_market", DisplayName: "Virus Market"},
-	{Code: "rps_duel", DisplayName: "RPS Duel"},
 	{Code: "grid_lock", DisplayName: "Grid Lock"},
 	{Code: "blackjack_duel", DisplayName: "Blackjack Duel"},
 	{Code: "dice_duel", DisplayName: "Dice Duel"},
