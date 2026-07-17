@@ -105,6 +105,9 @@ func normalizeGameCode(code string) string {
 	case "disc-football":
 		return "disc_football"
 
+	case "dunk-shot":
+		return "dunk_shot"
+
 	default:
 		return code
 	}

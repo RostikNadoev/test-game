@@ -466,34 +466,51 @@ func normalizeKey(value string) string {
 }
 
 func NormalizeGameCode(value string) string {
-	value = normalizeKey(value)
+	value = strings.TrimSpace(strings.ToLower(value))
+
 	switch value {
 	case "plinko-pvp":
 		return "plinko_pvp"
+
 	case "descent-duel":
 		return "descent_duel"
+
 	case "paper-io":
 		return "paper_io"
+
 	case "tower-stack":
 		return "tower_stack"
+
 	case "crash-duel":
 		return "crash_duel"
+
 	case "virus-market":
 		return "virus_market"
+
 	case "rps-duel":
 		return "rps_duel"
+
 	case "grid-lock":
 		return "grid_lock"
+
 	case "blackjack-duel":
 		return "blackjack_duel"
+
 	case "dice-duel":
 		return "dice_duel"
+
 	case "neon-matrix":
 		return "neon_matrix"
+
 	case "street-race", "strett_race", "strett-race":
 		return "street_race"
-	case "air-hockey":
-		return "air_hockey"
+
+	case "disc-football":
+		return "disc_football"
+
+	case "dunk-shot":
+		return "dunk_shot"
+
 	default:
 		return value
 	}
