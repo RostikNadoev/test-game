@@ -30,9 +30,6 @@ const NeonScratchSoloGame = lazy(() =>
   import('./pages/solo/NeonScratchSoloGame').then((module) => ({ default: module.NeonScratchSoloGame })),
 );
 const RaceGame = lazy(() => import('./pages/RaceGame'));
-const AirHockeyGame = lazy(() =>
-  import('./pages/AirHockeyGame').then((module) => ({ default: module.AirHockeyGame })),
-);
 const BlackjackDuelGame = lazy(() => import('./pages/BlackjackDuelGame'));
 const GridLockGame = lazy(() => import('./pages/GridLockGame'));
 const DiceDuelGame = lazy(() => import('./pages/DiceDuelGame'));
@@ -43,7 +40,7 @@ const PhysicsDuel = lazy(() => import('./pages/PhysicsDuel'));
 const PlinkoPvpGame = lazy(() => import('./pages/PlinkoPvpGame'));
 const DunkShotGame = lazy(() => import('./pages/DunkShotGame'));
 const StackBallGame = lazy(() => import('./pages/StackBallGame'));
-const SpiralJumpGame = lazy(() => import('./pages/SpiralJumpGame'));
+const DiscFootballGame = lazy(() => import('./pages/DiscFootballGame'));
 const RailGrindGame = lazy(() => import('./pages/RailGrindGame'));
 
 const FOOTER_ROUTES = ['/', '/solo', '/profile', '/rating'];
@@ -283,10 +280,9 @@ function AppShell() {
               <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
               <Route path="/game/neon_matrix/play" element={<NeonMatrixGame />} />
               <Route path="/game/street_race/play" element={<RaceGame />} />
-              <Route path="/game/air_hockey/play" element={<AirHockeyGame />} />
               <Route path="/game/dunk_shot/play" element={<DunkShotGame />} />
               <Route path="/game/stack_ball/play" element={<StackBallGame />} />
-              <Route path="/game/spiral_jump/play" element={<SpiralJumpGame />} />
+              <Route path="/game/disc_football/play" element={<DiscFootballGame />} />
               <Route path="/game/rail_grind/play" element={<RailGrindGame />} />
 
               <Route path="/profile" element={<Profile />} />

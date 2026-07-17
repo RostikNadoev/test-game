@@ -1,33 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 
-type Phase = 'ready' | 'flying' | 'settling';
+type Phase = 'ready' | 'flying' | 'scoring' | 'settling';
 
-type Vec = {
+type Vec2 = {
   x: number;
   y: number;
 };
 
-type Ball = Vec & {
+type Ball = Vec2 & {
   vx: number;
   vy: number;
-  r: number;
+  radius: number;
   rotation: number;
 };
 
-type Hoop = Vec & {
+type Hoop = Vec2 & {
   id: number;
   width: number;
   angle: number;
-  netMin: number;
-  netMax: number;
+  netDepth: number;
   bottomWidth: number;
-  accent: number;
-  stretch: number;
-  stretchV: number;
+  accentHue: number;
+  netPulse: number;
+  netPulseVelocity: number;
 };
 
-type Particle = Vec & {
+type Particle = Vec2 & {
   vx: number;
   vy: number;
   life: number;
@@ -37,20 +36,19 @@ type Particle = Vec & {
   gravity: number;
 };
 
-type Trail = Vec & {
+type TrailPoint = Vec2 & {
   life: number;
   size: number;
 };
 
-type Label = Vec & {
+type FloatingLabel = Vec2 & {
   text: string;
   life: number;
-  maxLife: number;
   hue: number;
   scale: number;
 };
 
-type Aim = {
+type AimState = {
   active: boolean;
   pointerId: number | null;
   x: number;
@@ -58,37 +56,50 @@ type Aim = {
   power: number;
 };
 
-const CFG = {
+const GAME = {
   gravity: 1680,
-  maxPull: 128,
+  airDrag: 0.99935,
+
+  ballRadius: 19,
+  rimRadius: 4.4,
+
+  maxPull: 126,
   launchPower: 8.95,
   maxLaunchSpeed: 1490,
-  drag: 0.99935,
-  ballRadius: 19,
-  rimRadius: 4.2,
-  minGap: 174,
-  maxGap: 202,
-  margin: 20,
-  maxDpr: 1.7,
-  settleMs: 520,
-  returnMs: 185,
-  naturalDropMs: 155,
-  timeoutMs: 5400,
+
+  hoopMinWidth: 78,
+  hoopMaxWidth: 86,
+  hoopMinGap: 174,
+  hoopMaxGap: 206,
+
+  screenMargin: 20,
+  workingHoopRatio: 0.71,
+
+  scoringDurationMs: 210,
+  settlingDurationMs: 150,
+  returnDurationMs: 190,
+  shotTimeoutMs: 5400,
+
   fireCombo: 4,
   maxMultiplier: 5,
+
+  maxDevicePixelRatio: 1.7,
 };
 
 const clamp = (
   value: number,
-  min: number,
-  max: number,
-) => Math.max(min, Math.min(max, value));
+  minimum: number,
+  maximum: number,
+) => Math.max(minimum, Math.min(maximum, value));
 
 const lerp = (
-  from: number,
-  to: number,
-  amount: number,
-) => from + (to - from) * amount;
+  start: number,
+  end: number,
+  progress: number,
+) => start + (end - start) * progress;
+
+const easeOutCubic = (value: number) =>
+  1 - Math.pow(1 - value, 3);
 
 const getInitials = (value: string) =>
   value
@@ -100,26 +111,22 @@ const getInitials = (value: string) =>
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'TG';
 
-const haptic = (
-  kind:
+const triggerHaptic = (
+  type:
     | 'light'
     | 'medium'
     | 'heavy'
     | 'success'
     | 'error',
 ) => {
-  const webApp = (
+  const telegram = (
     window as typeof window & {
       Telegram?: {
         WebApp?: {
           HapticFeedback?: {
             impactOccurred?: (
-              style:
-                | 'light'
-                | 'medium'
-                | 'heavy',
+              style: 'light' | 'medium' | 'heavy',
             ) => void;
-
             notificationOccurred?: (
               type: 'success' | 'error',
             ) => void;
@@ -129,29 +136,27 @@ const haptic = (
     }
   ).Telegram?.WebApp;
 
-  if (kind === 'success' || kind === 'error') {
-    webApp?.HapticFeedback?.notificationOccurred?.(
-      kind,
+  if (type === 'success' || type === 'error') {
+    telegram?.HapticFeedback?.notificationOccurred?.(
+      type,
     );
     return;
   }
 
-  webApp?.HapticFeedback?.impactOccurred?.(
-    kind,
-  );
+  telegram?.HapticFeedback?.impactOccurred?.(type);
 };
 
 const localToWorld = (
   x: number,
   y: number,
   angle: number,
-): Vec => {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
+): Vec2 => {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
 
   return {
-    x: x * cos - y * sin,
-    y: x * sin + y * cos,
+    x: x * cosine - y * sine,
+    y: x * sine + y * cosine,
   };
 };
 
@@ -159,170 +164,34 @@ const worldToLocal = (
   x: number,
   y: number,
   angle: number,
-): Vec => {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
+): Vec2 => {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
 
   return {
-    x: x * cos + y * sin,
-    y: -x * sin + y * cos,
+    x: x * cosine + y * sine,
+    y: -x * sine + y * cosine,
   };
-};
-
-const closestOnSegment = (
-  point: Vec,
-  start: Vec,
-  end: Vec,
-): Vec => {
-  const segmentX = end.x - start.x;
-  const segmentY = end.y - start.y;
-
-  const lengthSquared =
-    segmentX * segmentX +
-      segmentY * segmentY || 1;
-
-  const progress = clamp(
-    ((point.x - start.x) * segmentX +
-      (point.y - start.y) * segmentY) /
-      lengthSquared,
-    0,
-    1,
-  );
-
-  return {
-    x: start.x + segmentX * progress,
-    y: start.y + segmentY * progress,
-  };
-};
-
-const collidePoint = (
-  ball: Ball,
-  point: Vec,
-  radius: number,
-  bounce: number,
-) => {
-  const dx = ball.x - point.x;
-  const dy = ball.y - point.y;
-
-  const distance = Math.hypot(dx, dy);
-  const minimumDistance = ball.r + radius;
-
-  if (distance >= minimumDistance) {
-    return false;
-  }
-
-  const normalX =
-    distance > 0.0001 ? dx / distance : 0;
-
-  const normalY =
-    distance > 0.0001 ? dy / distance : -1;
-
-  const penetration =
-    minimumDistance - distance;
-
-  ball.x += normalX * penetration;
-  ball.y += normalY * penetration;
-
-  const normalVelocity =
-    ball.vx * normalX +
-    ball.vy * normalY;
-
-  if (normalVelocity < 0) {
-    ball.vx -=
-      (1 + bounce) *
-      normalVelocity *
-      normalX;
-
-    ball.vy -=
-      (1 + bounce) *
-      normalVelocity *
-      normalY;
-  }
-
-  return true;
-};
-
-const collideSegment = (
-  ball: Ball,
-  start: Vec,
-  end: Vec,
-  extraRadius: number,
-  bounce: number,
-) => {
-  const point = closestOnSegment(
-    ball,
-    start,
-    end,
-  );
-
-  const dx = ball.x - point.x;
-  const dy = ball.y - point.y;
-
-  const distance = Math.hypot(dx, dy);
-
-  const minimumDistance =
-    ball.r + extraRadius;
-
-  if (distance >= minimumDistance) {
-    return false;
-  }
-
-  const normalX =
-    distance > 0.0001 ? dx / distance : 0;
-
-  const normalY =
-    distance > 0.0001 ? dy / distance : -1;
-
-  const penetration =
-    minimumDistance - distance;
-
-  ball.x += normalX * penetration;
-  ball.y += normalY * penetration;
-
-  const normalVelocity =
-    ball.vx * normalX +
-    ball.vy * normalY;
-
-  if (normalVelocity < 0) {
-    ball.vx -=
-      (1 + bounce) *
-      normalVelocity *
-      normalX;
-
-    ball.vy -=
-      (1 + bounce) *
-      normalVelocity *
-      normalY;
-  }
-
-  return true;
 };
 
 const createRandom = () => {
   let seed =
-    Math.floor(
-      Math.random() * 2_147_483_647,
-    ) || 1;
+    Math.floor(Math.random() * 2_147_483_647) || 1;
 
   return () => {
-    seed =
-      (seed * 16_807) % 2_147_483_647;
-
-    return (
-      (seed - 1) /
-      2_147_483_646
-    );
+    seed = (seed * 16_807) % 2_147_483_647;
+    return (seed - 1) / 2_147_483_646;
   };
 };
 
-const Avatar = ({
+const PlayerAvatar = ({
   photoUrl,
   name,
   side,
 }: {
   photoUrl?: string;
   name: string;
-  side: 'player' | 'rival';
+  side: 'player' | 'opponent';
 }) => (
   <div
     className={[
@@ -348,70 +217,64 @@ const Avatar = ({
 export const DunkShotGame = () => {
   const { user } = useAuth();
 
-  const playerName =
-    user?.tg_user || 'Player';
-
-  const rivalName = 'Opponent';
+  const playerName = user?.tg_user || 'Player';
+  const opponentName = 'Opponent';
 
   const canvasRef =
-    useRef<HTMLCanvasElement | null>(
-      null,
-    );
+    useRef<HTMLCanvasElement | null>(null);
 
-  const rootRef =
-    useRef<HTMLDivElement | null>(
-      null,
-    );
+  const containerRef =
+    useRef<HTMLDivElement | null>(null);
 
-  const frameRef =
+  const animationFrameRef =
     useRef<number | null>(null);
 
-  const [score, setScore] =
-    useState(0);
-
-  const [combo, setCombo] =
-    useState(0);
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(0);
 
   const [phase, setPhase] =
     useState<Phase>('ready');
 
-  const [callout, setCallout] =
+  const [statusText, setStatusText] =
     useState('READY');
 
-  const [hint, setHint] =
+  const [showHint, setShowHint] =
     useState(true);
 
-  const [best, setBest] = useState(() =>
-    typeof window === 'undefined'
-      ? 0
-      : Number(
-          localStorage.getItem(
-            'twingames_dunk_shot_best',
-          ) || 0,
-        ),
+  const [bestScore, setBestScore] = useState(
+    () => {
+      if (typeof window === 'undefined') {
+        return 0;
+      }
+
+      return Number(
+        window.localStorage.getItem(
+          'twingames_dunk_shot_best',
+        ) || 0,
+      );
+    },
   );
 
   const multiplier = Math.min(
-    CFG.maxMultiplier,
+    GAME.maxMultiplier,
     1 +
       Math.floor(
         Math.max(0, combo - 1) / 3,
       ),
   );
 
-  const fire =
-    combo >= CFG.fireCombo;
+  const fireballActive =
+    combo >= GAME.fireCombo;
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const root = rootRef.current;
+    const container = containerRef.current;
 
-    if (!canvas || !root) {
+    if (!canvas || !container) {
       return;
     }
 
-    const context =
-      canvas.getContext('2d');
+    const context = canvas.getContext('2d');
 
     if (!context) {
       return;
@@ -436,11 +299,11 @@ export const DunkShotGame = () => {
       y: 0,
       vx: 0,
       vy: 0,
-      r: CFG.ballRadius,
+      radius: GAME.ballRadius,
       rotation: 0,
     };
 
-    const aim: Aim = {
+    const aim: AimState = {
       active: false,
       pointerId: null,
       x: 0,
@@ -450,76 +313,74 @@ export const DunkShotGame = () => {
 
     const hoops: Hoop[] = [];
     const particles: Particle[] = [];
-    const trails: Trail[] = [];
-    const labels: Label[] = [];
+    const trails: TrailPoint[] = [];
+    const labels: FloatingLabel[] = [];
 
     let initialized = false;
     let currentHoopIndex = 0;
+    let currentPhase: Phase = 'ready';
 
-    let livePhase: Phase = 'ready';
-
-    let liveScore = 0;
-    let liveCombo = 0;
+    let internalScore = 0;
+    let internalCombo = 0;
 
     let rimTouched = false;
-    let leftOldHoop = false;
+    let leftCurrentHoop = false;
 
     let shotStartedAt = 0;
-    let settleStartedAt = 0;
-    let settleUntil = 0;
+    let phaseStartedAt = 0;
+    let phaseUntil = 0;
 
-    let previousFrame =
+    let previousFrameTime =
       performance.now();
 
     let missFlash = 0;
 
-    const changePhase = (
-      next: Phase,
-    ) => {
-      livePhase = next;
-      setPhase(next);
+    let scoreEntryFrom: Vec2 = {
+      x: 0,
+      y: 0,
     };
 
-    const getWorldPoint = (
+    let scoreEntryTo: Vec2 = {
+      x: 0,
+      y: 0,
+    };
+
+    let scoreEntryRotation = 0;
+
+    const changePhase = (
+      nextPhase: Phase,
+    ) => {
+      currentPhase = nextPhase;
+      setPhase(nextPhase);
+    };
+
+    const getHoopWorldPoint = (
       hoop: Hoop,
       localX: number,
       localY: number,
-    ): Vec => {
-      const point = localToWorld(
+    ): Vec2 => {
+      const offset = localToWorld(
         localX,
         localY,
         hoop.angle,
       );
 
       return {
-        x: hoop.x + point.x,
-        y: hoop.y + point.y,
+        x: hoop.x + offset.x,
+        y: hoop.y + offset.y,
       };
     };
 
-    const getNetDepth = (
+    const getBallRestPosition = (
       hoop: Hoop,
     ) =>
-      lerp(
-        hoop.netMin,
-        hoop.netMax,
-        clamp(hoop.stretch, 0, 1),
-      );
-
-    const getRestPosition = (
-      hoop: Hoop,
-    ) =>
-      getWorldPoint(
+      getHoopWorldPoint(
         hoop,
         0,
-        Math.max(
-          ball.r * 0.82,
-          getNetDepth(hoop) -
-            ball.r * 0.62,
-        ),
+        24,
       );
 
-    const addLabel = (
+    const addFloatingLabel = (
       text: string,
       x: number,
       y: number,
@@ -533,18 +394,17 @@ export const DunkShotGame = () => {
         hue,
         scale,
         life: 1,
-        maxLife: 1,
       });
 
-      setCallout(text);
+      setStatusText(text);
     };
 
-    const createBurst = (
+    const addParticleBurst = (
       x: number,
       y: number,
       hue: number,
       amount: number,
-      power = 1,
+      strength = 1,
     ) => {
       for (
         let index = 0;
@@ -555,11 +415,11 @@ export const DunkShotGame = () => {
           random() * Math.PI * 2;
 
         const speed =
-          (105 + random() * 360) *
-          power;
+          (105 + random() * 350) *
+          strength;
 
         const life =
-          0.55 + random() * 0.45;
+          0.52 + random() * 0.42;
 
         particles.push({
           x,
@@ -568,77 +428,83 @@ export const DunkShotGame = () => {
             Math.cos(angle) * speed,
           vy:
             Math.sin(angle) * speed -
-            70,
+            65,
           life,
           maxLife: life,
           size:
-            1.8 + random() * 4.2,
+            1.8 + random() * 4,
           hue:
             hue +
-            (random() - 0.5) * 28,
+            (random() - 0.5) * 25,
           gravity:
-            350 + random() * 470,
+            350 + random() * 450,
         });
       }
     };
 
-    const createNextHoop = (
+    const createHoop = (
       index: number,
     ) => {
-      const previous =
+      const previousHoop =
         hoops[index - 1];
 
-      const width =
-        72 + random() * 5;
+      const width = lerp(
+        GAME.hoopMinWidth,
+        GAME.hoopMaxWidth,
+        random(),
+      );
 
-      if (!previous) {
+      if (!previousHoop) {
         hoops.push({
           id: index,
           x: viewport.width * 0.5,
           y:
-            viewport.height -
-            112,
+            viewport.height *
+            GAME.workingHoopRatio,
           width,
           angle: 0,
-          netMin: 27,
-          netMax: 58,
+          netDepth: 46,
           bottomWidth: 31,
-          accent: 24,
-          stretch: 1,
-          stretchV: 0,
+          accentHue: 24,
+          netPulse: 0.18,
+          netPulseVelocity: 0,
         });
 
         return;
       }
 
-      const verticalGap =
-        CFG.minGap +
-        random() *
-          (CFG.maxGap - CFG.minGap);
+      const verticalGap = lerp(
+        GAME.hoopMinGap,
+        GAME.hoopMaxGap,
+        random(),
+      );
 
-      const padding =
-        CFG.margin + width / 2;
+      const horizontalPadding =
+        GAME.screenMargin +
+        width / 2;
 
-      const minX = padding;
+      const minimumX =
+        horizontalPadding;
 
-      const maxX = Math.max(
-        minX,
-        viewport.width - padding,
+      const maximumX = Math.max(
+        minimumX,
+        viewport.width -
+          horizontalPadding,
       );
 
       const previousOnLeft =
-        previous.x <
+        previousHoop.x <
         viewport.width * 0.5;
 
       const shouldAlternate =
-        random() < 0.94;
+        random() < 0.95;
 
       const placeOnRight =
         shouldAlternate
           ? previousOnLeft
-          : !previousOnLeft;
+          : random() > 0.5;
 
-      let x = placeOnRight
+      let targetX = placeOnRight
         ? lerp(
             viewport.width * 0.66,
             viewport.width * 0.84,
@@ -650,113 +516,128 @@ export const DunkShotGame = () => {
             random(),
           );
 
-      x = clamp(x, minX, maxX);
+      targetX = clamp(
+        targetX,
+        minimumX,
+        maximumX,
+      );
 
-      const minimumHorizontalShift =
+      const minimumHorizontalDistance =
         Math.min(
-          82,
-          viewport.width * 0.22,
+          92,
+          viewport.width * 0.24,
         );
 
       if (
-        Math.abs(x - previous.x) <
-        minimumHorizontalShift
+        Math.abs(
+          targetX - previousHoop.x,
+        ) < minimumHorizontalDistance
       ) {
-        x = placeOnRight
-          ? clamp(
-              previous.x +
-                minimumHorizontalShift,
-              minX,
-              maxX,
-            )
-          : clamp(
-              previous.x -
-                minimumHorizontalShift,
-              minX,
-              maxX,
-            );
+        const direction =
+          targetX >= previousHoop.x
+            ? 1
+            : -1;
+
+        targetX = clamp(
+          previousHoop.x +
+            direction *
+              minimumHorizontalDistance,
+          minimumX,
+          maximumX,
+        );
       }
 
-      const direction =
-        x > previous.x ? 1 : -1;
+      const travelDirection =
+        targetX > previousHoop.x
+          ? 1
+          : -1;
 
-      const angleDegrees = clamp(
-        direction * -1.35 +
-          (random() - 0.5) * 1.8,
-        -2.8,
-        2.8,
+      let angleDegrees =
+        travelDirection > 0
+          ? -2.1
+          : 2.1;
+
+      angleDegrees +=
+        (random() - 0.5) * 4.4;
+
+      if (index % 5 === 0) {
+        angleDegrees *= -0.55;
+      }
+
+      angleDegrees = clamp(
+        angleDegrees,
+        -5.2,
+        5.2,
       );
 
       hoops.push({
         id: index,
-        x,
+        x: targetX,
         y:
-          previous.y -
+          previousHoop.y -
           verticalGap,
         width,
         angle:
           (angleDegrees *
             Math.PI) /
           180,
-        netMin:
-          26 + random() * 2,
-        netMax:
-          57 + random() * 4,
+        netDepth:
+          44 + random() * 4,
         bottomWidth:
           30 + random() * 4,
-        accent:
+        accentHue:
           index % 5 === 0
             ? 42
             : index % 3 === 0
               ? 184
               : 22,
-        stretch: 0.08,
-        stretchV: 0,
+        netPulse: 0,
+        netPulseVelocity: 0,
       });
     };
 
-    const ensureHoops = () => {
+    const ensureEnoughHoops = () => {
       while (
         hoops.length <
         currentHoopIndex + 9
       ) {
-        createNextHoop(
-          hoops.length,
-        );
+        createHoop(hoops.length);
       }
     };
 
     const placeBallInCurrentHoop =
       () => {
-        const hoop =
+        const currentHoop =
           hoops[currentHoopIndex];
 
-        hoop.stretch = 1;
-        hoop.stretchV = 0;
+        const restPosition =
+          getBallRestPosition(
+            currentHoop,
+          );
 
-        const rest =
-          getRestPosition(hoop);
+        currentHoop.netPulse = 0.18;
+        currentHoop.netPulseVelocity = 0;
 
-        ball.x = rest.x;
-        ball.y = rest.y;
+        ball.x = restPosition.x;
+        ball.y = restPosition.y;
         ball.vx = 0;
         ball.vy = 0;
 
         ball.rotation =
-          hoop.angle * 0.45;
+          currentHoop.angle * 0.45;
 
         rimTouched = false;
-        leftOldHoop = false;
+        leftCurrentHoop = false;
 
         changePhase('ready');
       };
 
-    const initialize = () => {
+    const initializeGame = () => {
       hoops.length = 0;
       currentHoopIndex = 0;
 
-      createNextHoop(0);
-      ensureHoops();
+      createHoop(0);
+      ensureEnoughHoops();
 
       camera.y = 0;
       camera.targetY = 0;
@@ -766,31 +647,33 @@ export const DunkShotGame = () => {
       initialized = true;
     };
 
-    const resize = () => {
-      const rect =
-        root.getBoundingClientRect();
+    const resizeCanvas = () => {
+      const bounds =
+        container.getBoundingClientRect();
 
       viewport.width = Math.max(
         1,
-        rect.width,
+        bounds.width,
       );
 
       viewport.height = Math.max(
         440,
-        rect.height,
+        bounds.height,
       );
 
       viewport.dpr = Math.min(
         window.devicePixelRatio || 1,
-        CFG.maxDpr,
+        GAME.maxDevicePixelRatio,
       );
 
       canvas.width = Math.round(
-        viewport.width * viewport.dpr,
+        viewport.width *
+          viewport.dpr,
       );
 
       canvas.height = Math.round(
-        viewport.height * viewport.dpr,
+        viewport.height *
+          viewport.dpr,
       );
 
       canvas.style.width =
@@ -809,13 +692,14 @@ export const DunkShotGame = () => {
       );
 
       if (!initialized) {
-        initialize();
+        initializeGame();
         return;
       }
 
       for (const hoop of hoops) {
         const padding =
-          CFG.margin + hoop.width / 2;
+          GAME.screenMargin +
+          hoop.width / 2;
 
         hoop.x = clamp(
           hoop.x,
@@ -824,38 +708,54 @@ export const DunkShotGame = () => {
         );
       }
 
+      camera.targetY =
+        hoops[currentHoopIndex].y -
+        viewport.height *
+          GAME.workingHoopRatio;
+
       ball.x = clamp(
         ball.x,
-        ball.r,
-        viewport.width - ball.r,
+        ball.radius,
+        viewport.width -
+          ball.radius,
       );
     };
 
     const pointerToWorld = (
       clientX: number,
       clientY: number,
-    ): Vec => {
-      const rect =
+    ): Vec2 => {
+      const bounds =
         canvas.getBoundingClientRect();
 
       return {
-        x: clientX - rect.left,
+        x: clientX - bounds.left,
         y:
           clientY -
-          rect.top +
+          bounds.top +
           camera.y,
       };
     };
 
-    const returnToOldHoop = (
+    const startSettling = (
+      now: number,
+      duration: number,
+    ) => {
+      phaseStartedAt = now;
+      phaseUntil = now + duration;
+
+      changePhase('settling');
+    };
+
+    const returnToCurrentHoop = (
       now: number,
     ) => {
-      liveCombo = 0;
+      internalCombo = 0;
       setCombo(0);
 
       trails.length = 0;
 
-      addLabel(
+      addFloatingLabel(
         'TRY AGAIN',
         hoops[currentHoopIndex].x,
         hoops[currentHoopIndex].y -
@@ -864,21 +764,19 @@ export const DunkShotGame = () => {
         0.94,
       );
 
-      haptic('light');
+      triggerHaptic('light');
 
-      ball.vx *= 0.12;
-      ball.vy *= 0.1;
+      ball.vx = 0;
+      ball.vy = 0;
 
-      settleStartedAt = now;
-
-      settleUntil =
-        now + CFG.returnMs;
-
-      changePhase('settling');
+      startSettling(
+        now,
+        GAME.returnDurationMs,
+      );
     };
 
     const handleMiss = () => {
-      liveCombo = 0;
+      internalCombo = 0;
       setCombo(0);
 
       trails.length = 0;
@@ -886,247 +784,273 @@ export const DunkShotGame = () => {
       missFlash = 1;
       camera.shake = 5;
 
-      addLabel(
+      addFloatingLabel(
         'MISS',
         ball.x,
         camera.y +
-          viewport.height * 0.47,
+          viewport.height * 0.46,
         350,
         1.04,
       );
 
-      haptic('error');
+      triggerHaptic('error');
 
       placeBallInCurrentHoop();
     };
 
-    const scoreTargetHoop = (
-      targetIndex: number,
+    const beginScoredDrop = (
+      targetHoopIndex: number,
       crossingX: number,
       verticalVelocity: number,
       now: number,
     ) => {
       if (
-        livePhase !== 'flying' ||
-        targetIndex !==
+        currentPhase !== 'flying' ||
+        targetHoopIndex !==
           currentHoopIndex + 1
       ) {
         return;
       }
 
-      const hoop =
-        hoops[targetIndex];
+      const targetHoop =
+        hoops[targetHoopIndex];
 
       const centered =
         Math.abs(crossingX) <=
-        hoop.width * 0.075;
+        targetHoop.width * 0.075;
 
       const clean = !rimTouched;
 
       const perfect =
         centered &&
         clean &&
-        verticalVelocity > 240;
+        verticalVelocity > 235;
 
-      liveCombo += 1;
+      internalCombo += 1;
 
-      const localMultiplier =
+      const currentMultiplier =
         Math.min(
-          CFG.maxMultiplier,
+          GAME.maxMultiplier,
           1 +
             Math.floor(
               Math.max(
                 0,
-                liveCombo - 1,
+                internalCombo - 1,
               ) / 3,
             ),
         );
 
-      const gained =
-        (perfect
-          ? 35
-          : clean
-            ? 24
-            : 14) *
-        localMultiplier;
+      const baseScore = perfect
+        ? 35
+        : clean
+          ? 24
+          : 14;
 
-      liveScore += gained;
+      const gainedScore =
+        baseScore *
+        currentMultiplier;
 
-      setScore(liveScore);
-      setCombo(liveCombo);
+      internalScore += gainedScore;
+
+      setScore(internalScore);
+      setCombo(internalCombo);
 
       const storedBest = Number(
-        localStorage.getItem(
+        window.localStorage.getItem(
           'twingames_dunk_shot_best',
         ) || 0,
       );
 
-      if (liveScore > storedBest) {
-        setBest(liveScore);
+      if (
+        internalScore > storedBest
+      ) {
+        setBestScore(internalScore);
 
-        localStorage.setItem(
+        window.localStorage.setItem(
           'twingames_dunk_shot_best',
-          String(liveScore),
+          String(internalScore),
         );
       }
 
-      const text = perfect
+      const labelText = perfect
         ? 'PERFECT SWISH'
         : clean
           ? 'SWISH'
           : 'BUCKET';
 
-      const hue =
-        liveCombo >= CFG.fireCombo
+      const effectHue =
+        internalCombo >=
+        GAME.fireCombo
           ? 22
           : perfect
             ? 46
             : 180;
 
-      addLabel(
-        `${text}  +${gained}`,
-        hoop.x,
-        hoop.y - 48,
-        hue,
+      addFloatingLabel(
+        `${labelText}  +${gainedScore}`,
+        targetHoop.x,
+        targetHoop.y - 48,
+        effectHue,
         perfect ? 1.1 : 1,
       );
 
-      createBurst(
-        hoop.x,
-        hoop.y + 8,
-        hue,
-        perfect ? 32 : 22,
-        perfect ? 1.18 : 1,
+      addParticleBurst(
+        targetHoop.x,
+        targetHoop.y + 8,
+        effectHue,
+        perfect ? 30 : 21,
+        perfect ? 1.15 : 1,
       );
 
       if (
-        liveCombo === CFG.fireCombo
+        internalCombo ===
+        GAME.fireCombo
       ) {
-        addLabel(
+        addFloatingLabel(
           'FIREBALL',
-          hoop.x,
-          hoop.y - 82,
+          targetHoop.x,
+          targetHoop.y - 82,
           18,
-          1.16,
+          1.14,
         );
 
-        createBurst(
-          hoop.x,
-          hoop.y,
+        addParticleBurst(
+          targetHoop.x,
+          targetHoop.y,
           18,
-          38,
-          1.3,
+          34,
+          1.22,
         );
       }
 
       camera.shake =
-        perfect ? 7 : 4;
+        perfect ? 5.5 : 2.8;
 
-      haptic(
-        perfect ? 'heavy' : 'success',
+      triggerHaptic(
+        perfect
+          ? 'heavy'
+          : 'success',
       );
 
       currentHoopIndex =
-        targetIndex;
+        targetHoopIndex;
 
-      hoop.stretch = Math.max(
-        hoop.stretch,
-        0.28,
-      );
-
-      hoop.stretchV += 2.3;
-
-      ensureHoops();
+      ensureEnoughHoops();
 
       camera.targetY =
-        hoops[currentHoopIndex].y -
-        (viewport.height - 148);
+        targetHoop.y -
+        viewport.height *
+          GAME.workingHoopRatio;
 
-      settleStartedAt = now;
+      scoreEntryFrom = {
+        x: ball.x,
+        y: ball.y,
+      };
 
-      settleUntil =
-        now + CFG.settleMs;
+      scoreEntryTo =
+        getBallRestPosition(
+          targetHoop,
+        );
+
+      scoreEntryRotation =
+        ball.rotation;
+
+      targetHoop.netPulseVelocity +=
+        1.8;
+
+      ball.vx = 0;
+      ball.vy = 0;
 
       rimTouched = false;
+      leftCurrentHoop = false;
 
-      changePhase('settling');
+      phaseStartedAt = now;
+
+      phaseUntil =
+        now +
+        GAME.scoringDurationMs;
+
+      changePhase('scoring');
     };
 
-    const detectScore = (
-      previousPosition: Vec,
-      nextPosition: Vec,
+    const detectTargetHoopScore = (
+      previousPosition: Vec2,
+      currentPosition: Vec2,
       now: number,
     ) => {
-      const targetIndex =
+      const targetHoopIndex =
         currentHoopIndex + 1;
 
-      const hoop =
-        hoops[targetIndex];
+      const targetHoop =
+        hoops[targetHoopIndex];
 
-      if (!hoop) {
+      if (!targetHoop) {
         return false;
       }
 
       const previousLocal =
         worldToLocal(
           previousPosition.x -
-            hoop.x,
+            targetHoop.x,
           previousPosition.y -
-            hoop.y,
-          hoop.angle,
+            targetHoop.y,
+          targetHoop.angle,
         );
 
-      const nextLocal =
+      const currentLocal =
         worldToLocal(
-          nextPosition.x - hoop.x,
-          nextPosition.y - hoop.y,
-          hoop.angle,
+          currentPosition.x -
+            targetHoop.x,
+          currentPosition.y -
+            targetHoop.y,
+          targetHoop.angle,
         );
 
       const localVelocity =
         worldToLocal(
           ball.vx,
           ball.vy,
-          hoop.angle,
+          targetHoop.angle,
         );
 
       const crossedOpening =
         previousLocal.y < 0 &&
-        nextLocal.y >= 0 &&
+        currentLocal.y >= 0 &&
         localVelocity.y > 45;
 
       if (!crossedOpening) {
         return false;
       }
 
-      const denominator =
-        nextLocal.y -
+      const verticalDifference =
+        currentLocal.y -
         previousLocal.y;
 
-      const progress =
-        Math.abs(denominator) <
-        0.0001
+      const crossingProgress =
+        Math.abs(
+          verticalDifference,
+        ) < 0.0001
           ? 1
           : clamp(
               -previousLocal.y /
-                denominator,
+                verticalDifference,
               0,
               1,
             );
 
       const crossingX =
         previousLocal.x +
-        (nextLocal.x -
+        (currentLocal.x -
           previousLocal.x) *
-          progress;
+          crossingProgress;
 
       const clearHalfWidth =
         Math.max(
-          10,
-          hoop.width / 2 -
-            ball.r -
-            CFG.rimRadius +
-            2.5,
+          12,
+          targetHoop.width / 2 -
+            ball.radius -
+            GAME.rimRadius +
+            3,
         );
 
       if (
@@ -1136,8 +1060,8 @@ export const DunkShotGame = () => {
         return false;
       }
 
-      scoreTargetHoop(
-        targetIndex,
+      beginScoredDrop(
+        targetHoopIndex,
         crossingX,
         localVelocity.y,
         now,
@@ -1146,403 +1070,248 @@ export const DunkShotGame = () => {
       return true;
     };
 
-    const detectOldHoopReturn = (
-      previousPosition: Vec,
-      nextPosition: Vec,
+    const detectReturnToOldHoop = (
+      previousPosition: Vec2,
+      currentPosition: Vec2,
       now: number,
     ) => {
       if (
-        !leftOldHoop ||
-        livePhase !== 'flying'
+        !leftCurrentHoop ||
+        currentPhase !== 'flying'
       ) {
         return false;
       }
 
-      const hoop =
+      const currentHoop =
         hoops[currentHoopIndex];
 
       const previousLocal =
         worldToLocal(
           previousPosition.x -
-            hoop.x,
+            currentHoop.x,
           previousPosition.y -
-            hoop.y,
-          hoop.angle,
+            currentHoop.y,
+          currentHoop.angle,
         );
 
-      const nextLocal =
+      const currentLocal =
         worldToLocal(
-          nextPosition.x - hoop.x,
-          nextPosition.y - hoop.y,
-          hoop.angle,
+          currentPosition.x -
+            currentHoop.x,
+          currentPosition.y -
+            currentHoop.y,
+          currentHoop.angle,
         );
 
       const localVelocity =
         worldToLocal(
           ball.vx,
           ball.vy,
-          hoop.angle,
+          currentHoop.angle,
         );
 
-      const returned =
+      const returnedToHoop =
         previousLocal.y < 0 &&
-        nextLocal.y >= 0 &&
+        currentLocal.y >= 0 &&
         localVelocity.y > 30 &&
-        Math.abs(nextLocal.x) <=
-          hoop.width / 2;
+        Math.abs(currentLocal.x) <=
+          currentHoop.width / 2;
 
-      if (!returned) {
+      if (!returnedToHoop) {
         return false;
       }
 
-      returnToOldHoop(now);
+      returnToCurrentHoop(now);
 
       return true;
     };
 
-    const collideTargetRim = (
+    const resolveTargetRimCollision = (
       hoop: Hoop,
     ) => {
       const leftRim =
-        getWorldPoint(
+        getHoopWorldPoint(
           hoop,
           -hoop.width / 2,
           0,
         );
 
       const rightRim =
-        getWorldPoint(
+        getHoopWorldPoint(
           hoop,
           hoop.width / 2,
           0,
         );
 
-      const hit =
-        collidePoint(
-          ball,
-          leftRim,
-          CFG.rimRadius,
-          0.76,
-        ) ||
-        collidePoint(
-          ball,
-          rightRim,
-          CFG.rimRadius,
-          0.76,
+      const resolvePoint = (
+        point: Vec2,
+      ) => {
+        const differenceX =
+          ball.x - point.x;
+
+        const differenceY =
+          ball.y - point.y;
+
+        const distance = Math.hypot(
+          differenceX,
+          differenceY,
         );
+
+        const minimumDistance =
+          ball.radius +
+          GAME.rimRadius;
+
+        if (
+          distance >=
+          minimumDistance
+        ) {
+          return false;
+        }
+
+        const normalX =
+          distance > 0.0001
+            ? differenceX / distance
+            : 0;
+
+        const normalY =
+          distance > 0.0001
+            ? differenceY / distance
+            : -1;
+
+        const penetration =
+          minimumDistance -
+          distance;
+
+        ball.x +=
+          normalX * penetration;
+
+        ball.y +=
+          normalY * penetration;
+
+        const normalVelocity =
+          ball.vx * normalX +
+          ball.vy * normalY;
+
+        if (normalVelocity < 0) {
+          ball.vx -=
+            1.76 *
+            normalVelocity *
+            normalX;
+
+          ball.vy -=
+            1.76 *
+            normalVelocity *
+            normalY;
+        }
+
+        return true;
+      };
+
+      const hit =
+        resolvePoint(leftRim) ||
+        resolvePoint(rightRim);
 
       if (!hit) {
         return;
       }
 
       if (!rimTouched) {
-        haptic('light');
+        triggerHaptic('light');
       }
 
       rimTouched = true;
 
-      createBurst(
+      addParticleBurst(
         ball.x,
         ball.y,
-        hoop.accent,
+        hoop.accentHue,
         3,
-        0.4,
-      );
-
-      ball.vx *= 0.995;
-      ball.vy *= 0.995;
-    };
-
-    const collideCurrentNet = (
-      hoop: Hoop,
-    ) => {
-      const depth = Math.max(
-        getNetDepth(hoop),
-        hoop.netMax * 0.78,
-      );
-
-      const leftTop =
-        getWorldPoint(
-          hoop,
-          -hoop.width / 2,
-          4,
-        );
-
-      const rightTop =
-        getWorldPoint(
-          hoop,
-          hoop.width / 2,
-          4,
-        );
-
-      const leftBottom =
-        getWorldPoint(
-          hoop,
-          -hoop.bottomWidth / 2,
-          depth,
-        );
-
-      const rightBottom =
-        getWorldPoint(
-          hoop,
-          hoop.bottomWidth / 2,
-          depth,
-        );
-
-      collideSegment(
-        ball,
-        leftTop,
-        leftBottom,
-        1.2,
-        0.18,
-      );
-
-      collideSegment(
-        ball,
-        rightTop,
-        rightBottom,
-        1.2,
-        0.18,
-      );
-
-      collideSegment(
-        ball,
-        leftBottom,
-        rightBottom,
-        1.8,
-        0.12,
+        0.35,
       );
     };
 
-    const updateNets = (
+    const updateNetPhysics = (
       deltaTime: number,
     ) => {
-      hoops.forEach(
-        (hoop, index) => {
-          let targetStretch = 0.08;
+      for (
+        let index = 0;
+        index < hoops.length;
+        index += 1
+      ) {
+        const hoop = hoops[index];
 
-          if (
-            index ===
-              currentHoopIndex &&
-            (livePhase === 'ready' ||
-              livePhase ===
-                'settling')
-          ) {
-            targetStretch = 1;
-          }
+        let targetPulse = 0;
 
-          if (
-            livePhase === 'flying' &&
-            index ===
-              currentHoopIndex + 1
-          ) {
-            const localBall =
-              worldToLocal(
-                ball.x - hoop.x,
-                ball.y - hoop.y,
-                hoop.angle,
-              );
+        if (
+          index === currentHoopIndex &&
+          currentPhase === 'ready'
+        ) {
+          targetPulse = 0.18;
+        }
 
-            const closeToNet =
-              localBall.y >
-                -ball.r * 1.2 &&
-              localBall.y <
-                hoop.netMax +
-                  ball.r &&
-              Math.abs(localBall.x) <
-                hoop.width / 2 +
-                  ball.r;
+        if (
+          index === currentHoopIndex &&
+          (currentPhase === 'scoring' ||
+            currentPhase ===
+              'settling')
+        ) {
+          targetPulse = 0.42;
+        }
 
-            if (closeToNet) {
-              targetStretch = Math.max(
-                targetStretch,
-                0.18 +
-                  clamp(
-                    (localBall.y +
-                      ball.r) /
-                      (hoop.netMax +
-                        ball.r),
-                    0,
-                    1,
-                  ) *
-                    0.5,
-              );
-            }
-          }
+        const springStrength = 22;
+        const damping = 12;
 
-          hoop.stretchV +=
-            (targetStretch -
-              hoop.stretch) *
-            34 *
-            deltaTime;
+        hoop.netPulseVelocity +=
+          (targetPulse -
+            hoop.netPulse) *
+          springStrength *
+          deltaTime;
 
-          hoop.stretchV *=
-            Math.pow(
-              0.16,
-              deltaTime,
-            );
-
-          hoop.stretch +=
-            hoop.stretchV *
-            deltaTime;
-
-          hoop.stretch = clamp(
-            hoop.stretch,
-            0.04,
-            1.08,
+        hoop.netPulseVelocity *=
+          Math.exp(
+            -damping * deltaTime,
           );
-        },
-      );
+
+        hoop.netPulse +=
+          hoop.netPulseVelocity *
+          deltaTime;
+
+        hoop.netPulse = clamp(
+          hoop.netPulse,
+          0,
+          0.58,
+        );
+      }
     };
 
-    const updateBall = (
+    const updateFlyingBall = (
       deltaTime: number,
       now: number,
     ) => {
-      if (livePhase === 'ready') {
-        const rest =
-          getRestPosition(
-            hoops[currentHoopIndex],
-          );
-
-        ball.x +=
-          (rest.x - ball.x) *
-          Math.min(
-            1,
-            deltaTime * 19,
-          );
-
-        ball.y +=
-          (rest.y - ball.y) *
-          Math.min(
-            1,
-            deltaTime * 19,
-          );
-
-        ball.vx = 0;
-        ball.vy = 0;
-
-        return;
-      }
-
-      if (
-        livePhase === 'settling'
-      ) {
-        const hoop =
-          hoops[currentHoopIndex];
-
-        const elapsed =
-          now - settleStartedAt;
-
-        if (
-          elapsed <
-          CFG.naturalDropMs
-        ) {
-          const stepTime =
-            deltaTime / 3;
-
-          for (
-            let step = 0;
-            step < 3;
-            step += 1
-          ) {
-            ball.vy +=
-              CFG.gravity *
-              stepTime *
-              0.58;
-
-            ball.vx *= Math.pow(
-              0.985,
-              stepTime * 60,
-            );
-
-            ball.vy *= Math.pow(
-              0.985,
-              stepTime * 60,
-            );
-
-            ball.x +=
-              ball.vx * stepTime;
-
-            ball.y +=
-              ball.vy * stepTime;
-
-            ball.rotation +=
-              ball.vx *
-              stepTime *
-              0.018;
-
-            collideCurrentNet(
-              hoop,
-            );
-          }
-        } else {
-          const rest =
-            getRestPosition(hoop);
-
-          ball.vx +=
-            (rest.x - ball.x) *
-            34 *
-            deltaTime;
-
-          ball.vy +=
-            (rest.y - ball.y) *
-            34 *
-            deltaTime;
-
-          ball.vx *= Math.pow(
-            0.58,
-            deltaTime * 60,
-          );
-
-          ball.vy *= Math.pow(
-            0.58,
-            deltaTime * 60,
-          );
-
-          ball.x +=
-            ball.vx * deltaTime;
-
-          ball.y +=
-            ball.vy * deltaTime;
-
-          ball.rotation +=
-            ball.vx *
-            deltaTime *
-            0.015;
-        }
-
-        if (now >= settleUntil) {
-          placeBallInCurrentHoop();
-        }
-
-        return;
-      }
-
       const expectedDistance =
         Math.hypot(
           ball.vx,
           ball.vy,
         ) * deltaTime;
 
-      const steps = clamp(
+      const physicsSteps = clamp(
         Math.ceil(
           expectedDistance /
             Math.max(
               3.4,
-              ball.r * 0.25,
+              ball.radius * 0.25,
             ),
         ),
         1,
         18,
       );
 
-      const stepTime =
-        deltaTime / steps;
+      const physicsStep =
+        deltaTime / physicsSteps;
 
       for (
         let step = 0;
-        step < steps;
+        step < physicsSteps;
         step += 1
       ) {
         const previousPosition = {
@@ -1551,31 +1320,34 @@ export const DunkShotGame = () => {
         };
 
         ball.vy +=
-          CFG.gravity * stepTime;
+          GAME.gravity *
+          physicsStep;
 
         ball.vx *= Math.pow(
-          CFG.drag,
-          stepTime * 60,
+          GAME.airDrag,
+          physicsStep * 60,
         );
 
         ball.vy *= Math.pow(
-          CFG.drag,
-          stepTime * 60,
+          GAME.airDrag,
+          physicsStep * 60,
         );
 
         ball.x +=
-          ball.vx * stepTime;
+          ball.vx * physicsStep;
 
         ball.y +=
-          ball.vy * stepTime;
+          ball.vy * physicsStep;
 
         ball.rotation +=
           ball.vx *
-          stepTime *
+          physicsStep *
           0.024;
 
-        if (ball.x < ball.r) {
-          ball.x = ball.r;
+        if (
+          ball.x < ball.radius
+        ) {
+          ball.x = ball.radius;
 
           ball.vx =
             Math.abs(ball.vx) *
@@ -1584,11 +1356,12 @@ export const DunkShotGame = () => {
           rimTouched = true;
         } else if (
           ball.x >
-          viewport.width - ball.r
+          viewport.width -
+            ball.radius
         ) {
           ball.x =
             viewport.width -
-            ball.r;
+            ball.radius;
 
           ball.vx =
             -Math.abs(ball.vx) *
@@ -1597,31 +1370,33 @@ export const DunkShotGame = () => {
           rimTouched = true;
         }
 
-        const oldHoop =
+        const currentHoop =
           hoops[currentHoopIndex];
 
         const localPosition =
           worldToLocal(
-            ball.x - oldHoop.x,
-            ball.y - oldHoop.y,
-            oldHoop.angle,
+            ball.x -
+              currentHoop.x,
+            ball.y -
+              currentHoop.y,
+            currentHoop.angle,
           );
 
         if (
-          !leftOldHoop &&
+          !leftCurrentHoop &&
           (localPosition.y <
-            -ball.r * 1.12 ||
+            -ball.radius * 1.12 ||
             Math.abs(
               localPosition.x,
             ) >
-              oldHoop.width / 2 +
-                ball.r * 1.2)
+              currentHoop.width / 2 +
+                ball.radius * 1.2)
         ) {
-          leftOldHoop = true;
+          leftCurrentHoop = true;
         }
 
         if (
-          detectScore(
+          detectTargetHoopScore(
             previousPosition,
             ball,
             now,
@@ -1631,7 +1406,7 @@ export const DunkShotGame = () => {
         }
 
         if (
-          detectOldHoopReturn(
+          detectReturnToOldHoop(
             previousPosition,
             ball,
             now,
@@ -1646,13 +1421,13 @@ export const DunkShotGame = () => {
           ];
 
         if (targetHoop) {
-          collideTargetRim(
+          resolveTargetRimCollision(
             targetHoop,
           );
         }
 
         if (
-          detectScore(
+          detectTargetHoopScore(
             previousPosition,
             ball,
             now,
@@ -1661,6 +1436,150 @@ export const DunkShotGame = () => {
           return;
         }
       }
+    };
+
+    const updateScoringBall = (
+      now: number,
+    ) => {
+      const progress = clamp(
+        (now - phaseStartedAt) /
+          GAME.scoringDurationMs,
+        0,
+        1,
+      );
+
+      const eased =
+        easeOutCubic(progress);
+
+      const tinyDip =
+        Math.sin(
+          progress * Math.PI,
+        ) * 1.8;
+
+      ball.x = lerp(
+        scoreEntryFrom.x,
+        scoreEntryTo.x,
+        eased,
+      );
+
+      ball.y =
+        lerp(
+          scoreEntryFrom.y,
+          scoreEntryTo.y,
+          eased,
+        ) + tinyDip;
+
+      ball.rotation = lerp(
+        scoreEntryRotation,
+        hoops[currentHoopIndex]
+          .angle * 0.45,
+        eased,
+      );
+
+      if (now >= phaseUntil) {
+        startSettling(
+          now,
+          GAME.settlingDurationMs,
+        );
+      }
+    };
+
+    const updateSettlingBall = (
+      deltaTime: number,
+      now: number,
+    ) => {
+      const restPosition =
+        getBallRestPosition(
+          hoops[currentHoopIndex],
+        );
+
+      ball.x +=
+        (restPosition.x -
+          ball.x) *
+        Math.min(
+          1,
+          deltaTime * 18,
+        );
+
+      ball.y +=
+        (restPosition.y -
+          ball.y) *
+        Math.min(
+          1,
+          deltaTime * 18,
+        );
+
+      ball.rotation +=
+        (hoops[currentHoopIndex]
+          .angle *
+          0.45 -
+          ball.rotation) *
+        Math.min(
+          1,
+          deltaTime * 12,
+        );
+
+      ball.vx = 0;
+      ball.vy = 0;
+
+      if (now >= phaseUntil) {
+        placeBallInCurrentHoop();
+      }
+    };
+
+    const updateBall = (
+      deltaTime: number,
+      now: number,
+    ) => {
+      if (
+        currentPhase === 'ready'
+      ) {
+        const restPosition =
+          getBallRestPosition(
+            hoops[currentHoopIndex],
+          );
+
+        ball.x +=
+          (restPosition.x -
+            ball.x) *
+          Math.min(
+            1,
+            deltaTime * 18,
+          );
+
+        ball.y +=
+          (restPosition.y -
+            ball.y) *
+          Math.min(
+            1,
+            deltaTime * 18,
+          );
+
+        ball.vx = 0;
+        ball.vy = 0;
+
+        return;
+      }
+
+      if (
+        currentPhase === 'flying'
+      ) {
+        updateFlyingBall(
+          deltaTime,
+          now,
+        );
+      } else if (
+        currentPhase === 'scoring'
+      ) {
+        updateScoringBall(now);
+      } else {
+        updateSettlingBall(
+          deltaTime,
+          now,
+        );
+
+        return;
+      }
 
       const speed = Math.hypot(
         ball.vx,
@@ -1668,41 +1587,49 @@ export const DunkShotGame = () => {
       );
 
       if (
-        liveCombo >= CFG.fireCombo
+        internalCombo >=
+        GAME.fireCombo
       ) {
         trails.push({
           x: ball.x,
           y: ball.y,
           life: 1,
           size:
-            ball.r *
-            (0.82 +
-              random() * 0.32),
+            ball.radius *
+            (0.58 +
+              random() * 0.2),
         });
 
-        if (trails.length > 24) {
+        if (
+          trails.length > 18
+        ) {
           trails.shift();
         }
       } else if (speed > 350) {
         trails.push({
           x: ball.x,
           y: ball.y,
-          life: 0.42,
-          size: ball.r * 0.48,
+          life: 0.4,
+          size:
+            ball.radius * 0.42,
         });
 
-        if (trails.length > 8) {
+        if (
+          trails.length > 8
+        ) {
           trails.shift();
         }
       }
 
       if (
-        ball.y - camera.y >
+        currentPhase === 'flying' &&
+        (ball.y - camera.y >
           viewport.height + 84 ||
-        ball.y - camera.y <
-          -viewport.height * 0.75 ||
-        now - shotStartedAt >
-          CFG.timeoutMs
+          ball.y - camera.y <
+            -viewport.height *
+              0.75 ||
+          now - shotStartedAt >
+            GAME.shotTimeoutMs)
       ) {
         handleMiss();
       }
@@ -1716,7 +1643,7 @@ export const DunkShotGame = () => {
           camera.y) *
         Math.min(
           1,
-          deltaTime * 6.2,
+          deltaTime * 6,
         );
 
       camera.shake *= Math.pow(
@@ -1729,45 +1656,46 @@ export const DunkShotGame = () => {
         deltaTime,
       );
 
-      particles.forEach(
-        (particle) => {
-          particle.vy +=
-            particle.gravity *
-            deltaTime;
+      for (
+        const particle of particles
+      ) {
+        particle.vy +=
+          particle.gravity *
+          deltaTime;
 
-          particle.x +=
-            particle.vx *
-            deltaTime;
+        particle.x +=
+          particle.vx *
+          deltaTime;
 
-          particle.y +=
-            particle.vy *
-            deltaTime;
+        particle.y +=
+          particle.vy *
+          deltaTime;
 
-          particle.vx *= Math.pow(
-            0.982,
-            deltaTime * 60,
-          );
+        particle.vx *= Math.pow(
+          0.982,
+          deltaTime * 60,
+        );
 
-          particle.life -=
-            deltaTime;
-        },
-      );
+        particle.life -=
+          deltaTime;
+      }
 
-      trails.forEach((trail) => {
+      for (const trail of trails) {
         trail.life -=
           deltaTime *
-          (liveCombo >=
-          CFG.fireCombo
-            ? 1.45
+          (internalCombo >=
+          GAME.fireCombo
+            ? 1.7
             : 2.8);
-      });
+      }
 
-      labels.forEach((item) => {
-        item.y -= 34 * deltaTime;
+      for (const label of labels) {
+        label.y -=
+          34 * deltaTime;
 
-        item.life -=
+        label.life -=
           deltaTime * 0.82;
-      });
+      }
 
       for (
         let index =
@@ -1778,7 +1706,10 @@ export const DunkShotGame = () => {
         if (
           particles[index].life <= 0
         ) {
-          particles.splice(index, 1);
+          particles.splice(
+            index,
+            1,
+          );
         }
       }
 
@@ -1811,42 +1742,41 @@ export const DunkShotGame = () => {
 
     const drawHoop = (
       hoop: Hoop,
-      isTarget: boolean,
-      isCurrent: boolean,
+      target: boolean,
+      current: boolean,
     ) => {
       const screenY =
         hoop.y - camera.y;
 
       if (
-        screenY < -120 ||
+        screenY < -130 ||
         screenY >
-          viewport.height + 130
+          viewport.height + 140
       ) {
         return;
       }
 
-      const depth =
-        getNetDepth(hoop);
-
-      const stretch = clamp(
-        hoop.stretch,
+      const pulse = clamp(
+        hoop.netPulse,
         0,
-        1.05,
+        0.58,
       );
 
-      const halfTop =
+      const netDepth =
+        hoop.netDepth +
+        pulse * 3.2;
+
+      const topHalfWidth =
         hoop.width / 2;
 
-      const halfBottom = lerp(
-        hoop.width * 0.24,
-        hoop.bottomWidth / 2,
-        stretch,
-      );
+      const bottomHalfWidth =
+        hoop.bottomWidth / 2 -
+        pulse * 0.8;
 
-      const sway = clamp(
-        hoop.stretchV * 1.25,
-        -2.3,
-        2.3,
+      const netSway = clamp(
+        hoop.netPulseVelocity * 0.45,
+        -0.45,
+        0.45,
       );
 
       context.save();
@@ -1858,9 +1788,9 @@ export const DunkShotGame = () => {
 
       context.rotate(hoop.angle);
 
-      if (isTarget) {
-        const pulse =
-          0.76 +
+      if (target) {
+        const targetPulse =
+          0.75 +
           Math.sin(
             performance.now() *
               0.005,
@@ -1874,84 +1804,83 @@ export const DunkShotGame = () => {
             2,
             0,
             12,
-            hoop.width * 1.12,
+            hoop.width * 1.08,
           );
 
         glow.addColorStop(
           0,
-          `hsla(${hoop.accent},100%,62%,${0.14 * pulse})`,
+          `hsla(${hoop.accentHue},100%,62%,${0.13 * targetPulse})`,
         );
 
         glow.addColorStop(
           1,
-          `hsla(${hoop.accent},100%,55%,0)`,
+          `hsla(${hoop.accentHue},100%,55%,0)`,
         );
 
         context.fillStyle = glow;
 
         context.fillRect(
-          -hoop.width * 1.3,
+          -hoop.width * 1.25,
           -hoop.width,
-          hoop.width * 2.6,
+          hoop.width * 2.5,
           hoop.width * 2.2,
         );
       }
 
-      const netFill =
+      const netGradient =
         context.createLinearGradient(
           0,
           3,
           0,
-          depth,
+          netDepth,
         );
 
-      netFill.addColorStop(
+      netGradient.addColorStop(
         0,
-        'rgba(255,255,255,0.015)',
+        'rgba(255,255,255,0.012)',
       );
 
-      netFill.addColorStop(
+      netGradient.addColorStop(
         1,
-        'rgba(255,255,255,0.07)',
+        'rgba(255,255,255,0.075)',
       );
 
-      context.fillStyle = netFill;
+      context.fillStyle =
+        netGradient;
 
       context.beginPath();
 
       context.moveTo(
-        -halfTop + 3,
+        -topHalfWidth + 3,
         3,
       );
 
       context.bezierCurveTo(
-        -halfTop * 0.82,
-        depth * 0.35,
-        -halfBottom +
-          sway * 0.25,
-        depth * 0.78,
-        -halfBottom +
-          sway * 0.2,
-        depth,
+        -topHalfWidth * 0.84,
+        netDepth * 0.32,
+        -bottomHalfWidth +
+          netSway * 0.08,
+        netDepth * 0.78,
+        -bottomHalfWidth +
+          netSway * 0.06,
+        netDepth,
       );
 
       context.quadraticCurveTo(
-        sway * 0.3,
-        depth +
-          5 +
-          stretch * 2,
-        halfBottom +
-          sway * 0.2,
-        depth,
+        netSway * 0.08,
+        netDepth + 5 + pulse,
+        bottomHalfWidth +
+          netSway * 0.06,
+        netDepth,
       );
 
       context.bezierCurveTo(
-        halfBottom +
-          sway * 0.25,
-        depth * 0.78,
-        halfTop * 0.82,
-        depth * 0.35,
-        halfTop - 3,
+        bottomHalfWidth +
+          netSway * 0.08,
+        netDepth * 0.78,
+        topHalfWidth * 0.84,
+        netDepth * 0.32,
+        topHalfWidth - 3,
         3,
       );
 
@@ -1960,12 +1889,11 @@ export const DunkShotGame = () => {
 
       context.lineWidth = 1.05;
 
-      context.strokeStyle =
-        isCurrent
-          ? 'rgba(255,255,255,0.43)'
-          : isTarget
-            ? 'rgba(255,255,255,0.52)'
-            : 'rgba(255,255,255,0.22)';
+      context.strokeStyle = current
+        ? 'rgba(255,255,255,0.43)'
+        : target
+          ? 'rgba(255,255,255,0.52)'
+          : 'rgba(255,255,255,0.22)';
 
       for (
         let index = 0;
@@ -1976,31 +1904,28 @@ export const DunkShotGame = () => {
           index / 7;
 
         const topX =
-          -halfTop +
+          -topHalfWidth +
           hoop.width * progress;
 
         const bottomX =
-          -halfBottom +
-          halfBottom *
+          -bottomHalfWidth +
+          bottomHalfWidth *
             2 *
             progress;
 
         context.beginPath();
 
-        context.moveTo(
-          topX,
-          4,
-        );
+        context.moveTo(topX, 4);
 
         context.bezierCurveTo(
-          topX * 0.72,
-          depth * 0.34,
+          topX * 0.73,
+          netDepth * 0.33,
           bottomX +
-            sway * 0.18,
-          depth * 0.74,
+            netSway * 0.04,
+          netDepth * 0.75,
           bottomX +
-            sway * 0.2,
-          depth,
+            netSway * 0.06,
+          netDepth,
         );
 
         context.stroke();
@@ -2013,36 +1938,34 @@ export const DunkShotGame = () => {
       ) {
         const progress = row / 5;
 
-        const rowWidth = lerp(
-          halfTop,
-          halfBottom,
-          progress,
-        );
+        const rowHalfWidth =
+          lerp(
+            topHalfWidth,
+            bottomHalfWidth,
+            progress,
+          );
 
         const rowY =
-          4 + depth * progress;
+          4 + netDepth * progress;
+
+        const rowSway =
+          netSway *
+          progress *
+          0.06;
 
         context.beginPath();
 
         context.moveTo(
-          -rowWidth +
-            sway *
-              progress *
-              0.2,
+          -rowHalfWidth + rowSway,
           rowY,
         );
 
         context.quadraticCurveTo(
-          sway *
-            progress *
-            0.25,
+          rowSway,
           rowY +
-            2.5 +
-            stretch,
-          rowWidth +
-            sway *
-              progress *
-              0.2,
+            2.2 +
+            pulse * 0.35,
+          rowHalfWidth + rowSway,
           rowY,
         );
 
@@ -2057,49 +1980,46 @@ export const DunkShotGame = () => {
       context.beginPath();
 
       context.moveTo(
-        -halfBottom +
-          sway * 0.2,
-        depth,
+        -bottomHalfWidth +
+          netSway * 0.06,
+        netDepth,
       );
 
       context.quadraticCurveTo(
-        sway * 0.3,
-        depth +
-          5 +
-          stretch * 2,
-        halfBottom +
-          sway * 0.2,
-        depth,
+        netSway * 0.08,
+        netDepth + 5 + pulse,
+        bottomHalfWidth +
+          netSway * 0.06,
+        netDepth,
       );
 
       context.stroke();
 
-      const rimHue = isTarget
-        ? hoop.accent
+      const rimHue = target
+        ? hoop.accentHue
         : 23;
 
       context.lineCap = 'round';
 
       context.shadowBlur =
-        isTarget ? 18 : 8;
+        target ? 18 : 8;
 
       context.shadowColor =
-        `hsla(${rimHue},100%,55%,${isTarget ? 0.76 : 0.38})`;
+        `hsla(${rimHue},100%,55%,${target ? 0.76 : 0.38})`;
 
-      context.strokeStyle =
-        isCurrent
-          ? '#f8b15b'
-          : `hsl(${rimHue},94%,60%)`;
+      context.strokeStyle = current
+        ? '#f8b15b'
+        : `hsl(${rimHue},94%,60%)`;
 
       context.lineWidth =
-        isTarget ? 6.1 : 5.4;
+        target ? 6.1 : 5.4;
 
       context.beginPath();
 
       context.ellipse(
         0,
         0,
-        halfTop,
+        topHalfWidth,
         5.5,
         0,
         0,
@@ -2120,7 +2040,7 @@ export const DunkShotGame = () => {
       context.ellipse(
         0,
         -1.4,
-        halfTop - 2,
+        topHalfWidth - 2,
         3.8,
         0,
         0,
@@ -2133,73 +2053,86 @@ export const DunkShotGame = () => {
     };
 
     const drawTrails = () => {
-      const isFire =
-        liveCombo >= CFG.fireCombo;
+      const fire =
+        internalCombo >=
+        GAME.fireCombo;
 
-      trails.forEach(
-        (trail, index) => {
-          const alpha =
-            clamp(
-              trail.life,
-              0,
-              1,
-            ) *
-            ((index + 1) /
-              Math.max(
-                1,
-                trails.length,
-              ));
+      for (
+        let index = 0;
+        index < trails.length;
+        index += 1
+      ) {
+        const trail =
+          trails[index];
 
-          const screenY =
-            trail.y - camera.y;
-
-          const hue = isFire
-            ? 16 + index * 1.1
-            : 185;
-
-          const glow =
-            context.createRadialGradient(
-              trail.x,
-              screenY,
-              0,
-              trail.x,
-              screenY,
-              trail.size * 2.5,
-            );
-
-          glow.addColorStop(
+        const alpha =
+          clamp(
+            trail.life,
             0,
-            `hsla(${hue},100%,64%,${alpha * 0.52})`,
-          );
-
-          glow.addColorStop(
             1,
-            `hsla(${hue},100%,50%,0)`,
-          );
+          ) *
+          ((index + 1) /
+            Math.max(
+              1,
+              trails.length,
+            ));
 
-          context.fillStyle = glow;
+        const screenY =
+          trail.y - camera.y;
 
-          context.beginPath();
+        const hue = fire
+          ? 16 + index * 0.8
+          : 185;
 
-          context.arc(
+        const radiusMultiplier =
+          fire ? 1.72 : 2.05;
+
+        const glow =
+          context.createRadialGradient(
             trail.x,
             screenY,
-            trail.size * 2.5,
             0,
-            Math.PI * 2,
+            trail.x,
+            screenY,
+            trail.size *
+              radiusMultiplier,
           );
 
-          context.fill();
-        },
-      );
+        glow.addColorStop(
+          0,
+          `hsla(${hue},100%,64%,${alpha * (fire ? 0.42 : 0.46)})`,
+        );
+
+        glow.addColorStop(
+          1,
+          `hsla(${hue},100%,50%,0)`,
+        );
+
+        context.fillStyle =
+          glow;
+
+        context.beginPath();
+
+        context.arc(
+          trail.x,
+          screenY,
+          trail.size *
+            radiusMultiplier,
+          0,
+          Math.PI * 2,
+        );
+
+        context.fill();
+      }
     };
 
     const drawBall = () => {
       const screenY =
         ball.y - camera.y;
 
-      const isFire =
-        liveCombo >= CFG.fireCombo;
+      const fire =
+        internalCombo >=
+        GAME.fireCombo;
 
       drawTrails();
 
@@ -2214,29 +2147,32 @@ export const DunkShotGame = () => {
         ball.rotation,
       );
 
+      const glowRadius =
+        ball.radius *
+        (fire ? 2.55 : 2.05);
+
       const outerGlow =
         context.createRadialGradient(
           0,
           0,
-          ball.r * 0.3,
+          ball.radius * 0.28,
           0,
           0,
-          ball.r *
-            (isFire ? 3.7 : 2.15),
+          glowRadius,
         );
 
       outerGlow.addColorStop(
         0,
-        isFire
-          ? 'rgba(255,232,133,0.92)'
-          : 'rgba(247,165,75,0.36)',
+        fire
+          ? 'rgba(255,230,128,0.74)'
+          : 'rgba(247,165,75,0.32)',
       );
 
       outerGlow.addColorStop(
         0.38,
-        isFire
-          ? 'rgba(255,103,25,0.54)'
-          : 'rgba(247,165,75,0.14)',
+        fire
+          ? 'rgba(255,98,24,0.36)'
+          : 'rgba(247,165,75,0.12)',
       );
 
       outerGlow.addColorStop(
@@ -2252,61 +2188,60 @@ export const DunkShotGame = () => {
       context.arc(
         0,
         0,
-        ball.r *
-          (isFire ? 3.7 : 2.15),
+        glowRadius,
         0,
         Math.PI * 2,
       );
 
       context.fill();
 
-      const ballFill =
+      const ballGradient =
         context.createRadialGradient(
           -6,
           -7,
           2,
           1,
           2,
-          ball.r * 1.32,
+          ball.radius * 1.32,
         );
 
-      ballFill.addColorStop(
+      ballGradient.addColorStop(
         0,
-        isFire
-          ? '#fff5ae'
+        fire
+          ? '#fff1a6'
           : '#ffd27c',
       );
 
-      ballFill.addColorStop(
+      ballGradient.addColorStop(
         0.38,
-        isFire
+        fire
           ? '#ff8e26'
           : '#ef8f36',
       );
 
-      ballFill.addColorStop(
+      ballGradient.addColorStop(
         1,
-        isFire
-          ? '#db2700'
+        fire
+          ? '#d92d00'
           : '#9d3b20',
       );
 
       context.fillStyle =
-        ballFill;
+        ballGradient;
 
       context.shadowBlur =
-        isFire ? 23 : 10;
+        fire ? 14 : 9;
 
-      context.shadowColor = isFire
-        ? '#ff5417'
-        : 'rgba(241,132,45,0.65)';
+      context.shadowColor = fire
+        ? 'rgba(255,84,23,0.72)'
+        : 'rgba(241,132,45,0.58)';
 
       context.beginPath();
 
       context.arc(
         0,
         0,
-        ball.r,
+        ball.radius,
         0,
         Math.PI * 2,
       );
@@ -2325,7 +2260,7 @@ export const DunkShotGame = () => {
       context.arc(
         0,
         0,
-        ball.r * 0.94,
+        ball.radius * 0.94,
         -0.66,
         0.66,
       );
@@ -2337,7 +2272,7 @@ export const DunkShotGame = () => {
       context.arc(
         0,
         0,
-        ball.r * 0.94,
+        ball.radius * 0.94,
         Math.PI - 0.66,
         Math.PI + 0.66,
       );
@@ -2347,14 +2282,14 @@ export const DunkShotGame = () => {
       context.beginPath();
 
       context.moveTo(
-        -ball.r,
+        -ball.radius,
         0,
       );
 
       context.quadraticCurveTo(
         0,
         -4,
-        ball.r,
+        ball.radius,
         0,
       );
 
@@ -2364,14 +2299,14 @@ export const DunkShotGame = () => {
 
       context.moveTo(
         0,
-        -ball.r,
+        -ball.radius,
       );
 
       context.quadraticCurveTo(
         -4,
         0,
         0,
-        ball.r,
+        ball.radius,
       );
 
       context.stroke();
@@ -2379,10 +2314,10 @@ export const DunkShotGame = () => {
       context.restore();
     };
 
-    const drawAim = () => {
+    const drawAimTrajectory = () => {
       if (
         !aim.active ||
-        livePhase !== 'ready'
+        currentPhase !== 'ready'
       ) {
         return;
       }
@@ -2399,20 +2334,21 @@ export const DunkShotGame = () => {
           pullY,
         ) || 1;
 
-      const distance = Math.min(
-        CFG.maxPull,
-        pullDistance,
-      );
+      const limitedDistance =
+        Math.min(
+          GAME.maxPull,
+          pullDistance,
+        );
 
-      const startVelocityX =
+      const initialVelocityX =
         (pullX / pullDistance) *
-        distance *
-        CFG.launchPower;
+        limitedDistance *
+        GAME.launchPower;
 
-      const startVelocityY =
+      const initialVelocityY =
         (pullY / pullDistance) *
-        distance *
-        CFG.launchPower;
+        limitedDistance *
+        GAME.launchPower;
 
       context.save();
 
@@ -2456,20 +2392,20 @@ export const DunkShotGame = () => {
       let previewY = ball.y;
 
       let previewVelocityX =
-        startVelocityX;
+        initialVelocityX;
 
       let previewVelocityY =
-        startVelocityY;
+        initialVelocityY;
 
-      const previewStep = 0.056;
+      const previewStep = 0.054;
 
       for (
         let index = 1;
-        index <= 11;
+        index <= 10;
         index += 1
       ) {
         previewVelocityY +=
-          CFG.gravity *
+          GAME.gravity *
           previewStep;
 
         previewX +=
@@ -2481,12 +2417,12 @@ export const DunkShotGame = () => {
           previewStep;
 
         const alpha =
-          1 - index / 12;
+          1 - index / 11;
 
         context.fillStyle =
-          liveCombo >=
-          CFG.fireCombo
-            ? `rgba(255,116,36,${alpha * 0.8})`
+          internalCombo >=
+          GAME.fireCombo
+            ? `rgba(255,116,36,${alpha * 0.76})`
             : `rgba(255,255,255,${alpha * 0.48})`;
 
         context.beginPath();
@@ -2494,7 +2430,7 @@ export const DunkShotGame = () => {
         context.arc(
           previewX,
           previewY - camera.y,
-          2 + alpha * 1.8,
+          2 + alpha * 1.6,
           0,
           Math.PI * 2,
         );
@@ -2506,60 +2442,60 @@ export const DunkShotGame = () => {
     };
 
     const drawEffects = () => {
-      particles.forEach(
-        (particle) => {
-          const alpha = clamp(
-            particle.life /
-              particle.maxLife,
-            0,
-            1,
-          );
+      for (
+        const particle of particles
+      ) {
+        const alpha = clamp(
+          particle.life /
+            particle.maxLife,
+          0,
+          1,
+        );
 
-          context.globalAlpha =
-            alpha;
+        context.globalAlpha =
+          alpha;
 
-          context.fillStyle =
-            `hsl(${particle.hue},100%,66%)`;
+        context.fillStyle =
+          `hsl(${particle.hue},100%,66%)`;
 
-          context.shadowBlur = 9;
+        context.shadowBlur = 9;
 
-          context.shadowColor =
-            `hsla(${particle.hue},100%,55%,0.78)`;
+        context.shadowColor =
+          `hsla(${particle.hue},100%,55%,0.78)`;
 
-          context.beginPath();
+        context.beginPath();
 
-          context.arc(
-            particle.x,
-            particle.y - camera.y,
-            particle.size * alpha,
-            0,
-            Math.PI * 2,
-          );
+        context.arc(
+          particle.x,
+          particle.y - camera.y,
+          particle.size * alpha,
+          0,
+          Math.PI * 2,
+        );
 
-          context.fill();
-        },
-      );
+        context.fill();
+      }
 
       context.globalAlpha = 1;
       context.shadowBlur = 0;
 
-      labels.forEach((item) => {
+      for (const label of labels) {
         const alpha = clamp(
-          item.life / item.maxLife,
+          label.life,
           0,
           1,
         );
 
         const scale =
-          item.scale *
+          label.scale *
           (0.94 +
             (1 - alpha) * 0.18);
 
         context.save();
 
         context.translate(
-          item.x,
-          item.y - camera.y,
+          label.x,
+          label.y - camera.y,
         );
 
         context.scale(
@@ -2582,19 +2518,19 @@ export const DunkShotGame = () => {
         context.shadowBlur = 15;
 
         context.shadowColor =
-          `hsla(${item.hue},100%,55%,0.88)`;
+          `hsla(${label.hue},100%,55%,0.88)`;
 
         context.fillStyle =
-          `hsl(${item.hue},100%,70%)`;
+          `hsl(${label.hue},100%,70%)`;
 
         context.fillText(
-          item.text,
+          label.text,
           0,
           0,
         );
 
         context.restore();
-      });
+      }
 
       if (missFlash > 0.01) {
         context.fillStyle =
@@ -2636,65 +2572,81 @@ export const DunkShotGame = () => {
         shakeY,
       );
 
-      hoops.forEach(
-        (hoop, index) =>
-          drawHoop(
-            hoop,
-            index ===
-              currentHoopIndex + 1,
-            index ===
-              currentHoopIndex,
-          ),
-      );
+      for (
+        let index = 0;
+        index < hoops.length;
+        index += 1
+      ) {
+        drawHoop(
+          hoops[index],
+          index ===
+            currentHoopIndex + 1,
+          index ===
+            currentHoopIndex,
+        );
+      }
 
-      drawAim();
+      drawAimTrajectory();
       drawBall();
       drawEffects();
 
       context.restore();
     };
 
-    const frame = (
-      now: number,
+    const animationLoop = (
+      currentTime: number,
     ) => {
       const deltaTime = Math.max(
         0,
         Math.min(
           34,
-          now - previousFrame,
+          currentTime -
+            previousFrameTime,
         ) / 1000,
       );
 
-      previousFrame = now;
+      previousFrameTime =
+        currentTime;
 
-      updateNets(deltaTime);
-      updateBall(deltaTime, now);
+      updateNetPhysics(deltaTime);
+
+      updateBall(
+        deltaTime,
+        currentTime,
+      );
+
       updateEffects(deltaTime);
+
       render();
 
-      frameRef.current =
-        requestAnimationFrame(frame);
+      animationFrameRef.current =
+        window.requestAnimationFrame(
+          animationLoop,
+        );
     };
 
     const handlePointerDown = (
       event: PointerEvent,
     ) => {
-      if (livePhase !== 'ready') {
+      if (
+        currentPhase !== 'ready'
+      ) {
         return;
       }
 
-      const point =
+      const pointer =
         pointerToWorld(
           event.clientX,
           event.clientY,
         );
 
-      const distance = Math.hypot(
-        point.x - ball.x,
-        point.y - ball.y,
-      );
+      const distanceToBall =
+        Math.hypot(
+          pointer.x - ball.x,
+          pointer.y - ball.y,
+        );
 
-      if (distance > 80) {
+      if (distanceToBall > 82) {
         return;
       }
 
@@ -2705,16 +2657,17 @@ export const DunkShotGame = () => {
       );
 
       aim.active = true;
+
       aim.pointerId =
         event.pointerId;
 
-      aim.x = point.x;
-      aim.y = point.y;
+      aim.x = pointer.x;
+      aim.y = pointer.y;
       aim.power = 0;
 
-      setHint(false);
+      setShowHint(false);
 
-      haptic('light');
+      triggerHaptic('light');
     };
 
     const handlePointerMove = (
@@ -2730,39 +2683,43 @@ export const DunkShotGame = () => {
 
       event.preventDefault();
 
-      const point =
+      const pointer =
         pointerToWorld(
           event.clientX,
           event.clientY,
         );
 
-      const dx =
-        point.x - ball.x;
+      const differenceX =
+        pointer.x - ball.x;
 
-      const dy =
-        point.y - ball.y;
+      const differenceY =
+        pointer.y - ball.y;
 
       const distance =
-        Math.hypot(dx, dy) || 1;
+        Math.hypot(
+          differenceX,
+          differenceY,
+        ) || 1;
 
       const pullDistance =
         Math.min(
-          CFG.maxPull,
+          GAME.maxPull,
           distance,
         );
 
       aim.x =
         ball.x +
-        (dx / distance) *
+        (differenceX / distance) *
           pullDistance;
 
       aim.y =
         ball.y +
-        (dy / distance) *
+        (differenceY / distance) *
           pullDistance;
 
       aim.power =
-        pullDistance / CFG.maxPull;
+        pullDistance /
+        GAME.maxPull;
     };
 
     const releaseShot = (
@@ -2799,36 +2756,37 @@ export const DunkShotGame = () => {
         return;
       }
 
-      const speed = Math.min(
-        CFG.maxLaunchSpeed,
-        pullDistance *
-          CFG.launchPower,
-      );
+      const launchSpeed =
+        Math.min(
+          GAME.maxLaunchSpeed,
+          pullDistance *
+            GAME.launchPower,
+        );
 
       ball.vx =
         (pullX / pullDistance) *
-        speed;
+        launchSpeed;
 
       ball.vy =
         (pullY / pullDistance) *
-        speed;
+        launchSpeed;
 
       shotStartedAt =
         performance.now();
 
       rimTouched = false;
-      leftOldHoop = false;
+      leftCurrentHoop = false;
 
       changePhase('flying');
 
-      haptic(
+      triggerHaptic(
         power > 0.76
           ? 'medium'
           : 'light',
       );
     };
 
-    const blockTouch = (
+    const preventTouchScrolling = (
       event: TouchEvent,
     ) => {
       if (event.cancelable) {
@@ -2836,11 +2794,11 @@ export const DunkShotGame = () => {
       }
     };
 
-    resize();
+    resizeCanvas();
 
     window.addEventListener(
       'resize',
-      resize,
+      resizeCanvas,
     );
 
     canvas.addEventListener(
@@ -2863,37 +2821,40 @@ export const DunkShotGame = () => {
       releaseShot,
     );
 
-    root.addEventListener(
+    container.addEventListener(
       'touchstart',
-      blockTouch,
+      preventTouchScrolling,
       {
         passive: false,
       },
     );
 
-    root.addEventListener(
+    container.addEventListener(
       'touchmove',
-      blockTouch,
+      preventTouchScrolling,
       {
         passive: false,
       },
     );
 
-    frameRef.current =
-      requestAnimationFrame(frame);
+    animationFrameRef.current =
+      window.requestAnimationFrame(
+        animationLoop,
+      );
 
     return () => {
       if (
-        frameRef.current !== null
+        animationFrameRef.current !==
+        null
       ) {
-        cancelAnimationFrame(
-          frameRef.current,
+        window.cancelAnimationFrame(
+          animationFrameRef.current,
         );
       }
 
       window.removeEventListener(
         'resize',
-        resize,
+        resizeCanvas,
       );
 
       canvas.removeEventListener(
@@ -2916,21 +2877,21 @@ export const DunkShotGame = () => {
         releaseShot,
       );
 
-      root.removeEventListener(
+      container.removeEventListener(
         'touchstart',
-        blockTouch,
+        preventTouchScrolling,
       );
 
-      root.removeEventListener(
+      container.removeEventListener(
         'touchmove',
-        blockTouch,
+        preventTouchScrolling,
       );
     };
   }, []);
 
   return (
     <div
-      ref={rootRef}
+      ref={containerRef}
       className="relative h-full min-h-[440px] w-full select-none overflow-hidden bg-transparent text-white"
     >
       <canvas
@@ -2941,7 +2902,7 @@ export const DunkShotGame = () => {
       <header className="pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Avatar
+            <PlayerAvatar
               photoUrl={user?.photo_url}
               name={playerName}
               side="player"
@@ -2968,7 +2929,7 @@ export const DunkShotGame = () => {
             <div
               className={[
                 'text-[18px] font-black leading-none tabular-nums',
-                fire
+                fireballActive
                   ? 'text-[#ff8c36]'
                   : 'text-white/92',
               ].join(' ')}
@@ -2984,7 +2945,7 @@ export const DunkShotGame = () => {
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
             <div className="min-w-0">
               <div className="max-w-[92px] truncate text-[9px] font-black leading-none text-white/90">
-                {rivalName}
+                {opponentName}
               </div>
 
               <div className="mt-1.5 flex items-baseline justify-end gap-1.5">
@@ -2998,29 +2959,29 @@ export const DunkShotGame = () => {
               </div>
             </div>
 
-            <Avatar
-              name={rivalName}
-              side="rival"
+            <PlayerAvatar
+              name={opponentName}
+              side="opponent"
             />
           </div>
         </div>
 
         <div className="mx-auto mt-2 flex max-w-[480px] items-center justify-between px-1">
           <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/24">
-            best {best}
+            best {bestScore}
           </span>
 
           <span
             className={[
               'text-[7px] font-black uppercase tracking-[0.18em]',
-              fire
+              fireballActive
                 ? 'text-[#ff9d55]'
                 : 'text-white/28',
             ].join(' ')}
           >
             {phase === 'ready'
               ? 'PULL & RELEASE'
-              : callout}
+              : statusText}
           </span>
 
           <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/24">
@@ -3029,8 +2990,8 @@ export const DunkShotGame = () => {
         </div>
       </header>
 
-      {hint && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-7 z-30 flex justify-center px-4">
+      {showHint && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4">
           <div className="animate-pulse text-[9px] font-black uppercase tracking-[0.17em] text-white/42">
             Потяни мяч и отпусти
           </div>
