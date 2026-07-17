@@ -38,9 +38,7 @@ export type GameCatalogItem = {
   status?: string;
   playPath: string;
   coverUrl?: string;
-  launchMode?:
-    | 'lobby'
-    | 'direct';
+  launchMode?: 'lobby' | 'direct';
 };
 
 export const GAME_CATALOG: GameCatalogItem[] = [
@@ -48,183 +46,139 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     code: 'plinko_pvp',
     displayName: 'Plinko PvP',
     icon: '🔵',
-    description:
-      'Шарик, пины и дуэль на удачу',
-    color:
-      'from-[#52FFE5]/24 via-[#9D7CFF]/12 to-transparent',
+    description: 'Шарик, пины и дуэль на удачу',
+    color: 'from-[#52FFE5]/24 via-[#9D7CFF]/12 to-transparent',
     meta: 'Plinko',
     status: 'New',
-    playPath:
-      '/game/plinko_pvp/play',
+    playPath: '/game/plinko_pvp/play',
     coverUrl: plinkoCover,
   },
   {
     code: 'descent_duel',
-    displayName:
-      'Descent Duel',
+    displayName: 'Descent Duel',
     icon: '◼️',
-    description:
-      'Кубы, лестница и физика на дистанцию',
-    color:
-      'from-white/18 via-[#8A8A8A]/10 to-transparent',
+    description: 'Кубы, лестница и физика на дистанцию',
+    color: 'from-white/18 via-[#8A8A8A]/10 to-transparent',
     meta: 'Physics',
     status: 'New',
-    playPath:
-      '/game/descent_duel/play',
+    playPath: '/game/descent_duel/play',
     coverUrl: descentCover,
   },
   {
     code: 'paper_io',
     displayName: 'Paper IO',
     icon: '🟩',
-    description:
-      'Захватывай территорию и режь след соперника',
-    color:
-      'from-[#54F2A8]/24 via-[#52FFE5]/12 to-transparent',
+    description: 'Захватывай территорию и режь след соперника',
+    color: 'from-[#54F2A8]/24 via-[#52FFE5]/12 to-transparent',
     meta: 'Territory',
     status: 'New',
-    playPath:
-      '/game/paper_io/play',
+    playPath: '/game/paper_io/play',
     coverUrl: paperCover,
   },
   {
     code: 'tower_stack',
-    displayName:
-      'Tower Stack',
+    displayName: 'Tower Stack',
     icon: '🧱',
-    description:
-      'Строй башню выше соперника',
-    color:
-      'from-[#9D7CFF]/26 via-[#52FFE5]/12 to-transparent',
+    description: 'Строй башню выше соперника',
+    color: 'from-[#9D7CFF]/26 via-[#52FFE5]/12 to-transparent',
     meta: 'Stack',
     status: 'New',
-    playPath:
-      '/game/tower_stack/play',
+    playPath: '/game/tower_stack/play',
     coverUrl: towerCover,
   },
   {
     code: 'grid_lock',
     displayName: 'Grid Lock',
     icon: '🧱',
-    description:
-      'Дойди до края и блокируй соперника',
-    color:
-      'from-[#9D7CFF]/24 via-[#FF7A90]/10 to-transparent',
+    description: 'Дойди до края и блокируй соперника',
+    color: 'from-[#9D7CFF]/24 via-[#FF7A90]/10 to-transparent',
     meta: 'Strategy',
-    playPath:
-      '/game/grid_lock/play',
+    playPath: '/game/grid_lock/play',
     coverUrl: gridCover,
   },
   {
     code: 'blackjack_duel',
-    displayName:
-      'Blackjack Duel',
+    displayName: 'Blackjack Duel',
     icon: '🂡',
     description: '21 на 1v1',
-    color:
-      'from-[#54F2A8]/22 via-[#52FFE5]/10 to-transparent',
+    color: 'from-[#54F2A8]/22 via-[#52FFE5]/10 to-transparent',
     meta: 'Cards',
-    playPath:
-      '/game/blackjack_duel/play',
+    playPath: '/game/blackjack_duel/play',
     coverUrl: blCover,
   },
   {
     code: 'dice_duel',
     displayName: 'Dice Duel',
     icon: '🎲',
-    description:
-      '3 кубика и риск-переброс',
-    color:
-      'from-[#F2C766]/26 via-[#FF7A90]/10 to-transparent',
+    description: '3 кубика и риск-переброс',
+    color: 'from-[#F2C766]/26 via-[#FF7A90]/10 to-transparent',
     meta: 'Risk',
-    playPath:
-      '/game/dice_duel/play',
+    playPath: '/game/dice_duel/play',
     coverUrl: diceCover,
   },
   {
     code: 'neon_matrix',
-    displayName:
-      'Neon Matrix',
+    displayName: 'Neon Matrix',
     icon: '🔢',
-    description:
-      'Выбери число ближе к финалу',
-    color:
-      'from-[#52FFE5]/20 via-[#9D7CFF]/16 to-transparent',
+    description: 'Выбери число ближе к финалу',
+    color: 'from-[#52FFE5]/20 via-[#9D7CFF]/16 to-transparent',
     meta: 'Neon',
     status: 'Top',
-    playPath:
-      '/game/neon_matrix/play',
+    playPath: '/game/neon_matrix/play',
     coverUrl: rouletteCover,
   },
   {
     code: 'street_race',
-    displayName:
-      'Street Race',
+    displayName: 'Street Race',
     icon: '🏎️',
-    description:
-      'Гонки на скорость',
-    color:
-      'from-[#52FFE5]/18 via-[#9D7CFF]/10 to-transparent',
+    description: 'Гонки на скорость',
+    color: 'from-[#52FFE5]/18 via-[#9D7CFF]/10 to-transparent',
     meta: 'Race',
-    playPath:
-      '/game/street_race/play',
+    playPath: '/game/street_race/play',
     coverUrl: raceCover,
   },
   {
     code: 'dunk_shot',
     displayName: 'Dunk Shot',
     icon: '🏀',
-    description:
-      'Забрасывай мяч в кольца и собирай combo',
-    color:
-      'from-[#52FFE5]/22 via-[#F2A65A]/14 to-transparent',
-    meta: 'Arcade Preview',
-    status: 'Soon',
-    playPath:
-      '/game/dunk_shot/play',
-    launchMode: 'direct',
+    description: 'Набери больше очков за 45 секунд',
+    color: 'from-[#52FFE5]/22 via-[#F2A65A]/14 to-transparent',
+    meta: 'Arcade PvP',
+    status: 'New',
+    playPath: '/game/dunk_shot/play',
+    launchMode: 'lobby',
   },
   {
     code: 'stack_ball',
     displayName: 'Stack Ball',
     icon: '🔴',
-    description:
-      'Пробивай платформы и набирай огненные серии',
-    color:
-      'from-[#FF7A90]/24 via-[#9D7CFF]/12 to-transparent',
+    description: 'Пробивай платформы и набирай огненные серии',
+    color: 'from-[#FF7A90]/24 via-[#9D7CFF]/12 to-transparent',
     meta: 'Arcade Preview',
     status: 'Soon',
-    playPath:
-      '/game/stack_ball/play',
+    playPath: '/game/stack_ball/play',
     launchMode: 'direct',
   },
   {
     code: 'disc_football',
-    displayName:
-      'Disc Football',
+    displayName: 'Disc Football',
     icon: '⚽',
-    description:
-      'Планируй удары трёх фишек и забей два гола',
-    color:
-      'from-[#52FFE5]/24 via-[#FF7A90]/14 to-transparent',
+    description: 'Планируй удары фишками и забей два гола',
+    color: 'from-[#52FFE5]/24 via-[#FF7A90]/14 to-transparent',
     meta: 'Tactical PvP',
     status: 'New',
-    playPath:
-      '/game/disc_football/play',
+    playPath: '/game/disc_football/play',
     launchMode: 'lobby',
   },
   {
     code: 'rail_grind',
     displayName: 'Rail Grind',
     icon: '🛹',
-    description:
-      'Прыжки, рельсы и серии идеальных трюков',
-    color:
-      'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
+    description: 'Прыжки, рельсы и серии идеальных трюков',
+    color: 'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
     meta: 'Arcade Preview',
     status: 'Soon',
-    playPath:
-      '/game/rail_grind/play',
+    playPath: '/game/rail_grind/play',
     launchMode: 'direct',
   },
 ];
@@ -237,31 +191,17 @@ export const FEATURED_GAME_CODES: GameCode[] = [
   'neon_matrix',
 ];
 
-export const GAME_TITLE_BY_PLAY_PATH =
-  GAME_CATALOG.reduce<
-    Record<string, string>
-  >(
-    (acc, game) => {
-      acc[game.playPath] =
-        game.displayName;
+export const GAME_TITLE_BY_PLAY_PATH = GAME_CATALOG.reduce<Record<string, string>>(
+  (acc, game) => {
+    acc[game.playPath] = game.displayName;
+    return acc;
+  },
+  {},
+);
 
-      return acc;
-    },
-    {},
-  );
+export const LOCKED_GAME_ROUTES = new Set(
+  GAME_CATALOG.map((game) => game.playPath),
+);
 
-export const LOCKED_GAME_ROUTES =
-  new Set(
-    GAME_CATALOG.map(
-      (game) =>
-        game.playPath,
-    ),
-  );
-
-export const getGameByCode = (
-  code: string,
-) =>
-  GAME_CATALOG.find(
-    (game) =>
-      game.code === code,
-  );
+export const getGameByCode = (code: string) =>
+  GAME_CATALOG.find((game) => game.code === code);

@@ -1,7 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  dunkShotWsApi,
+  type DunkShotGrade,
+  type DunkShotMatchPhase,
+  type DunkShotSocketClient,
+  type DunkShotStateMessage,
+} from '../api/dunkShotWs';
+import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
 
 type Phase = 'ready' | 'flying' | 'scoring' | 'settling';
+
+type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
+
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+  playersInfo?: LobbyPlayerInfo[];
+};
+
+type PlayerProfile = {
+  id: number;
+  name: string;
+  photoUrl: string;
+};
 
 type Vec2 = {
   x: number;
@@ -174,9 +197,12 @@ const worldToLocal = (
   };
 };
 
-const createRandom = () => {
-  let seed =
-    Math.floor(Math.random() * 2_147_483_647) || 1;
+const createRandom = (initialSeed: number) => {
+  let seed = Math.abs(Math.trunc(initialSeed)) % 2_147_483_647;
+
+  if (seed <= 0) {
+    seed = 1;
+  }
 
   return () => {
     seed = (seed * 16_807) % 2_147_483_647;
@@ -214,57 +240,289 @@ const PlayerAvatar = ({
   </div>
 );
 
+const PLAYERS_STORAGE_KEY = 'twingames_dunk_shot_players_info';
+const ACTIVE_LOBBY_STORAGE_KEY = 'twingames_active_lobby_id';
+const ACTIVE_GAME_STORAGE_KEY = 'twingames_active_game';
+const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === 'undefined') return [];
+
+  const raw =
+    window.sessionStorage.getItem(PLAYERS_STORAGE_KEY) ||
+    window.sessionStorage.getItem(LEGACY_PLAYERS_STORAGE_KEY);
+
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as LobbyPlayerInfo[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const ConnectionNotice = ({
+  title,
+  subtitle,
+  onBack,
+}: {
+  title: string;
+  subtitle: string;
+  onBack: () => void;
+}) => (
+  <div className="relative grid h-full min-h-[440px] w-full place-items-center overflow-hidden bg-transparent p-5 text-center text-white">
+    <div className="w-full max-w-[340px] rounded-[28px] border border-white/[0.09] bg-[#11100e]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.48)]">
+      <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#F2A65A]/55">
+        Dunk Shot
+      </div>
+      <div className="mt-3 text-[22px] font-black uppercase leading-none text-white">
+        {title}
+      </div>
+      <div className="mt-3 text-[11px] font-bold leading-relaxed text-white/42">
+        {subtitle}
+      </div>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-5 w-full rounded-2xl border border-white/10 bg-white px-4 py-3 text-[9px] font-black uppercase tracking-[0.14em] text-black active:scale-[0.98]"
+      >
+        К лобби
+      </button>
+    </div>
+  </div>
+);
+
 export const DunkShotGame = () => {
-  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user } = useAuth();
 
-  const playerName = user?.tg_user || 'Player';
-  const opponentName = 'Opponent';
+  const routeState = (location.state || {}) as LocationState;
 
-  const canvasRef =
-    useRef<HTMLCanvasElement | null>(null);
+  const lobbyId = useMemo(() => {
+    const query = new URLSearchParams(location.search);
 
-  const containerRef =
-    useRef<HTMLDivElement | null>(null);
+    return (
+      routeState.lobbyId ||
+      query.get('lobby_id') ||
+      query.get('lobbyId') ||
+      (typeof window !== 'undefined'
+        ? window.sessionStorage.getItem(ACTIVE_LOBBY_STORAGE_KEY) || ''
+        : '')
+    );
+  }, [location.search, routeState.lobbyId]);
 
-  const animationFrameRef =
-    useRef<number | null>(null);
+  const playersInfo = useMemo(
+    () =>
+      routeState.playersInfo?.length
+        ? routeState.playersInfo
+        : readStoredPlayersInfo(),
+    [routeState.playersInfo],
+  );
+
+  const myUserId = Number(user?.id || 0);
+
+  const profileById = useMemo(() => {
+    const map = new Map<number, PlayerProfile>();
+
+    for (const player of playersInfo) {
+      const id = Number(player.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      map.set(id, {
+        id,
+        name: player.tg_user || `Player ${id}`,
+        photoUrl: player.photo_url || '',
+      });
+    }
+
+    if (myUserId > 0) {
+      map.set(myUserId, {
+        id: myUserId,
+        name: user?.tg_user || map.get(myUserId)?.name || 'Player',
+        photoUrl: user?.photo_url || map.get(myUserId)?.photoUrl || '',
+      });
+    }
+
+    return map;
+  }, [myUserId, playersInfo, user?.photo_url, user?.tg_user]);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const socketRef = useRef<DunkShotSocketClient | null>(null);
+  const matchPhaseRef = useRef<DunkShotMatchPhase>('waiting');
+  const eventIdRef = useRef(0);
+  const serverOffsetRef = useRef(0);
+  const sendScoreEventRef = useRef<(grade: DunkShotGrade) => void>(() => {});
+  const sendMissEventRef = useRef<() => void>(() => {});
 
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
+  const [phase, setPhase] = useState<Phase>('ready');
+  const [statusText, setStatusText] = useState('READY');
+  const [showHint, setShowHint] = useState(true);
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>('connecting');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [serverState, setServerState] =
+    useState<DunkShotStateMessage | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [matchSeed, setMatchSeed] = useState(1);
 
-  const [phase, setPhase] =
-    useState<Phase>('ready');
+  const lobbiesPath = '/game/dunk_shot/lobbies';
 
-  const [statusText, setStatusText] =
-    useState('READY');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
-  const [showHint, setShowHint] =
-    useState(true);
+    if (lobbyId) {
+      window.sessionStorage.setItem(ACTIVE_LOBBY_STORAGE_KEY, lobbyId);
+      window.sessionStorage.setItem(ACTIVE_GAME_STORAGE_KEY, 'dunk_shot');
+    }
 
-  const [bestScore, setBestScore] = useState(
-    () => {
-      if (typeof window === 'undefined') {
-        return 0;
-      }
-
-      return Number(
-        window.localStorage.getItem(
-          'twingames_dunk_shot_best',
-        ) || 0,
+    if (playersInfo.length) {
+      window.sessionStorage.setItem(
+        PLAYERS_STORAGE_KEY,
+        JSON.stringify(playersInfo),
       );
-    },
-  );
+    }
+  }, [lobbyId, playersInfo]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    sendScoreEventRef.current = (grade) => {
+      if (matchPhaseRef.current !== 'playing') return;
+      eventIdRef.current += 1;
+      socketRef.current?.sendScore(eventIdRef.current, grade);
+    };
+
+    sendMissEventRef.current = () => {
+      if (matchPhaseRef.current !== 'playing') return;
+      eventIdRef.current += 1;
+      socketRef.current?.sendMiss(eventIdRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!lobbyId || !token || myUserId <= 0) return;
+
+    let alive = true;
+
+    setConnectionStatus('connecting');
+    setSocketError(null);
+
+    const client = dunkShotWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          if (!alive) return;
+          setConnectionStatus('open');
+          client.requestState();
+        },
+        onClose: () => {
+          if (!alive) return;
+          setConnectionStatus('closed');
+        },
+        onSocketError: () => {
+          if (!alive) return;
+          setConnectionStatus('error');
+          setSocketError('Не удалось подключиться к матчу');
+        },
+        onServerError: (error) => {
+          if (!alive) return;
+          setSocketError(error.details || error.error);
+        },
+        onState: (state) => {
+          if (!alive) return;
+
+          const previousPhase = matchPhaseRef.current;
+          matchPhaseRef.current = state.phase;
+          serverOffsetRef.current = Date.now() - state.server_ms;
+
+          if (state.seed > 0) {
+            setMatchSeed(state.seed);
+          }
+
+          const serverScore = state.scores[String(myUserId)] || 0;
+          const serverCombo = state.combos[String(myUserId)] || 0;
+          setScore(serverScore);
+          setCombo(serverCombo);
+
+          if (state.phase === 'countdown' && previousPhase !== 'countdown') {
+            eventIdRef.current = 0;
+            setShowHint(true);
+          }
+
+          if (state.phase === 'playing' && previousPhase !== 'playing') {
+            triggerHaptic('medium');
+          }
+
+          setServerState(state);
+          setSocketError(null);
+        },
+      },
+    });
+
+    socketRef.current = client;
+
+    return () => {
+      alive = false;
+      socketRef.current = null;
+      client.close();
+    };
+  }, [lobbyId, myUserId, token]);
+
+  const playerOrder = serverState?.player_order || [];
+  const opponentUserId = playerOrder.find((id) => id !== myUserId) || 0;
+
+  const playerProfile: PlayerProfile =
+    profileById.get(myUserId) || {
+      id: myUserId,
+      name: user?.tg_user || 'Player',
+      photoUrl: user?.photo_url || '',
+    };
+
+  const opponentProfile: PlayerProfile =
+    profileById.get(opponentUserId) || {
+      id: opponentUserId,
+      name: opponentUserId ? `Player ${opponentUserId}` : 'Opponent',
+      photoUrl: '',
+    };
+
+  const myScore = serverState?.scores[String(myUserId)] ?? score;
+  const opponentScore = serverState?.scores[String(opponentUserId)] || 0;
+  const myCombo = serverState?.combos[String(myUserId)] ?? combo;
+  const opponentCombo = serverState?.combos[String(opponentUserId)] || 0;
+  const winnerUserId = serverState?.winner_user_id || 0;
+
+  const countdownEndsClient = serverState?.countdown_ends_ms
+    ? serverState.countdown_ends_ms + serverOffsetRef.current
+    : 0;
+
+  const matchEndsClient = serverState?.match_ends_ms
+    ? serverState.match_ends_ms + serverOffsetRef.current
+    : 0;
+
+  const countdownLeft = countdownEndsClient
+    ? Math.max(0, Math.ceil((countdownEndsClient - nowMs) / 1000))
+    : 0;
+
+  const matchTimeLeft = matchEndsClient
+    ? Math.max(0, Math.ceil((matchEndsClient - nowMs) / 1000))
+    : 45;
 
   const multiplier = Math.min(
     GAME.maxMultiplier,
-    1 +
-      Math.floor(
-        Math.max(0, combo - 1) / 3,
-      ),
+    1 + Math.floor(Math.max(0, myCombo - 1) / 3),
   );
 
-  const fireballActive =
-    combo >= GAME.fireCombo;
+  const fireballActive = myCombo >= GAME.fireCombo;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -280,7 +538,8 @@ export const DunkShotGame = () => {
       return;
     }
 
-    const random = createRandom();
+    const levelRandom = createRandom(matchSeed);
+    const effectRandom = createRandom(matchSeed ^ 0x5f3759df);
 
     const viewport = {
       width: 0,
@@ -412,14 +671,14 @@ export const DunkShotGame = () => {
         index += 1
       ) {
         const angle =
-          random() * Math.PI * 2;
+          effectRandom() * Math.PI * 2;
 
         const speed =
-          (105 + random() * 350) *
+          (105 + effectRandom() * 350) *
           strength;
 
         const life =
-          0.52 + random() * 0.42;
+          0.52 + effectRandom() * 0.42;
 
         particles.push({
           x,
@@ -432,12 +691,12 @@ export const DunkShotGame = () => {
           life,
           maxLife: life,
           size:
-            1.8 + random() * 4,
+            1.8 + effectRandom() * 4,
           hue:
             hue +
-            (random() - 0.5) * 25,
+            (effectRandom() - 0.5) * 25,
           gravity:
-            350 + random() * 450,
+            350 + effectRandom() * 450,
         });
       }
     };
@@ -451,7 +710,7 @@ export const DunkShotGame = () => {
       const width = lerp(
         GAME.hoopMinWidth,
         GAME.hoopMaxWidth,
-        random(),
+        levelRandom(),
       );
 
       if (!previousHoop) {
@@ -476,7 +735,7 @@ export const DunkShotGame = () => {
       const verticalGap = lerp(
         GAME.hoopMinGap,
         GAME.hoopMaxGap,
-        random(),
+        levelRandom(),
       );
 
       const horizontalPadding =
@@ -497,23 +756,23 @@ export const DunkShotGame = () => {
         viewport.width * 0.5;
 
       const shouldAlternate =
-        random() < 0.95;
+        levelRandom() < 0.95;
 
       const placeOnRight =
         shouldAlternate
           ? previousOnLeft
-          : random() > 0.5;
+          : levelRandom() > 0.5;
 
       let targetX = placeOnRight
         ? lerp(
             viewport.width * 0.66,
             viewport.width * 0.84,
-            random(),
+            levelRandom(),
           )
         : lerp(
             viewport.width * 0.16,
             viewport.width * 0.34,
-            random(),
+            levelRandom(),
           );
 
       targetX = clamp(
@@ -558,7 +817,7 @@ export const DunkShotGame = () => {
           : 2.1;
 
       angleDegrees +=
-        (random() - 0.5) * 4.4;
+        (levelRandom() - 0.5) * 4.4;
 
       if (index % 5 === 0) {
         angleDegrees *= -0.55;
@@ -582,9 +841,9 @@ export const DunkShotGame = () => {
             Math.PI) /
           180,
         netDepth:
-          44 + random() * 4,
+          44 + levelRandom() * 4,
         bottomWidth:
-          30 + random() * 4,
+          30 + levelRandom() * 4,
         accentHue:
           index % 5 === 0
             ? 42
@@ -752,6 +1011,7 @@ export const DunkShotGame = () => {
     ) => {
       internalCombo = 0;
       setCombo(0);
+      sendMissEventRef.current();
 
       trails.length = 0;
 
@@ -778,6 +1038,7 @@ export const DunkShotGame = () => {
     const handleMiss = () => {
       internalCombo = 0;
       setCombo(0);
+      sendMissEventRef.current();
 
       trails.length = 0;
 
@@ -855,28 +1116,19 @@ export const DunkShotGame = () => {
       setScore(internalScore);
       setCombo(internalCombo);
 
-      const storedBest = Number(
-        window.localStorage.getItem(
-          'twingames_dunk_shot_best',
-        ) || 0,
-      );
-
-      if (
-        internalScore > storedBest
-      ) {
-        setBestScore(internalScore);
-
-        window.localStorage.setItem(
-          'twingames_dunk_shot_best',
-          String(internalScore),
-        );
-      }
-
       const labelText = perfect
         ? 'PERFECT SWISH'
         : clean
           ? 'SWISH'
           : 'BUCKET';
+
+      const scoreGrade: DunkShotGrade = perfect
+        ? 'perfect'
+        : clean
+          ? 'swish'
+          : 'bucket';
+
+      sendScoreEventRef.current(scoreGrade);
 
       const effectHue =
         internalCombo >=
@@ -1597,7 +1849,7 @@ export const DunkShotGame = () => {
           size:
             ball.radius *
             (0.58 +
-              random() * 0.2),
+              effectRandom() * 0.2),
         });
 
         if (
@@ -2375,12 +2627,12 @@ export const DunkShotGame = () => {
         lerp(
           ball.x,
           aim.x,
-          0.76,
+          0.61,
         ),
         lerp(
           ball.y,
           aim.y,
-          0.76,
+          0.61,
         ) - camera.y,
       );
 
@@ -2401,7 +2653,7 @@ export const DunkShotGame = () => {
 
       for (
         let index = 1;
-        index <= 10;
+        index <= 8;
         index += 1
       ) {
         previewVelocityY +=
@@ -2417,7 +2669,7 @@ export const DunkShotGame = () => {
           previewStep;
 
         const alpha =
-          1 - index / 11;
+          1 - index / 9;
 
         context.fillStyle =
           internalCombo >=
@@ -2555,13 +2807,13 @@ export const DunkShotGame = () => {
 
       const shakeX =
         camera.shake > 0.1
-          ? (random() - 0.5) *
+          ? (effectRandom() - 0.5) *
             camera.shake
           : 0;
 
       const shakeY =
         camera.shake > 0.1
-          ? (random() - 0.5) *
+          ? (effectRandom() - 0.5) *
             camera.shake
           : 0;
 
@@ -2629,7 +2881,8 @@ export const DunkShotGame = () => {
       event: PointerEvent,
     ) => {
       if (
-        currentPhase !== 'ready'
+        currentPhase !== 'ready' ||
+        matchPhaseRef.current !== 'playing'
       ) {
         return;
       }
@@ -2887,7 +3140,42 @@ export const DunkShotGame = () => {
         preventTouchScrolling,
       );
     };
-  }, []);
+  }, [matchSeed]);
+
+  if (!lobbyId) {
+    return (
+      <ConnectionNotice
+        title="Лобби не найдено"
+        subtitle="Открой Dunk Shot через игровую комнату, чтобы получить идентификатор матча."
+        onBack={() => navigate(lobbiesPath, { replace: true })}
+      />
+    );
+  }
+
+  if (!token) {
+    return (
+      <ConnectionNotice
+        title="Нет авторизации"
+        subtitle="Перезапусти приложение через Telegram и снова открой лобби."
+        onBack={() => navigate(lobbiesPath, { replace: true })}
+      />
+    );
+  }
+
+  if (!serverState && connectionStatus !== 'open') {
+    return (
+      <ConnectionNotice
+        title={connectionStatus === 'error' ? 'Ошибка соединения' : 'Подключение'}
+        subtitle={
+          socketError ||
+          (connectionStatus === 'closed'
+            ? 'Соединение с матчем закрыто.'
+            : 'Подключаемся к общему игровому серверу.')
+        }
+        onBack={() => navigate(lobbiesPath, { replace: true })}
+      />
+    );
+  }
 
   return (
     <div
@@ -2903,97 +3191,168 @@ export const DunkShotGame = () => {
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <PlayerAvatar
-              photoUrl={user?.photo_url}
-              name={playerName}
+              photoUrl={playerProfile.photoUrl}
+              name={playerProfile.name}
               side="player"
             />
 
             <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[9px] font-black leading-none text-white/90">
-                {playerName}
+              <div className="max-w-[90px] truncate text-[9px] font-black leading-none text-white/90">
+                {playerProfile.name}
               </div>
 
               <div className="mt-1.5 flex items-baseline gap-1.5">
                 <span className="text-[20px] font-black leading-none tabular-nums text-[#52FFE5]">
-                  {score}
+                  {myScore}
                 </span>
-
-                <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/28">
-                  score
+                <span
+                  className={[
+                    'text-[7px] font-black uppercase tracking-[0.12em]',
+                    fireballActive ? 'text-[#ff9d55]' : 'text-white/34',
+                  ].join(' ')}
+                >
+                  x{Math.max(1, multiplier)} · c{myCombo}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="shrink-0 px-1 text-center">
+          <div className="w-[72px] shrink-0 text-center">
             <div
               className={[
-                'text-[18px] font-black leading-none tabular-nums',
-                fireballActive
-                  ? 'text-[#ff8c36]'
-                  : 'text-white/92',
+                'font-black leading-none tabular-nums',
+                serverState?.phase === 'countdown'
+                  ? 'text-[28px] text-[#F2A65A]'
+                  : 'text-[23px] text-white',
               ].join(' ')}
             >
-              x{Math.max(1, multiplier)}
+              {serverState?.phase === 'countdown'
+                ? Math.max(1, countdownLeft)
+                : serverState?.phase === 'playing'
+                  ? matchTimeLeft
+                  : serverState?.phase === 'match_over'
+                    ? '0'
+                    : '--'}
             </div>
-
-            <div className="mt-1 text-[6px] font-black uppercase tracking-[0.15em] text-white/28">
-              combo {combo}
+            <div className="mt-1 text-[6px] font-black uppercase tracking-[0.16em] text-white/28">
+              {serverState?.phase === 'countdown'
+                ? 'start'
+                : serverState?.phase === 'playing'
+                  ? 'seconds'
+                  : statusText}
             </div>
           </div>
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
             <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[9px] font-black leading-none text-white/90">
-                {opponentName}
+              <div className="max-w-[90px] truncate text-[9px] font-black leading-none text-white/90">
+                {opponentProfile.name}
               </div>
 
               <div className="mt-1.5 flex items-baseline justify-end gap-1.5">
-                <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/28">
-                  score
+                <span className="text-[7px] font-black uppercase tracking-[0.12em] text-white/34">
+                  c{opponentCombo}
                 </span>
-
                 <span className="text-[20px] font-black leading-none tabular-nums text-[#F2A65A]">
-                  0
+                  {opponentScore}
                 </span>
               </div>
             </div>
 
             <PlayerAvatar
-              name={opponentName}
+              photoUrl={opponentProfile.photoUrl}
+              name={opponentProfile.name}
               side="opponent"
             />
           </div>
         </div>
 
-        <div className="mx-auto mt-2 flex max-w-[480px] items-center justify-between px-1">
-          <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/24">
-            best {bestScore}
-          </span>
-
-          <span
-            className={[
-              'text-[7px] font-black uppercase tracking-[0.18em]',
-              fireballActive
-                ? 'text-[#ff9d55]'
-                : 'text-white/28',
-            ].join(' ')}
-          >
-            {phase === 'ready'
-              ? 'PULL & RELEASE'
-              : statusText}
-          </span>
-
-          <span className="text-[6px] font-black uppercase tracking-[0.15em] text-white/24">
-            duel preview
-          </span>
-        </div>
+        {(socketError || connectionStatus !== 'open') && (
+          <div className="mx-auto mt-2 max-w-[280px] rounded-full border border-[#FF7A90]/20 bg-black/35 px-3 py-1.5 text-center text-[7px] font-black uppercase tracking-[0.13em] text-[#FF9BB0] backdrop-blur-md">
+            {socketError || 'Переподключение'}
+          </div>
+        )}
       </header>
 
-      {showHint && (
+      {showHint && serverState?.phase === 'playing' && phase === 'ready' && (
         <div className="pointer-events-none absolute inset-x-0 bottom-5 z-30 flex justify-center px-4">
           <div className="animate-pulse text-[9px] font-black uppercase tracking-[0.17em] text-white/42">
             Потяни мяч и отпусти
+          </div>
+        </div>
+      )}
+
+      {serverState?.phase === 'waiting' && (
+        <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center bg-black/30 px-5 backdrop-blur-[2px]">
+          <div className="rounded-[24px] border border-white/10 bg-[#11100e]/92 px-5 py-4 text-center shadow-[0_22px_70px_rgba(0,0,0,0.4)]">
+            <div className="text-[16px] font-black uppercase text-white">
+              Ждём соперника
+            </div>
+            <div className="mt-2 text-[8px] font-black uppercase tracking-[0.15em] text-white/35">
+              Игра начнётся, когда подключатся оба игрока
+            </div>
+          </div>
+        </div>
+      )}
+
+      {serverState?.phase === 'countdown' && (
+        <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center bg-black/28 backdrop-blur-[1px]">
+          <div
+            key={countdownLeft}
+            className="animate-pulse text-[72px] font-black leading-none text-[#F2A65A] drop-shadow-[0_0_30px_rgba(242,166,90,0.45)]"
+          >
+            {Math.max(1, countdownLeft)}
+          </div>
+        </div>
+      )}
+
+      {serverState?.phase === 'match_over' && (
+        <div className="absolute inset-0 z-50 grid place-items-center bg-black/60 px-5 backdrop-blur-[3px]">
+          <div className="w-full max-w-[320px] rounded-[28px] border border-white/12 bg-[#15110e]/96 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.58)]">
+            <div
+              className={[
+                'text-[24px] font-black uppercase leading-none',
+                serverState.draw
+                  ? 'text-white'
+                  : winnerUserId === myUserId
+                    ? 'text-[#52FFE5]'
+                    : 'text-[#FF7A90]',
+              ].join(' ')}
+            >
+              {serverState.draw
+                ? 'Ничья'
+                : winnerUserId === myUserId
+                  ? 'Победа!'
+                  : 'Поражение'}
+            </div>
+
+            <div className="mt-4 flex items-center justify-center gap-5">
+              <div>
+                <div className="text-[24px] font-black text-[#52FFE5]">
+                  {myScore}
+                </div>
+                <div className="mt-1 text-[7px] font-black uppercase tracking-[0.13em] text-white/32">
+                  твои очки
+                </div>
+              </div>
+              <div className="text-[18px] font-black text-white/20">:</div>
+              <div>
+                <div className="text-[24px] font-black text-[#F2A65A]">
+                  {opponentScore}
+                </div>
+                <div className="mt-1 text-[7px] font-black uppercase tracking-[0.13em] text-white/32">
+                  соперник
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate(lobbiesPath, { replace: true })}
+              className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
+            >
+              К списку лобби
+            </button>
           </div>
         </div>
       )}

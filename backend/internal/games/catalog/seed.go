@@ -22,7 +22,6 @@ func DefaultGameSettings() []models.GameSetting {
 			MaxBet:    500,
 			SortOrder: order,
 		})
-
 		order++
 	}
 
@@ -36,7 +35,6 @@ func DefaultGameSettings() []models.GameSetting {
 			MaxBet:    game.MaxBet,
 			SortOrder: order,
 		})
-
 		order++
 	}
 
@@ -50,9 +48,7 @@ func SeedGameSettingsIfEmpty(db *gorm.DB) error {
 
 	for _, item := range DefaultGameSettings() {
 		if err := db.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "code"},
-			},
+			Columns:   []clause.Column{{Name: "code"}},
 			DoNothing: true,
 		}).Create(&item).Error; err != nil {
 			return err
