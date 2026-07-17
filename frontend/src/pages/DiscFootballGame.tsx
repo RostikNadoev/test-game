@@ -244,6 +244,7 @@ const sampleSnapshots = (snapshots: Snapshot[], now: number) => {
   }
 
   const latest = snapshots[snapshots.length - 1];
+
   if (renderAt > latest.receivedAt && latest.phase === 'resolving') {
     const seconds = clamp(
       (renderAt - latest.receivedAt) / 1000,
@@ -299,12 +300,15 @@ const ConnectionNotice = ({
       <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#52FFE5]/50">
         Disc Football
       </div>
+
       <div className="mt-3 text-[22px] font-black uppercase leading-none text-white">
         {title}
       </div>
+
       <div className="mt-3 text-[11px] font-bold leading-relaxed text-white/42">
         {subtitle}
       </div>
+
       <button
         type="button"
         onClick={onBack}
@@ -351,6 +355,7 @@ export const DiscFootballGame = () => {
 
     for (const player of playersInfo) {
       const id = Number(player.id);
+
       if (!Number.isFinite(id) || id <= 0) continue;
 
       map.set(id, {
@@ -414,30 +419,8 @@ export const DiscFootballGame = () => {
   }, [lobbyId, playersInfo]);
 
   useEffect(() => {
-    const images = new Map<number, HTMLImageElement>();
-
-    for (const profile of profileById.values()) {
-      if (!profile.photoUrl) continue;
-
-      const image = new Image();
-      image.crossOrigin = 'anonymous';
-      image.decoding = 'async';
-      image.src = profile.photoUrl;
-      images.set(profile.id, image);
-    }
-
-    avatarImagesRef.current = images;
-
-    return () => {
-      for (const image of images.values()) {
-        image.onload = null;
-        image.onerror = null;
-      }
-    };
-  }, [profileById]);
-
-  useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 100);
+
     return () => window.clearInterval(timer);
   }, []);
 
@@ -455,20 +438,24 @@ export const DiscFootballGame = () => {
       handlers: {
         onOpen: () => {
           if (!alive) return;
+
           setConnectionStatus('open');
           client.requestState();
         },
         onClose: () => {
           if (!alive) return;
+
           setConnectionStatus('closed');
         },
         onSocketError: () => {
           if (!alive) return;
+
           setConnectionStatus('error');
           setSocketError('Не удалось подключиться к матчу');
         },
         onServerError: (error) => {
           if (!alive) return;
+
           setSocketError(error.details || error.error);
         },
         onState: (state) => {
@@ -476,6 +463,7 @@ export const DiscFootballGame = () => {
 
           const playerIndex = state.player_order.indexOf(myUserId);
           const side: 0 | 1 = playerIndex === 1 ? 1 : 0;
+
           sideRef.current = side;
           serverOffsetRef.current = Date.now() - state.server_ms;
 
@@ -520,6 +508,7 @@ export const DiscFootballGame = () => {
           if (state.goal_seq > lastGoalSeqRef.current) {
             lastGoalSeqRef.current = state.goal_seq;
             goalSignalRef.current = state.goal_seq;
+
             triggerHaptic(
               state.goal_scorer_user_id === myUserId ? 'success' : 'error',
             );
@@ -535,6 +524,7 @@ export const DiscFootballGame = () => {
           previousRoundRef.current = state.round;
           previousPhaseRef.current = state.phase;
           stateRef.current = state;
+
           setServerState(state);
           setSocketError(null);
         },
@@ -546,6 +536,7 @@ export const DiscFootballGame = () => {
     return () => {
       alive = false;
       socketRef.current = null;
+
       client.close();
     };
   }, [lobbyId, myUserId, token]);
@@ -566,6 +557,40 @@ export const DiscFootballGame = () => {
       name: opponentUserId ? `Player ${opponentUserId}` : 'Opponent',
       photoUrl: '',
     };
+
+  useEffect(() => {
+    const images = new Map<number, HTMLImageElement>();
+    const profiles = [homeProfile, awayProfile];
+
+    avatarImagesRef.current = images;
+
+    for (const profile of profiles) {
+      if (!profile.id || !profile.photoUrl || images.has(profile.id)) continue;
+
+      const image = new Image();
+
+      image.decoding = 'async';
+      image.src = profile.photoUrl;
+
+      images.set(profile.id, image);
+    }
+
+    return () => {
+      for (const image of images.values()) {
+        image.onload = null;
+        image.onerror = null;
+      }
+
+      if (avatarImagesRef.current === images) {
+        avatarImagesRef.current = new Map();
+      }
+    };
+  }, [
+    awayProfile.id,
+    awayProfile.photoUrl,
+    homeProfile.id,
+    homeProfile.photoUrl,
+  ]);
 
   const homeScore = serverState?.score[String(myUserId)] || 0;
   const awayScore = serverState?.score[String(opponentUserId)] || 0;
@@ -593,18 +618,24 @@ export const DiscFootballGame = () => {
     switch (serverState.phase) {
       case 'waiting':
         return 'WAITING';
+
       case 'planning':
         return String(timeLeft);
+
       case 'reveal':
         return revealLeft > 0 ? 'REVEAL' : 'READY';
+
       case 'resolving':
         return 'PLAY';
+
       case 'goal':
         return serverState.goal_scorer_user_id === myUserId
           ? 'YOUR GOAL'
           : 'RIVAL GOAL';
+
       case 'match_over':
         return winnerUserId === myUserId ? 'VICTORY' : 'DEFEAT';
+
       default:
         return '';
     }
@@ -617,6 +648,7 @@ export const DiscFootballGame = () => {
     if (!canvas || !container) return;
 
     const context = canvas.getContext('2d');
+
     if (!context) return;
 
     const viewport = {
@@ -649,6 +681,7 @@ export const DiscFootballGame = () => {
     };
 
     const sparks: Spark[] = [];
+
     let lastFrameAt = performance.now();
     let lastRenderedGoalSeq = 0;
 
@@ -679,6 +712,7 @@ export const DiscFootballGame = () => {
 
     const worldToCanvas = (x: number, y: number) => {
       const board = boardSize();
+
       return {
         x: field.left + (x / board.width) * field.width,
         y: field.top + (y / board.height) * field.height,
@@ -687,6 +721,7 @@ export const DiscFootballGame = () => {
 
     const canvasToWorld = (x: number, y: number) => {
       const board = boardSize();
+
       return {
         x: ((x - field.left) / field.width) * board.width,
         y: ((y - field.top) / field.height) * board.height,
@@ -695,6 +730,7 @@ export const DiscFootballGame = () => {
 
     const worldRadiusToPixels = (radius: number) => {
       const board = boardSize();
+
       return radius * (field.width / board.width);
     };
 
@@ -710,94 +746,99 @@ export const DiscFootballGame = () => {
     };
 
     const drawGoal = (team: Team) => {
-      const topGoal = team === 'home';
-      const accent = topGoal ? '#52FFE5' : '#FF7A90';
-      const glow = topGoal
-        ? 'rgba(82,255,229,0.58)'
-        : 'rgba(255,122,144,0.58)';
+      const isOwnGoal = team === 'home';
+      const topGoal = !isOwnGoal;
+      const accent = isOwnGoal ? '#4DA3FF' : '#FF4F68';
+      const glow = isOwnGoal
+        ? 'rgba(77,163,255,0.62)'
+        : 'rgba(255,79,104,0.62)';
 
       const frontY = topGoal ? field.top : field.bottom;
       const backY = topGoal
         ? frontY - field.goalDepth
         : frontY + field.goalDepth;
-      const inset = 8;
-      const backLeft = field.goalLeft + inset;
-      const backRight = field.goalRight - inset;
+
+      const netTop = Math.min(frontY, backY);
+      const netHeight = Math.abs(backY - frontY);
 
       context.save();
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
 
-      const shadow = context.createLinearGradient(
+      const netFill = context.createLinearGradient(
         field.centerX,
         frontY,
         field.centerX,
         backY,
       );
-      shadow.addColorStop(0, 'rgba(0,0,0,0.04)');
-      shadow.addColorStop(1, 'rgba(0,0,0,0.38)');
-      context.fillStyle = shadow;
-      context.beginPath();
-      context.moveTo(field.goalLeft, frontY);
-      context.lineTo(field.goalRight, frontY);
-      context.lineTo(backRight, backY);
-      context.lineTo(backLeft, backY);
-      context.closePath();
-      context.fill();
 
+      netFill.addColorStop(0, 'rgba(255,255,255,0.035)');
+      netFill.addColorStop(1, 'rgba(0,0,0,0.32)');
+
+      context.fillStyle = netFill;
+
+      context.fillRect(
+        field.goalLeft,
+        netTop,
+        field.goalWidth,
+        netHeight,
+      );
+
+      context.strokeStyle = 'rgba(255,255,255,0.2)';
       context.lineWidth = 0.9;
-      context.strokeStyle = 'rgba(255,255,255,0.22)';
 
       for (let column = 0; column <= 8; column += 1) {
-        const progress = column / 8;
+        const x = lerp(field.goalLeft, field.goalRight, column / 8);
+
         context.beginPath();
-        context.moveTo(
-          lerp(field.goalLeft, field.goalRight, progress),
-          frontY,
-        );
-        context.lineTo(lerp(backLeft, backRight, progress), backY);
+        context.moveTo(x, frontY);
+        context.lineTo(x, backY);
         context.stroke();
       }
 
       for (let row = 1; row <= 4; row += 1) {
-        const progress = row / 4;
+        const y = lerp(frontY, backY, row / 4);
+
         context.beginPath();
-        context.moveTo(
-          lerp(field.goalLeft, backLeft, progress),
-          lerp(frontY, backY, progress),
-        );
-        context.lineTo(
-          lerp(field.goalRight, backRight, progress),
-          lerp(frontY, backY, progress),
-        );
+        context.moveTo(field.goalLeft, y);
+        context.lineTo(field.goalRight, y);
         context.stroke();
       }
 
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
-      context.shadowBlur = 14;
+      context.shadowBlur = 15;
       context.shadowColor = glow;
       context.strokeStyle = accent;
       context.lineWidth = 4.2;
+
       context.beginPath();
       context.moveTo(field.goalLeft, frontY);
-      context.lineTo(backLeft, backY);
-      context.lineTo(backRight, backY);
+      context.lineTo(field.goalLeft, backY);
+      context.lineTo(field.goalRight, backY);
       context.lineTo(field.goalRight, frontY);
       context.stroke();
 
       context.shadowBlur = 0;
-      context.strokeStyle = 'rgba(255,255,255,0.86)';
+      context.strokeStyle = 'rgba(255,255,255,0.78)';
       context.lineWidth = 1;
+
+      context.beginPath();
+      context.moveTo(field.goalLeft, frontY);
+      context.lineTo(field.goalLeft, backY);
+      context.lineTo(field.goalRight, backY);
+      context.lineTo(field.goalRight, frontY);
       context.stroke();
 
-      context.fillStyle = '#f6fffd';
+      context.fillStyle = '#ffffff';
       context.shadowBlur = 9;
       context.shadowColor = glow;
+
       for (const x of [field.goalLeft, field.goalRight]) {
         context.beginPath();
-        context.arc(x, frontY, 4.7, 0, Math.PI * 2);
+        context.arc(x, frontY, 4.6, 0, Math.PI * 2);
         context.fill();
       }
 
+      context.shadowBlur = 0;
       context.restore();
     };
 
@@ -812,15 +853,20 @@ export const DiscFootballGame = () => {
         field.right,
         field.bottom,
       );
+
       fieldGradient.addColorStop(0, '#15483f');
       fieldGradient.addColorStop(0.48, '#0d352f');
       fieldGradient.addColorStop(1, '#08251f');
+
       context.fillStyle = fieldGradient;
+
       roundedRect(field.left, field.top, field.width, field.height, 24);
       context.fill();
+
       context.shadowBlur = 0;
 
       context.save();
+
       roundedRect(field.left, field.top, field.width, field.height, 24);
       context.clip();
 
@@ -829,6 +875,7 @@ export const DiscFootballGame = () => {
           stripe % 2 === 0
             ? 'rgba(135,255,205,0.026)'
             : 'rgba(0,0,0,0.036)';
+
         context.fillRect(
           field.left + (field.width * stripe) / 10,
           field.top,
@@ -845,17 +892,27 @@ export const DiscFootballGame = () => {
         field.centerY,
         field.height * 0.64,
       );
+
       centerLight.addColorStop(0, 'rgba(114,255,205,0.075)');
       centerLight.addColorStop(0.58, 'rgba(37,136,103,0.026)');
       centerLight.addColorStop(1, 'rgba(0,0,0,0.24)');
+
       context.fillStyle = centerLight;
-      context.fillRect(field.left, field.top, field.width, field.height);
+
+      context.fillRect(
+        field.left,
+        field.top,
+        field.width,
+        field.height,
+      );
 
       context.globalAlpha = 0.052;
       context.fillStyle = '#d7fff3';
+
       for (let index = 0; index < 90; index += 1) {
         const seedX = Math.sin(index * 91.771) * 43758.5453;
         const seedY = Math.sin(index * 47.113) * 24634.6345;
+
         context.fillRect(
           field.left + (seedX - Math.floor(seedX)) * field.width,
           field.top + (seedY - Math.floor(seedY)) * field.height,
@@ -863,6 +920,7 @@ export const DiscFootballGame = () => {
           0.8,
         );
       }
+
       context.globalAlpha = 1;
       context.restore();
 
@@ -872,53 +930,77 @@ export const DiscFootballGame = () => {
         field.right,
         field.bottom,
       );
+
       borderGradient.addColorStop(0, 'rgba(82,255,229,0.48)');
       borderGradient.addColorStop(0.5, 'rgba(255,255,255,0.34)');
       borderGradient.addColorStop(1, 'rgba(255,122,144,0.48)');
+
       context.strokeStyle = borderGradient;
       context.lineWidth = 1.6;
+
       roundedRect(field.left, field.top, field.width, field.height, 24);
       context.stroke();
 
       context.strokeStyle = 'rgba(255,255,255,0.34)';
       context.lineWidth = 1.2;
+
       context.beginPath();
       context.moveTo(field.left, field.centerY);
       context.lineTo(field.right, field.centerY);
       context.stroke();
 
       const centerRadius = clamp(field.width * 0.13, 42, 55);
+
       context.beginPath();
-      context.arc(field.centerX, field.centerY, centerRadius, 0, Math.PI * 2);
+      context.arc(
+        field.centerX,
+        field.centerY,
+        centerRadius,
+        0,
+        Math.PI * 2,
+      );
       context.stroke();
+
       context.fillStyle = 'rgba(255,255,255,0.72)';
+
       context.beginPath();
-      context.arc(field.centerX, field.centerY, 2.5, 0, Math.PI * 2);
+      context.arc(
+        field.centerX,
+        field.centerY,
+        2.5,
+        0,
+        Math.PI * 2,
+      );
       context.fill();
 
       const penaltyWidth = field.goalWidth * 1.72;
       const penaltyHeight = clamp(field.height * 0.12, 54, 72);
       const goalBoxWidth = field.goalWidth * 1.22;
       const goalBoxHeight = penaltyHeight * 0.48;
+
       context.strokeStyle = 'rgba(255,255,255,0.3)';
+
       context.strokeRect(
         field.centerX - penaltyWidth / 2,
         field.top,
         penaltyWidth,
         penaltyHeight,
       );
+
       context.strokeRect(
         field.centerX - penaltyWidth / 2,
         field.bottom - penaltyHeight,
         penaltyWidth,
         penaltyHeight,
       );
+
       context.strokeRect(
         field.centerX - goalBoxWidth / 2,
         field.top,
         goalBoxWidth,
         goalBoxHeight,
       );
+
       context.strokeRect(
         field.centerX - goalBoxWidth / 2,
         field.bottom - goalBoxHeight,
@@ -927,6 +1009,7 @@ export const DiscFootballGame = () => {
       );
 
       context.fillStyle = 'rgba(255,255,255,0.62)';
+
       context.beginPath();
       context.arc(
         field.centerX,
@@ -936,6 +1019,7 @@ export const DiscFootballGame = () => {
         Math.PI * 2,
       );
       context.fill();
+
       context.beginPath();
       context.arc(
         field.centerX,
@@ -948,21 +1032,29 @@ export const DiscFootballGame = () => {
 
       drawGoal('home');
       drawGoal('away');
+
       context.restore();
     };
 
-    const profileFor = (userId: number) =>
-      profileById.get(userId) || {
-        id: userId,
-        name: userId === myUserId ? homeProfile.name : awayProfile.name,
-        photoUrl: '',
-      };
+    const profileFor = (userId: number) => {
+      if (userId === myUserId) return homeProfile;
+      if (userId === opponentUserId) return awayProfile;
+
+      return (
+        profileById.get(userId) || {
+          id: userId,
+          name: `Player ${userId}`,
+          photoUrl: '',
+        }
+      );
+    };
 
     const drawDisc = (body: DiscFootballBody) => {
       const point = worldToCanvas(body.x, body.y);
       const radius = worldRadiusToPixels(body.radius);
       const isMine = body.owner_user_id === myUserId;
       const hue = isMine ? 177 : 350;
+
       const selected =
         isMine &&
         body.disc_index !== undefined &&
@@ -970,8 +1062,11 @@ export const DiscFootballGame = () => {
           drag.discIndex === body.disc_index);
 
       context.save();
+
       context.shadowBlur = selected ? 22 : 12;
-      context.shadowColor = `hsla(${hue},100%,55%,${selected ? 0.75 : 0.38})`;
+      context.shadowColor = `hsla(${hue},100%,55%,${
+        selected ? 0.75 : 0.38
+      })`;
 
       const shell = context.createRadialGradient(
         point.x - radius * 0.36,
@@ -981,18 +1076,23 @@ export const DiscFootballGame = () => {
         point.y,
         radius * 1.15,
       );
+
       shell.addColorStop(0, isMine ? '#bffff5' : '#ffd2dc');
       shell.addColorStop(0.34, isMine ? '#33d5c2' : '#f05e7d');
       shell.addColorStop(1, isMine ? '#096c65' : '#8a1f39');
+
       context.fillStyle = shell;
+
       context.beginPath();
       context.arc(point.x, point.y, radius, 0, Math.PI * 2);
       context.fill();
+
       context.shadowBlur = 0;
 
       context.strokeStyle = selected
         ? 'rgba(255,255,255,0.95)'
         : 'rgba(255,255,255,0.4)';
+
       context.lineWidth = selected ? 2.6 : 1.5;
       context.stroke();
 
@@ -1001,8 +1101,15 @@ export const DiscFootballGame = () => {
       const image = avatarImagesRef.current.get(ownerId);
 
       context.save();
+
       context.beginPath();
-      context.arc(point.x, point.y, radius - 5.3, 0, Math.PI * 2);
+      context.arc(
+        point.x,
+        point.y,
+        radius - 5.3,
+        0,
+        Math.PI * 2,
+      );
       context.clip();
 
       if (image?.complete && image.naturalWidth > 0) {
@@ -1022,33 +1129,51 @@ export const DiscFootballGame = () => {
           point.y,
           radius,
         );
+
         avatarGradient.addColorStop(0, isMine ? '#d7fffa' : '#ffe6eb');
         avatarGradient.addColorStop(0.48, isMine ? '#53d7c6' : '#f27891');
         avatarGradient.addColorStop(1, isMine ? '#166d67' : '#8e2940');
+
         context.fillStyle = avatarGradient;
+
         context.fillRect(
           point.x - radius,
           point.y - radius,
           radius * 2,
           radius * 2,
         );
+
         context.fillStyle = 'rgba(255,255,255,0.92)';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.font = `900 ${Math.round(
           radius * 0.72,
         )}px Supercell, system-ui, sans-serif`;
-        context.fillText(getInitials(profile.name), point.x, point.y + 1);
+
+        context.fillText(
+          getInitials(profile.name),
+          point.x,
+          point.y + 1,
+        );
       }
+
       context.restore();
 
       context.strokeStyle = `hsla(${hue},100%,72%,0.88)`;
       context.lineWidth = 2.1;
+
       context.beginPath();
-      context.arc(point.x, point.y, radius - 4, 0, Math.PI * 2);
+      context.arc(
+        point.x,
+        point.y,
+        radius - 4,
+        0,
+        Math.PI * 2,
+      );
       context.stroke();
 
       context.fillStyle = 'rgba(255,255,255,0.7)';
+
       context.beginPath();
       context.arc(
         point.x - radius * 0.38,
@@ -1058,6 +1183,7 @@ export const DiscFootballGame = () => {
         Math.PI * 2,
       );
       context.fill();
+
       context.restore();
     };
 
@@ -1068,6 +1194,7 @@ export const DiscFootballGame = () => {
       context.save();
       context.translate(point.x, point.y);
       context.rotate(body.rotation);
+
       context.shadowBlur = 13;
       context.shadowColor = 'rgba(242,199,102,0.48)';
 
@@ -1079,39 +1206,50 @@ export const DiscFootballGame = () => {
         0,
         radius * 1.15,
       );
+
       gradient.addColorStop(0, '#fff8dc');
       gradient.addColorStop(0.42, '#f5ddb0');
       gradient.addColorStop(1, '#b7904d');
+
       context.fillStyle = gradient;
+
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
       context.fill();
+
       context.shadowBlur = 0;
 
       context.strokeStyle = 'rgba(60,46,28,0.68)';
       context.lineWidth = 1.2;
+
       context.beginPath();
       context.arc(0, 0, radius * 0.92, 0, Math.PI * 2);
       context.stroke();
 
       for (let index = 0; index < 5; index += 1) {
         const angle = (Math.PI * 2 * index) / 5 - Math.PI / 2;
+
         context.beginPath();
+
         context.moveTo(
           Math.cos(angle) * radius * 0.18,
           Math.sin(angle) * radius * 0.18,
         );
+
         context.lineTo(
           Math.cos(angle) * radius * 0.72,
           Math.sin(angle) * radius * 0.72,
         );
+
         context.stroke();
       }
 
       context.fillStyle = 'rgba(50,39,24,0.74)';
+
       context.beginPath();
       context.arc(0, 0, radius * 0.22, 0, Math.PI * 2);
       context.fill();
+
       context.restore();
     };
 
@@ -1125,16 +1263,22 @@ export const DiscFootballGame = () => {
 
       const start = worldToCanvas(body.x, body.y);
       const radius = worldRadiusToPixels(body.radius);
-      const directionLength = Math.max(0.0001, vectorLength(plan.dx, plan.dy));
+      const directionLength = Math.max(
+        0.0001,
+        vectorLength(plan.dx, plan.dy),
+      );
+
       const directionX = plan.dx / directionLength;
       const directionY = plan.dy / directionLength;
       const arrowLength = 38 + plan.power * 76;
+
       const startX = start.x + directionX * (radius + 7);
       const startY = start.y + directionY * (radius + 7);
       const endX = start.x + directionX * arrowLength;
       const endY = start.y + directionY * arrowLength;
 
       context.save();
+
       context.globalAlpha = alpha;
       context.lineCap = 'round';
       context.lineJoin = 'round';
@@ -1143,6 +1287,7 @@ export const DiscFootballGame = () => {
       context.shadowBlur = 14;
       context.shadowColor = `hsla(${hue},100%,55%,0.72)`;
       context.lineWidth = 4;
+
       context.beginPath();
       context.moveTo(startX, startY);
       context.lineTo(endX, endY);
@@ -1151,18 +1296,23 @@ export const DiscFootballGame = () => {
       const angle = Math.atan2(directionY, directionX);
       const headLength = 12;
       const headAngle = 0.52;
+
       context.beginPath();
       context.moveTo(endX, endY);
+
       context.lineTo(
         endX - Math.cos(angle - headAngle) * headLength,
         endY - Math.sin(angle - headAngle) * headLength,
       );
+
       context.lineTo(
         endX - Math.cos(angle + headAngle) * headLength,
         endY - Math.sin(angle + headAngle) * headLength,
       );
+
       context.closePath();
       context.fill();
+
       context.restore();
     };
 
@@ -1180,18 +1330,35 @@ export const DiscFootballGame = () => {
 
     const drawArrows = (bodies: DiscFootballBody[]) => {
       const state = stateRef.current;
+
       if (!state) return;
 
       if (state.phase === 'planning') {
         for (const plan of localPlansRef.current.values()) {
-          const body = bodyForDisc(bodies, myUserId, plan.disc_index);
-          if (body) drawArrow(body, plan, 177, 0.92);
+          const body = bodyForDisc(
+            bodies,
+            myUserId,
+            plan.disc_index,
+          );
+
+          if (body) {
+            drawArrow(body, plan, 177, 0.92);
+          }
         }
 
         if (drag.active && drag.discIndex !== null) {
-          const body = bodyForDisc(bodies, myUserId, drag.discIndex);
+          const body = bodyForDisc(
+            bodies,
+            myUserId,
+            drag.discIndex,
+          );
+
           if (body) {
-            const point = canvasToWorld(drag.pointerX, drag.pointerY);
+            const point = canvasToWorld(
+              drag.pointerX,
+              drag.pointerY,
+            );
+
             const dx = point.x - body.x;
             const dy = point.y - body.y;
             const distance = vectorLength(dx, dy);
@@ -1219,9 +1386,20 @@ export const DiscFootballGame = () => {
           const hue = userId === myUserId ? 177 : 350;
 
           for (const serverPlan of serverPlans) {
-            const plan = transformPlanToLocal(serverPlan, sideRef.current);
-            const body = bodyForDisc(bodies, userId, plan.disc_index);
-            if (body) drawArrow(body, plan, hue, 0.94);
+            const plan = transformPlanToLocal(
+              serverPlan,
+              sideRef.current,
+            );
+
+            const body = bodyForDisc(
+              bodies,
+              userId,
+              plan.disc_index,
+            );
+
+            if (body) {
+              drawArrow(body, plan, hue, 0.94);
+            }
           }
         }
       }
@@ -1229,16 +1407,19 @@ export const DiscFootballGame = () => {
 
     const spawnGoalSparks = (bodies: DiscFootballBody[]) => {
       const ball = bodies.find((body) => body.kind === 'ball');
+
       if (!ball) return;
 
       const point = worldToCanvas(ball.x, ball.y);
-      const scorerIsMine = stateRef.current?.goal_scorer_user_id === myUserId;
+      const scorerIsMine =
+        stateRef.current?.goal_scorer_user_id === myUserId;
       const hue = scorerIsMine ? 177 : 350;
 
       for (let index = 0; index < 34; index += 1) {
         const angle = Math.random() * Math.PI * 2;
         const speed = 70 + Math.random() * 270;
         const life = 0.45 + Math.random() * 0.5;
+
         sparks.push({
           x: point.x,
           y: point.y,
@@ -1262,26 +1443,42 @@ export const DiscFootballGame = () => {
       }
 
       for (let index = sparks.length - 1; index >= 0; index -= 1) {
-        if (sparks[index].life <= 0) sparks.splice(index, 1);
+        if (sparks[index].life <= 0) {
+          sparks.splice(index, 1);
+        }
       }
     };
 
     const drawSparks = () => {
       context.save();
+
       context.globalCompositeOperation = 'lighter';
 
       for (const spark of sparks) {
-        const alpha = clamp(spark.life / spark.maxLife, 0, 1);
+        const alpha = clamp(
+          spark.life / spark.maxLife,
+          0,
+          1,
+        );
+
         context.globalAlpha = alpha;
         context.fillStyle = `hsl(${spark.hue},100%,68%)`;
         context.shadowBlur = 8;
         context.shadowColor = `hsla(${spark.hue},100%,58%,0.8)`;
+
         context.beginPath();
-        context.arc(spark.x, spark.y, spark.size * alpha, 0, Math.PI * 2);
+        context.arc(
+          spark.x,
+          spark.y,
+          spark.size * alpha,
+          0,
+          Math.PI * 2,
+        );
         context.fill();
       }
 
       context.restore();
+
       context.globalAlpha = 1;
       context.shadowBlur = 0;
       context.globalCompositeOperation = 'source-over';
@@ -1289,18 +1486,31 @@ export const DiscFootballGame = () => {
 
     const getRenderBodies = (now: number) => {
       const state = stateRef.current;
+
       if (!state) return renderBodiesRef.current;
 
       if (state.phase === 'resolving') {
-        const sampled = sampleSnapshots(snapshotsRef.current, now);
-        if (sampled) renderBodiesRef.current = sampled;
+        const sampled = sampleSnapshots(
+          snapshotsRef.current,
+          now,
+        );
+
+        if (sampled) {
+          renderBodiesRef.current = sampled;
+        }
       }
 
       return renderBodiesRef.current;
     };
 
     const render = (now: number, deltaTime: number) => {
-      context.clearRect(0, 0, viewport.width, viewport.height);
+      context.clearRect(
+        0,
+        0,
+        viewport.width,
+        viewport.height,
+      );
+
       drawField();
 
       const bodies = getRenderBodies(now);
@@ -1316,49 +1526,83 @@ export const DiscFootballGame = () => {
       drawArrows(bodies);
 
       for (const body of bodies) {
-        if (body.kind === 'disc') drawDisc(body);
-        else drawBall(body);
+        if (body.kind === 'disc') {
+          drawDisc(body);
+        } else {
+          drawBall(body);
+        }
       }
 
       updateSparks(deltaTime);
       drawSparks();
 
-      const phase = stateRef.current?.phase;
-      if (phase === 'goal') {
+      const currentPhase = stateRef.current?.phase;
+
+      if (currentPhase === 'goal') {
         context.save();
+
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.font = '900 22px Supercell, system-ui, sans-serif';
+
         context.fillStyle =
           stateRef.current?.goal_scorer_user_id === myUserId
             ? '#52FFE5'
             : '#FF7A90';
+
         context.shadowBlur = 22;
+
         context.shadowColor =
           stateRef.current?.goal_scorer_user_id === myUserId
             ? 'rgba(82,255,229,0.72)'
             : 'rgba(255,122,144,0.72)';
-        context.fillText('GOAL!', field.centerX, field.centerY);
+
+        context.fillText(
+          'GOAL!',
+          field.centerX,
+          field.centerY,
+        );
+
         context.restore();
       }
     };
 
     const resize = () => {
       const bounds = container.getBoundingClientRect();
+
       viewport.width = Math.max(1, bounds.width);
       viewport.height = Math.max(520, bounds.height);
-      viewport.dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      viewport.dpr = Math.min(
+        window.devicePixelRatio || 1,
+        MAX_DPR,
+      );
 
-      canvas.width = Math.round(viewport.width * viewport.dpr);
-      canvas.height = Math.round(viewport.height * viewport.dpr);
+      canvas.width = Math.round(
+        viewport.width * viewport.dpr,
+      );
+
+      canvas.height = Math.round(
+        viewport.height * viewport.dpr,
+      );
+
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
-      context.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
+
+      context.setTransform(
+        viewport.dpr,
+        0,
+        0,
+        viewport.dpr,
+        0,
+        0,
+      );
+
       buildField();
     };
 
     const pointerPosition = (event: PointerEvent) => {
       const bounds = canvas.getBoundingClientRect();
+
       return {
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
@@ -1367,44 +1611,73 @@ export const DiscFootballGame = () => {
 
     const sendCurrentPlans = () => {
       const plans = [...localPlansRef.current.values()]
-        .sort((first, second) => first.disc_index - second.disc_index)
-        .map((plan) => transformPlanToServer(plan, sideRef.current));
+        .sort(
+          (first, second) =>
+            first.disc_index - second.disc_index,
+        )
+        .map((plan) =>
+          transformPlanToServer(
+            plan,
+            sideRef.current,
+          ),
+        );
 
       socketRef.current?.submitPlans(plans);
     };
 
     const handlePointerDown = (event: PointerEvent) => {
       const state = stateRef.current;
-      if (!state || state.phase !== 'planning' || !state.ready) return;
+
+      if (!state || state.phase !== 'planning' || !state.ready) {
+        return;
+      }
 
       const pointer = pointerPosition(event);
       const bodies = renderBodiesRef.current;
 
       const selected = bodies
         .filter(
-          (body) => body.kind === 'disc' && body.owner_user_id === myUserId,
+          (body) =>
+            body.kind === 'disc' &&
+            body.owner_user_id === myUserId,
         )
         .map((body) => {
           const point = worldToCanvas(body.x, body.y);
+
           return {
             body,
-            distance: vectorLength(pointer.x - point.x, pointer.y - point.y),
+            distance: vectorLength(
+              pointer.x - point.x,
+              pointer.y - point.y,
+            ),
             radius: worldRadiusToPixels(body.radius),
           };
         })
-        .filter((item) => item.distance <= item.radius + 18)
-        .sort((first, second) => first.distance - second.distance)[0]?.body;
+        .filter(
+          (item) =>
+            item.distance <= item.radius + 18,
+        )
+        .sort(
+          (first, second) =>
+            first.distance - second.distance,
+        )[0]?.body;
 
-      if (!selected || selected.disc_index === undefined) return;
+      if (!selected || selected.disc_index === undefined) {
+        return;
+      }
 
       event.preventDefault();
+
       setShowIntroHint(false);
+
       canvas.setPointerCapture(event.pointerId);
+
       drag.active = true;
       drag.pointerId = event.pointerId;
       drag.discIndex = selected.disc_index;
       drag.pointerX = pointer.x;
       drag.pointerY = pointer.y;
+
       triggerHaptic('light');
     };
 
@@ -1418,7 +1691,9 @@ export const DiscFootballGame = () => {
       }
 
       event.preventDefault();
+
       const pointer = pointerPosition(event);
+
       const body = renderBodiesRef.current.find(
         (item) =>
           item.kind === 'disc' &&
@@ -1432,17 +1707,27 @@ export const DiscFootballGame = () => {
       const dx = pointer.x - bodyPoint.x;
       const dy = pointer.y - bodyPoint.y;
       const distance = vectorLength(dx, dy);
-      const maxPixels = MAX_AIM_WORLD * (field.width / boardSize().width);
+      const maxPixels =
+        MAX_AIM_WORLD *
+        (field.width / boardSize().width);
+
       const limited = Math.min(maxPixels, distance);
 
       if (distance > 0.0001) {
-        drag.pointerX = bodyPoint.x + (dx / distance) * limited;
-        drag.pointerY = bodyPoint.y + (dy / distance) * limited;
+        drag.pointerX =
+          bodyPoint.x +
+          (dx / distance) * limited;
+
+        drag.pointerY =
+          bodyPoint.y +
+          (dy / distance) * limited;
       }
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      if (!drag.active || drag.pointerId !== event.pointerId) return;
+      if (!drag.active || drag.pointerId !== event.pointerId) {
+        return;
+      }
 
       event.preventDefault();
 
@@ -1454,7 +1739,11 @@ export const DiscFootballGame = () => {
       );
 
       if (body && drag.discIndex !== null) {
-        const pointer = canvasToWorld(drag.pointerX, drag.pointerY);
+        const pointer = canvasToWorld(
+          drag.pointerX,
+          drag.pointerY,
+        );
+
         const dx = pointer.x - body.x;
         const dy = pointer.y - body.y;
         const distance = vectorLength(dx, dy);
@@ -1462,14 +1751,22 @@ export const DiscFootballGame = () => {
         if (distance < MIN_AIM_WORLD) {
           localPlansRef.current.delete(drag.discIndex);
         } else {
-          const power = clamp(distance / MAX_AIM_WORLD, 0, 1);
+          const power = clamp(
+            distance / MAX_AIM_WORLD,
+            0,
+            1,
+          );
+
           localPlansRef.current.set(drag.discIndex, {
             disc_index: drag.discIndex,
             dx: dx / distance,
             dy: dy / distance,
             power,
           });
-          triggerHaptic(power > 0.72 ? 'medium' : 'light');
+
+          triggerHaptic(
+            power > 0.72 ? 'medium' : 'light',
+          );
         }
 
         sendCurrentPlans();
@@ -1481,31 +1778,63 @@ export const DiscFootballGame = () => {
     };
 
     const preventTouch = (event: TouchEvent) => {
-      if (event.cancelable) event.preventDefault();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
     };
 
     resize();
+
     window.addEventListener('resize', resize);
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointermove', handlePointerMove);
     canvas.addEventListener('pointerup', handlePointerUp);
     canvas.addEventListener('pointercancel', handlePointerUp);
-    container.addEventListener('touchstart', preventTouch, { passive: false });
-    container.addEventListener('touchmove', preventTouch, { passive: false });
+
+    container.addEventListener(
+      'touchstart',
+      preventTouch,
+      {
+        passive: false,
+      },
+    );
+
+    container.addEventListener(
+      'touchmove',
+      preventTouch,
+      {
+        passive: false,
+      },
+    );
 
     const frame = (now: number) => {
-      const deltaTime = Math.max(0, Math.min(34, now - lastFrameAt) / 1000);
+      const deltaTime =
+        Math.max(
+          0,
+          Math.min(
+            34,
+            now - lastFrameAt,
+          ) / 1000,
+        );
+
       lastFrameAt = now;
+
       render(now, deltaTime);
-      animationRef.current = window.requestAnimationFrame(frame);
+
+      animationRef.current =
+        window.requestAnimationFrame(frame);
     };
 
-    animationRef.current = window.requestAnimationFrame(frame);
+    animationRef.current =
+      window.requestAnimationFrame(frame);
 
     return () => {
       if (animationRef.current !== null) {
-        window.cancelAnimationFrame(animationRef.current);
+        window.cancelAnimationFrame(
+          animationRef.current,
+        );
       }
+
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('pointerdown', handlePointerDown);
       canvas.removeEventListener('pointermove', handlePointerMove);
@@ -1514,14 +1843,27 @@ export const DiscFootballGame = () => {
       container.removeEventListener('touchstart', preventTouch);
       container.removeEventListener('touchmove', preventTouch);
     };
-  }, [awayProfile.name, homeProfile.name, myUserId, profileById]);
+  }, [
+    awayProfile.name,
+    homeProfile.name,
+    myUserId,
+    opponentUserId,
+    profileById,
+  ]);
 
   if (!lobbyId) {
     return (
       <ConnectionNotice
         title="Лобби не найдено"
         subtitle="Открой игру через комнату Disc Football, чтобы получить идентификатор матча."
-        onBack={() => navigate(lobbiesPath, { replace: true })}
+        onBack={() =>
+          navigate(
+            lobbiesPath,
+            {
+              replace: true,
+            },
+          )
+        }
       />
     );
   }
@@ -1531,7 +1873,14 @@ export const DiscFootballGame = () => {
       <ConnectionNotice
         title="Нет авторизации"
         subtitle="Перезапусти приложение через Telegram и снова открой лобби."
-        onBack={() => navigate(lobbiesPath, { replace: true })}
+        onBack={() =>
+          navigate(
+            lobbiesPath,
+            {
+              replace: true,
+            },
+          )
+        }
       />
     );
   }
@@ -1539,14 +1888,25 @@ export const DiscFootballGame = () => {
   if (!serverState && connectionStatus !== 'open') {
     return (
       <ConnectionNotice
-        title={connectionStatus === 'error' ? 'Ошибка соединения' : 'Подключение'}
+        title={
+          connectionStatus === 'error'
+            ? 'Ошибка соединения'
+            : 'Подключение'
+        }
         subtitle={
           socketError ||
           (connectionStatus === 'closed'
             ? 'Соединение с матчем закрыто.'
             : 'Подключаемся к общему игровому серверу.')
         }
-        onBack={() => navigate(lobbiesPath, { replace: true })}
+        onBack={() =>
+          navigate(
+            lobbiesPath,
+            {
+              replace: true,
+            },
+          )
+        }
       />
     );
   }
@@ -1564,12 +1924,16 @@ export const DiscFootballGame = () => {
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-3">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <PlayerAvatar profile={homeProfile} side="home" />
+            <PlayerAvatar
+              profile={homeProfile}
+              side="home"
+            />
 
             <div className="min-w-0">
               <div className="max-w-[96px] truncate text-[9px] font-black leading-none text-white/90">
                 {homeProfile.name}
               </div>
+
               <div className="mt-1.5 text-[21px] font-black leading-none tabular-nums text-[#52FFE5]">
                 {homeScore}
               </div>
@@ -1599,12 +1963,16 @@ export const DiscFootballGame = () => {
               <div className="max-w-[96px] truncate text-[9px] font-black leading-none text-white/90">
                 {awayProfile.name}
               </div>
+
               <div className="mt-1.5 text-[21px] font-black leading-none tabular-nums text-[#FF7A90]">
                 {awayScore}
               </div>
             </div>
 
-            <PlayerAvatar profile={awayProfile} side="away" />
+            <PlayerAvatar
+              profile={awayProfile}
+              side="away"
+            />
           </div>
         </div>
 
@@ -1629,6 +1997,7 @@ export const DiscFootballGame = () => {
             <div className="text-[16px] font-black uppercase text-white">
               Ждём соперника
             </div>
+
             <div className="mt-2 text-[8px] font-black uppercase tracking-[0.15em] text-white/35">
               Матч продолжится после подключения обоих игроков
             </div>
@@ -1647,7 +2016,9 @@ export const DiscFootballGame = () => {
                   : 'text-[#FF7A90]',
               ].join(' ')}
             >
-              {winnerUserId === myUserId ? 'Победа!' : 'Поражение'}
+              {winnerUserId === myUserId
+                ? 'Победа!'
+                : 'Поражение'}
             </div>
 
             <div className="mt-3 text-[11px] font-black text-white/80">
@@ -1656,7 +2027,14 @@ export const DiscFootballGame = () => {
 
             <button
               type="button"
-              onClick={() => navigate(lobbiesPath, { replace: true })}
+              onClick={() =>
+                navigate(
+                  lobbiesPath,
+                  {
+                    replace: true,
+                  },
+                )
+              }
               className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
             >
               К списку лобби
