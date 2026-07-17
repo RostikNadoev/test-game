@@ -4,7 +4,6 @@ import (
 	"log"
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
-	"tg-lobbies-base/internal/games/airhockey"
 	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/games/discfootball"
 	"tg-lobbies-base/internal/games/neonmatrix"
@@ -72,10 +71,6 @@ func main() {
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
 
-	airHockeyManager :=
-		airhockey.NewManager()
-
-	go airHockeyManager.CleanupLoop()
 
 
 	blackjackManager :=
