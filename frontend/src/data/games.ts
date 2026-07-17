@@ -24,9 +24,9 @@ export type GameCode =
   | 'penalty_pvp'
   | 'air_hockey'
   | 'dunk_shot'
-  | 'stack_ball'
+  | 'flappy_race'
   | 'disc_football'
-  | 'rail_grind';
+  | 'doodle_jump';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -149,14 +149,14 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     launchMode: 'lobby',
   },
   {
-    code: 'stack_ball',
-    displayName: 'Stack Ball',
-    icon: '🔴',
-    description: 'Пробивай платформы и набирай огненные серии',
-    color: 'from-[#FF7A90]/24 via-[#9D7CFF]/12 to-transparent',
+    code: 'flappy_race',
+    displayName: 'Flappy Race',
+    icon: '🐦',
+    description: 'Пролетай ворота, собирай звёзды и держи серию',
+    color: 'from-[#52FFE5]/24 via-[#4DA3FF]/14 to-transparent',
     meta: 'Arcade Preview',
-    status: 'Soon',
-    playPath: '/game/stack_ball/play',
+    status: 'New',
+    playPath: '/game/flappy_race/play',
     launchMode: 'direct',
   },
   {
@@ -171,14 +171,14 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     launchMode: 'lobby',
   },
   {
-    code: 'rail_grind',
-    displayName: 'Rail Grind',
-    icon: '🛹',
-    description: 'Прыжки, рельсы и серии идеальных трюков',
+    code: 'doodle_jump',
+    displayName: 'Doodle Jump',
+    icon: '🛸',
+    description: 'Прыгай всё выше, лови пружины и не падай',
     color: 'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
     meta: 'Arcade Preview',
-    status: 'Soon',
-    playPath: '/game/rail_grind/play',
+    status: 'New',
+    playPath: '/game/doodle_jump/play',
     launchMode: 'direct',
   },
 ];
