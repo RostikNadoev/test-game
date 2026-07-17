@@ -108,6 +108,12 @@ func normalizeGameCode(code string) string {
 	case "dunk-shot":
 		return "dunk_shot"
 
+	case "flappy-race":
+		return "flappy_race"
+
+	case "doodle-jump":
+		return "doodle_jump"
+
 	default:
 		return code
 	}

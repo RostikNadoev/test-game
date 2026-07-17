@@ -4,6 +4,7 @@ import (
 	"log"
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
+	"tg-lobbies-base/internal/games/arcaderace"
 	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/games/discfootball"
 	"tg-lobbies-base/internal/games/dunkshot"
@@ -62,6 +63,12 @@ func main() {
 	dunkShotManager := dunkshot.NewManager()
 	go dunkShotManager.CleanupLoop()
 	dunkShotManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
+	arcadeRaceManager := arcaderace.NewManager()
+	go arcadeRaceManager.CleanupLoop()
+	arcadeRaceManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
@@ -124,6 +131,20 @@ func main() {
 		Manager:    dunkShotManager,
 	}
 
+	flappyRaceWSHandler := handlers.ArcadeRaceWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    arcadeRaceManager,
+		GameCode:   arcaderace.FlappyRaceGameCode,
+	}
+
+	doodleJumpWSHandler := handlers.ArcadeRaceWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    arcadeRaceManager,
+		GameCode:   arcaderace.DoodleJumpGameCode,
+	}
+
 	neonMatrixWSHandler := handlers.NeonMatrixWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -162,6 +183,8 @@ func main() {
 	router.GET("/ws/blackjack/:lobby_id", blackjackWSHandler.Connect)
 	router.GET("/ws/disc-football/:lobby_id", discFootballWSHandler.Connect)
 	router.GET("/ws/dunk-shot/:lobby_id", dunkShotWSHandler.Connect)
+	router.GET("/ws/flappy-race/:lobby_id", flappyRaceWSHandler.Connect)
+	router.GET("/ws/doodle-jump/:lobby_id", doodleJumpWSHandler.Connect)
 	router.GET("/ws/neon-matrix/:lobby_id", neonMatrixWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)

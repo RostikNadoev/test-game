@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth } from '../auth/useAuth';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useArcadeRaceOnline } from "../hooks/useArcadeRaceOnline";
 
-type MatchPhase = 'countdown' | 'playing' | 'finished';
-type PlatformType = 'normal' | 'moving' | 'breakable' | 'spring';
+type MatchPhase = "countdown" | "playing" | "finished";
+type PlatformType = "normal" | "moving" | "breakable" | "spring";
 
 type Player = {
   x: number;
@@ -27,6 +27,8 @@ type Platform = {
   fade: number;
   hasStar: boolean;
   starTaken: boolean;
+  scored: boolean;
+  safePartnerId?: number;
 };
 
 type Particle = {
@@ -58,8 +60,6 @@ type BackgroundStar = {
   twinkle: number;
 };
 
-const MATCH_DURATION_MS = 45_000;
-const COUNTDOWN_MS = 3_000;
 const MAX_DPR = 1.7;
 
 const GAME = {
@@ -70,10 +70,15 @@ const GAME = {
   maxHorizontalSpeed: 330,
   horizontalFriction: 0.84,
   platformHeight: 13,
-  minVerticalGap: 68,
-  maxVerticalGap: 100,
-  minPlatformWidth: 66,
-  maxPlatformWidth: 104,
+  minVerticalGap: 76,
+  maxVerticalGap: 112,
+  minPlatformWidth: 54,
+  maxPlatformWidth: 96,
+  maxHorizontalGapRatio: 0.4,
+  safePlatformMinOffset: 28,
+  safePlatformMaxOffset: 42,
+  heightPointStepPx: 24,
+  heightPointsPerStep: 2,
   fallPenalty: 28,
 };
 
@@ -85,31 +90,31 @@ const lerp = (from: number, to: number, amount: number) =>
 
 const getInitials = (value: string) =>
   value
-    .replace('@', '')
+    .replace("@", "")
     .trim()
     .split(/[\s._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
-    .join('') || 'TG';
+    .join("") || "TG";
 
 const triggerHaptic = (
-  type: 'light' | 'medium' | 'heavy' | 'success' | 'error',
+  type: "light" | "medium" | "heavy" | "success" | "error",
 ) => {
   const webApp = (
     window as typeof window & {
       Telegram?: {
         WebApp?: {
           HapticFeedback?: {
-            impactOccurred?: (style: 'light' | 'medium' | 'heavy') => void;
-            notificationOccurred?: (kind: 'success' | 'error') => void;
+            impactOccurred?: (style: "light" | "medium" | "heavy") => void;
+            notificationOccurred?: (kind: "success" | "error") => void;
           };
         };
       };
     }
   ).Telegram?.WebApp;
 
-  if (type === 'success' || type === 'error') {
+  if (type === "success" || type === "error") {
     webApp?.HapticFeedback?.notificationOccurred?.(type);
     return;
   }
@@ -133,15 +138,15 @@ const PlayerAvatar = ({
 }: {
   photoUrl?: string;
   name: string;
-  side: 'player' | 'opponent';
+  side: "player" | "opponent";
 }) => (
   <div
     className={[
-      'grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border text-[10px] font-black uppercase text-white shadow-[0_8px_24px_rgba(0,0,0,0.28)]',
-      side === 'player'
-        ? 'border-[#9D7CFF]/45 bg-[#9D7CFF]/12'
-        : 'border-[#FF7A90]/42 bg-[#FF7A90]/10',
-    ].join(' ')}
+      "grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border text-[10px] font-black uppercase text-white shadow-[0_8px_24px_rgba(0,0,0,0.28)]",
+      side === "player"
+        ? "border-[#9D7CFF]/45 bg-[#9D7CFF]/12"
+        : "border-[#FF7A90]/42 bg-[#FF7A90]/10",
+    ].join(" ")}
   >
     {photoUrl ? (
       <img
@@ -157,25 +162,41 @@ const PlayerAvatar = ({
 );
 
 export const DoodleJumpGame = () => {
-  const { user } = useAuth();
+  const match = useArcadeRaceOnline("doodle_jump");
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
+  const progressRef = useRef(0);
 
-  const [runId, setRunId] = useState(1);
-  const [phase, setPhase] = useState<MatchPhase>('countdown');
-  const [countdown, setCountdown] = useState(3);
-  const [timeLeft, setTimeLeft] = useState(45);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
   const [bestCombo, setBestCombo] = useState(0);
   const [heightScore, setHeightScore] = useState(0);
-  const [status, setStatus] = useState('GET READY');
+  const [status, setStatus] = useState("GET READY");
   const [showHint, setShowHint] = useState(true);
 
-  const playerName = user?.tg_user || 'Player';
-  const opponentName = 'Opponent';
+  useEffect(() => {
+    setScore(match.myScore);
+    setCombo(match.myCombo);
+    setBestCombo(match.myBestCombo);
+    setHeightScore(match.myHeightScore);
+  }, [match.myBestCombo, match.myCombo, match.myHeightScore, match.myScore]);
+
+  useEffect(() => {
+    progressRef.current = match.matchProgress;
+  }, [match.matchProgress]);
+
+  const playerName = match.playerProfile.name;
+  const opponentName = match.opponentProfile.name;
+  const phase: MatchPhase =
+    match.phase === "match_over"
+      ? "finished"
+      : match.phase === "playing"
+        ? "playing"
+        : "countdown";
+  const countdown = Math.max(1, match.countdownLeft || 3);
+  const timeLeft = match.matchTimeLeft;
   const multiplier = useMemo(
     () => Math.min(5, 1 + Math.floor(Math.max(0, combo - 1) / 4)),
     [combo],
@@ -185,22 +206,19 @@ export const DoodleJumpGame = () => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
 
-    if (!canvas || !container) return;
+    if (!canvas || !container || !match.lobbyId || !match.serverState) return;
 
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext("2d");
     if (!context) return;
 
-    setPhase('countdown');
-    setCountdown(3);
-    setTimeLeft(45);
-    setScore(0);
-    setCombo(0);
-    setBestCombo(0);
-    setHeightScore(0);
-    setStatus('GET READY');
+    setScore(match.myScore);
+    setCombo(match.myCombo);
+    setBestCombo(match.myBestCombo);
+    setHeightScore(match.myHeightScore);
+    setStatus(match.phase === "waiting" ? "WAITING" : "GET READY");
     setShowHint(true);
 
-    const random = createRandom(Date.now() + runId * 12_391);
+    const random = createRandom(match.seed);
 
     const viewport = {
       width: 1,
@@ -239,21 +257,22 @@ export const DoodleJumpGame = () => {
       right: false,
     };
 
-    let internalPhase: MatchPhase = 'countdown';
-    let internalScore = 0;
-    let internalCombo = 0;
-    let internalBestCombo = 0;
-    let internalHeightScore = 0;
+    let internalPhase: MatchPhase =
+      match.phaseRef.current === "playing"
+        ? "playing"
+        : match.phaseRef.current === "match_over"
+          ? "finished"
+          : "countdown";
+    let internalScore = match.myScore;
+    let internalCombo = match.myCombo;
+    let internalBestCombo = match.myBestCombo;
+    let internalHeightScore = match.myHeightScore;
     let highestWorldY = 0;
     let nextPlatformId = 1;
     let highestGeneratedY = 0;
     let checkpointPlatformId = 0;
     let startPlatformY = 0;
     let previousFrameAt = performance.now();
-    let startAt = previousFrameAt + COUNTDOWN_MS;
-    let finishAt = startAt + MATCH_DURATION_MS;
-    let lastCountdown = 3;
-    let lastSecond = 45;
     let initialized = false;
     let respawnUntil = 0;
     let flash = 0;
@@ -331,12 +350,15 @@ export const DoodleJumpGame = () => {
     };
 
     const choosePlatformType = (progression: number): PlatformType => {
+      const difficulty = clamp(progression, 0, 1);
       const value = random();
+      const movingChance = lerp(0.08, 0.3, difficulty);
+      const breakableChance = lerp(0.05, 0.24, difficulty);
 
-      if (progression > 0.16 && value < 0.13) return 'moving';
-      if (progression > 0.28 && value < 0.23) return 'breakable';
-      if (value > 0.91) return 'spring';
-      return 'normal';
+      if (value < movingChance) return "moving";
+      if (value < movingChance + breakableChance) return "breakable";
+      if (value > 0.91) return "spring";
+      return "normal";
     };
 
     const createPlatformAbove = (progression: number) => {
@@ -349,44 +371,149 @@ export const DoodleJumpGame = () => {
 
       const previousX = previous?.x ?? viewport.width * 0.5 - 45;
       const previousWidth = previous?.width ?? 90;
-      const gap = lerp(
-        GAME.minVerticalGap,
-        GAME.maxVerticalGap,
-        clamp(progression, 0, 1),
-      ) * (0.86 + random() * 0.22);
-      const width = lerp(
-        GAME.maxPlatformWidth,
-        GAME.minPlatformWidth,
-        clamp(progression, 0, 1),
-      ) * (0.88 + random() * 0.2);
-      const maxShift = Math.min(132, viewport.width * 0.34);
-      const preferredShift = (random() - 0.5) * maxShift * 2;
+      const difficulty = clamp(progression, 0, 1);
+      const gap =
+        lerp(GAME.minVerticalGap, GAME.maxVerticalGap, difficulty) *
+        (0.92 + random() * 0.18);
+      const width =
+        lerp(GAME.maxPlatformWidth, GAME.minPlatformWidth, difficulty) *
+        (0.9 + random() * 0.16);
       const centerFrom = previousX + previousWidth * 0.5;
-      const nextCenter = clamp(
-        centerFrom + preferredShift,
-        24 + width * 0.5,
-        viewport.width - 24 - width * 0.5,
-      );
-      const type = choosePlatformType(progression);
-      const y = highestGeneratedY - gap;
+      const maxCenterShift = viewport.width * GAME.maxHorizontalGapRatio;
+      const useOppositeSide = random() < lerp(0.34, 0.72, difficulty);
 
-      platforms.push({
-        id: nextPlatformId,
+      let targetCenter: number;
+
+      if (useOppositeSide) {
+        const previousOnLeft = centerFrom < viewport.width * 0.5;
+        const direction = previousOnLeft ? 1 : -1;
+        const shift = lerp(
+          viewport.width * 0.2,
+          maxCenterShift,
+          random(),
+        );
+        targetCenter = centerFrom + direction * shift;
+      } else {
+        const minimumShift = lerp(18, 56, difficulty);
+        const direction = random() > 0.5 ? 1 : -1;
+        const shift = direction * lerp(minimumShift, maxCenterShift, random());
+        targetCenter = centerFrom + shift;
+      }
+
+      let allowedCenterMin = centerFrom - maxCenterShift;
+      let allowedCenterMax = centerFrom + maxCenterShift;
+
+      const previousSafePartner = previous?.safePartnerId
+        ? platforms.find((platform) => platform.id === previous.safePartnerId)
+        : undefined;
+
+      if (
+        previousSafePartner &&
+        !previousSafePartner.broken &&
+        previousSafePartner.fade > 0
+      ) {
+        const safeCenter =
+          previousSafePartner.x + previousSafePartner.width * 0.5;
+
+        allowedCenterMin = Math.max(
+          allowedCenterMin,
+          safeCenter - maxCenterShift,
+        );
+        allowedCenterMax = Math.min(
+          allowedCenterMax,
+          safeCenter + maxCenterShift,
+        );
+      }
+
+      targetCenter = clamp(
+        targetCenter,
+        allowedCenterMin,
+        allowedCenterMax,
+      );
+
+      const nextCenter = clamp(
+        targetCenter,
+        20 + width * 0.5,
+        viewport.width - 20 - width * 0.5,
+      );
+      const type = choosePlatformType(difficulty);
+      const y = highestGeneratedY - gap;
+      const platformId = nextPlatformId;
+      nextPlatformId += 1;
+
+      const platform: Platform = {
+        id: platformId,
         x: nextCenter - width * 0.5,
         y,
         width,
         type,
         vx:
-          type === 'moving'
-            ? (random() > 0.5 ? 1 : -1) * (42 + random() * 32)
+          type === "moving"
+            ? (random() > 0.5 ? 1 : -1) *
+              (56 + difficulty * 56 + random() * 38)
             : 0,
         broken: false,
         fade: 1,
         hasStar: random() > 0.72,
         starTaken: false,
-      });
+        scored: false,
+      };
 
-      nextPlatformId += 1;
+      platforms.push(platform);
+
+      if (type === "breakable") {
+        const safeWidth = clamp(
+          width * (0.96 + random() * 0.22),
+          62,
+          92,
+        );
+        const preferredDirection =
+          nextCenter < viewport.width * 0.5 ? 1 : -1;
+        const safeShift = Math.min(
+          viewport.width * (0.2 + random() * 0.09),
+          maxCenterShift * 0.78,
+        );
+
+        let safeCenter = clamp(
+          nextCenter + preferredDirection * safeShift,
+          18 + safeWidth * 0.5,
+          viewport.width - 18 - safeWidth * 0.5,
+        );
+
+        if (Math.abs(safeCenter - nextCenter) < viewport.width * 0.13) {
+          safeCenter = clamp(
+            nextCenter - preferredDirection * safeShift,
+            18 + safeWidth * 0.5,
+            viewport.width - 18 - safeWidth * 0.5,
+          );
+        }
+
+        const safePlatformId = nextPlatformId;
+        nextPlatformId += 1;
+
+        platforms.push({
+          id: safePlatformId,
+          x: safeCenter - safeWidth * 0.5,
+          y:
+            y +
+            lerp(
+              GAME.safePlatformMinOffset,
+              GAME.safePlatformMaxOffset,
+              random(),
+            ),
+          width: safeWidth,
+          type: "normal",
+          vx: 0,
+          broken: false,
+          fade: 1,
+          hasStar: false,
+          starTaken: true,
+          scored: false,
+        });
+
+        platform.safePartnerId = safePlatformId;
+      }
+
       highestGeneratedY = y;
     };
 
@@ -413,12 +540,13 @@ export const DoodleJumpGame = () => {
         x: viewport.width * 0.5 - 58,
         y: startPlatformY,
         width: 116,
-        type: 'normal',
+        type: "normal",
         vx: 0,
         broken: false,
         fade: 1,
         hasStar: false,
         starTaken: true,
+        scored: true,
       };
 
       platforms.push(startPlatform);
@@ -484,16 +612,21 @@ export const DoodleJumpGame = () => {
 
     const updateScoreForHeight = () => {
       highestWorldY = Math.min(highestWorldY, player.y);
-      const nextHeightScore = Math.max(
+
+      const heightSteps = Math.max(
         0,
-        Math.floor((startPlatformY - highestWorldY) / 5),
+        Math.floor(
+          (startPlatformY - highestWorldY) / GAME.heightPointStepPx,
+        ),
       );
+      const nextHeightScore = heightSteps * GAME.heightPointsPerStep;
 
       if (nextHeightScore <= internalHeightScore) return;
 
       const difference = nextHeightScore - internalHeightScore;
       internalHeightScore = nextHeightScore;
       internalScore += difference;
+      match.sendEvent({ kind: "height", value: heightSteps });
 
       setHeightScore(internalHeightScore);
       setScore(internalScore);
@@ -504,6 +637,49 @@ export const DoodleJumpGame = () => {
       const platformCenter = platform.x + platform.width * 0.5;
       const centerDistance = Math.abs(playerCenter - platformCenter);
       const perfect = centerDistance <= platform.width * 0.13;
+      const firstLanding = !platform.scored;
+
+      player.vy =
+        platform.type === "spring" ? GAME.springVelocity : GAME.jumpVelocity;
+      player.squash = platform.type === "spring" ? 1 : 0.68;
+
+      if (platform.type === "breakable") {
+        const safePartner = platform.safePartnerId
+          ? platformById(platform.safePartnerId)
+          : undefined;
+
+        if (safePartner && !safePartner.broken && safePartner.fade > 0) {
+          checkpointPlatformId = safePartner.id;
+        }
+
+        platform.broken = true;
+      } else {
+        checkpointPlatformId = platform.id;
+      }
+
+      if (!firstLanding) {
+        internalCombo = 0;
+        setCombo(0);
+        setStatus("ALREADY USED");
+
+        addText(
+          "USED +0",
+          platformCenter,
+          platform.y - 28,
+          220,
+          0.8,
+        );
+        addParticles(player.x, platform.y, 220, 5, 0.42);
+        triggerHaptic("light");
+
+        if (now > respawnUntil) {
+          setShowHint(false);
+        }
+
+        return;
+      }
+
+      platform.scored = true;
 
       if (perfect) {
         internalCombo += 1;
@@ -518,40 +694,37 @@ export const DoodleJumpGame = () => {
         1 + Math.floor(Math.max(0, internalCombo - 1) / 4),
       );
       const typeBonus =
-        platform.type === 'spring'
+        platform.type === "spring"
           ? 25
-          : platform.type === 'moving'
+          : platform.type === "moving"
             ? 8
-            : platform.type === 'breakable'
+            : platform.type === "breakable"
               ? 12
               : 0;
       const gained = (perfect ? 14 : 6) * currentMultiplier + typeBonus;
 
       internalScore += gained;
+      match.sendEvent({
+        kind: "platform",
+        grade: platform.type,
+        objectId: platform.id,
+        perfect,
+      });
       setScore(internalScore);
       setCombo(internalCombo);
       setBestCombo(internalBestCombo);
 
-      checkpointPlatformId = platform.id;
-      player.vy =
-        platform.type === 'spring' ? GAME.springVelocity : GAME.jumpVelocity;
-      player.squash = platform.type === 'spring' ? 1 : 0.68;
-
-      if (platform.type === 'breakable') {
-        platform.broken = true;
-      }
-
       const hue =
-        platform.type === 'spring'
+        platform.type === "spring"
           ? 48
           : perfect
             ? 176
-            : platform.type === 'breakable'
+            : platform.type === "breakable"
               ? 24
               : 268;
 
       addText(
-        platform.type === 'spring'
+        platform.type === "spring"
           ? `BOOST +${gained}`
           : perfect
             ? `PERFECT +${gained}`
@@ -559,20 +732,20 @@ export const DoodleJumpGame = () => {
         platformCenter,
         platform.y - 28,
         hue,
-        platform.type === 'spring' || perfect ? 1.08 : 0.92,
+        platform.type === "spring" || perfect ? 1.08 : 0.92,
       );
 
       addParticles(
         player.x,
         platform.y,
         hue,
-        platform.type === 'spring' ? 28 : perfect ? 20 : 10,
-        platform.type === 'spring' ? 1.2 : 0.78,
+        platform.type === "spring" ? 28 : perfect ? 20 : 10,
+        platform.type === "spring" ? 1.2 : 0.78,
       );
 
-      camera.shake = platform.type === 'spring' ? 5.5 : perfect ? 2.5 : 1;
+      camera.shake = platform.type === "spring" ? 5.5 : perfect ? 2.5 : 1;
       triggerHaptic(
-        platform.type === 'spring' ? 'heavy' : perfect ? 'success' : 'light',
+        platform.type === "spring" ? "heavy" : perfect ? "success" : "light",
       );
 
       if (now > respawnUntil) {
@@ -584,28 +757,56 @@ export const DoodleJumpGame = () => {
       platform.starTaken = true;
       const gained = 18;
       internalScore += gained;
+      match.sendEvent({ kind: "star", objectId: platform.id });
       setScore(internalScore);
-      addText(`STAR +${gained}`, platform.x + platform.width * 0.5, platform.y - 30, 48, 0.95);
-      addParticles(platform.x + platform.width * 0.5, platform.y - 22, 48, 18, 0.9);
-      triggerHaptic('light');
+      addText(
+        `STAR +${gained}`,
+        platform.x + platform.width * 0.5,
+        platform.y - 30,
+        48,
+        0.95,
+      );
+      addParticles(
+        platform.x + platform.width * 0.5,
+        platform.y - 22,
+        48,
+        18,
+        0.9,
+      );
+      triggerHaptic("light");
     };
 
     const respawn = (now: number) => {
+      const storedCheckpoint = platformById(checkpointPlatformId);
       const checkpoint =
-        platformById(checkpointPlatformId) ||
-        platforms.find((platform) => !platform.broken) ||
-        platforms[0];
+        storedCheckpoint &&
+        !storedCheckpoint.broken &&
+        storedCheckpoint.fade > 0
+          ? storedCheckpoint
+          : [...platforms]
+              .filter(
+                (platform) =>
+                  !platform.broken &&
+                  platform.fade > 0 &&
+                  platform.type !== "breakable",
+              )
+              .sort((first, second) => {
+                const targetY = camera.y + viewport.height * 0.62;
+                return (
+                  Math.abs(first.y - targetY) - Math.abs(second.y - targetY)
+                );
+              })[0] || platforms.find((platform) => !platform.broken);
 
       internalScore = Math.max(0, internalScore - GAME.fallPenalty);
       internalCombo = 0;
+      match.sendEvent({ kind: "fall" });
 
       setScore(internalScore);
       setCombo(0);
       setStatus(`FALL -${GAME.fallPenalty}`);
 
       if (checkpoint) {
-        checkpoint.broken = false;
-        checkpoint.fade = 1;
+        checkpointPlatformId = checkpoint.id;
         player.x = checkpoint.x + checkpoint.width * 0.5;
         player.y = checkpoint.y - player.height * 0.5 - 6;
       } else {
@@ -621,7 +822,7 @@ export const DoodleJumpGame = () => {
       camera.shake = 8;
 
       addParticles(player.x, player.y, 350, 28, 1.18);
-      triggerHaptic('error');
+      triggerHaptic("error");
     };
 
     const pointerX = (event: PointerEvent) => {
@@ -630,7 +831,7 @@ export const DoodleJumpGame = () => {
     };
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (internalPhase !== 'playing') return;
+      if (internalPhase !== "playing") return;
 
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
@@ -638,7 +839,7 @@ export const DoodleJumpGame = () => {
       control.pointerId = event.pointerId;
       control.targetX = pointerX(event);
       setShowHint(false);
-      triggerHaptic('light');
+      triggerHaptic("light");
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -657,78 +858,55 @@ export const DoodleJumpGame = () => {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'ArrowLeft' || event.code === 'KeyA') {
+      if (event.code === "ArrowLeft" || event.code === "KeyA") {
         control.left = true;
         event.preventDefault();
       }
 
-      if (event.code === 'ArrowRight' || event.code === 'KeyD') {
+      if (event.code === "ArrowRight" || event.code === "KeyD") {
         control.right = true;
         event.preventDefault();
       }
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === 'ArrowLeft' || event.code === 'KeyA') {
+      if (event.code === "ArrowLeft" || event.code === "KeyA") {
         control.left = false;
       }
 
-      if (event.code === 'ArrowRight' || event.code === 'KeyD') {
+      if (event.code === "ArrowRight" || event.code === "KeyD") {
         control.right = false;
       }
     };
 
-    const updateMatchClock = (now: number) => {
-      if (internalPhase === 'countdown') {
-        const remaining = startAt - now;
+    const updateMatchClock = () => {
+      const serverPhase = match.phaseRef.current;
 
-        if (remaining <= 0) {
-          internalPhase = 'playing';
-          setPhase('playing');
-          setCountdown(0);
-          setStatus('JUMP');
-          player.vy = GAME.jumpVelocity;
-          triggerHaptic('medium');
-          return;
-        }
-
-        const nextCountdown = Math.max(1, Math.ceil(remaining / 1000));
-
-        if (nextCountdown !== lastCountdown) {
-          lastCountdown = nextCountdown;
-          setCountdown(nextCountdown);
-          triggerHaptic('light');
-        }
-
+      if (serverPhase === "playing" && internalPhase !== "playing") {
+        internalPhase = "playing";
+        setStatus("JUMP");
+        player.vy = GAME.jumpVelocity;
+        triggerHaptic("medium");
         return;
       }
 
-      if (internalPhase !== 'playing') return;
-
-      const remaining = finishAt - now;
-      const nextSecond = Math.max(0, Math.ceil(remaining / 1000));
-
-      if (nextSecond !== lastSecond) {
-        lastSecond = nextSecond;
-        setTimeLeft(nextSecond);
-
-        if (nextSecond <= 5 && nextSecond > 0) triggerHaptic('light');
-      }
-
-      if (remaining <= 0) {
-        internalPhase = 'finished';
-        setPhase('finished');
-        setTimeLeft(0);
-        setStatus('FINISH');
+      if (serverPhase === "match_over" && internalPhase !== "finished") {
+        internalPhase = "finished";
+        setStatus("FINISH");
         player.vx = 0;
         player.vy = 0;
-        triggerHaptic('success');
+        triggerHaptic("success");
+        return;
+      }
+
+      if (serverPhase === "waiting" || serverPhase === "countdown") {
+        internalPhase = "countdown";
       }
     };
 
     const updatePlatforms = (deltaTime: number) => {
       for (const platform of platforms) {
-        if (platform.type === 'moving' && !platform.broken) {
+        if (platform.type === "moving" && !platform.broken) {
           platform.x += platform.vx * deltaTime;
 
           if (platform.x < 12) {
@@ -748,8 +926,8 @@ export const DoodleJumpGame = () => {
     };
 
     const updatePlayer = (deltaTime: number, now: number) => {
-      if (internalPhase !== 'playing') {
-        if (internalPhase === 'countdown') {
+      if (internalPhase !== "playing") {
+        if (internalPhase === "countdown") {
           player.squash = 0.08 + Math.sin(now * 0.008) * 0.04;
         }
         return;
@@ -816,7 +994,8 @@ export const DoodleJumpGame = () => {
       }
 
       for (const platform of platforms) {
-        if (!platform.hasStar || platform.starTaken || platform.broken) continue;
+        if (!platform.hasStar || platform.starTaken || platform.broken)
+          continue;
 
         const starX = platform.x + platform.width * 0.5;
         const starY = platform.y - 25;
@@ -830,10 +1009,9 @@ export const DoodleJumpGame = () => {
 
       const desiredCameraY = player.y - viewport.height * 0.43;
       camera.targetY = Math.min(camera.targetY, desiredCameraY);
-      camera.y +=
-        (camera.targetY - camera.y) * Math.min(1, deltaTime * 6.6);
+      camera.y += (camera.targetY - camera.y) * Math.min(1, deltaTime * 6.6);
 
-      const progression = clamp((now - startAt) / MATCH_DURATION_MS, 0, 1);
+      const progression = progressRef.current;
       ensurePlatforms(progression);
 
       for (let index = platforms.length - 1; index >= 0; index -= 1) {
@@ -877,43 +1055,36 @@ export const DoodleJumpGame = () => {
     };
 
     const drawBackground = (now: number) => {
-      const altitude = clamp(-camera.y / 3_200, 0, 1);
-      const sky = context.createLinearGradient(0, 0, 0, viewport.height);
-      sky.addColorStop(0, altitude > 0.5 ? '#080b2d' : '#11134a');
-      sky.addColorStop(0.5, '#252879');
-      sky.addColorStop(1, '#7959a6');
-      context.fillStyle = sky;
-      context.fillRect(0, 0, viewport.width, viewport.height);
-
       const glow = context.createRadialGradient(
         viewport.width * 0.18,
-        viewport.height * 0.18,
+        viewport.height * 0.12,
         8,
         viewport.width * 0.18,
-        viewport.height * 0.18,
-        viewport.width * 0.72,
+        viewport.height * 0.12,
+        viewport.width * 0.74,
       );
-      glow.addColorStop(0, 'rgba(157,124,255,0.24)');
-      glow.addColorStop(1, 'rgba(157,124,255,0)');
+      glow.addColorStop(0, "rgba(157,124,255,0.18)");
+      glow.addColorStop(1, "rgba(157,124,255,0)");
       context.fillStyle = glow;
       context.fillRect(0, 0, viewport.width, viewport.height);
 
       for (const star of backgroundStars) {
         const parallaxY =
-          ((star.y + camera.y * 0.08) % viewport.height + viewport.height) %
+          (((star.y + camera.y * 0.08) % viewport.height) + viewport.height) %
           viewport.height;
-        const alpha = star.alpha * (0.75 + Math.sin(now * 0.002 + star.twinkle) * 0.25);
+        const alpha =
+          star.alpha * (0.75 + Math.sin(now * 0.002 + star.twinkle) * 0.25);
 
         context.globalAlpha = alpha;
-        context.fillStyle = '#ffffff';
+        context.fillStyle = "#ffffff";
         context.beginPath();
         context.arc(star.x, parallaxY, star.size, 0, Math.PI * 2);
         context.fill();
       }
       context.globalAlpha = 1;
 
-      const cloudShift = ((camera.y * 0.18) % 170 + 170) % 170;
-      context.fillStyle = 'rgba(235,232,255,0.07)';
+      const cloudShift = (((camera.y * 0.18) % 170) + 170) % 170;
+      context.fillStyle = "rgba(235,232,255,0.07)";
 
       for (let row = -1; row < 6; row += 1) {
         const y = row * 170 + cloudShift;
@@ -937,12 +1108,12 @@ export const DoodleJumpGame = () => {
       context.scale(pulse, pulse);
       context.rotate(now * 0.0015);
       context.shadowBlur = 15;
-      context.shadowColor = 'rgba(242,199,102,0.72)';
+      context.shadowColor = "rgba(242,199,102,0.72)";
 
       const gradient = context.createRadialGradient(-2, -3, 1, 0, 0, 11);
-      gradient.addColorStop(0, '#fff9c5');
-      gradient.addColorStop(0.5, '#f4ce62');
-      gradient.addColorStop(1, '#b97a23');
+      gradient.addColorStop(0, "#fff9c5");
+      gradient.addColorStop(0.5, "#f4ce62");
+      gradient.addColorStop(1, "#b97a23");
       context.fillStyle = gradient;
 
       context.beginPath();
@@ -963,7 +1134,11 @@ export const DoodleJumpGame = () => {
     const drawPlatform = (platform: Platform, now: number) => {
       const screenY = platform.y - camera.y;
 
-      if (screenY < -60 || screenY > viewport.height + 70 || platform.fade <= 0) {
+      if (
+        screenY < -60 ||
+        screenY > viewport.height + 70 ||
+        platform.fade <= 0
+      ) {
         return;
       }
 
@@ -971,10 +1146,10 @@ export const DoodleJumpGame = () => {
       context.globalAlpha = platform.fade;
 
       const colors: Record<PlatformType, [string, string, string]> = {
-        normal: ['#56f0cf', '#159c91', '#075d67'],
-        moving: ['#b89cff', '#7555e8', '#3e2b9e'],
-        breakable: ['#ffb45e', '#dd7044', '#8a342f'],
-        spring: ['#fff2a2', '#efb93e', '#aa651c'],
+        normal: ["#56f0cf", "#159c91", "#075d67"],
+        moving: ["#b89cff", "#7555e8", "#3e2b9e"],
+        breakable: ["#ffb45e", "#dd7044", "#8a342f"],
+        spring: ["#fff2a2", "#efb93e", "#aa651c"],
       };
       const [light, middle, dark] = colors[platform.type];
       const gradient = context.createLinearGradient(
@@ -990,17 +1165,11 @@ export const DoodleJumpGame = () => {
       context.fillStyle = gradient;
       context.shadowBlur = 13;
       context.shadowColor = `${middle}66`;
-      roundedRect(
-        platform.x,
-        screenY,
-        platform.width,
-        GAME.platformHeight,
-        7,
-      );
+      roundedRect(platform.x, screenY, platform.width, GAME.platformHeight, 7);
       context.fill();
       context.shadowBlur = 0;
 
-      context.strokeStyle = 'rgba(255,255,255,0.42)';
+      context.strokeStyle = "rgba(255,255,255,0.42)";
       context.lineWidth = 1;
       roundedRect(
         platform.x + 1,
@@ -1011,7 +1180,7 @@ export const DoodleJumpGame = () => {
       );
       context.stroke();
 
-      context.fillStyle = 'rgba(0,0,0,0.22)';
+      context.fillStyle = "rgba(0,0,0,0.22)";
       roundedRect(
         platform.x + 7,
         screenY + GAME.platformHeight - 1,
@@ -1021,8 +1190,8 @@ export const DoodleJumpGame = () => {
       );
       context.fill();
 
-      if (platform.type === 'moving') {
-        context.strokeStyle = 'rgba(255,255,255,0.64)';
+      if (platform.type === "moving") {
+        context.strokeStyle = "rgba(255,255,255,0.64)";
         context.lineWidth = 1.4;
         context.beginPath();
         context.moveTo(platform.x + platform.width * 0.35, screenY + 6.5);
@@ -1032,8 +1201,8 @@ export const DoodleJumpGame = () => {
         context.stroke();
       }
 
-      if (platform.type === 'breakable') {
-        context.strokeStyle = 'rgba(80,24,24,0.62)';
+      if (platform.type === "breakable") {
+        context.strokeStyle = "rgba(80,24,24,0.62)";
         context.lineWidth = 1.4;
         context.beginPath();
         context.moveTo(platform.x + platform.width * 0.42, screenY + 1);
@@ -1042,9 +1211,9 @@ export const DoodleJumpGame = () => {
         context.stroke();
       }
 
-      if (platform.type === 'spring') {
+      if (platform.type === "spring") {
         const springPulse = 1 + Math.sin(now * 0.01) * 0.08;
-        context.strokeStyle = '#fff7c9';
+        context.strokeStyle = "#fff7c9";
         context.lineWidth = 2;
         context.beginPath();
         context.moveTo(platform.x + platform.width * 0.4, screenY);
@@ -1085,22 +1254,22 @@ export const DoodleJumpGame = () => {
       const glow = context.createRadialGradient(0, 0, 4, 0, 0, 47);
       glow.addColorStop(
         0,
-        fireCombo ? 'rgba(255,174,63,0.32)' : 'rgba(157,124,255,0.3)',
+        fireCombo ? "rgba(255,174,63,0.32)" : "rgba(157,124,255,0.3)",
       );
-      glow.addColorStop(1, 'rgba(157,124,255,0)');
+      glow.addColorStop(1, "rgba(157,124,255,0)");
       context.fillStyle = glow;
       context.beginPath();
       context.arc(0, 0, 47, 0, Math.PI * 2);
       context.fill();
 
       const bodyGradient = context.createRadialGradient(-8, -10, 3, 2, 4, 30);
-      bodyGradient.addColorStop(0, '#f4efff');
-      bodyGradient.addColorStop(0.3, '#b58dff');
-      bodyGradient.addColorStop(0.72, '#7555df');
-      bodyGradient.addColorStop(1, '#392777');
+      bodyGradient.addColorStop(0, "#f4efff");
+      bodyGradient.addColorStop(0.3, "#b58dff");
+      bodyGradient.addColorStop(0.72, "#7555df");
+      bodyGradient.addColorStop(1, "#392777");
       context.fillStyle = bodyGradient;
       context.shadowBlur = 14;
-      context.shadowColor = 'rgba(157,124,255,0.6)';
+      context.shadowColor = "rgba(157,124,255,0.6)";
       roundedRect(
         -player.width * 0.5,
         -player.height * 0.5,
@@ -1111,26 +1280,26 @@ export const DoodleJumpGame = () => {
       context.fill();
       context.shadowBlur = 0;
 
-      context.fillStyle = '#ffffff';
+      context.fillStyle = "#ffffff";
       context.beginPath();
       context.ellipse(-7, -5, 5.5, 6.2, 0, 0, Math.PI * 2);
       context.ellipse(7, -5, 5.5, 6.2, 0, 0, Math.PI * 2);
       context.fill();
 
       const look = clamp(player.vx / GAME.maxHorizontalSpeed, -1, 1) * 1.5;
-      context.fillStyle = '#1d1538';
+      context.fillStyle = "#1d1538";
       context.beginPath();
       context.arc(-7 + look, -4.5, 2.2, 0, Math.PI * 2);
       context.arc(7 + look, -4.5, 2.2, 0, Math.PI * 2);
       context.fill();
 
-      context.strokeStyle = 'rgba(255,255,255,0.66)';
+      context.strokeStyle = "rgba(255,255,255,0.66)";
       context.lineWidth = 1.2;
       context.beginPath();
       context.arc(0, 5, 6, 0.15, Math.PI - 0.15);
       context.stroke();
 
-      context.fillStyle = fireCombo ? '#ff9f43' : '#4ce7cf';
+      context.fillStyle = fireCombo ? "#ff9f43" : "#4ce7cf";
       context.beginPath();
       context.ellipse(-10, player.height * 0.5, 8, 4.5, 0, 0, Math.PI * 2);
       context.ellipse(10, player.height * 0.5, 8, 4.5, 0, 0, Math.PI * 2);
@@ -1138,7 +1307,7 @@ export const DoodleJumpGame = () => {
 
       if (player.vy < -420) {
         const flameLength = 8 + Math.sin(now * 0.035) * 3;
-        context.fillStyle = fireCombo ? '#ff6c32' : '#52ffe5';
+        context.fillStyle = fireCombo ? "#ff6c32" : "#52ffe5";
         context.globalAlpha = 0.72;
         context.beginPath();
         context.moveTo(-10, player.height * 0.5 + 3);
@@ -1159,7 +1328,7 @@ export const DoodleJumpGame = () => {
 
     const drawEffects = () => {
       context.save();
-      context.globalCompositeOperation = 'lighter';
+      context.globalCompositeOperation = "lighter";
 
       for (const particle of particles) {
         const alpha = clamp(particle.life / particle.maxLife, 0, 1);
@@ -1190,9 +1359,9 @@ export const DoodleJumpGame = () => {
         context.translate(text.x, text.y - camera.y);
         context.scale(scale, scale);
         context.globalAlpha = alpha;
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        context.font = '900 11px Supercell, system-ui, sans-serif';
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.font = "900 11px Supercell, system-ui, sans-serif";
         context.fillStyle = `hsl(${text.hue},100%,72%)`;
         context.shadowBlur = 13;
         context.shadowColor = `hsla(${text.hue},100%,58%,0.88)`;
@@ -1216,7 +1385,9 @@ export const DoodleJumpGame = () => {
       context.translate(shakeX, shakeY);
       drawBackground(now);
 
-      const sortedPlatforms = [...platforms].sort((first, second) => first.y - second.y);
+      const sortedPlatforms = [...platforms].sort(
+        (first, second) => first.y - second.y,
+      );
       for (const platform of sortedPlatforms) drawPlatform(platform, now);
 
       drawPlayer(now);
@@ -1228,7 +1399,7 @@ export const DoodleJumpGame = () => {
       const deltaTime = Math.max(0, Math.min(34, now - previousFrameAt) / 1000);
       previousFrameAt = now;
 
-      updateMatchClock(now);
+      updateMatchClock();
       updatePlatforms(deltaTime);
       updatePlayer(deltaTime, now);
       updateEffects(deltaTime);
@@ -1238,17 +1409,15 @@ export const DoodleJumpGame = () => {
     };
 
     resize();
-    startAt = performance.now() + COUNTDOWN_MS;
-    finishAt = startAt + MATCH_DURATION_MS;
     previousFrameAt = performance.now();
 
-    window.addEventListener('resize', resize);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    canvas.addEventListener('pointerdown', handlePointerDown);
-    canvas.addEventListener('pointermove', handlePointerMove);
-    canvas.addEventListener('pointerup', handlePointerUp);
-    canvas.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener("resize", resize);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    canvas.addEventListener("pointerdown", handlePointerDown);
+    canvas.addEventListener("pointermove", handlePointerMove);
+    canvas.addEventListener("pointerup", handlePointerUp);
+    canvas.addEventListener("pointercancel", handlePointerUp);
 
     animationRef.current = window.requestAnimationFrame(frame);
 
@@ -1257,19 +1426,38 @@ export const DoodleJumpGame = () => {
         window.cancelAnimationFrame(animationRef.current);
       }
 
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      canvas.removeEventListener('pointerdown', handlePointerDown);
-      canvas.removeEventListener('pointermove', handlePointerMove);
-      canvas.removeEventListener('pointerup', handlePointerUp);
-      canvas.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      canvas.removeEventListener("pointerdown", handlePointerDown);
+      canvas.removeEventListener("pointermove", handlePointerMove);
+      canvas.removeEventListener("pointerup", handlePointerUp);
+      canvas.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [runId]);
+  }, [match.lobbyId, match.matchInstanceKey, match.seed]);
 
-  const restart = () => {
-    setRunId((value) => value + 1);
-  };
+  if (!match.lobbyId) {
+    return (
+      <div className="grid h-full min-h-[440px] place-items-center p-5 text-center text-white">
+        <div>
+          <div className="text-[20px] font-black uppercase">Лобби не найдено</div>
+          <button type="button" onClick={match.backToLobbies} className="mt-5 rounded-2xl bg-white px-5 py-3 text-[10px] font-black uppercase text-black">К лобби</button>
+        </div>
+      </div>
+    );
+  }
+
+  if ((match.connectionStatus === "error" || match.connectionStatus === "closed") && !match.serverState) {
+    return (
+      <div className="grid h-full min-h-[440px] place-items-center p-5 text-center text-white">
+        <div>
+          <div className="text-[20px] font-black uppercase">Нет соединения</div>
+          <div className="mt-2 text-[10px] text-white/45">{match.socketError || "WebSocket закрыт"}</div>
+          <button type="button" onClick={match.backToLobbies} className="mt-5 rounded-2xl bg-white px-5 py-3 text-[10px] font-black uppercase text-black">К лобби</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1285,7 +1473,7 @@ export const DoodleJumpGame = () => {
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <PlayerAvatar
-              photoUrl={user?.photo_url}
+              photoUrl={match.playerProfile.photoUrl}
               name={playerName}
               side="player"
             />
@@ -1308,10 +1496,10 @@ export const DoodleJumpGame = () => {
 
           <div className="shrink-0 text-center">
             <div className="text-[22px] font-black leading-none tabular-nums text-white">
-              {phase === 'countdown' ? countdown : timeLeft}
+              {phase === "countdown" ? countdown : timeLeft}
             </div>
             <div className="mt-1 text-[6px] font-black uppercase tracking-[0.16em] text-white/30">
-              {phase === 'finished' ? 'finished' : 'seconds'}
+              {phase === "finished" ? "finished" : "seconds"}
             </div>
           </div>
 
@@ -1323,15 +1511,19 @@ export const DoodleJumpGame = () => {
 
               <div className="mt-1.5 flex items-baseline justify-end gap-1.5">
                 <span className="text-[6px] font-black uppercase tracking-[0.14em] text-white/30">
-                  x1 · 0
+                  x{Math.min(5, 1 + Math.floor(Math.max(0, match.opponentCombo - 1) / 4))} · {match.opponentCombo}
                 </span>
                 <span className="text-[20px] font-black leading-none tabular-nums text-[#FF7A90]">
-                  0
+                  {match.opponentScore}
                 </span>
               </div>
             </div>
 
-            <PlayerAvatar name={opponentName} side="opponent" />
+            <PlayerAvatar
+              photoUrl={match.opponentProfile.photoUrl}
+              name={opponentName}
+              side="opponent"
+            />
           </div>
         </div>
 
@@ -1342,7 +1534,16 @@ export const DoodleJumpGame = () => {
         </div>
       </header>
 
-      {phase === 'countdown' && (
+      {match.phase === "waiting" && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/25 px-5 text-center backdrop-blur-[2px]">
+          <div>
+            <div className="text-[20px] font-black uppercase text-white">Ждём соперника</div>
+            <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.16em] text-white/40">Матч начнётся, когда подключатся оба игрока</div>
+          </div>
+        </div>
+      )}
+
+      {phase === "countdown" && (
         <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/10">
           <div className="text-center">
             <div className="text-[58px] font-black leading-none text-white drop-shadow-[0_10px_30px_rgba(157,124,255,0.45)]">
@@ -1355,7 +1556,7 @@ export const DoodleJumpGame = () => {
         </div>
       )}
 
-      {showHint && phase === 'playing' && (
+      {showHint && phase === "playing" && (
         <div className="pointer-events-none absolute inset-x-0 bottom-7 z-20 flex justify-center px-4">
           <div className="animate-pulse rounded-full border border-white/[0.09] bg-black/30 px-4 py-2 text-[9px] font-black uppercase tracking-[0.17em] text-white/55 backdrop-blur-md">
             Веди пальцем влево и вправо
@@ -1363,7 +1564,7 @@ export const DoodleJumpGame = () => {
         </div>
       )}
 
-      {phase === 'finished' && (
+      {phase === "finished" && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 px-5 backdrop-blur-[3px]">
           <div className="w-full max-w-[310px] rounded-[28px] border border-white/12 bg-[#15132b]/96 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
             <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#B49AFF]/65">
@@ -1373,15 +1574,19 @@ export const DoodleJumpGame = () => {
               {score}
             </div>
             <div className="mt-2 text-[8px] font-black uppercase tracking-[0.16em] text-white/35">
-              height {heightScore} · best combo {bestCombo}
+              {match.draw
+                ? "ничья"
+                : match.winnerUserId === match.myUserId
+                  ? "победа"
+                  : "поражение"} · height {heightScore} · best combo {bestCombo}
             </div>
 
             <button
               type="button"
-              onClick={restart}
+              onClick={match.backToLobbies}
               className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
             >
-              Играть ещё раз
+              К лобби
             </button>
           </div>
         </div>

@@ -18,6 +18,8 @@ var PvpGames = []PvpGame{
 	{Code: "street_race", DisplayName: "Street Race"},
 	{Code: "disc_football", DisplayName: "Disc Football"},
 	{Code: "dunk_shot", DisplayName: "Dunk Shot"},
+	{Code: "flappy_race", DisplayName: "Flappy Race"},
+	{Code: "doodle_jump", DisplayName: "Doodle Jump"},
 }
 
 func IsKnownPvpGame(code string) bool {

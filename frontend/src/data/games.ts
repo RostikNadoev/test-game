@@ -154,10 +154,10 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     icon: '🐦',
     description: 'Пролетай ворота, собирай звёзды и держи серию',
     color: 'from-[#52FFE5]/24 via-[#4DA3FF]/14 to-transparent',
-    meta: 'Arcade Preview',
+    meta: 'Arcade PvP',
     status: 'New',
     playPath: '/game/flappy_race/play',
-    launchMode: 'direct',
+    launchMode: 'lobby',
   },
   {
     code: 'disc_football',
@@ -176,10 +176,10 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     icon: '🛸',
     description: 'Прыгай всё выше, лови пружины и не падай',
     color: 'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
-    meta: 'Arcade Preview',
+    meta: 'Arcade PvP',
     status: 'New',
     playPath: '/game/doodle_jump/play',
-    launchMode: 'direct',
+    launchMode: 'lobby',
   },
 ];
 
