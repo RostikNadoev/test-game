@@ -58,10 +58,7 @@ func GetGameSetting(
 	gameSettingsMu.RLock()
 	defer gameSettingsMu.RUnlock()
 
-	row, ok :=
-		cachedGameSettings[
-			normalizeGameCode(code)
-		]
+	row, ok := cachedGameSettings[normalizeGameCode(code)]
 
 	return row, ok
 }
@@ -82,15 +79,12 @@ func ListGameSettings() []models.GameSetting {
 
 	sort.Slice(
 		out,
-		func(i int, j int) bool {
-			if out[i].SortOrder ==
-				out[j].SortOrder {
-				return out[i].Code <
-					out[j].Code
+		func(i, j int) bool {
+			if out[i].SortOrder == out[j].SortOrder {
+				return out[i].Code < out[j].Code
 			}
 
-			return out[i].SortOrder <
-				out[j].SortOrder
+			return out[i].SortOrder < out[j].SortOrder
 		},
 	)
 
@@ -130,8 +124,7 @@ func ListEnabledPvpGames() []catalog.PvpGame {
 	out := make([]catalog.PvpGame, 0)
 
 	for _, row := range ListGameSettings() {
-		if row.Kind != "pvp" ||
-			!row.Enabled {
+		if row.Kind != "pvp" || !row.Enabled {
 			continue
 		}
 
@@ -157,7 +150,6 @@ func GetSoloGameConfig(
 	code = solo.NormalizeGame(code)
 
 	base, err := solo.GetConfig(code)
-
 	if err != nil {
 		return solo.GameConfig{}, err
 	}
@@ -169,8 +161,7 @@ func GetSoloGameConfig(
 	}
 
 	if !row.Enabled {
-		return solo.GameConfig{},
-			ErrGameDisabled
+		return solo.GameConfig{}, ErrGameDisabled
 	}
 
 	base.Title = row.Title
@@ -181,19 +172,14 @@ func GetSoloGameConfig(
 }
 
 func ListEnabledSoloGames() []solo.GameConfig {
-	out := make(
-		[]solo.GameConfig,
-		0,
-	)
+	out := make([]solo.GameConfig, 0)
 
 	for _, row := range ListGameSettings() {
-		if row.Kind != "solo" ||
-			!row.Enabled {
+		if row.Kind != "solo" || !row.Enabled {
 			continue
 		}
 
-		cfg, err :=
-			solo.GetConfig(row.Code)
+		cfg, err := solo.GetConfig(row.Code)
 
 		if err != nil {
 			continue
@@ -208,9 +194,8 @@ func ListEnabledSoloGames() []solo.GameConfig {
 
 	sort.Slice(
 		out,
-		func(i int, j int) bool {
-			return out[i].Code <
-				out[j].Code
+		func(i, j int) bool {
+			return out[i].Code < out[j].Code
 		},
 	)
 
@@ -233,31 +218,23 @@ func UpdateGameSetting(
 		return nil, ErrGameNotFound
 	}
 
-	if value, ok :=
-		patch["enabled"].(bool); ok {
+	if value, ok := patch["enabled"].(bool); ok {
 		row.Enabled = value
 	}
 
-	if value, ok :=
-		patch["title"].(string); ok &&
-		value != "" {
+	if value, ok := patch["title"].(string); ok && value != "" {
 		row.Title = value
 	}
 
-	if value, ok :=
-		patch["min_bet"].(float64); ok &&
-		value > 0 {
+	if value, ok := patch["min_bet"].(float64); ok && value > 0 {
 		row.MinBet = value
 	}
 
-	if value, ok :=
-		patch["max_bet"].(float64); ok &&
-		value > 0 {
+	if value, ok := patch["max_bet"].(float64); ok && value > 0 {
 		row.MaxBet = value
 	}
 
-	if value, ok :=
-		patch["maintenance_message"].(string); ok {
+	if value, ok := patch["maintenance_message"].(string); ok {
 		row.MaintenanceMessage = value
 	}
 
@@ -271,7 +248,9 @@ func UpdateGameSetting(
 		return nil, err
 	}
 
-	_ = ReloadGameSettingsCache(db)
+	if err := ReloadGameSettingsCache(db); err != nil {
+		return nil, err
+	}
 
 	return &row, nil
 }
