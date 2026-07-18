@@ -347,7 +347,6 @@ export const CrossyRoadGame = () => {
     };
 
     const makeVehicles = (
-      rowIndex: number,
       direction: Direction,
       speed: number,
     ) => {
@@ -448,7 +447,6 @@ export const CrossyRoadGame = () => {
     };
 
     const makeLogs = (
-      rowIndex: number,
       direction: Direction,
       speed: number,
     ) => {
@@ -564,12 +562,12 @@ export const CrossyRoadGame = () => {
 
       const vehicleLane =
         kind === "road"
-          ? makeVehicles(index, direction, speed)
+          ? makeVehicles(direction, speed)
           : { vehicles: [] as Vehicle[], loopLength: 0 };
 
       const logLane =
         kind === "water"
-          ? makeLogs(index, direction, speed)
+          ? makeLogs(direction, speed)
           : { logs: [] as Log[], loopLength: 0 };
 
       const row: Row = {
