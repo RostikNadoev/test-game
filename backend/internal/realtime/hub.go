@@ -509,6 +509,9 @@ func NormalizeGameCode(value string) string {
 
 func IsSupportedGame(game string) bool {
 	game = NormalizeGameCode(game)
+	if services.IsPvpGameSupported(game) {
+		return true
+	}
 	for _, item := range SupportedGames {
 		if item.Code == game {
 			return true

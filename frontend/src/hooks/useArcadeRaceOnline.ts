@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -255,6 +256,7 @@ export const useArcadeRaceOnline = (gameCode: ArcadeRaceGameCode) => {
   const opponentHeightScore =
     serverState?.height_scores[String(opponentUserId)] || 0;
   const winnerUserId = serverState?.winner_user_id || 0;
+  const serverNowMs = nowMs - serverOffsetRef.current;
 
   const matchProgress =
     phase === 'playing' ? Math.max(0, Math.min(1, 1 - matchTimeLeft / 45)) : 0;
@@ -291,6 +293,7 @@ export const useArcadeRaceOnline = (gameCode: ArcadeRaceGameCode) => {
     myHeightScore,
     opponentHeightScore,
     winnerUserId,
+    serverNowMs,
     draw: serverState?.draw === true,
     ready: serverState?.ready === true,
     sendEvent,

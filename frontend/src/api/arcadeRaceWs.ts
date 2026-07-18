@@ -1,4 +1,5 @@
-export type ArcadeRaceGameCode = 'flappy_race' | 'doodle_jump';
+
+export type ArcadeRaceGameCode = 'flappy_race' | 'doodle_jump' | 'crossy_pvp';
 
 export type ArcadeRaceMatchPhase =
   | 'waiting'
@@ -92,7 +93,7 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
   if (!isObject(value) || value.type !== 'state') return null;
 
   const rawGame = toStringValue(value.game);
-  if (rawGame !== 'flappy_race' && rawGame !== 'doodle_jump') return null;
+  if (rawGame !== 'flappy_race' && rawGame !== 'doodle_jump' && rawGame !== 'crossy_pvp') return null;
 
   const rawPhase = toStringValue(value.phase);
   const phase: ArcadeRaceMatchPhase =
@@ -145,8 +146,16 @@ const normalizeServerError = (value: unknown): ArcadeRaceServerError | null => {
   };
 };
 
-const pathForGame = (gameCode: ArcadeRaceGameCode) =>
-  gameCode === 'flappy_race' ? '/ws/flappy-race/' : '/ws/doodle-jump/';
+const pathForGame = (gameCode: ArcadeRaceGameCode) => {
+  switch (gameCode) {
+    case 'flappy_race':
+      return '/ws/flappy-race/';
+    case 'doodle_jump':
+      return '/ws/doodle-jump/';
+    case 'crossy_pvp':
+      return '/ws/crossy-road/';
+  }
+};
 
 const makeWsUrl = (
   gameCode: ArcadeRaceGameCode,

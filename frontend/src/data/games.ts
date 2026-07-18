@@ -11,6 +11,7 @@ import dunkCover from '../assets/home/dunk.webp';
 import discCover from '../assets/home/disc.webp';
 import doodleCover from '../assets/home/doodle.webp';
 import flappyCover from '../assets/home/flappy.webp';
+import crossyCover from '../assets/home/crossy.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -30,7 +31,8 @@ export type GameCode =
   | 'dunk_shot'
   | 'flappy_race'
   | 'disc_football'
-  | 'doodle_jump';
+  | 'doodle_pvp'
+  | 'crossy_pvp';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -178,8 +180,8 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     coverUrl: discCover,
   },
   {
-    code: 'doodle_jump',
-    displayName: 'Doodle Jump',
+    code: 'doodle_pvp',
+    displayName: 'Doodle PVP',
     icon: '🛸',
     description: 'Прыгай всё выше, лови пружины и не падай',
     color: 'from-[#9D7CFF]/24 via-[#52FFE5]/12 to-transparent',
@@ -188,6 +190,18 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/doodle_jump/play',
     launchMode: 'lobby',
     coverUrl: doodleCover,
+  },
+  {
+    code: 'crossy_pvp',
+    displayName: 'Crossy PVP',
+    icon: '🌱',
+    description: 'Переходи дороги, реки и рельсы как можно дальше',
+    color: 'from-[#F7C85F]/24 via-[#54F2A8]/14 to-transparent',
+    meta: 'Arcade PvP',
+    status: 'New',
+    playPath: '/game/crossy_road/play',
+    launchMode: 'lobby',
+    coverUrl: crossyCover,
   },
 ];
 

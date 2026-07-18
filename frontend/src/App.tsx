@@ -69,6 +69,7 @@ const DunkShotGame = lazy(() => import("./pages/DunkShotGame"));
 const FlappyRaceGame = lazy(() => import("./pages/FlappyRaceGame"));
 const DiscFootballGame = lazy(() => import("./pages/DiscFootballGame"));
 const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
+const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -375,6 +376,10 @@ function AppShell() {
               <Route
                 path="/game/doodle_jump/play"
                 element={<DoodleJumpGame />}
+              />
+              <Route
+                path="/game/crossy_road/play"
+                element={<CrossyRoadGame />}
               />
 
               <Route path="/profile" element={<Profile />} />

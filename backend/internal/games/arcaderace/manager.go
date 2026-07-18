@@ -16,6 +16,7 @@ import (
 const (
 	FlappyRaceGameCode = "flappy_race"
 	DoodleJumpGameCode = "doodle_jump"
+	CrossyPVPGameCode  = "crossy_pvp"
 
 	PhaseWaiting   = "waiting"
 	PhaseCountdown = "countdown"
@@ -363,6 +364,8 @@ func (s *Session) calculateEventLocked(
 		return s.applyFlappyEventLocked(userID, message, kind, grade)
 	case DoodleJumpGameCode:
 		return s.applyDoodleEventLocked(userID, message, kind, grade, now)
+	case CrossyPVPGameCode:
+		return s.applyCrossyEventLocked(userID, message, kind, grade, now)
 	default:
 		return 0, false, errors.New("unsupported game")
 	}
@@ -508,17 +511,87 @@ func (s *Session) applyDoodleEventLocked(
 	}
 }
 
+func (s *Session) applyCrossyEventLocked(
+	userID uint,
+	message ClientMessage,
+	kind string,
+	grade string,
+	now time.Time,
+) (int, bool, error) {
+	switch kind {
+	case "row":
+		if message.Value <= s.heightSteps[userID] {
+			return 0, false, nil
+		}
+
+		elapsed := now.Sub(s.matchStartsAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+
+		// Один прыжок занимает 116 мс. Небольшой запас оставлен под задержку и кадры.
+		maxAllowedRow := 4 + int(elapsed.Seconds()*9.4)
+		if message.Value > maxAllowedRow {
+			return 0, false, errors.New("row progress is too fast")
+		}
+
+		difference := message.Value - s.heightSteps[userID]
+		if difference > 4 {
+			return 0, false, errors.New("row jump is too large")
+		}
+
+		s.heightSteps[userID] = message.Value
+		s.heightScores[userID] = message.Value
+		points := difference * 8
+		s.scores[userID] += points
+		return points, true, nil
+
+	case "coin":
+		if message.ObjectID <= 0 {
+			return 0, false, errors.New("coin object_id is required")
+		}
+		if message.Value < 0 || message.Value > s.heightSteps[userID]+1 {
+			return 0, false, errors.New("coin row is invalid")
+		}
+		if !s.markObjectLocked(userID, "coin", message.ObjectID) {
+			return 0, false, nil
+		}
+
+		s.combos[userID]++ // Для Crossy поле combos хранит число монет.
+		s.updateBestComboLocked(userID)
+		const points = 22
+		s.scores[userID] += points
+		return points, true, nil
+
+	case "death":
+		switch grade {
+		case "crash", "train", "splash":
+		default:
+			return 0, false, errors.New("invalid crossy death grade")
+		}
+
+		previous := s.scores[userID]
+		s.scores[userID] = maxInt(0, previous-24)
+		return s.scores[userID] - previous, true, nil
+
+	default:
+		return 0, false, errors.New("invalid crossy event")
+	}
+}
+
 func (s *Session) eventIntervalAllowedLocked(userID uint, kind string, now time.Time) bool {
 	minimum := 80 * time.Millisecond
 	switch kind {
 	case "gate", "platform":
 		minimum = 170 * time.Millisecond
-	case "crash", "fall":
+	case "crash", "fall", "death":
 		minimum = 650 * time.Millisecond
-	case "height":
+	case "height", "row":
 		minimum = 70 * time.Millisecond
 	case "star":
 		minimum = 40 * time.Millisecond
+	case "coin":
+		minimum = 110 * time.Millisecond
 	}
 	previous := s.lastEventAt[userID][kind]
 	return previous.IsZero() || now.Sub(previous) >= minimum
@@ -754,7 +827,7 @@ func (s *Session) Close() {
 
 func IsSupportedGame(gameCode string) bool {
 	switch normalizeGameCode(gameCode) {
-	case FlappyRaceGameCode, DoodleJumpGameCode:
+	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode:
 		return true
 	default:
 		return false
