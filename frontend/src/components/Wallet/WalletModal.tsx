@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowDownToLine, ArrowRight, ArrowUpFromLine, Link2, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, ArrowUpFromLine, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import tonIcon from '../../assets/header/ton.svg';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
@@ -32,9 +32,7 @@ const sanitizeAmount = (value: string) => {
   const cleaned = value.replace(/[^\d.,]/g, '');
   const separatorIndex = cleaned.search(/[.,]/);
 
-  if (separatorIndex === -1) {
-    return cleaned;
-  }
+  if (separatorIndex === -1) return cleaned;
 
   const separator = cleaned[separatorIndex];
   const integerPart = cleaned.slice(0, separatorIndex).replace(/[.,]/g, '');
@@ -53,16 +51,8 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
 
   const parsedDepositTon = useMemo(() => parseAmount(depositAmount), [depositAmount]);
   const parsedWithdrawGame = useMemo(() => parseAmount(withdrawAmount), [withdrawAmount]);
-
-  const depositGameAmount = useMemo(() => {
-    if (parsedDepositTon <= 0) return 0;
-    return parsedDepositTon * TON_TO_GAME_RATE;
-  }, [parsedDepositTon]);
-
-  const withdrawTonAmount = useMemo(() => {
-    if (parsedWithdrawGame <= 0) return 0;
-    return parsedWithdrawGame * GAME_TO_TON_RATE;
-  }, [parsedWithdrawGame]);
+  const depositGameAmount = parsedDepositTon > 0 ? parsedDepositTon * TON_TO_GAME_RATE : 0;
+  const withdrawTonAmount = parsedWithdrawGame > 0 ? parsedWithdrawGame * GAME_TO_TON_RATE : 0;
 
   useEffect(() => {
     if (isOpen) {
@@ -72,7 +62,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     }
 
     setIsVisible(false);
-    const timer = window.setTimeout(() => setShouldRender(false), 240);
+    const timer = window.setTimeout(() => setShouldRender(false), 220);
     return () => window.clearTimeout(timer);
   }, [isOpen]);
 
@@ -89,158 +79,105 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
 
   if (!shouldRender) return null;
 
+  const isDeposit = activeTab === 'deposit';
+  const amount = isDeposit ? depositAmount : withdrawAmount;
+  const setAmount = isDeposit ? setDepositAmount : setWithdrawAmount;
+  const result = isDeposit ? depositGameAmount : withdrawTonAmount;
+  const sourceIcon = isDeposit ? tonIcon : coinIcon;
+  const resultIcon = isDeposit ? coinIcon : tonIcon;
+  const sourceLabel = isDeposit ? 'TON' : 'GAME';
+  const resultLabel = isDeposit ? 'GAME' : 'TON';
+  const sourceIsGame = !isDeposit;
+  const resultIsGame = isDeposit;
+
   return (
-    <div className={`wallet-modal-root ${isVisible ? 'is-open' : 'is-closed'}`}>
-      <button type="button" aria-label="Закрыть" className="wallet-modal-backdrop" onClick={onClose} />
+    <div className={`wallet-simple-root ${isVisible ? 'is-open' : 'is-closed'}`}>
+      <button type="button" className="wallet-simple-backdrop" onClick={onClose} aria-label="Закрыть" />
 
-      <section role="dialog" aria-modal="true" aria-label="Кошелёк" className="wallet-modal-sheet">
-        <div className="wallet-modal-header">
-          <div className="min-w-0">
-            <p className="wallet-modal-kicker">Wallet</p>
-            <h2 className="wallet-modal-title">Кошелёк</h2>
-            <p className="wallet-modal-subtitle">Баланс, ввод и вывод средств</p>
+      <section role="dialog" aria-modal="true" aria-labelledby="wallet-simple-title" className="wallet-simple-sheet">
+        <div className="wallet-simple-handle" />
+
+        <header className="wallet-simple-header">
+          <div>
+            <span>Баланс</span>
+            <h2 id="wallet-simple-title">Кошелёк</h2>
           </div>
-
-          <button type="button" onClick={onClose} aria-label="Закрыть" className="pressable wallet-modal-close">
-            <X size={15} />
+          <button type="button" onClick={onClose} className="wallet-simple-close press" aria-label="Закрыть">
+            <X size={17} />
           </button>
-        </div>
+        </header>
 
-        <div className="wallet-balance-grid">
-          <div className="wallet-balance-card is-ton">
-            <div className="wallet-balance-top">
-              <p className="wallet-balance-label">TON</p>
-              <img src={tonIcon} alt="" className="wallet-mini-icon" draggable={false} decoding="async" />
+        <div className="wallet-simple-balances">
+          <div className="wallet-simple-balance">
+            <div>
+              <img src={coinIcon} alt="" className="is-game" draggable={false} />
+              <span>GAME</span>
             </div>
-            <p className="wallet-balance-value">{formatBalance(user?.balance_ton ?? 0)}</p>
+            <strong>{formatBalance(user?.balance_game ?? 0, 2)}</strong>
           </div>
+        </div>
 
-          <div className="wallet-balance-card is-game">
-            <div className="wallet-balance-top">
-              <p className="wallet-balance-label">GAME</p>
-              <img src={coinIcon} alt="" className="wallet-mini-icon is-game" draggable={false} decoding="async" />
+        <div className="wallet-simple-tabs" role="tablist" aria-label="Операция">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveTab(tab.id)}
+                className={`wallet-simple-tab press ${isActive ? 'is-active' : ''}`}
+              >
+                <Icon size={14} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="wallet-simple-conversion">
+          <label className="wallet-simple-amount">
+            <span>Отдаёшь</span>
+            <div>
+              <input
+                value={amount}
+                onChange={(event) => setAmount(sanitizeAmount(event.target.value))}
+                inputMode="decimal"
+                placeholder={isDeposit ? '0,1' : '10'}
+              />
+              <span className="wallet-simple-currency">
+                <img src={sourceIcon} alt="" className={sourceIsGame ? 'is-game' : ''} draggable={false} />
+                {sourceLabel}
+              </span>
             </div>
-            <p className="wallet-balance-value">{formatBalance(user?.balance_game ?? 0, 2)}</p>
+          </label>
+
+          <div className="wallet-simple-arrow" aria-hidden="true">
+            <ArrowRight size={16} />
+          </div>
+
+          <div className="wallet-simple-result">
+            <span>Получишь</span>
+            <div>
+              <strong>{result > 0 ? formatBalance(result, isDeposit ? 2 : 4) : '0'}</strong>
+              <span className="wallet-simple-currency">
+                <img src={resultIcon} alt="" className={resultIsGame ? 'is-game' : ''} draggable={false} />
+                {resultLabel}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="wallet-modal-body">
-          <div className="wallet-tabs">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`wallet-tab ${isActive ? 'is-active' : ''}`}
-                >
-                  <Icon size={12} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="wallet-content">
-            {activeTab === 'deposit' && (
-              <div className="wallet-action-section">
-                <div className="wallet-action-head">
-                  <div className="min-w-0">
-                    <h3 className="wallet-section-title">Пополнение</h3>
-                    <p className="wallet-section-text">Укажи сумму в TON. Курс: 1 TON = 10 GAME.</p>
-                  </div>
-
-                  <button type="button" disabled className="pressable wallet-connect-button">
-                    <Link2 size={13} />
-                    <span>Подключить кошелёк</span>
-                  </button>
-                </div>
-
-                <div className="wallet-conversion-row">
-                  <label className="wallet-amount-box">
-                    <span className="wallet-field-label">Отдаёшь</span>
-                    <div className="wallet-input-wrap">
-                      <input
-                        value={depositAmount}
-                        onChange={(event) => setDepositAmount(sanitizeAmount(event.target.value))}
-                        inputMode="decimal"
-                        placeholder="0,1"
-                        className="wallet-input"
-                      />
-                      <img src={tonIcon} alt="" className="wallet-currency-icon" draggable={false} decoding="async" />
-                    </div>
-                  </label>
-
-                  <div className="wallet-arrow-box" aria-hidden="true">
-                    <ArrowRight size={15} />
-                  </div>
-
-                  <div className="wallet-result-box">
-                    <span className="wallet-field-label">Получишь</span>
-                    <div className="wallet-result-value">
-                      <strong>{depositGameAmount > 0 ? formatBalance(depositGameAmount, 2) : '0'}</strong>
-                      <img src={coinIcon} alt="" className="wallet-currency-icon is-game" draggable={false} decoding="async" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="wallet-rate-note">Пополнение пока не отправляет транзакции. Кнопка подключения кошелька подготовлена под будущую интеграцию.</div>
-
-                <button type="button" disabled className="pressable wallet-submit-button">
-                  <span>Пополнение временно недоступно</span>
-                </button>
-              </div>
-            )}
-
-            {activeTab === 'withdraw' && (
-              <div className="wallet-action-section">
-                <div className="wallet-action-head">
-                  <div className="min-w-0">
-                    <h3 className="wallet-section-title">Вывод</h3>
-                    <p className="wallet-section-text">Укажи сумму GAME. Курс: 10 GAME = 1 TON.</p>
-                  </div>
-                </div>
-
-                <div className="wallet-conversion-row">
-                  <label className="wallet-amount-box">
-                    <span className="wallet-field-label">Отдаёшь</span>
-                    <div className="wallet-input-wrap">
-                      <input
-                        value={withdrawAmount}
-                        onChange={(event) => setWithdrawAmount(sanitizeAmount(event.target.value))}
-                        inputMode="decimal"
-                        placeholder="10"
-                        className="wallet-input"
-                      />
-                      <img src={coinIcon} alt="" className="wallet-currency-icon is-game" draggable={false} decoding="async" />
-                    </div>
-                  </label>
-
-                  <div className="wallet-arrow-box" aria-hidden="true">
-                    <ArrowRight size={15} />
-                  </div>
-
-                  <div className="wallet-result-box">
-                    <span className="wallet-field-label">Получишь</span>
-                    <div className="wallet-result-value">
-                      <strong>{withdrawTonAmount > 0 ? formatBalance(withdrawTonAmount, 4) : '0'}</strong>
-                      <img src={tonIcon} alt="" className="wallet-currency-icon" draggable={false} decoding="async" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="wallet-rate-note">Вывод пока отключён. UI готов под backend-метод заявки на вывод.</div>
-
-                <button type="button" disabled className="pressable wallet-submit-button">
-                  <span>Вывести</span>
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="wallet-simple-rate">
+          {isDeposit ? '1 TON = 10 GAME' : '10 GAME = 1 TON'}
         </div>
+
+        <button type="button" disabled className="wallet-simple-submit">
+          {isDeposit ? 'Пополнение скоро будет доступно' : 'Вывод скоро будет доступен'}
+        </button>
       </section>
     </div>
   );

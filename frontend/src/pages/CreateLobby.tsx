@@ -1,18 +1,13 @@
 import { useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import {
-  ArrowUpRight,
-  ChevronLeft,
-  Coins,
-  Loader2,
-  Sparkles,
-  Sword,
-  Wallet,
-} from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft, Loader2, Users } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
+const MIN_BET = 10;
+const MAX_BET = 1000;
 const presetBets = [50, 100, 250, 500];
 
 const toErrorMessage = (error: unknown) => {
@@ -32,13 +27,15 @@ export const CreateLobby = () => {
   const [error, setError] = useState<string | null>(null);
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
-  const gameName = game?.displayName || 'Game';
+  const gameName = game?.displayName || 'Игра';
   const userCoins = Math.floor(user?.balance_game ?? 0);
+  const betProgress = ((bet - MIN_BET) / (MAX_BET - MIN_BET)) * 100;
 
   const canCreate =
     Boolean(gameId) &&
     lobbyName.trim().length > 0 &&
-    bet > 0 &&
+    bet >= MIN_BET &&
+    bet <= MAX_BET &&
     bet <= userCoins &&
     !isSubmitting;
 
@@ -81,157 +78,111 @@ export const CreateLobby = () => {
   };
 
   return (
-    <main className="app-scroll relative min-h-full w-full min-w-0 overflow-y-auto overflow-x-hidden app-page pt-1 text-white">
-      <div className="pointer-events-none absolute inset-0 grid-fade opacity-60" />
+    <main className="minimal-page app-scroll app-page">
+      <div className="minimal-toolbar">
+        <button type="button" onClick={() => navigate(-1)} className="minimal-icon-button press" aria-label="Назад">
+          <ChevronLeft size={18} />
+        </button>
 
-      <button
-        onClick={() => navigate(-1)}
-        className="press relative mb-3 inline-flex h-10 items-center gap-1.5 rounded-[14px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/58"
-      >
-        <ChevronLeft size={16} />
-        Назад
-      </button>
+        <div className="minimal-toolbar-title">
+          <span>Новая комната</span>
+          <strong>Создать лобби</strong>
+        </div>
 
-      <section className="reveal top-hairline relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-[#0a0a11]/80 p-4">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(242,199,102,0.16),transparent_40%),radial-gradient(circle_at_100%_28%,rgba(82,255,229,0.11),transparent_42%)]" />
+        <div className="minimal-toolbar-spacer" />
+      </div>
 
-        <div className="relative grid grid-cols-[1fr_auto] items-start gap-3">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/30 px-2.5 py-1 text-[8px] font-black uppercase tracking-[0.2em] text-white/45">
-              <Sparkles size={11} className="text-[#F2C766]" />
-              Room setup
-            </div>
-
-            <h1 className="mt-3 text-[28px] font-black leading-[0.9] tracking-[-0.07em]">
-              Создать
-              <span className="block text-white/40">лобби</span>
-            </h1>
-
-            <p className="mt-2 max-w-[250px] text-[12px] font-medium leading-snug text-white/48">
-              Настрой стол для {gameName}, выбери ставку и запускай дуэль.
-            </p>
-          </div>
-
-          <div className="grid h-[64px] w-[64px] place-items-center rounded-[22px] border border-white/[0.1] bg-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <Sword size={28} className="text-[#F2C766]" />
-          </div>
+      <section className="minimal-game-summary minimal-create-summary">
+        <div className="minimal-game-cover">
+          {game?.coverUrl ? (
+            <img src={game.coverUrl} alt="" draggable={false} />
+          ) : (
+            <Users size={22} />
+          )}
+        </div>
+        <div className="minimal-game-copy">
+          <span>Игра</span>
+          <h1>{gameName}</h1>
         </div>
       </section>
 
-      <section className="relative mt-3 space-y-3">
-        <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.04] p-3.5">
-          <label className="mb-2.5 block text-[9px] font-black uppercase tracking-[0.2em] text-white/36">
-            Название лобби
-          </label>
+      <section className="minimal-form-card">
+        <label className="minimal-field">
+          <span>Название лобби</span>
           <input
             type="text"
             value={lobbyName}
             onChange={(event) => setLobbyName(event.target.value)}
-            placeholder="Например: VIP Duel"
-            className="w-full rounded-[16px] border border-white/[0.08] bg-black/25 px-3.5 py-3 text-[15px] font-black tracking-[-0.03em] text-white outline-none placeholder:text-white/22 focus:border-[#F2C766]/60"
+            placeholder="Например: Быстрая дуэль"
+            maxLength={32}
+          />
+        </label>
+
+        <div className="minimal-form-divider" />
+
+        <div className="minimal-bet-head">
+          <div>
+            <span className="minimal-field-label">Ставка</span>
+            <div className="minimal-bet-value">
+              <img src={coinIcon} alt="" draggable={false} />
+              <strong>{bet}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="minimal-range-wrap">
+          <div className="minimal-range-track" aria-hidden="true">
+            <span style={{ width: `${betProgress}%` }} />
+          </div>
+          <input
+            id="create-lobby-bet-range"
+            type="range"
+            min={MIN_BET}
+            max={MAX_BET}
+            step={10}
+            value={bet}
+            onChange={(event) => setBet(Number(event.target.value))}
+            aria-label="Ставка"
+            className="minimal-bet-range"
           />
         </div>
 
-        <div className="relative overflow-hidden rounded-[22px] border border-white/[0.08] bg-white/[0.04] p-3.5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <label
-                id="create-lobby-bet-label"
-                htmlFor="create-lobby-bet-range"
-                className="block text-[9px] font-black uppercase tracking-[0.2em] text-white/36"
-              >
-                Ставка
-              </label>
-              <div className="mt-1.5 flex items-end gap-1.5">
-                <Coins size={20} className="mb-1 text-[#F2C766]" />
-                <span className="text-[34px] font-black leading-none tracking-[-0.08em] tabular-nums">
-                  {bet}
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-[16px] border border-white/[0.08] bg-black/25 px-3 py-2.5 text-right">
-              <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-[0.16em] text-white/32">
-                <Wallet size={12} />
-                Баланс
-              </div>
-              <p className="mt-1 text-[15px] font-black tabular-nums text-[#52FFE5]">
-                {userCoins}
-              </p>
-            </div>
-          </div>
-
-          <div className="create-lobby-bet-slider relative py-3">
-            <progress
-              className="create-lobby-bet-progress"
-              value={bet - 10}
-              max={990}
-              aria-hidden="true"
-              tabIndex={-1}
-            />
-            <input
-              id="create-lobby-bet-range"
-              type="range"
-              min={10}
-              max={1000}
-              step={10}
-              value={bet}
-              onChange={(event) => setBet(Number(event.target.value))}
-              aria-labelledby="create-lobby-bet-label"
-              className="create-lobby-bet-range relative z-10 h-7 w-full cursor-pointer opacity-0"
-            />
-          </div>
-
-          <div className="mt-0.5 flex justify-between text-[11px] font-black tabular-nums text-white/28">
-            <span>10</span>
-            <span>1000</span>
-          </div>
-
-          <div className="mt-3 grid grid-cols-4 gap-2">
-            {presetBets.map((value) => (
-              <button
-                key={value}
-                onClick={() => setBet(value)}
-                className={[
-                  'press rounded-[14px] border px-2 py-2.5 text-[12px] font-black tabular-nums',
-                  bet === value
-                    ? 'border-white bg-white text-[#08080C]'
-                    : 'border-white/[0.08] bg-white/[0.05] text-white/48',
-                ].join(' ')}
-              >
-                {value}
-              </button>
-            ))}
-          </div>
+        <div className="minimal-range-values">
+          <span>{MIN_BET}</span>
+          <span>{MAX_BET}</span>
         </div>
 
-        {error && (
-          <div className="rounded-[16px] border border-[#FF7A90]/20 bg-[#FF7A90]/10 px-3 py-2 text-[11px] font-bold leading-snug text-[#FFB3BE]">
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleCreate}
-          disabled={!canCreate}
-          className={[
-            'press flex w-full items-center justify-center gap-2 rounded-[20px] py-3.5 text-[13px] font-black uppercase tracking-[0.14em] transition-colors disabled:cursor-default',
-            canCreate ? 'bg-white text-[#08080C]' : 'bg-white/[0.1] text-white/38',
-          ].join(' ')}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Создаем
-            </>
-          ) : (
-            <>
-              Создать лобби
-              <ArrowUpRight size={16} />
-            </>
-          )}
-        </button>
+        <div className="minimal-preset-grid">
+          {presetBets.map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setBet(value)}
+              className={`minimal-preset-button press ${bet === value ? 'is-active' : ''}`}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
       </section>
+
+      {error && <div className="minimal-alert">{error}</div>}
+
+      <button
+        type="button"
+        onClick={() => void handleCreate()}
+        disabled={!canCreate}
+        className="minimal-primary-button minimal-primary-button-large press"
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            Создаём
+          </>
+        ) : (
+          'Создать лобби'
+        )}
+      </button>
     </main>
   );
 };

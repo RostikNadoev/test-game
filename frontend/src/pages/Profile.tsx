@@ -1,10 +1,9 @@
 import {
   Award,
-  Coins,
+  CalendarDays,
   Crown,
-  Flame,
   Gamepad2,
-  Gem,
+  Medal,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -13,13 +12,11 @@ import {
   Trophy,
   UserRound,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { soloApi } from '../api/solo';
-import type { SoloStats } from '../api/types';
 import { useAuth } from '../auth/useAuth';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 4 }).format(value);
+const formatNumber = (value: number, maximumFractionDigits = 2) =>
+  new Intl.NumberFormat('ru-RU', { maximumFractionDigits }).format(value);
 
 const formatDate = (value?: string) => {
   if (!value) return '—';
@@ -29,7 +26,7 @@ const formatDate = (value?: string) => {
 
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
-    month: '2-digit',
+    month: 'long',
     year: 'numeric',
   }).format(date);
 };
@@ -39,23 +36,25 @@ const getInitials = (name?: string) => {
   return name.replace('@', '').slice(0, 2).toUpperCase();
 };
 
+const getLeague = (rating: number) => {
+  if (rating >= 2500) return 'Legend';
+  if (rating >= 1800) return 'Elite';
+  if (rating >= 1300) return 'Gold';
+  if (rating >= 900) return 'Silver';
+  return 'Rookie';
+};
+
 export const Profile = () => {
   const { user, isLoading, error, refreshProfile } = useAuth();
-  const [soloStats, setSoloStats] = useState<SoloStats | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    void soloApi.stats().then((response) => setSoloStats(response.solo_stats)).catch(() => setSoloStats(null));
-  }, [user]);
 
   if (isLoading) {
     return (
-      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-        <section className="minimal-status-card page-reveal">
-          <div className="minimal-loader">
+      <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+        <section className="elite-state-card elite-panel elite-enter">
+          <div className="elite-state-icon">
             <RefreshCw size={20} className="animate-spin" />
           </div>
-          <p className="text-safe mt-3 text-[11px] font-bold text-white/62">Загружаю профиль</p>
+          <p>Загружаю профиль</p>
         </section>
       </main>
     );
@@ -63,144 +62,190 @@ export const Profile = () => {
 
   if (!user) {
     return (
-      <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-        <section className="minimal-status-card is-error page-reveal">
-          <div className="minimal-error-icon"><UserRound size={20} /></div>
-          <h1 className="text-safe mt-3 text-[16px] font-bold text-white">Профиль недоступен</h1>
-          <p className="text-safe mt-2 max-w-[280px] text-center text-[10.5px] font-bold leading-relaxed text-white/46">
-            {error || 'Нет пользователя. Открой мини-приложение внутри Telegram.'}
-          </p>
+      <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+        <section className="elite-state-card elite-panel elite-enter is-error">
+          <div className="elite-state-icon">
+            <UserRound size={20} />
+          </div>
+          <h1>Профиль недоступен</h1>
+          <p>{error || 'Открой мини-приложение внутри Telegram.'}</p>
         </section>
       </main>
     );
   }
 
   const stats = user.stats;
-  const favoriteMode = stats.favorite_mode && stats.favorite_mode !== 'none' ? stats.favorite_mode : 'Пока нет';
+  const favoriteMode =
+    stats.favorite_mode && stats.favorite_mode !== 'none'
+      ? stats.favorite_mode
+      : 'Пока не определён';
+  const league = getLeague(stats.rating);
+  const winrate = Math.max(0, Math.min(100, stats.winrate));
+
+  const statItems = [
+    {
+      label: 'Победы',
+      value: stats.wins,
+      icon: Trophy,
+      tone: 'gold',
+    },
+    {
+      label: 'Поражения',
+      value: stats.losses,
+      icon: ShieldCheck,
+      tone: 'muted',
+    },
+    {
+      label: 'Матчи',
+      value: stats.total_games,
+      icon: Swords,
+      tone: 'blue',
+    },
+    {
+      label: 'Рейтинг',
+      value: stats.rating,
+      icon: TrendingUp,
+      tone: 'violet',
+    },
+  ];
 
   return (
-    <main className="app-scroll page-shell profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-      <section className="profile-head minimal-panel page-reveal">
-        <div className="profile-head-glow" />
-        <div className="relative z-10 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="profile-avatar-wrap">
-              <div className="profile-avatar">
+    <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+      <section className="elite-profile-hero elite-panel elite-enter">
+        <div className="elite-profile-hero-glow" />
+
+        <div className="elite-profile-top">
+          <div className="elite-profile-identity">
+            <div className="elite-profile-avatar-wrap">
+              <div className="elite-profile-avatar">
                 {user.photo_url ? (
-                  <img src={user.photo_url} alt={user.tg_user} className="h-full w-full object-cover" draggable={false} />
+                  <img
+                    src={user.photo_url}
+                    alt={user.tg_user}
+                    className="h-full w-full object-cover"
+                    draggable={false}
+                  />
                 ) : (
-                  <div className="profile-avatar-fallback">{getInitials(user.tg_user)}</div>
+                  <span>{getInitials(user.tg_user)}</span>
                 )}
               </div>
-              <div className="profile-crown"><Crown size={14} className="fill-current" /></div>
+              <div className="elite-profile-crown">
+                <Crown size={13} className="fill-current" />
+              </div>
             </div>
+
             <div className="min-w-0">
-              <div className="profile-kicker"><UserRound size={11} />Telegram</div>
-              <h1 className="profile-name">{user.tg_user || 'Игрок'}</h1>
-              <p className="profile-id-line">ID {user.id} · TG {user.telegram_id}</p>
+              <div className="elite-eyebrow">
+                <UserRound size={11} />
+                Telegram player
+              </div>
+              <h1 className="elite-profile-name">{user.tg_user || 'Игрок'}</h1>
+              <p className="elite-profile-id">ID {user.id} · TG {user.telegram_id}</p>
             </div>
           </div>
+
           <button
             type="button"
             onClick={() => void refreshProfile()}
-            className="pressable profile-refresh-button"
+            className="pressable elite-icon-button"
             aria-label="Обновить профиль"
           >
-            <RefreshCw size={11} aria-hidden="true" />
+            <RefreshCw size={14} />
           </button>
         </div>
 
-        <div className="relative z-10 mt-4 grid grid-cols-3 gap-2">
-          {[
-            { label: 'Rating', value: stats.rating, icon: Trophy, tone: 'gold' },
-            { label: 'Winrate', value: `${stats.winrate}%`, icon: Flame, tone: 'blue' },
-            { label: 'Games', value: stats.total_games, icon: Swords, tone: 'muted' },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.label} className={`profile-mini-stat is-${item.tone}`}>
-                <Icon size={14} />
-                <p>{item.value}</p>
+        <div className="elite-profile-rating-card">
+          <div className="elite-profile-rating-main">
+            <div className="elite-profile-rating-icon">
+              <Medal size={18} />
+            </div>
+            <div>
+              <p className="elite-profile-rating-label">Текущая лига</p>
+              <div className="elite-profile-rating-line">
+                <strong>{league}</strong>
+                <span>{formatNumber(stats.rating, 0)} RP</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="elite-winrate-block">
+            <div className="elite-winrate-head">
+              <span>Winrate</span>
+              <strong>{formatNumber(winrate, 1)}%</strong>
+            </div>
+            <div className="elite-winrate-track" aria-hidden="true">
+              <span style={{ width: `${winrate}%` }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="elite-balance-card elite-panel elite-enter elite-delay-1">
+        <div className="elite-balance-icon-wrap">
+          <img src={coinIcon} alt="" draggable={false} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="elite-balance-label">Игровой баланс</p>
+          <p className="elite-balance-value">{formatNumber(user.balance_game)}</p>
+        </div>
+        <div className="elite-balance-badge">GAME</div>
+      </section>
+
+      <section className="elite-profile-stats elite-enter elite-delay-2">
+        {statItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <article key={item.label} className={`elite-stat-card is-${item.tone}`}>
+              <div className="elite-stat-icon">
+                <Icon size={16} />
+              </div>
+              <div>
+                <strong>{formatNumber(Number(item.value), 0)}</strong>
                 <span>{item.label}</span>
               </div>
-            );
-          })}
-        </div>
+            </article>
+          );
+        })}
       </section>
 
-      <section className="profile-wallet-grid page-reveal">
-        <div className="profile-wallet-card is-ton">
-          <div className="profile-wallet-icon"><Gem size={19} /></div>
-          <div className="min-w-0"><p className="profile-wallet-value">{formatNumber(user.balance_ton)}</p><p className="profile-wallet-label">TON</p></div>
-        </div>
-        <div className="profile-wallet-card is-game">
-          <div className="profile-wallet-icon"><Coins size={19} /></div>
-          <div className="min-w-0"><p className="profile-wallet-value">{formatNumber(user.balance_game)}</p><p className="profile-wallet-label">GAME</p></div>
-        </div>
-      </section>
-
-      <section className="profile-stat-panel minimal-panel page-reveal">
-        <div className="minimal-section-head">
-          <div><p className="minimal-kicker">Backend stats</p><h2>Статистика</h2></div>
-          <div className="minimal-head-icon"><Award size={15} /></div>
-        </div>
-        <div className="profile-stat-list">
-          {[
-            { label: 'Победы', value: stats.wins, icon: Trophy, tone: 'gold' },
-            { label: 'Поражения', value: stats.losses, icon: ShieldCheck, tone: 'muted' },
-            { label: 'Всего игр', value: stats.total_games, icon: Swords, tone: 'blue' },
-            { label: 'Рейтинг', value: stats.rating, icon: TrendingUp, tone: 'blue' },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.label} className={`profile-stat-row is-${item.tone}`}>
-                <div className="profile-stat-left"><div className="profile-stat-icon"><Icon size={15} /></div><span>{item.label}</span></div>
-                <strong>{item.value}</strong>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="favorite-mode-card minimal-panel page-reveal">
-        <div className="minimal-section-head">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="minimal-head-icon"><Gamepad2 size={16} /></div>
-            <div className="min-w-0"><h2>Любимый режим</h2><p className="favorite-subtitle">c {formatDate(user.created_at)}</p></div>
+      <section className="elite-profile-summary elite-panel elite-enter elite-delay-3">
+        <div className="elite-section-heading">
+          <div>
+            <p className="elite-section-kicker">Player overview</p>
+            <h2>Профиль игрока</h2>
           </div>
-          <div className="favorite-trend"><TrendingUp size={16} /></div>
-        </div>
-        <div className="favorite-mode-inner">
-          <div className="favorite-mode-emoji">🎮</div>
-          <div className="min-w-0 flex-1">
-            <p className="favorite-mode-kicker">Top arena</p>
-            <h3 className="favorite-mode-title">{favoriteMode}</h3>
-            <p className="favorite-mode-text">Любимый режим появится после накопления активности в играх.</p>
+          <div className="elite-section-icon">
+            <Award size={16} />
           </div>
         </div>
-      </section>
 
-      <section className="minimal-panel page-reveal">
-        <div className="minimal-section-head">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="minimal-head-icon"><Sparkles size={16} /></div>
-            <div className="min-w-0"><h2>Solo-игры</h2><p className="favorite-subtitle">Статистика отдельно от PvP рейтинга</p></div>
-          </div>
-        </div>
-        <div className="profile-stats-grid">
-          {[
-            { label: 'Спинов', value: soloStats ? String(soloStats.total_spins) : '—' },
-            { label: 'Ставок всего', value: soloStats ? `${soloStats.total_wagered} GAME` : '—' },
-            { label: 'Выиграно', value: soloStats ? `${soloStats.total_won} GAME` : '—' },
-            { label: 'Лучший выигрыш', value: soloStats ? `${soloStats.biggest_win} GAME` : '—' },
-            { label: 'Любимая solo', value: soloStats?.favorite_solo_game || '—' },
-            { label: 'Последняя игра', value: soloStats?.last_played_at ? formatDate(soloStats.last_played_at) : '—' },
-          ].map((item) => (
-            <div key={item.label} className="profile-stat-card">
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
+        <div className="elite-profile-summary-grid">
+          <article className="elite-summary-card is-favorite">
+            <div className="elite-summary-icon">
+              <Gamepad2 size={18} />
             </div>
-          ))}
+            <div className="min-w-0">
+              <span>Любимый режим</span>
+              <strong>{favoriteMode}</strong>
+              <p>Определяется по твоей активности в матчах.</p>
+            </div>
+          </article>
+
+          <article className="elite-summary-card">
+            <div className="elite-summary-icon is-blue">
+              <CalendarDays size={18} />
+            </div>
+            <div className="min-w-0">
+              <span>В клубе с</span>
+              <strong>{formatDate(user.created_at)}</strong>
+              <p>Дата регистрации аккаунта.</p>
+            </div>
+          </article>
+        </div>
+
+        <div className="elite-profile-footer-note">
+          <Sparkles size={14} />
+          <span>Рейтинг обновляется после завершения PvP-матчей.</span>
         </div>
       </section>
     </main>
