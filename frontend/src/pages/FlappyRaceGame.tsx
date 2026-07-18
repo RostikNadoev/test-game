@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useArcadeRaceOnline } from "../hooks/useArcadeRaceOnline";
+import birdSpriteSrc from "../assets/games/bird/bird.webp";
 
 type MatchPhase = "countdown" | "playing" | "finished";
 
@@ -197,6 +198,15 @@ export const FlappyRaceGame = () => {
 
     const context = canvas.getContext("2d");
     if (!context) return;
+
+    const birdSprite = new Image();
+    let birdSpriteReady = false;
+
+    birdSprite.onload = () => {
+      birdSpriteReady = true;
+    };
+
+    birdSprite.src = birdSpriteSrc;
 
     setScore(match.myScore);
     setCombo(match.myCombo);
@@ -830,62 +840,54 @@ export const FlappyRaceGame = () => {
       const outerGlow = context.createRadialGradient(
         0,
         0,
-        bird.radius * 0.25,
+        bird.radius * 0.2,
         0,
         0,
-        bird.radius * 2.4,
+        bird.radius * 2.65,
       );
+
       outerGlow.addColorStop(
         0,
-        fireCombo ? "rgba(255,164,52,0.34)" : "rgba(82,255,229,0.22)",
+        fireCombo ? "rgba(255,164,52,0.34)" : "rgba(82,255,229,0.2)",
       );
-      outerGlow.addColorStop(1, "rgba(82,255,229,0)");
+      outerGlow.addColorStop(
+        1,
+        fireCombo ? "rgba(255,122,72,0)" : "rgba(82,255,229,0)",
+      );
+
       context.fillStyle = outerGlow;
       context.beginPath();
-      context.arc(0, 0, bird.radius * 2.4, 0, Math.PI * 2);
+      context.arc(0, 0, bird.radius * 2.65, 0, Math.PI * 2);
       context.fill();
 
-      const bodyGradient = context.createRadialGradient(-6, -7, 2, 2, 3, 25);
-      bodyGradient.addColorStop(0, "#f0ffff");
-      bodyGradient.addColorStop(0.28, "#62ffe7");
-      bodyGradient.addColorStop(0.72, "#18a99e");
-      bodyGradient.addColorStop(1, "#075e60");
-      context.fillStyle = bodyGradient;
-      context.shadowBlur = 13;
-      context.shadowColor = "rgba(82,255,229,0.5)";
-      context.beginPath();
-      context.ellipse(0, 0, 21, 15.5, 0, 0, Math.PI * 2);
-      context.fill();
-      context.shadowBlur = 0;
+      if (birdSpriteReady) {
+        const sourceWidth = birdSprite.naturalWidth || 1;
+        const sourceHeight = birdSprite.naturalHeight || 1;
+        const spriteWidth = 58;
+        const spriteHeight = spriteWidth * (sourceHeight / sourceWidth);
+        const flapScale = 1 + bird.wing * 0.035;
 
-      const wingLift = bird.wing * 8 + Math.sin(now * 0.02) * 2;
-      context.fillStyle = fireCombo ? "#ff9f43" : "#32c9bd";
-      context.beginPath();
-      context.ellipse(-7, 7 - wingLift * 0.35, 12, 6, -0.5, 0, Math.PI * 2);
-      context.fill();
+        context.scale(flapScale, 1 / flapScale);
+        context.shadowBlur = fireCombo ? 19 : 11;
+        context.shadowColor = fireCombo
+          ? "rgba(255,145,54,0.72)"
+          : "rgba(82,255,229,0.48)";
 
-      context.fillStyle = "#ffcc67";
-      context.beginPath();
-      context.moveTo(17, -3);
-      context.lineTo(28, 1);
-      context.lineTo(17, 6);
-      context.closePath();
-      context.fill();
+        context.drawImage(
+          birdSprite,
+          -spriteWidth * 0.5,
+          -spriteHeight * 0.5,
+          spriteWidth,
+          spriteHeight,
+        );
 
-      context.fillStyle = "#ffffff";
-      context.beginPath();
-      context.arc(8, -5, 5, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = "#10212a";
-      context.beginPath();
-      context.arc(10, -5, 2.2, 0, Math.PI * 2);
-      context.fill();
-
-      context.strokeStyle = "rgba(255,255,255,0.55)";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.ellipse(0, 0, 19.5, 14, 0, 0, Math.PI * 2);
-      context.stroke();
+        context.shadowBlur = 0;
+      } else {
+        context.fillStyle = "#27d9bd";
+        context.beginPath();
+        context.arc(0, 0, bird.radius, 0, Math.PI * 2);
+        context.fill();
+      }
 
       context.restore();
     };
@@ -982,6 +984,8 @@ export const FlappyRaceGame = () => {
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", handleKeyDown);
       canvas.removeEventListener("pointerdown", handlePointerDown);
+      birdSprite.onload = null;
+      birdSprite.onerror = null;
     };
   }, [match.lobbyId, match.matchInstanceKey, match.seed]);
 

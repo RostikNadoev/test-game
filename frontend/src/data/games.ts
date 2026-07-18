@@ -7,6 +7,10 @@ import towerCover from '../assets/home/tower.webp';
 import raceCover from '../assets/home/race.webp';
 import gridCover from '../assets/home/grid.webp';
 import rouletteCover from '../assets/home/roulette.webp';
+import dunkCover from '../assets/home/dunk.webp';
+import discCover from '../assets/home/disc.webp';
+import doodleCover from '../assets/home/doodle.webp';
+import flappyCover from '../assets/home/flappy.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -147,6 +151,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/dunk_shot/play',
     launchMode: 'lobby',
+    coverUrl: dunkCover,
   },
   {
     code: 'flappy_race',
@@ -158,6 +163,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/flappy_race/play',
     launchMode: 'lobby',
+    coverUrl: flappyCover,
   },
   {
     code: 'disc_football',
@@ -169,6 +175,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/disc_football/play',
     launchMode: 'lobby',
+    coverUrl: discCover,
   },
   {
     code: 'doodle_jump',
@@ -180,6 +187,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/doodle_jump/play',
     launchMode: 'lobby',
+    coverUrl: doodleCover,
   },
 ];
 
