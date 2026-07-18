@@ -863,7 +863,7 @@ export const FlappyRaceGame = () => {
       if (birdSpriteReady) {
         const sourceWidth = birdSprite.naturalWidth || 1;
         const sourceHeight = birdSprite.naturalHeight || 1;
-        const spriteWidth = 58;
+        const spriteWidth = 82;
         const spriteHeight = spriteWidth * (sourceHeight / sourceWidth);
         const flapScale = 1 + bird.wing * 0.035;
 
