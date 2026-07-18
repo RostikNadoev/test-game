@@ -31,7 +31,7 @@ export type GameCode =
   | 'dunk_shot'
   | 'flappy_race'
   | 'disc_football'
-  | 'doodle_pvp'
+  | 'doodle_jump'
   | 'crossy_pvp';
 
 export type GameCatalogItem = {
@@ -180,7 +180,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     coverUrl: discCover,
   },
   {
-    code: 'doodle_pvp',
+    code: 'doodle_jump',
     displayName: 'Doodle PVP',
     icon: '🛸',
     description: 'Прыгай всё выше, лови пружины и не падай',

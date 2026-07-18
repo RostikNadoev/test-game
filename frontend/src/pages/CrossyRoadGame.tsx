@@ -29,6 +29,7 @@ type Player = {
   facing: Facing;
   squash: number;
   invulnerableUntil: number;
+  movementLockedUntil: number;
 };
 
 type VehicleSpriteKey = "car1" | "car2" | "car3" | "car4" | "car5";
@@ -222,6 +223,7 @@ export const CrossyRoadGame = () => {
       facing: "up",
       squash: 0,
       invulnerableUntil: 0,
+      movementLockedUntil: 0,
     };
 
     const rows = new Map<number, Row>();
@@ -612,6 +614,7 @@ export const CrossyRoadGame = () => {
       Object.assign(player, {
         x: 3, row: 0, fromX: 3, fromRow: 0, targetX: 3, targetRow: 0,
         moveStartedAt: 0, facing: "up", squash: 0, invulnerableUntil: 0,
+        movementLockedUntil: 0,
       });
       cameraRow = -3.2;
       targetCameraRow = -3.2;
@@ -658,7 +661,12 @@ export const CrossyRoadGame = () => {
       generateRow(row).kind === "grass" && generateRow(row).trees.includes(column);
 
     const requestMove = (dx: number, dRow: number, now: number, facing: Facing) => {
-      if (match.phaseRef.current !== "playing" || isMoving(now) || now - lastMoveAt < 78) return;
+      if (
+        match.phaseRef.current !== "playing" ||
+        now < player.movementLockedUntil ||
+        isMoving(now) ||
+        now - lastMoveAt < 78
+      ) return;
       const snappedColumn = clamp(Math.round(player.targetX), 0, WORLD.columns - 1);
       const nextX = clamp(snappedColumn + dx, 0, WORLD.columns - 1);
       const nextRow = Math.max(0, Math.round(player.targetRow) + dRow);
@@ -714,6 +722,8 @@ export const CrossyRoadGame = () => {
 
     const respawn = (reason: string, now: number) => {
       if (now < player.invulnerableUntil) return;
+      const respawnUnlockAt = now + 1_050;
+      pointerStart = null;
       match.sendEvent({
         kind: "death",
         grade: reason.toLowerCase(),
@@ -727,8 +737,10 @@ export const CrossyRoadGame = () => {
         targetRow: checkpointRow,
         moveStartedAt: now - player.moveDuration,
         squash: 1,
-        invulnerableUntil: now + 1_050,
+        invulnerableUntil: respawnUnlockAt,
+        movementLockedUntil: respawnUnlockAt,
       });
+      lastMoveAt = respawnUnlockAt;
       targetCameraRow = Math.max(-3.2, checkpointRow - 3.4);
       cameraRow = Math.max(-3.2, Math.min(cameraRow, targetCameraRow + 2));
       flash = 1;
@@ -790,7 +802,7 @@ export const CrossyRoadGame = () => {
     const updatePlayer = (deltaTime: number, now: number) => {
       const rendered = renderedPlayer(now);
       player.squash *= Math.pow(0.045, deltaTime);
-      if (rendered.progress < 1) return;
+      if (now < player.movementLockedUntil || rendered.progress < 1) return;
 
       const row = generateRow(player.targetRow);
       const localX = player.targetX * WORLD.baseTile + WORLD.baseTile / 2;
@@ -1244,7 +1256,11 @@ export const CrossyRoadGame = () => {
     };
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (match.phaseRef.current !== "playing") return;
+      const now = performance.now();
+      if (
+        match.phaseRef.current !== "playing" ||
+        now < player.movementLockedUntil
+      ) return;
       event.preventDefault();
       canvas.setPointerCapture(event.pointerId);
       pointerStart = { x: event.clientX, y: event.clientY };
