@@ -96,7 +96,7 @@ const MAX_DPR = 1.7;
 const WORLD = {
   columns: 7,
   baseTile: 54,
-  moveDurationMs: 148,
+  moveDurationMs: 124,
   visibleRows: 12,
   checkpointEvery: 5,
   rowPoints: 8,
@@ -250,6 +250,7 @@ export const CrossyRoadGame = () => {
     let previousFrameAt = performance.now();
     let nextObjectId = 1;
     let pointerStart: { x: number; y: number } | null = null;
+    const pendingMoves: Array<{ dx: number; dRow: number; facing: Facing }> = [];
     let lastMoveAt = 0;
     let flash = 0;
     let cameraShake = 0;
@@ -466,10 +467,10 @@ export const CrossyRoadGame = () => {
     ) => {
       const boardWidth = WORLD.columns * WORLD.baseTile;
       const offscreenMargin = WORLD.baseTile * 1.6;
-      const laneSpeed = speed * (0.94 + random() * 0.12);
+      const laneSpeed = Math.min(92, speed * (0.88 + random() * 0.1));
 
       const styleRoll = random();
-      const count = styleRoll < 0.22 ? 2 : styleRoll < 0.82 ? 3 : 4;
+      const count = styleRoll < 0.08 ? 2 : styleRoll < 0.7 ? 3 : 4;
       const cellsList = Array.from(
         { length: count },
         () => (random() < 0.56 ? 1 : 2) as 1 | 2,
@@ -477,15 +478,13 @@ export const CrossyRoadGame = () => {
       const widths = cellsList.map((cells) => WORLD.baseTile * cells);
 
       const gaps = widths.map(() => {
-        if (styleRoll < 0.22) return WORLD.baseTile * lerp(1.12, 2.45, random());
-        if (styleRoll < 0.82) return WORLD.baseTile * lerp(0.55, 1.55, random());
-        return WORLD.baseTile * lerp(0.36, 1.02, random());
+        if (styleRoll < 0.08) return WORLD.baseTile * lerp(0.72, 1.22, random());
+        if (styleRoll < 0.7) return WORLD.baseTile * lerp(0.34, 0.88, random());
+        return WORLD.baseTile * lerp(0.24, 0.64, random());
       });
 
-      if (random() < 0.36) {
-        const largeGapIndex = Math.floor(random() * gaps.length);
-        gaps[largeGapIndex] += WORLD.baseTile * lerp(0.75, 1.9, random());
-      }
+      // На воде не создаём огромные случайные разрывы: даже серия из двух
+      // или трёх речных рядов должна оставаться проходимой без ожидания удачи.
 
       const maxWidth = Math.max(...widths);
       let loopLength = widths.reduce(
@@ -553,13 +552,22 @@ export const CrossyRoadGame = () => {
       const existing = rows.get(index);
       if (existing) return existing;
 
-      const kind = chooseRowKind(index);
+      let kind = chooseRowKind(index);
+      const previousRow = rows.get(index - 1);
+      const rowBeforePrevious = rows.get(index - 2);
+      if (
+        kind === "water" &&
+        previousRow?.kind === "water" &&
+        rowBeforePrevious?.kind === "water"
+      ) {
+        kind = "grass";
+      }
       const direction: Direction = random() > 0.5 ? 1 : -1;
       const difficulty = clamp(index / 70, 0, 1);
       const speed = kind === "rail"
         ? lerp(500, 760, difficulty)
         : kind === "water"
-          ? lerp(58, 116, difficulty)
+          ? lerp(52, 90, difficulty)
           : lerp(112, 232, difficulty);
 
       let trees: number[] = [];
@@ -675,10 +683,28 @@ export const CrossyRoadGame = () => {
     const requestMove = (dx: number, dRow: number, now: number, facing: Facing) => {
       if (
         match.phaseRef.current !== "playing" ||
-        now < player.movementLockedUntil ||
-        isMoving(now) ||
-        now - lastMoveAt < 92
+        now < player.movementLockedUntil
       ) return;
+
+      if (isMoving(now)) {
+        const previous = pendingMoves[pendingMoves.length - 1];
+        if (
+          pendingMoves.length < 2 &&
+          (!previous || previous.dx !== dx || previous.dRow !== dRow)
+        ) {
+          pendingMoves.push({ dx, dRow, facing });
+        }
+        return;
+      }
+
+      // Синхронизируем логическую позицию с последним отрисованным кадром.
+      // Это убирает телепортацию, когда следующий свайп приходит ровно между
+      // завершением анимации и следующим requestAnimationFrame.
+      const current = renderedPlayer(now);
+      player.x = current.x;
+      player.row = current.row;
+
+      if (now - lastMoveAt < 54) return;
       const snappedColumn = clamp(Math.round(player.targetX), 0, WORLD.columns - 1);
       const nextX = clamp(snappedColumn + dx, 0, WORLD.columns - 1);
       const nextRow = Math.max(0, Math.round(player.targetRow) + dRow);
@@ -736,6 +762,7 @@ export const CrossyRoadGame = () => {
       if (now < player.invulnerableUntil) return;
       const respawnUnlockAt = now + 1_050;
       pointerStart = null;
+      pendingMoves.length = 0;
       match.sendEvent({
         kind: "death",
         grade: reason.toLowerCase(),
@@ -870,6 +897,11 @@ export const CrossyRoadGame = () => {
         player.x = snapped;
         player.fromX = snapped;
         player.targetX = snapped;
+      }
+
+      const nextMove = pendingMoves.shift();
+      if (nextMove) {
+        requestMove(nextMove.dx, nextMove.dRow, now + 1, nextMove.facing);
       }
     };
 
@@ -1380,7 +1412,7 @@ export const CrossyRoadGame = () => {
   }
 
   return (
-    <div ref={containerRef} className="relative h-full min-h-[480px] w-full select-none overflow-hidden bg-transparent text-white">
+    <div ref={containerRef} className="crossy-text-safe relative h-full min-h-[480px] w-full select-none overflow-hidden bg-transparent text-white [&_button]:leading-[1.45] [&_button]:pt-[0.18em]">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-3">
@@ -1388,27 +1420,27 @@ export const CrossyRoadGame = () => {
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <PlayerAvatar photoUrl={match.playerProfile.photoUrl} name={playerName} side="player" />
             <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[9px] font-black leading-none text-white/90">{playerName}</div>
+              <div className="max-w-[92px] truncate text-[9px] font-black leading-[1.3] py-[0.08em] text-white/90">{playerName}</div>
               <div className="mt-1.5 flex items-baseline gap-1.5">
-                <span className="text-[20px] font-black leading-none tabular-nums text-[#F7C85F]">{score}</span>
+                <span className="text-[20px] font-black leading-[1.3] py-[0.08em] tabular-nums text-[#F7C85F]">{score}</span>
                 <span className="text-[6px] font-black uppercase tracking-[0.14em] text-white/30">x{multiplier} · row {displayRow}</span>
               </div>
             </div>
           </div>
 
           <div className="shrink-0 text-center">
-            <div className="text-[22px] font-black leading-none tabular-nums text-white">{phase === "countdown" ? countdown : timeLeft}</div>
+            <div className="text-[22px] font-black leading-[1.3] py-[0.08em] tabular-nums text-white">{phase === "countdown" ? countdown : timeLeft}</div>
             <div className="mt-1 text-[6px] font-black uppercase tracking-[0.16em] text-white/30">{phase === "finished" ? "finished" : "seconds"}</div>
           </div>
 
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
             <div className="min-w-0">
-              <div className="max-w-[92px] truncate text-[9px] font-black leading-none text-white/90">{opponentName}</div>
+              <div className="max-w-[92px] truncate text-[9px] font-black leading-[1.3] py-[0.08em] text-white/90">{opponentName}</div>
               <div className="mt-1.5 flex items-baseline justify-end gap-1.5">
                 <span className="text-[6px] font-black uppercase tracking-[0.14em] text-white/30">
                   coins {match.opponentCombo} · row {match.opponentHeightScore}
                 </span>
-                <span className="text-[20px] font-black leading-none tabular-nums text-[#FF7A90]">
+                <span className="text-[20px] font-black leading-[1.3] py-[0.08em] tabular-nums text-[#FF7A90]">
                   {opponentScore}
                 </span>
               </div>
@@ -1438,7 +1470,7 @@ export const CrossyRoadGame = () => {
       {match.phase === "countdown" && (
         <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/10">
           <div className="text-center">
-            <div className="text-[58px] font-black leading-none text-white drop-shadow-[0_10px_30px_rgba(247,200,95,0.35)]">{countdown}</div>
+            <div className="min-h-[78px] overflow-visible px-3 pt-3 text-[58px] font-black leading-[1.22] text-white drop-shadow-[0_10px_30px_rgba(247,200,95,0.35)]">{countdown}</div>
             <div className="mt-3 text-[9px] font-black uppercase tracking-[0.22em] text-white/48">cross the road</div>
           </div>
         </div>
