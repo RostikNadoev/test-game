@@ -51,6 +51,8 @@ type PublicState struct {
 	Combos          map[uint]int `json:"combos"`
 	BestCombos      map[uint]int `json:"best_combos"`
 	HeightScores    map[uint]int `json:"height_scores"`
+	BetCoins        float64      `json:"bet_coins"`
+	WinnerProfit    float64      `json:"winner_profit"`
 	CountdownEndsMS int64        `json:"countdown_ends_ms,omitempty"`
 	MatchEndsMS     int64        `json:"match_ends_ms,omitempty"`
 	WinnerUserID    uint         `json:"winner_user_id,omitempty"`
@@ -84,6 +86,7 @@ func (m *Manager) Connect(
 	lobbyID string,
 	playerIDs []uint,
 	userID uint,
+	betCoins float64,
 	conn *websocket.Conn,
 ) error {
 	gameCode = normalizeGameCode(gameCode)
@@ -107,7 +110,7 @@ func (m *Manager) Connect(
 	m.mu.Lock()
 	session := m.sessions[key]
 	if session == nil {
-		session = NewSession(gameCode, lobbyID, ids, m.onMatchOver)
+		session = NewSession(gameCode, lobbyID, ids, betCoins, m.onMatchOver)
 		m.sessions[key] = session
 	}
 	m.mu.Unlock()
@@ -151,6 +154,7 @@ type Session struct {
 	lobbyID     string
 	playerOrder []uint
 	clients     map[uint]*Client
+	betCoins    float64
 
 	scores       map[uint]int
 	combos       map[uint]int
@@ -186,6 +190,7 @@ func NewSession(
 	gameCode string,
 	lobbyID string,
 	playerIDs []uint,
+	betCoins float64,
 	onMatchOver func(lobbyID string, winnerUserID *uint),
 ) *Session {
 	s := &Session{
@@ -193,6 +198,7 @@ func NewSession(
 		lobbyID:      lobbyID,
 		playerOrder:  append([]uint(nil), playerIDs...),
 		clients:      make(map[uint]*Client),
+		betCoins:     maxFloat64(0, betCoins),
 		scores:       make(map[uint]int),
 		combos:       make(map[uint]int),
 		bestCombos:   make(map[uint]int),
@@ -743,6 +749,8 @@ func (s *Session) publicStateLocked() PublicState {
 		Combos:          combos,
 		BestCombos:      bestCombos,
 		HeightScores:    heightScores,
+		BetCoins:        s.betCoins,
+		WinnerProfit:    s.winnerProfitLocked(),
 		WinnerUserID:    s.winnerUserID,
 		Draw:            s.draw,
 		LastEventUserID: s.lastEventUserID,
@@ -761,6 +769,29 @@ func (s *Session) publicStateLocked() PublicState {
 		state.LastEventID = s.lastEventID[s.lastEventUserID]
 	}
 	return state
+}
+
+func (s *Session) winnerProfitLocked() float64 {
+	if s.phase != PhaseMatchOver || s.draw || s.winnerUserID == 0 {
+		return 0
+	}
+
+	// В интерфейсе показывается чистая прибыль победителя: 90% его ставки.
+	return roundToTwo(s.betCoins * 0.90)
+}
+
+func roundToTwo(value float64) float64 {
+	if value <= 0 {
+		return 0
+	}
+	return float64(int64(value*100+0.5)) / 100
+}
+
+func maxFloat64(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *Session) messageLocked() string {

@@ -11,6 +11,7 @@ import log2Sprite from "../assets/games/crossy/log2.webp";
 import pers from "../assets/games/crossy/pers.webp";
 import trainSprite from "../assets/games/crossy/train.webp";
 import treeSprite from "../assets/games/crossy/tree.webp";
+import coinIcon from "../assets/solo/scratch/icon-coin.webp";
 
 type MatchPhase = "countdown" | "playing" | "finished";
 type RowKind = "grass" | "road" | "rail" | "water";
@@ -95,7 +96,7 @@ const MAX_DPR = 1.7;
 const WORLD = {
   columns: 7,
   baseTile: 54,
-  moveDurationMs: 116,
+  moveDurationMs: 148,
   visibleRows: 12,
   checkpointEvery: 5,
   rowPoints: 8,
@@ -107,12 +108,10 @@ const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerp = (from: number, to: number, amount: number) =>
   from + (to - from) * amount;
-const easeOutBack = (value: number) => {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  const x = value - 1;
-  return 1 + c3 * x * x * x + c1 * x * x;
-};
+const easeInOutCubic = (value: number) =>
+  value < 0.5
+    ? 4 * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 3) / 2;
 const getInitials = (value: string) =>
   value.replace("@", "").trim().split(/[\s._-]+/).filter(Boolean).slice(0, 2)
     .map((part) => part[0]?.toUpperCase()).join("") || "TG";
@@ -185,6 +184,19 @@ export const CrossyRoadGame = () => {
     () => Math.min(5, 1 + Math.floor(Math.max(0, displayRow - 1) / 12)),
     [displayRow],
   );
+
+  const isDraw = match.draw;
+  const didWin = !isDraw && match.winnerUserId === match.myUserId;
+  const winnerIsPlayer = didWin;
+  const winnerProfile = winnerIsPlayer ? match.playerProfile : match.opponentProfile;
+  const loserProfile = winnerIsPlayer ? match.opponentProfile : match.playerProfile;
+  const winnerScore = winnerIsPlayer ? score : opponentScore;
+  const loserScore = winnerIsPlayer ? opponentScore : score;
+  const displayedReward = didWin
+    ? Math.max(0, match.serverState?.winner_profit ?? 0)
+    : 0;
+  const formatReward = (value: number) =>
+    new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -646,7 +658,7 @@ export const CrossyRoadGame = () => {
 
     const renderedPlayer = (now: number) => {
       const progress = clamp((now - player.moveStartedAt) / player.moveDuration, 0, 1);
-      const eased = easeOutBack(progress);
+      const eased = easeInOutCubic(progress);
       const x = lerp(player.fromX, player.targetX, eased);
       const row = lerp(player.fromRow, player.targetRow, eased);
       if (progress >= 1) {
@@ -665,7 +677,7 @@ export const CrossyRoadGame = () => {
         match.phaseRef.current !== "playing" ||
         now < player.movementLockedUntil ||
         isMoving(now) ||
-        now - lastMoveAt < 78
+        now - lastMoveAt < 92
       ) return;
       const snappedColumn = clamp(Math.round(player.targetX), 0, WORLD.columns - 1);
       const nextX = clamp(snappedColumn + dx, 0, WORLD.columns - 1);
@@ -683,7 +695,7 @@ export const CrossyRoadGame = () => {
       player.targetRow = nextRow;
       player.moveStartedAt = now;
       player.facing = facing;
-      player.squash = 1;
+      player.squash = 0.72;
       lastMoveAt = now;
       setShowHint(false);
 
@@ -736,7 +748,7 @@ export const CrossyRoadGame = () => {
         targetX: checkpointX,
         targetRow: checkpointRow,
         moveStartedAt: now - player.moveDuration,
-        squash: 1,
+        squash: 0.85,
         invulnerableUntil: respawnUnlockAt,
         movementLockedUntil: respawnUnlockAt,
       });
@@ -1171,11 +1183,24 @@ export const CrossyRoadGame = () => {
         return;
       }
 
+      const jumpWave = Math.sin(rendered.progress * Math.PI);
+      const directionTilt =
+        player.facing === "left"
+          ? -0.11
+          : player.facing === "right"
+            ? 0.11
+            : player.facing === "down"
+              ? 0.035
+              : -0.025;
+      const tilt = directionTilt * jumpWave;
+      const landingStretch = Math.sin(rendered.progress * Math.PI * 2) * 0.025;
+
       context.save();
       context.translate(x, y);
+      context.rotate(tilt);
       context.scale(
-        1 + player.squash * 0.13,
-        1 - player.squash * 0.1,
+        1 + player.squash * 0.085 - landingStretch,
+        1 - player.squash * 0.065 + landingStretch,
       );
 
       const spriteWidth = viewport.tile * 0.82;
@@ -1428,20 +1453,109 @@ export const CrossyRoadGame = () => {
       )}
 
       {phase === "finished" && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 px-5 backdrop-blur-[3px]">
-          <div className="w-full max-w-[310px] rounded-[28px] border border-white/12 bg-[#101b29]/96 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#F7C85F]/65">Crossy PVP</div>
-            <div className="mt-3 text-[28px] font-black leading-none text-white">{score}</div>
-            <div className="mt-2 text-[8px] font-black uppercase tracking-[0.16em] text-white/35">
-              {match.draw
-                ? "ничья"
-                : match.winnerUserId === match.myUserId
-                  ? "победа"
-                  : "поражение"} · row {match.myHeightScore} · coins {coins}
+        <div className="absolute inset-0 z-40 grid place-items-center bg-black/70 px-4 backdrop-blur-[6px]">
+          <div className="relative w-full max-w-[342px] overflow-hidden rounded-[30px] border border-white/[0.1] bg-[#0d1119]/95 px-5 pb-5 pt-6 text-center shadow-[0_30px_100px_rgba(0,0,0,0.72)]">
+            <div
+              className={[
+                "pointer-events-none absolute inset-x-0 top-0 h-32 opacity-45 blur-2xl",
+                isDraw
+                  ? "bg-white/10"
+                  : didWin
+                    ? "bg-[#39E58C]/20"
+                    : "bg-[#FF5D73]/20",
+              ].join(" ")}
+            />
+
+            <div className="relative">
+              <div className="text-[8px] font-black uppercase leading-[1.5] tracking-[0.22em] text-white/35">
+                Crossy PVP · Match result
+              </div>
+              <h2
+                className={[
+                  "mt-2 py-1 text-[27px] font-black uppercase leading-[1.25] tracking-[-0.04em]",
+                  isDraw
+                    ? "text-white"
+                    : didWin
+                      ? "text-[#49E99A]"
+                      : "text-[#FF667B]",
+                ].join(" ")}
+              >
+                {isDraw ? "Ничья" : didWin ? "Победа" : "Поражение"}
+              </h2>
+
+              {isDraw ? (
+                <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                  {[
+                    { profile: match.playerProfile, value: score },
+                    { profile: match.opponentProfile, value: opponentScore },
+                  ].map(({ profile, value }, index) => (
+                    <div key={profile.id || index} className="min-w-0">
+                      <div className="mx-auto grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[17px] font-black uppercase text-white">
+                        {profile.photoUrl ? (
+                          <img src={profile.photoUrl} alt={profile.name} className="h-full w-full object-cover" draggable={false} />
+                        ) : getInitials(profile.name)}
+                      </div>
+                      <div className="mt-2 truncate px-1 text-[9px] font-black leading-[1.5] text-white/62">{profile.name}</div>
+                      <div className="mt-1 text-[23px] font-black leading-[1.25] tabular-nums text-white">{value}</div>
+                    </div>
+                  ))}
+                  <div className="text-[9px] font-black uppercase tracking-[0.18em] text-white/25">VS</div>
+                </div>
+              ) : (
+                <div className="mt-5 grid grid-cols-[1.2fr_auto_0.9fr] items-end gap-3">
+                  <div className="min-w-0">
+                    <div className="relative mx-auto w-fit">
+                      <div className="absolute -inset-2 rounded-full bg-[#F7C85F]/15 blur-xl" />
+                      <div className="relative grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-2 border-[#F7C85F]/70 bg-white/[0.07] text-[20px] font-black uppercase text-white shadow-[0_15px_45px_rgba(247,200,95,0.17)]">
+                        {winnerProfile.photoUrl ? (
+                          <img src={winnerProfile.photoUrl} alt={winnerProfile.name} className="h-full w-full object-cover" draggable={false} />
+                        ) : getInitials(winnerProfile.name)}
+                      </div>
+                    </div>
+                    <div className="mt-2 truncate px-1 text-[9px] font-black leading-[1.5] text-[#F7C85F]">{winnerProfile.name}</div>
+                    <div className="mt-1 text-[27px] font-black leading-[1.25] tabular-nums text-white">{winnerScore}</div>
+                  </div>
+
+                  <div className="pb-9 text-[8px] font-black uppercase tracking-[0.18em] text-white/22">VS</div>
+
+                  <div className="min-w-0 pb-1">
+                    <div className="mx-auto grid h-[64px] w-[64px] place-items-center overflow-hidden rounded-full border border-white/12 bg-white/[0.045] text-[14px] font-black uppercase text-white/70">
+                      {loserProfile.photoUrl ? (
+                        <img src={loserProfile.photoUrl} alt={loserProfile.name} className="h-full w-full object-cover opacity-80" draggable={false} />
+                      ) : getInitials(loserProfile.name)}
+                    </div>
+                    <div className="mt-2 truncate px-1 text-[8px] font-black leading-[1.5] text-white/38">{loserProfile.name}</div>
+                    <div className="mt-1 text-[21px] font-black leading-[1.25] tabular-nums text-white/55">{loserScore}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="my-5 h-px bg-white/[0.07]" />
+
+              <div
+                className={[
+                  "mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5",
+                  isDraw
+                    ? "border-white/10 bg-white/[0.05] text-white/55"
+                    : didWin
+                      ? "border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]"
+                      : "border-[#FF667B]/20 bg-[#FF667B]/10 text-[#FF667B]",
+                ].join(" ")}
+              >
+                <span className="text-[20px] font-black leading-[1.25] tabular-nums">
+                  {didWin ? `+${formatReward(displayedReward)}` : "0"}
+                </span>
+                <img src={coinIcon} alt="GAME" className="h-6 w-6 object-contain" draggable={false} />
+              </div>
+
+              <button
+                type="button"
+                onClick={match.backToLobbies}
+                className="mt-5 w-full rounded-[18px] bg-white px-4 py-3.5 text-[10px] font-black uppercase leading-[1.5] tracking-[0.12em] text-[#080b10] transition active:scale-[0.98]"
+              >
+                К лобби
+              </button>
             </div>
-            <button type="button" onClick={match.backToLobbies} className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]">
-              К лобби
-            </button>
           </div>
         </div>
       )}

@@ -1,4 +1,3 @@
-
 export type ArcadeRaceGameCode = 'flappy_race' | 'doodle_jump' | 'crossy_pvp';
 
 export type ArcadeRaceMatchPhase =
@@ -20,6 +19,8 @@ export type ArcadeRaceStateMessage = {
   combos: Record<string, number>;
   best_combos: Record<string, number>;
   height_scores: Record<string, number>;
+  bet_coins: number;
+  winner_profit: number;
   countdown_ends_ms?: number;
   match_ends_ms?: number;
   winner_user_id?: number;
@@ -93,7 +94,13 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
   if (!isObject(value) || value.type !== 'state') return null;
 
   const rawGame = toStringValue(value.game);
-  if (rawGame !== 'flappy_race' && rawGame !== 'doodle_jump' && rawGame !== 'crossy_pvp') return null;
+  if (
+    rawGame !== 'flappy_race' &&
+    rawGame !== 'doodle_jump' &&
+    rawGame !== 'crossy_pvp'
+  ) {
+    return null;
+  }
 
   const rawPhase = toStringValue(value.phase);
   const phase: ArcadeRaceMatchPhase =
@@ -121,6 +128,8 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     combos: normalizeNumberMap(value.combos),
     best_combos: normalizeNumberMap(value.best_combos),
     height_scores: normalizeNumberMap(value.height_scores),
+    bet_coins: Math.max(0, toNumber(value.bet_coins)),
+    winner_profit: Math.max(0, toNumber(value.winner_profit)),
     countdown_ends_ms: toNumber(value.countdown_ends_ms) || undefined,
     match_ends_ms: toNumber(value.match_ends_ms) || undefined,
     winner_user_id: Math.trunc(toNumber(value.winner_user_id)) || undefined,
