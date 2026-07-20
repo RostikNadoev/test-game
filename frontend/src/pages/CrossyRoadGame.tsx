@@ -1583,9 +1583,42 @@ export const CrossyRoadGame = () => {
               <button
                 type="button"
                 onClick={match.backToLobbies}
-                className="mt-5 w-full rounded-[18px] bg-white px-4 py-3.5 text-[10px] font-black uppercase leading-[1.5] tracking-[0.12em] text-[#080b10] transition active:scale-[0.98]"
+                className="group mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[0.11] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.045)_100%)] px-2.5 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_36px_rgba(0,0,0,0.30)] transition-[transform,border-color,background-color,box-shadow] duration-150 hover:border-white/[0.17] hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.135)_0%,rgba(255,255,255,0.06)_100%)] active:translate-y-[1px] active:scale-[0.985] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_8px_20px_rgba(0,0,0,0.24)]"
               >
-                К лобби
+                <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[0.10] bg-black/20 text-white/72 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-150 group-hover:bg-black/28 group-hover:text-white">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-[17px] w-[17px]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M19 12H5" />
+                    <path d="m11 18-6-6 6-6" />
+                  </svg>
+                </span>
+
+                <span className="px-2 pt-[0.16em] text-center text-[10px] font-black uppercase leading-[1.5] tracking-[0.14em] text-white">
+                  К лобби
+                </span>
+
+                <span className="grid h-[38px] w-[38px] place-items-center text-white/30 transition duration-150 group-hover:translate-x-0.5 group-hover:text-white/55">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-[16px] w-[16px]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </span>
               </button>
             </div>
           </div>
