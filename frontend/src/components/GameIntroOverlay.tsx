@@ -19,6 +19,9 @@ type Props = {
   gameTitle: string;
   isMatched: boolean;
   onComplete: () => void;
+  onCancel?: () => void;
+  isCancelling?: boolean;
+  cancelError?: string | null;
   matchedDurationMs?: number;
   opponentName?: string;
   opponentPhotoUrl?: string;
@@ -118,6 +121,9 @@ export const GameIntroOverlay = ({
   gameTitle,
   isMatched,
   onComplete,
+  onCancel,
+  isCancelling = false,
+  cancelError,
   matchedDurationMs = 2400,
   opponentName,
   opponentPhotoUrl,
@@ -492,6 +498,104 @@ export const GameIntroOverlay = ({
           text-transform: uppercase;
         }
 
+        .gi-cancel-button {
+          width: 100%;
+          min-height: 42px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          border: 1px solid rgba(255, 122, 144, .17);
+          border-radius: 17px;
+          background:
+            linear-gradient(180deg, rgba(255, 122, 144, .085), rgba(255, 122, 144, .045)),
+            rgba(255,255,255,.018);
+          color: rgba(255, 190, 201, .88);
+          font: inherit;
+          font-size: 8.5px;
+          line-height: 1;
+          font-weight: 900;
+          letter-spacing: .14em;
+          text-transform: uppercase;
+          cursor: pointer;
+          box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.045),
+            0 10px 24px rgba(0,0,0,.14);
+          transition:
+            transform .16s ease,
+            border-color .16s ease,
+            background .16s ease,
+            color .16s ease;
+          -webkit-tap-highlight-color: transparent;
+        }
+
+        .gi-cancel-button:hover {
+          border-color: rgba(255, 122, 144, .28);
+          background:
+            linear-gradient(180deg, rgba(255, 122, 144, .12), rgba(255, 122, 144, .06)),
+            rgba(255,255,255,.024);
+          color: #FFD4DB;
+        }
+
+        .gi-cancel-button:active {
+          transform: scale(.985);
+        }
+
+        .gi-cancel-button:disabled {
+          cursor: default;
+          opacity: .62;
+          transform: none;
+        }
+
+        .gi-cancel-icon {
+          position: relative;
+          width: 14px;
+          height: 14px;
+          flex: 0 0 auto;
+        }
+
+        .gi-cancel-icon::before,
+        .gi-cancel-icon::after {
+          content: "";
+          position: absolute;
+          top: 6px;
+          left: 1px;
+          width: 12px;
+          height: 1.5px;
+          border-radius: 999px;
+          background: currentColor;
+        }
+
+        .gi-cancel-icon::before {
+          transform: rotate(45deg);
+        }
+
+        .gi-cancel-icon::after {
+          transform: rotate(-45deg);
+        }
+
+        .gi-cancel-spinner {
+          width: 14px;
+          height: 14px;
+          flex: 0 0 auto;
+          border-radius: 999px;
+          border: 1.5px solid rgba(255,255,255,.16);
+          border-top-color: currentColor;
+          animation: giSpin .72s linear infinite;
+        }
+
+        .gi-cancel-error {
+          border: 1px solid rgba(255, 122, 144, .18);
+          border-radius: 14px;
+          background: rgba(255, 122, 144, .075);
+          padding: 9px 11px;
+          color: rgba(255, 190, 201, .9);
+          text-align: center;
+          font-size: 9px;
+          line-height: 1.4;
+          font-weight: 800;
+        }
+
         .gi-progress {
           position: relative;
           height: 4px;
@@ -730,6 +834,28 @@ export const GameIntroOverlay = ({
             <div className="gi-progress">
               <i />
             </div>
+
+            {!showMatchedState && onCancel && (
+              <button
+                type="button"
+                className="gi-cancel-button"
+                onClick={onCancel}
+                disabled={isCancelling}
+              >
+                {isCancelling ? (
+                  <span className="gi-cancel-spinner" aria-hidden="true" />
+                ) : (
+                  <span className="gi-cancel-icon" aria-hidden="true" />
+                )}
+                {isCancelling ? 'Отменяем поиск' : 'Отменить поиск'}
+              </button>
+            )}
+
+            {!showMatchedState && cancelError && (
+              <div className="gi-cancel-error" role="alert">
+                {cancelError}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -63,7 +63,7 @@ export const LobbyRoom = () => {
   }, POLL_INTERVAL_MS);
 
   const handleComplete = useCallback(() => {
-    if (completedRef.current) return;
+    if (completedRef.current || isLeaving) return;
     if (!lobby || !user) return;
 
     completedRef.current = true;
@@ -91,22 +91,29 @@ export const LobbyRoom = () => {
         playersInfo,
       },
     });
-  }, [lobby, navigate, playPath, refreshBalance, user]);
+  }, [isLeaving, lobby, navigate, playPath, refreshBalance, user]);
 
-  const handleLeave = async () => {
+  const handleCancelSearch = useCallback(async () => {
     if (!lobby || isLeaving || isMatched) return;
 
     setIsLeaving(true);
+    setError(null);
 
     try {
       await api.lobbies.leave(lobby.id);
-      navigate(`/game/${lobby.game}/lobbies`, { replace: true });
+
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem('twingames_active_lobby_id');
+        window.sessionStorage.removeItem('twingames_active_game');
+      }
+
+      navigate('/', { replace: true });
     } catch (requestError) {
       setError(toErrorMessage(requestError));
     } finally {
       setIsLeaving(false);
     }
-  };
+  }, [isLeaving, isMatched, lobby, navigate]);
 
   if (isLoading) {
     return (
@@ -199,7 +206,7 @@ export const LobbyRoom = () => {
 
             {!isMatched && isUserInLobby && (
               <button
-                onClick={handleLeave}
+                onClick={() => void handleCancelSearch()}
                 disabled={isLeaving}
                 className="press mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/[0.08] bg-white/[0.05] py-3 text-[11px] font-black uppercase tracking-[0.14em] text-white/48 disabled:opacity-60"
               >
@@ -221,6 +228,9 @@ export const LobbyRoom = () => {
         gameTitle={gameTitle}
         isMatched={isMatched}
         onComplete={handleComplete}
+        onCancel={() => void handleCancelSearch()}
+        isCancelling={isLeaving}
+        cancelError={error}
         opponentName={opponentInfo?.tg_user}
         opponentPhotoUrl={opponentInfo?.photo_url}
       />

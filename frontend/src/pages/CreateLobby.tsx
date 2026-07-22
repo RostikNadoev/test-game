@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Loader2, Users } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Loader2, Users } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
@@ -20,24 +20,36 @@ export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const [lobbyName, setLobbyName] = useState('');
   const [bet, setBet] = useState(100);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [nameErrorPulse, setNameErrorPulse] = useState(0);
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
   const gameName = game?.displayName || 'Игра';
   const userCoins = Math.floor(user?.balance_game ?? 0);
   const betProgress = ((bet - MIN_BET) / (MAX_BET - MIN_BET)) * 100;
 
-  const canCreate =
+  const canAttemptCreate =
     Boolean(gameId) &&
-    lobbyName.trim().length > 0 &&
     bet >= MIN_BET &&
     bet <= MAX_BET &&
     bet <= userCoins &&
     !isSubmitting;
+
+  const showNameValidation = () => {
+    setNameError('Заполните название лобби');
+    setNameErrorPulse((current) => current + 1);
+    setError(null);
+
+    window.requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+    });
+  };
 
   const handleCreate = async () => {
     const name = lobbyName.trim();
@@ -48,7 +60,7 @@ export const CreateLobby = () => {
     }
 
     if (!name) {
-      setError('Введите название лобби');
+      showNameValidation();
       return;
     }
 
@@ -59,6 +71,7 @@ export const CreateLobby = () => {
 
     setIsSubmitting(true);
     setError(null);
+    setNameError(null);
 
     try {
       const response = await api.lobbies.create({
@@ -79,8 +92,101 @@ export const CreateLobby = () => {
 
   return (
     <main className="minimal-page app-scroll app-page">
+      <style>{`
+        .create-lobby-name-wrap {
+          position: relative;
+          border-radius: 16px;
+          transition:
+            border-color .18s ease,
+            background .18s ease,
+            box-shadow .18s ease;
+        }
+
+        .create-lobby-name-wrap.is-invalid {
+          background: rgba(255, 122, 144, .055);
+          box-shadow:
+            0 0 0 1px rgba(255, 122, 144, .28),
+            0 10px 28px rgba(255, 82, 112, .07);
+        }
+
+        .create-lobby-name-wrap.is-invalid input {
+          border-color: rgba(255, 122, 144, .42);
+          color: #fff;
+        }
+
+        .create-lobby-name-wrap.is-invalid input::placeholder {
+          color: rgba(255, 179, 190, .5);
+        }
+
+        .create-lobby-name-wrap.shake-even {
+          animation: createLobbyFieldShakeEven .34s ease;
+        }
+
+        .create-lobby-name-wrap.shake-odd {
+          animation: createLobbyFieldShakeOdd .34s ease;
+        }
+
+        .minimal-field > .create-lobby-name-error {
+          margin-top: 8px;
+          margin-bottom: 0;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          color: #FFB3BE;
+          font-size: 10px;
+          line-height: 1.35;
+          font-weight: 800;
+          letter-spacing: normal;
+          text-transform: none;
+          animation: createLobbyErrorIn .2s ease both;
+        }
+
+        .minimal-field > .create-lobby-name-error svg {
+          flex: 0 0 auto;
+          color: #FF7A90;
+        }
+
+        @keyframes createLobbyFieldShakeEven {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-4px); }
+          50% { transform: translateX(4px); }
+          75% { transform: translateX(-2px); }
+        }
+
+        @keyframes createLobbyFieldShakeOdd {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(4px); }
+          50% { transform: translateX(-4px); }
+          75% { transform: translateX(2px); }
+        }
+
+        @keyframes createLobbyErrorIn {
+          from {
+            opacity: 0;
+            transform: translateY(-3px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .create-lobby-name-wrap.shake-even,
+          .create-lobby-name-wrap.shake-odd,
+          .create-lobby-name-error {
+            animation: none;
+          }
+        }
+      `}</style>
+
       <div className="minimal-toolbar">
-        <button type="button" onClick={() => navigate(-1)} className="minimal-icon-button press" aria-label="Назад">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="minimal-icon-button press"
+          aria-label="Назад"
+        >
           <ChevronLeft size={18} />
         </button>
 
@@ -109,13 +215,43 @@ export const CreateLobby = () => {
       <section className="minimal-form-card">
         <label className="minimal-field">
           <span>Название лобби</span>
-          <input
-            type="text"
-            value={lobbyName}
-            onChange={(event) => setLobbyName(event.target.value)}
-            placeholder="Например: Быстрая дуэль"
-            maxLength={32}
-          />
+
+          <div
+            className={`create-lobby-name-wrap ${
+              nameError
+                ? `is-invalid ${nameErrorPulse % 2 === 0 ? 'shake-even' : 'shake-odd'}`
+                : ''
+            }`}
+          >
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={lobbyName}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setLobbyName(nextValue);
+
+                if (nextValue.trim()) {
+                  setNameError(null);
+                }
+              }}
+              placeholder="Например: Быстрая дуэль"
+              maxLength={32}
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? 'create-lobby-name-error' : undefined}
+            />
+          </div>
+
+          {nameError && (
+            <span
+              id="create-lobby-name-error"
+              className="create-lobby-name-error"
+              role="alert"
+            >
+              <AlertCircle size={14} />
+              {nameError}
+            </span>
+          )}
         </label>
 
         <div className="minimal-form-divider" />
@@ -171,7 +307,7 @@ export const CreateLobby = () => {
       <button
         type="button"
         onClick={() => void handleCreate()}
-        disabled={!canCreate}
+        disabled={!canAttemptCreate}
         className="minimal-primary-button minimal-primary-button-large press"
       >
         {isSubmitting ? (

@@ -194,6 +194,8 @@ class TowerEngine {
 
   private blocks: Block[] = [];
   private active: { x: number; w: number; dir: number } | null = null;
+  private activeStartedAtPerf = 0;
+  private activeFromLeft = true;
   private speed = BASE_SPEED;
   private cameraY = 0;
   private cameraTarget = 0;
@@ -230,82 +232,53 @@ class TowerEngine {
     serverBaseWidth = SERVER_WORLD_WIDTH * 0.42,
     activeStartMs = 0,
     estimatedServerNowMs = 0,
+    initialPlayer?: TowerStackPlayerState,
   ) {
     this.worldScale = this.cssW / Math.max(1, worldWidth);
     this.baseWidth = Math.max(MIN_WIDTH * this.worldScale, serverBaseWidth * this.worldScale);
-    this.blocks = [];
+    this.blocks = (initialPlayer?.blocks ?? []).map((block) => ({
+      left: block.left * this.worldScale,
+      width: block.width * this.worldScale,
+      level: block.level,
+      perfect: block.perfect,
+    }));
     this.dust = [];
     this.slabs = [];
     this.flash = 0;
-    this.combo = 0;
+    this.combo = initialPlayer?.combo ?? 0;
     this.cameraY = 0;
     this.cameraTarget = 0;
-    this.speed = BASE_SPEED * this.worldScale;
-    this.spawnActive(this.baseWidth);
 
-    if (activeStartMs > 0 && estimatedServerNowMs > 0) {
+    const activeWidthWorld =
+      initialPlayer && initialPlayer.active_width > 0
+        ? initialPlayer.active_width
+        : serverBaseWidth;
+    const activeWidth = Math.max(MIN_WIDTH * this.worldScale, activeWidthWorld * this.worldScale);
+    const activeSpeedWorld =
+      initialPlayer && initialPlayer.active_speed > 0
+        ? initialPlayer.active_speed
+        : Math.min(SPEED_MAX, BASE_SPEED + this.blocks.length * SPEED_STEP);
+    const initialActiveStartMs = initialPlayer?.active_start_ms || activeStartMs;
+    const initialFromLeft = initialPlayer?.active_from_left ?? true;
+
+    this.speed = activeSpeedWorld * this.worldScale;
+
+    if (initialActiveStartMs > 0 && estimatedServerNowMs > 0) {
       this.alignActive(
-        this.baseWidth,
-        activeStartMs,
-        true,
-        BASE_SPEED,
+        activeWidth,
+        initialActiveStartMs,
+        initialFromLeft,
+        activeSpeedWorld,
         estimatedServerNowMs,
       );
+    } else {
+      this.spawnActive(activeWidth);
     }
 
     this.running = true;
     this.last = 0;
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.loop);
-  }
-
-  reconcileFromServer(
-    player: TowerStackPlayerState,
-    worldWidth: number,
-    serverBaseWidth: number,
-    estimatedServerNowMs: number,
-  ) {
-    if (this.cssW <= 0 || worldWidth <= 0) return;
-
-    const scale = this.cssW / worldWidth;
-    this.worldScale = scale;
-    this.baseWidth = Math.max(MIN_WIDTH * scale, serverBaseWidth * scale);
-
-    const serverBlocks = player.blocks.map((block) => ({
-      left: block.left * scale,
-      width: block.width * scale,
-      level: block.level,
-      perfect: block.perfect,
-    }));
-
-    const geometryMismatch =
-      serverBlocks.length !== this.blocks.length ||
-      serverBlocks.some((block, index) => {
-        const local = this.blocks[index];
-        return (
-          !local ||
-          Math.abs(local.left - block.left) > 1.25 ||
-          Math.abs(local.width - block.width) > 1.25 ||
-          local.perfect !== block.perfect
-        );
-      });
-
-    if (geometryMismatch) {
-      this.blocks = serverBlocks;
-    }
-
-    this.combo = player.combo;
-    this.speed = Math.max(0, player.active_speed * scale);
-
-    if (player.active_width <= 0 || player.active_start_ms <= 0) return;
-
-    this.alignActive(
-      player.active_width * scale,
-      player.active_start_ms,
-      player.active_from_left,
-      player.active_speed,
-      estimatedServerNowMs,
-    );
   }
 
   stop() {
@@ -322,6 +295,7 @@ class TowerEngine {
   /** Drop the live block onto the stack. The single player input. */
   drop(): PlaceInfo | null {
     if (!this.running || !this.active) return null;
+    this.updateActivePosition(performance.now());
     const a = this.active;
     const n = this.blocks.length;
     const aLeft = a.x;
@@ -446,26 +420,13 @@ class TowerEngine {
     if (!this.running) return;
     const dt = this.last ? Math.min(0.05, (t - this.last) / 1000) : 0;
     this.last = t;
-    this.update(dt);
+    this.update(dt, t);
     this.render();
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private update(dt: number) {
-    const a = this.active;
-    if (a) {
-      a.x += a.dir * this.speed * dt;
-      const pad = PAD * this.worldScale;
-      const minX = pad;
-      const maxX = this.cssW - a.w - pad;
-      if (a.x <= minX) {
-        a.x = minX;
-        a.dir = 1;
-      } else if (a.x >= maxX) {
-        a.x = maxX;
-        a.dir = -1;
-      }
-    }
+  private update(dt: number, nowPerfMs: number) {
+    this.updateActivePosition(nowPerfMs);
 
     // Camera keeps the live band in view; only scrolls once the tower is tall.
     const activeTopWorld = (this.blocks.length + 1) * BLOCK_HEIGHT;
@@ -541,19 +502,54 @@ class TowerEngine {
     estimatedServerNowMs: number,
   ) {
     const pad = PAD * this.worldScale;
+    const w = Math.min(width, this.cssW - 2 * pad);
+    const elapsedSeconds = Math.max(0, (estimatedServerNowMs - activeStartMs) / 1000);
+
+    this.speed = Math.max(0, speedWorld * this.worldScale);
+    this.activeFromLeft = fromLeft;
+    this.activeStartedAtPerf = performance.now() - elapsedSeconds * 1000;
+    this.active = {
+      x: fromLeft ? pad : this.cssW - w - pad,
+      w,
+      dir: fromLeft ? 1 : -1,
+    };
+    this.updateActivePosition(performance.now());
+  }
+
+  private spawnActive(width: number) {
+    const pad = PAD * this.worldScale;
+    const w = Math.min(width, this.cssW - 2 * pad);
+    const fromLeft = this.blocks.length % 2 === 0;
+
+    this.activeFromLeft = fromLeft;
+    this.activeStartedAtPerf = performance.now();
+    this.active = {
+      x: fromLeft ? pad : this.cssW - w - pad,
+      w,
+      dir: fromLeft ? 1 : -1,
+    };
+  }
+
+  private updateActivePosition(nowPerfMs: number) {
+    const active = this.active;
+    if (!active) return;
+
+    const pad = PAD * this.worldScale;
     const minX = pad;
-    const maxX = this.cssW - width - pad;
+    const maxX = this.cssW - active.w - pad;
     const travel = Math.max(0, maxX - minX);
 
     if (travel <= 0) {
-      this.active = { x: minX, w: width, dir: 1 };
+      active.x = minX;
+      active.dir = 1;
       return;
     }
 
-    const elapsedSeconds = Math.max(0, (estimatedServerNowMs - activeStartMs) / 1000);
-    const distance = elapsedSeconds * speedWorld * this.worldScale;
+    const elapsedSeconds = Math.max(0, (nowPerfMs - this.activeStartedAtPerf) / 1000);
+    const distance = elapsedSeconds * this.speed;
     const period = travel * 2;
     const position = distance % period;
+
     let x: number;
     let direction: number;
 
@@ -565,23 +561,13 @@ class TowerEngine {
       direction = -1;
     }
 
-    if (!fromLeft) {
+    if (!this.activeFromLeft) {
       x = minX + maxX - x;
       direction *= -1;
     }
 
-    this.active = { x, w: width, dir: direction };
-  }
-
-  private spawnActive(width: number) {
-    const pad = PAD * this.worldScale;
-    const w = Math.min(width, this.cssW - 2 * pad);
-    const fromLeft = this.blocks.length % 2 === 0;
-    this.active = {
-      x: fromLeft ? pad : this.cssW - w - pad,
-      w,
-      dir: fromLeft ? 1 : -1,
-    };
+    active.x = x;
+    active.dir = direction;
   }
 
   private burst(x: number, y: number, count: number, color: string) {
@@ -821,6 +807,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<TowerEngine | null>(null);
   const socketRef = useRef<TowerStackSocketClient | null>(null);
+  const latestServerStateRef = useRef<TowerStackStateMessage | null>(null);
   const timeoutsRef = useRef<number[]>([]);
   const lastMyResultSeqRef = useRef(0);
   const lastRivalResultSeqRef = useRef(0);
@@ -847,9 +834,6 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [serverState, setServerState] = useState<TowerStackStateMessage | null>(null);
 
   const myUserId = user?.id || 0;
-  const myServerPlayer = myUserId
-    ? serverState?.players[String(myUserId)]
-    : undefined;
 
   const haptic = useCallback((quality: Quality) => {
     const h = getTelegram()?.HapticFeedback;
@@ -952,6 +936,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
           client.syncAck(sync.nonce);
         },
         onState: (state) => {
+          latestServerStateRef.current = state;
           setServerState(state);
           setSocketError(null);
 
@@ -1036,43 +1021,30 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   }, [serverState]);
 
   useEffect(() => {
-    if (phase === 'playing' && serverState) {
+    const initialState = latestServerStateRef.current;
+
+    if (phase === 'playing' && initialState) {
       const estimatedServerNow = Date.now() - serverOffsetRef.current;
+      const initialPlayer = myUserId
+        ? initialState.players[String(myUserId)]
+        : undefined;
+
       engineRef.current?.start(
-        serverState.world_width,
-        serverState.base_width,
-        serverState.start_at_ms,
+        initialState.world_width,
+        initialState.base_width,
+        initialState.start_at_ms,
         estimatedServerNow,
+        initialPlayer,
       );
       return () => engineRef.current?.stop();
     }
 
     engineRef.current?.stop();
   }, [
+    myUserId,
     phase,
     serverState?.base_width,
     serverState?.start_at_ms,
-    serverState?.world_width,
-  ]);
-
-  useEffect(() => {
-    if (!myServerPlayer || !serverState || phase !== 'playing') return;
-
-    const acknowledgedSeq = myServerPlayer.last_result?.seq || myServerPlayer.last_seq || 0;
-    if (acknowledgedSeq <= 0 && myServerPlayer.blocks.length === 0) return;
-
-    const estimatedServerNow = Date.now() - serverOffsetRef.current;
-    engineRef.current?.reconcileFromServer(
-      myServerPlayer,
-      serverState.world_width,
-      serverState.base_width,
-      estimatedServerNow,
-    );
-  }, [
-    myServerPlayer?.last_result?.seq,
-    myServerPlayer?.last_seq,
-    phase,
-    serverState?.base_width,
     serverState?.world_width,
   ]);
 

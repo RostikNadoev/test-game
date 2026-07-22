@@ -32,7 +32,8 @@ export type GameCode =
   | 'flappy_race'
   | 'disc_football'
   | 'doodle_jump'
-  | 'crossy_pvp';
+  | 'crossy_pvp'
+  | 'prism_cube';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -202,6 +203,17 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/crossy_road/play',
     launchMode: 'lobby',
     coverUrl: crossyCover,
+  },
+  {
+    code: 'prism_cube',
+    displayName: 'Prism Cube',
+    icon: '🔷',
+    description: 'Прыгай, синхронизируй грани и рискуй ради высокого счёта',
+    color: 'from-[#5BE7FF]/28 via-[#9D7CFF]/18 to-[#FF6FCA]/8',
+    meta: 'Rhythm Run',
+    status: 'New',
+    playPath: '/game/prism_cube/play',
+    launchMode: 'direct',
   },
 ];
 

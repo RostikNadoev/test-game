@@ -70,6 +70,7 @@ const FlappyRaceGame = lazy(() => import("./pages/FlappyRaceGame"));
 const DiscFootballGame = lazy(() => import("./pages/DiscFootballGame"));
 const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
 const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
+const PrismCubeGame = lazy(() => import("./pages/PrismCubeGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -177,7 +178,9 @@ function AppShell() {
   const isFruitCascadeRoute = location.pathname === FRUIT_CASCADE_ROUTE;
   const isFlappyRaceRoute = location.pathname === "/game/flappy_race/play";
   const isDoodleJumpRoute = location.pathname === "/game/doodle_jump/play";
-  const hasFullScreenArcadeBackground = isFlappyRaceRoute || isDoodleJumpRoute;
+  const isPrismCubeRoute = location.pathname === "/game/prism_cube/play";
+  const hasFullScreenArcadeBackground =
+    isFlappyRaceRoute || isDoodleJumpRoute || isPrismCubeRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
@@ -298,7 +301,9 @@ function AppShell() {
           style={{
             background: isFlappyRaceRoute
               ? "radial-gradient(circle at 72% 16%, rgba(82,255,229,0.2), transparent 46%), linear-gradient(180deg, #071827 0%, #0b3550 50%, #126765 100%)"
-              : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
+              : isPrismCubeRoute
+                ? "radial-gradient(circle at 70% 15%, rgba(91,231,255,0.22), transparent 44%), radial-gradient(circle at 18% 34%, rgba(255,111,202,0.15), transparent 45%), linear-gradient(180deg, #050817 0%, #11194a 54%, #070a16 100%)"
+                : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
       )}
@@ -380,6 +385,10 @@ function AppShell() {
               <Route
                 path="/game/crossy_road/play"
                 element={<CrossyRoadGame />}
+              />
+              <Route
+                path="/game/prism_cube/play"
+                element={<PrismCubeGame />}
               />
 
               <Route path="/profile" element={<Profile />} />
