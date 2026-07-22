@@ -2,12 +2,15 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
+import type { LobbyPlayerInfo } from '../api/types';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 import {
   towerStackWsApi,
   type TowerStackPlayerState,
@@ -777,7 +780,52 @@ let labelSeq = 0;
 type LocationState = {
   lobbyId?: string;
   game?: string;
+  playersInfo?: LobbyPlayerInfo[];
+  betCoins?: number;
 };
+
+type PlayerProfile = {
+  id: number;
+  name: string;
+  photoUrl: string;
+  initials: string;
+};
+
+const PLAYERS_STORAGE_KEY = 'twingames_tower_stack_players_info';
+const BET_STORAGE_KEY = 'twingames_tower_stack_bet_coins';
+
+const getInitials = (value: string) =>
+  value
+    .replace('@', '')
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'TG';
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === 'undefined') return [];
+  const raw = window.sessionStorage.getItem(PLAYERS_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as LobbyPlayerInfo[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const readStoredBet = () => {
+  if (typeof window === 'undefined') return 0;
+  const value = Number(window.sessionStorage.getItem(BET_STORAGE_KEY) || 0);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+};
+
+const roundToTwo = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
+const formatReward = (value: number) =>
+  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 
 type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
 
@@ -818,6 +866,8 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const authoritativeScoreRef = useRef(0);
   const authoritativeComboRef = useRef(0);
   const pendingDropsRef = useRef(new Map<number, { delta: number; combo: number }>());
+  const autoReadySentRef = useRef(false);
+  const resultHandledRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>('ready');
   const [playerScore, setPlayerScore] = useState(0);
@@ -830,10 +880,62 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [socketError, setSocketError] = useState<string | null>(null);
-  const [readySent, setReadySent] = useState(false);
   const [serverState, setServerState] = useState<TowerStackStateMessage | null>(null);
 
   const myUserId = user?.id || 0;
+  const playersInfo = useMemo(
+    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    [routeState.playersInfo],
+  );
+  const betCoins = useMemo(() => {
+    const routeBet = Number(routeState.betCoins);
+    return Number.isFinite(routeBet) && routeBet > 0 ? routeBet : readStoredBet();
+  }, [routeState.betCoins]);
+
+  const profileById = useMemo(() => {
+    const profiles = new Map<number, PlayerProfile>();
+
+    for (const player of playersInfo) {
+      const id = Number(player.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const name = player.tg_user || `Player ${id}`;
+      profiles.set(id, {
+        id,
+        name,
+        photoUrl: player.photo_url || '',
+        initials: getInitials(name),
+      });
+    }
+
+    if (myUserId > 0) {
+      const name = user?.tg_user || profiles.get(myUserId)?.name || 'Ты';
+      profiles.set(myUserId, {
+        id: myUserId,
+        name,
+        photoUrl: user?.photo_url || profiles.get(myUserId)?.photoUrl || '',
+        initials: getInitials(name),
+      });
+    }
+
+    return profiles;
+  }, [myUserId, playersInfo, user?.photo_url, user?.tg_user]);
+
+  const opponentUserId =
+    serverState?.player_order.find((id) => id !== myUserId) ||
+    playersInfo.find((player) => player.id !== myUserId)?.id ||
+    0;
+  const myProfile = profileById.get(myUserId) || {
+    id: myUserId,
+    name: user?.tg_user || 'Ты',
+    photoUrl: user?.photo_url || '',
+    initials: getInitials(user?.tg_user || 'Ты'),
+  };
+  const opponentProfile = profileById.get(opponentUserId) || {
+    id: opponentUserId,
+    name: opponentUserId ? `Player ${opponentUserId}` : 'Соперник',
+    photoUrl: '',
+    initials: opponentUserId ? getInitials(`Player ${opponentUserId}`) : 'VS',
+  };
 
   const haptic = useCallback((quality: Quality) => {
     const h = getTelegram()?.HapticFeedback;
@@ -855,6 +957,23 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
   const handlePlace = useCallback((info: PlaceInfo) => {
     lastDropVisualRef.current = { x: info.x, y: info.y };
+  }, []);
+
+  const resetLocalMatch = useCallback(() => {
+    setPlayerScore(0);
+    setRivalScore(0);
+    setCombo(0);
+    setRivalQuality(null);
+    setLabels([]);
+    setOutcome(null);
+    setTimeLeft(ROUND_SECONDS);
+    dropSeqRef.current = 0;
+    lastMyResultSeqRef.current = 0;
+    lastRivalResultSeqRef.current = 0;
+    authoritativeScoreRef.current = 0;
+    authoritativeComboRef.current = 0;
+    pendingDropsRef.current.clear();
+    resultHandledRef.current = false;
   }, []);
 
   useLayoutEffect(() => {
@@ -911,10 +1030,14 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
       token,
       handlers: {
         onOpen: () => {
+          autoReadySentRef.current = false;
           setConnectionStatus('open');
           client.requestState();
         },
-        onClose: () => setConnectionStatus('closed'),
+        onClose: () => {
+          autoReadySentRef.current = false;
+          setConnectionStatus('closed');
+        },
         onSocketError: () => {
           setConnectionStatus('error');
           setSocketError('Ошибка подключения к игре');
@@ -1021,6 +1144,16 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   }, [serverState]);
 
   useEffect(() => {
+    if (connectionStatus !== 'open' || serverState?.phase !== 'waiting') return;
+    if (autoReadySentRef.current) return;
+    if (!socketRef.current?.ready()) return;
+
+    autoReadySentRef.current = true;
+    setSocketError(null);
+    resetLocalMatch();
+  }, [connectionStatus, resetLocalMatch, serverState?.phase]);
+
+  useEffect(() => {
     const initialState = latestServerStateRef.current;
 
     if (phase === 'playing' && initialState) {
@@ -1071,18 +1204,20 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
   useEffect(() => {
     if (serverState?.phase !== 'match_over') return;
+
     const winner = serverState.winner_user_id;
     const nextOutcome: Outcome =
       winner === undefined ? 'DRAW' : winner === myUserId ? 'VICTORY' : 'DEFEAT';
     setOutcome(nextOutcome);
+
+    if (resultHandledRef.current) return;
+    resultHandledRef.current = true;
     getTelegram()?.HapticFeedback?.notificationOccurred?.(
       nextOutcome === 'VICTORY' ? 'success' : nextOutcome === 'DEFEAT' ? 'error' : 'warning',
     );
     void refreshBalance();
     void refreshProfile();
-    const timer = window.setTimeout(() => navigate(lobbiesPath, { replace: true }), 3400);
-    return () => window.clearTimeout(timer);
-  }, [lobbiesPath, myUserId, navigate, refreshBalance, refreshProfile, serverState]);
+  }, [myUserId, refreshBalance, refreshProfile, serverState]);
 
   const progress = clamp(timeLeft / Math.max(1, serverState?.round_seconds || ROUND_SECONDS), 0, 1);
   useEffect(() => {
@@ -1097,28 +1232,6 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
     [],
   );
 
-  const startDuel = useCallback(() => {
-    if (connectionStatus !== 'open') {
-      setSocketError('Нет подключения к игре');
-      return;
-    }
-    if (socketRef.current?.ready()) {
-      setReadySent(true);
-      setSocketError(null);
-      setPlayerScore(0);
-      setRivalScore(0);
-      setCombo(0);
-      setRivalQuality(null);
-      setLabels([]);
-      setOutcome(null);
-      setTimeLeft(ROUND_SECONDS);
-      dropSeqRef.current = 0;
-      lastMyResultSeqRef.current = 0;
-      authoritativeScoreRef.current = 0;
-      authoritativeComboRef.current = 0;
-      pendingDropsRef.current.clear();
-    }
-  }, [connectionStatus]);
 
   const onStagePointerDown = useCallback(() => {
     if (phase !== 'playing' || connectionStatus !== 'open') return;
@@ -1160,6 +1273,14 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   }, [lobbiesPath, navigate, onExit]);
 
   const timeStr = `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, '0')}`;
+  const isDraw = outcome === 'DRAW';
+  const didWin = outcome === 'VICTORY';
+  const winnerIsPlayer = serverState?.winner_user_id === myUserId;
+  const winnerProfile = winnerIsPlayer ? myProfile : opponentProfile;
+  const loserProfile = winnerIsPlayer ? opponentProfile : myProfile;
+  const winnerScore = winnerIsPlayer ? playerScore : rivalScore;
+  const loserScore = winnerIsPlayer ? rivalScore : playerScore;
+  const displayedReward = didWin ? roundToTwo(betCoins * 0.9) : 0;
 
   if (!lobbyId || !token) {
     return (
@@ -1183,24 +1304,30 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
       <div className="ts-hud">
         <div className="ts-hud-side">
-          <span className="ts-avatar ts-avatar-you" aria-hidden>Y</span>
+          <ProfileAvatar profile={myProfile} tone="you" />
           <div className="ts-hud-copy">
-            <span className="ts-hud-cap">YOU</span>
-            <span className="ts-hud-score">{playerScore}</span>
-            {combo >= 2 && <span className="ts-combo">x{combo}</span>}
+            <span className="ts-hud-name" title={myProfile.name}>{myProfile.name}</span>
+            <div className="ts-hud-score-row">
+              <span className="ts-hud-score">{playerScore}</span>
+              {combo >= 2 && <span className="ts-combo">X{combo}</span>}
+            </div>
           </div>
         </div>
+
         <div className="ts-hud-center">
           <span className="ts-timer">{timeStr}</span>
           <div className="ts-bar"><div ref={barFillRef} className="ts-bar-fill" /></div>
         </div>
+
         <div className="ts-hud-side ts-right">
-          <div className="ts-hud-copy">
-            <span className="ts-hud-cap">RIVAL</span>
-            <span className="ts-hud-score">{rivalScore}</span>
-            {rivalQuality && <span className={`ts-chip q-${rivalQuality}`}>{rivalQuality}</span>}
+          <div className="ts-hud-copy ts-hud-copy-right">
+            <span className="ts-hud-name" title={opponentProfile.name}>{opponentProfile.name}</span>
+            <div className="ts-hud-score-row ts-hud-score-row-right">
+              {rivalQuality && <span className={`ts-chip q-${rivalQuality}`}>{rivalQuality}</span>}
+              <span className="ts-hud-score ts-rival-score">{rivalScore}</span>
+            </div>
           </div>
-          <span className="ts-avatar ts-avatar-rival" aria-hidden>R</span>
+          <ProfileAvatar profile={opponentProfile} tone="rival" />
         </div>
       </div>
 
@@ -1212,58 +1339,118 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
         {phase === 'ready' && (
           <div className="ts-overlay">
-            <div className="ts-panel">
-              <div className="ts-kicker">1 v 1 DUEL</div>
-              <h1 className="ts-title">TOWER STACK</h1>
+            <div className="ts-panel ts-wait-panel">
+              <div className="ts-wait-icon" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="ts-kicker">TOWER STACK · 1 VS 1</div>
+              <h1 className="ts-title">СОПЕРНИК НАЙДЕН</h1>
               <p className="ts-sub">
-                Tap to drop each slab. Stack clean for PERFECT hits, chain combos, and out-score
-                your rival before the clock runs out.
+                Подключаем обоих игроков. Матч запустится автоматически.
               </p>
-              <button
-                className="ts-btn ts-btn-go"
-                onClick={startDuel}
-                disabled={readySent || connectionStatus !== 'open'}
-              >
-                {connectionStatus !== 'open'
-                  ? 'CONNECTING...'
-                  : readySent
-                    ? 'WAITING FOR RIVAL...'
-                    : 'START DUEL'}
-              </button>
-              {socketError && <div className="ts-kicker">{socketError}</div>}
-              {onExit && (
-                <button className="ts-btn ts-btn-ghost" onClick={onExit}>
-                  EXIT
-                </button>
-              )}
+              <div className="ts-sync-line">
+                <span className="ts-sync-dot" />
+                <span>{connectionStatus === 'open' ? 'СИНХРОНИЗАЦИЯ' : 'ПОДКЛЮЧЕНИЕ'}</span>
+              </div>
+              {socketError && <div className="ts-error-text">{socketError}</div>}
             </div>
           </div>
         )}
 
         {phase === 'countdown' && (
           <div className="ts-overlay ts-countdown">
-            <div className="ts-count-num" key={countdown}>{countdown}</div>
+            <div className="ts-count-content" key={countdown}>
+              <div className="ts-count-ring" aria-hidden="true" />
+              <div className="ts-count-num">{countdown}</div>
+              <div className="ts-count-label">ГОТОВЬСЯ</div>
+            </div>
             {connectionStatus !== 'open' && (
-              <div className="ts-kicker">{socketError || 'CONNECTING'}</div>
+              <div className="ts-count-error">{socketError || 'ПОДКЛЮЧЕНИЕ'}</div>
             )}
           </div>
         )}
 
         {phase === 'result' && (
-          <div className="ts-overlay">
-            <div className="ts-panel">
-              <div className={`ts-result-tag r-${outcome ?? 'DRAW'}`}>{outcome}</div>
-              <div className="ts-scores">
-                <div className="ts-score-col"><span className="ts-hud-cap">YOU</span><span className="ts-big">{playerScore}</span></div>
-                <span className="ts-vs">VS</span>
-                <div className="ts-score-col"><span className="ts-hud-cap">RIVAL</span><span className="ts-big">{rivalScore}</span></div>
+          <div className="ts-overlay ts-result-overlay">
+            <div className="ts-result-panel">
+              <div className={`ts-result-glow r-${outcome ?? 'DRAW'}`} />
+              <div className="ts-result-content">
+                <div className="ts-result-kicker">TOWER STACK · РЕЗУЛЬТАТ МАТЧА</div>
+                <h2 className={`ts-result-title r-${outcome ?? 'DRAW'}`}>
+                  {isDraw ? 'НИЧЬЯ' : didWin ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}
+                </h2>
+
+                {isDraw ? (
+                  <div className="ts-draw-grid">
+                    <div className="ts-result-player">
+                      <ProfileAvatar profile={myProfile} tone="neutral" size="large" />
+                      <div className="ts-result-name">{myProfile.name}</div>
+                      <div className="ts-result-score">{playerScore}</div>
+                    </div>
+                    <div className="ts-result-vs">VS</div>
+                    <div className="ts-result-player">
+                      <ProfileAvatar profile={opponentProfile} tone="neutral" size="large" />
+                      <div className="ts-result-name">{opponentProfile.name}</div>
+                      <div className="ts-result-score">{rivalScore}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ts-winner-grid">
+                    <div className="ts-result-player ts-result-winner">
+                      <div className="ts-winner-crown">WINNER</div>
+                      <ProfileAvatar profile={winnerProfile} tone="winner" size="winner" />
+                      <div className="ts-result-name ts-result-name-winner">{winnerProfile.name}</div>
+                      <div className="ts-result-score ts-result-score-winner">{winnerScore}</div>
+                    </div>
+                    <div className="ts-result-vs">VS</div>
+                    <div className="ts-result-player ts-result-loser">
+                      <ProfileAvatar profile={loserProfile} tone="neutral" size="medium" />
+                      <div className="ts-result-name ts-result-name-muted">{loserProfile.name}</div>
+                      <div className="ts-result-score ts-result-score-muted">{loserScore}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="ts-result-divider" />
+
+                <div className={`ts-reward-pill ${didWin ? 'is-win' : isDraw ? 'is-draw' : 'is-loss'}`}>
+                  <span className="ts-reward-value">{didWin ? `+${formatReward(displayedReward)}` : '0'}</span>
+                  <img src={coinIcon} alt="GAME" draggable={false} />
+                </div>
+
+                <button className="ts-result-button" onClick={leave} type="button">
+                  <span className="ts-result-button-icon" aria-hidden="true">←</span>
+                  <span>К ЛОББИ</span>
+                  <span className="ts-result-button-spacer" aria-hidden="true" />
+                </button>
               </div>
-              <button className="ts-btn ts-btn-go" onClick={leave}>В ЛОББИ</button>
             </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function ProfileAvatar({
+  profile,
+  tone,
+  size = 'small',
+}: {
+  profile: PlayerProfile;
+  tone: 'you' | 'rival' | 'winner' | 'neutral';
+  size?: 'small' | 'medium' | 'large' | 'winner';
+}) {
+  return (
+    <span className={`ts-avatar ts-avatar-${tone} ts-avatar-${size}`}>
+      {profile.photoUrl ? (
+        <img src={profile.photoUrl} alt={profile.name} draggable={false} />
+      ) : (
+        <span className="ts-avatar-initials">{profile.initials}</span>
+      )}
+    </span>
   );
 }
 
@@ -1286,96 +1473,126 @@ function FloatLabelView({ label }: { label: FloatLabel }) {
 
 const STYLES = `
 .ts-root{
-  position:relative; width:100%;
-  box-sizing:border-box;
-  display:flex; flex-direction:column;
-  overflow:hidden; touch-action:none; overscroll-behavior:none;
+  position:relative; width:100%; box-sizing:border-box;
+  display:flex; flex-direction:column; overflow:hidden;
+  touch-action:none; overscroll-behavior:none;
   background:transparent; color:#eaf0f7;
   font-family:'Supercell','Supercell-Magic','SupercellMagic',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  -webkit-tap-highlight-color:transparent; user-select:none;
-  padding: 2px 10px calc(env(safe-area-inset-bottom,0px) + 6px);
+  font-synthesis:none; -webkit-tap-highlight-color:transparent; user-select:none;
+  padding:2px 10px calc(env(safe-area-inset-bottom,0px) + 6px);
 }
 .ts-root *{ box-sizing:border-box; }
 
 /* HUD */
 .ts-hud{
-  display:flex; align-items:stretch; gap:8px;
-  height:50px; flex:0 0 auto; padding:6px 8px;
-  border-radius:16px;
-  background:linear-gradient(180deg,rgba(20,22,30,0.92),rgba(10,11,16,0.92));
-  border:1px solid rgba(255,255,255,0.06);
-  box-shadow:0 6px 22px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
+  position:relative; z-index:8;
+  display:flex; align-items:stretch; gap:7px;
+  height:56px; flex:0 0 auto; padding:6px 8px;
+  border-radius:17px;
+  background:linear-gradient(180deg,rgba(20,22,30,.94),rgba(9,10,15,.94));
+  border:1px solid rgba(255,255,255,.07);
+  box-shadow:0 7px 24px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.055);
 }
-.ts-hud-side{ flex:1 1 0; min-width:0; display:flex; align-items:center; gap:7px; justify-content:flex-start; }
+.ts-hud-side{
+  flex:1 1 0; min-width:0; display:flex; align-items:center;
+  gap:7px; justify-content:flex-start; overflow:visible;
+}
 .ts-right{ justify-content:flex-end; text-align:right; }
-.ts-hud-copy{ min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; overflow:hidden; }
+.ts-hud-copy{
+  min-width:0; display:flex; flex-direction:column; justify-content:center;
+  gap:0; overflow:visible;
+}
+.ts-hud-copy-right{ align-items:flex-end; }
+.ts-hud-name{
+  display:block; max-width:84px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:7.5px; line-height:1.45; padding:.12em 0 .16em;
+  letter-spacing:.45px; color:#8f9caf;
+}
+.ts-hud-score-row{ display:flex; align-items:center; gap:5px; min-height:22px; overflow:visible; }
+.ts-hud-score-row-right{ justify-content:flex-end; }
+.ts-hud-score{
+  display:block; font-size:16px; line-height:1.32; padding:.04em 0 .1em;
+  font-variant-numeric:tabular-nums; color:#f4f7fb;
+}
+.ts-rival-score{ color:#ffb45c; }
 .ts-avatar{
-  width:28px; height:28px; flex:0 0 28px; border-radius:999px;
-  display:flex; align-items:center; justify-content:center;
-  font-size:9px; line-height:1; color:#0b0c10;
-  border:1px solid rgba(255,255,255,0.16);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 16px rgba(0,0,0,0.24);
+  flex:none; border-radius:999px; display:grid; place-items:center; overflow:hidden;
+  color:#080a0f; border:1px solid rgba(255,255,255,.17);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 8px 18px rgba(0,0,0,.27);
 }
-.ts-avatar-you{ background:linear-gradient(180deg,#5bb7ff,#2f8cff); }
-.ts-avatar-rival{ background:linear-gradient(180deg,#ffc96a,#ff8f2d); }
-.ts-hud-cap{ font-size:7.5px; line-height:1; letter-spacing:1.1px; color:#7e8aa0; }
-.ts-hud-score{ font-size:15px; line-height:1.12; font-variant-numeric:tabular-nums; color:#f4f7fb; }
-.ts-right .ts-hud-score{ color:#ffb45c; }
-.ts-combo{
-  margin-top:1px; align-self:flex-start; font-size:8px; padding:1px 5px; border-radius:8px;
-  color:#0b0c10; background:linear-gradient(180deg,#ffc96a,#ff8f2d); font-variant-numeric:tabular-nums;
+.ts-avatar img{ width:100%; height:100%; display:block; object-fit:cover; }
+.ts-avatar-initials{
+  display:block; line-height:1.35; padding-top:.14em; font-size:9px;
+  letter-spacing:.2px; text-transform:uppercase;
 }
-.ts-hud-center{ flex:0 0 96px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; }
-.ts-timer{ font-size:17px; line-height:1; font-variant-numeric:tabular-nums; color:#dfe8f3; }
-.ts-bar{ width:84px; height:4px; border-radius:3px; background:rgba(255,255,255,0.08); overflow:hidden; }
-.ts-bar-fill{ height:100%; border-radius:3px; background:linear-gradient(90deg,#2f8cff,#5bb7ff); transition:width .25s linear; }
-.ts-chip{ margin-top:1px; font-size:7.5px; padding:1px 5px; border-radius:7px; letter-spacing:.35px; max-width:64px; overflow:hidden; text-overflow:ellipsis; }
+.ts-avatar-small{ width:34px; height:34px; }
+.ts-avatar-medium{ width:66px; height:66px; }
+.ts-avatar-large{ width:76px; height:76px; }
+.ts-avatar-winner{ width:94px; height:94px; }
+.ts-avatar-you{ background:linear-gradient(180deg,#73c5ff,#2f8cff); }
+.ts-avatar-rival{ background:linear-gradient(180deg,#ffd27d,#ff8f2d); }
+.ts-avatar-neutral{ background:linear-gradient(180deg,#2c313d,#171a22); color:#dce5f2; }
+.ts-avatar-winner{
+  background:linear-gradient(180deg,#ffd982,#ff962e); color:#160e03;
+  border:2px solid rgba(255,210,120,.82);
+  box-shadow:0 0 0 7px rgba(255,156,53,.08),0 16px 48px rgba(255,143,45,.24),inset 0 1px 0 rgba(255,255,255,.4);
+}
+.ts-combo,.ts-chip{
+  display:block; flex:none; border-radius:8px;
+  font-size:7px; line-height:1.42; padding:.22em 5px .28em;
+  letter-spacing:.3px; white-space:nowrap; overflow:visible;
+}
+.ts-hud-center{
+  flex:0 0 90px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:4px; overflow:visible;
+}
+.ts-timer{
+  display:block; font-size:17px; line-height:1.34; padding:.03em 0 .1em;
+  font-variant-numeric:tabular-nums; color:#e7eef8;
+}
+.ts-bar{ width:82px; height:4px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
+.ts-bar-fill{ height:100%; border-radius:3px; background:linear-gradient(90deg,#2f8cff,#66c6ff); transition:width .25s linear; }
 
-.q-PERFECT{ color:#0b0c10; background:linear-gradient(180deg,#ffc96a,#ff8f2d); }
-.q-GREAT{ color:#0b0c10; background:linear-gradient(180deg,#5bb7ff,#2f8cff); }
-.q-GOOD{ color:#cdd7e6; background:rgba(255,255,255,0.10); }
-.q-MISS{ color:#ffd0d0; background:rgba(255,80,80,0.22); }
-.q-COMBO{ color:#0b0c10; background:linear-gradient(180deg,#ffc96a,#ff8f2d); }
+.q-PERFECT{ color:#0b0c10; background:linear-gradient(180deg,#ffd77f,#ff922f); }
+.q-GREAT{ color:#08101a; background:linear-gradient(180deg,#73c5ff,#2f8cff); }
+.q-GOOD{ color:#d8e1ee; background:rgba(255,255,255,.11); }
+.q-MISS{ color:#ffd1d8; background:rgba(255,80,100,.22); }
+.q-COMBO{ color:#0b0c10; background:linear-gradient(180deg,#ffd77f,#ff922f); }
 
-/* Stage */
+/* Stage. Geometry and canvas sizing intentionally remain unchanged. */
 .ts-stage{
   position:relative; flex:1 1 auto; margin-top:5px; min-height:0;
   border-radius:20px; overflow:hidden; isolation:isolate;
-  border:1px solid rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,.06);
   background:
-    radial-gradient(120% 70% at 50% 100%, rgba(47,140,255,0.10), rgba(47,140,255,0) 60%),
-    radial-gradient(140% 90% at 50% 8%, rgba(255,143,45,0.06), rgba(255,143,45,0) 55%),
+    radial-gradient(120% 70% at 50% 100%,rgba(47,140,255,.10),rgba(47,140,255,0) 60%),
+    radial-gradient(140% 90% at 50% 8%,rgba(255,143,45,.06),rgba(255,143,45,0) 55%),
     linear-gradient(180deg,#0d0d12 0%,#09090d 55%,#050507 100%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -40px 60px rgba(0,0,0,0.5);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),inset 0 -40px 60px rgba(0,0,0,.5);
 }
 .ts-stage::before{
   content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
   background:
-    radial-gradient(ellipse at 50% 78%, rgba(47,140,255,0.18), rgba(47,140,255,0.035) 34%, transparent 58%),
-    linear-gradient(90deg, transparent 0 17%, rgba(91,183,255,0.055) 17.4%, transparent 18%, transparent 82%, rgba(255,143,45,0.05) 82.6%, transparent 83%),
-    repeating-linear-gradient(0deg, transparent 0 29px, rgba(255,255,255,0.024) 30px, transparent 31px),
-    repeating-linear-gradient(90deg, transparent 0 39px, rgba(255,255,255,0.018) 40px, transparent 41px);
+    radial-gradient(ellipse at 50% 78%,rgba(47,140,255,.18),rgba(47,140,255,.035) 34%,transparent 58%),
+    linear-gradient(90deg,transparent 0 17%,rgba(91,183,255,.055) 17.4%,transparent 18%,transparent 82%,rgba(255,143,45,.05) 82.6%,transparent 83%),
+    repeating-linear-gradient(0deg,transparent 0 29px,rgba(255,255,255,.024) 30px,transparent 31px),
+    repeating-linear-gradient(90deg,transparent 0 39px,rgba(255,255,255,.018) 40px,transparent 41px);
   opacity:.72;
-  mask-image:linear-gradient(180deg, transparent 0%, black 16%, black 88%, transparent 100%);
-  -webkit-mask-image:linear-gradient(180deg, transparent 0%, black 16%, black 88%, transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0%,black 16%,black 88%,transparent 100%);
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,black 16%,black 88%,transparent 100%);
 }
 .ts-stage::after{
   content:''; position:absolute; left:50%; bottom:6%; z-index:0; pointer-events:none;
-  width:min(72%, 270px); height:42%; transform:translateX(-50%);
-  background:
-    radial-gradient(ellipse at 50% 100%, rgba(255,143,45,0.13), transparent 58%),
-    linear-gradient(90deg, transparent, rgba(91,183,255,0.08), transparent);
-  filter:blur(.2px);
-  opacity:.9;
+  width:min(72%,270px); height:42%; transform:translateX(-50%);
+  background:radial-gradient(ellipse at 50% 100%,rgba(255,143,45,.13),transparent 58%),linear-gradient(90deg,transparent,rgba(91,183,255,.08),transparent);
+  filter:blur(.2px); opacity:.9;
 }
 .ts-canvas{ position:absolute; inset:0; z-index:1; width:100%; height:100%; display:block; }
 .ts-fx{ position:absolute; inset:0; z-index:2; pointer-events:none; overflow:hidden; }
-
 .ts-float{
-  position:absolute; transform:translate(-50%,-50%);
-  font-size:15px; letter-spacing:.5px; white-space:nowrap;
-  padding:2px 8px; border-radius:9px;
-  text-shadow:0 2px 6px rgba(0,0,0,0.5);
+  position:absolute; transform:translate(-50%,-50%); white-space:nowrap;
+  font-size:15px; line-height:1.38; letter-spacing:.5px; padding:.2em 8px .3em;
+  border-radius:9px; text-shadow:0 2px 6px rgba(0,0,0,.5);
   animation:tsFloat .9s ease-out forwards;
 }
 @keyframes tsFloat{
@@ -1384,83 +1601,203 @@ const STYLES = `
   100%{ opacity:0; transform:translate(-50%,-150%) scale(1); }
 }
 
-/* Overlays */
+/* Shared overlays */
 .ts-overlay{
-  position:absolute; inset:0; z-index:5;
-  display:flex; align-items:center; justify-content:center; padding:18px;
-  background:radial-gradient(120% 100% at 50% 50%, rgba(5,5,7,0.35), rgba(5,5,7,0.72));
+  position:absolute; inset:0; z-index:5; display:flex; align-items:center; justify-content:center;
+  padding:18px; overflow:visible;
+  background:radial-gradient(120% 100% at 50% 50%,rgba(5,5,7,.35),rgba(5,5,7,.72));
   backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
 }
 .ts-panel{
-  width:100%; max-width:330px; padding:22px 20px 20px;
-  border-radius:22px; text-align:center;
-  background:linear-gradient(180deg,rgba(22,24,32,0.96),rgba(11,12,17,0.97));
-  border:1px solid rgba(255,255,255,0.08);
-  box-shadow:0 24px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+  width:100%; max-width:334px; padding:23px 20px 21px; border-radius:24px; text-align:center;
+  background:linear-gradient(180deg,rgba(22,24,32,.97),rgba(10,11,16,.98));
+  border:1px solid rgba(255,255,255,.09);
+  box-shadow:0 25px 70px rgba(0,0,0,.64),inset 0 1px 0 rgba(255,255,255,.07);
+  overflow:visible;
 }
-.ts-kicker{ font-size:11px; letter-spacing:3px; color:#5bb7ff; margin-bottom:6px; }
+.ts-kicker,.ts-result-kicker{
+  display:block; font-size:8px; line-height:1.55; padding:.13em 0 .2em;
+  letter-spacing:1.6px; color:#66bdff;
+}
 .ts-title{
-  margin:0 0 10px; font-size:34px; line-height:1; letter-spacing:1px;
-  background:linear-gradient(180deg,#ffffff,#9fb6cf);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
-  text-shadow:0 0 26px rgba(47,140,255,0.25);
+  margin:5px 0 9px; padding:.13em 5px .22em; overflow:visible;
+  font-size:25px; line-height:1.32; letter-spacing:.2px;
+  background:linear-gradient(180deg,#fff,#a9bfd7); -webkit-background-clip:text; background-clip:text; color:transparent;
+  text-shadow:0 0 26px rgba(47,140,255,.22);
 }
-.ts-sub{ margin:0 0 18px; font-size:12.5px; line-height:1.5; color:#9aa6ba; }
-
+.ts-sub{
+  margin:0; padding:.08em 0 .16em; font-size:10px; line-height:1.6;
+  color:#96a3b5;
+}
 .ts-btn{
   width:100%; border:none; cursor:pointer; color:#fff; font-family:inherit;
-  font-size:15px; letter-spacing:1px; padding:13px 16px; border-radius:14px; margin-top:9px;
-  -webkit-tap-highlight-color:transparent;
+  font-size:12px; line-height:1.5; letter-spacing:.7px; padding:12px 16px 13px;
+  border-radius:14px; margin-top:10px; overflow:visible;
 }
-.ts-btn-go{
-  color:#1a1205; background:linear-gradient(180deg,#ffc96a,#ff8f2d);
-  box-shadow:0 10px 24px rgba(255,143,45,0.32), inset 0 1px 0 rgba(255,255,255,0.4);
-}
+.ts-btn-go{ color:#1a1205; background:linear-gradient(180deg,#ffd47a,#ff922f); box-shadow:0 10px 24px rgba(255,143,45,.32),inset 0 1px 0 rgba(255,255,255,.4); }
 .ts-btn-go:active{ transform:translateY(1px); }
-.ts-btn-ghost{
-  background:rgba(255,255,255,0.05); color:#c4cedd;
-  border:1px solid rgba(255,255,255,0.08);
+.ts-btn-ghost{ background:rgba(255,255,255,.05); color:#c4cedd; border:1px solid rgba(255,255,255,.08); }
+
+/* Automatic matchmaking state */
+.ts-wait-panel{ max-width:318px; }
+.ts-wait-icon{
+  position:relative; width:72px; height:66px; margin:0 auto 8px;
+  filter:drop-shadow(0 13px 24px rgba(47,140,255,.22));
+}
+.ts-wait-icon span{
+  position:absolute; left:50%; height:16px; border-radius:5px;
+  background:linear-gradient(180deg,#353b49,#181b23); border:1px solid rgba(255,255,255,.13);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  animation:tsBuild 1.25s ease-in-out infinite;
+}
+.ts-wait-icon span:nth-child(1){ width:66px; bottom:0; transform:translateX(-50%); }
+.ts-wait-icon span:nth-child(2){ width:52px; bottom:18px; transform:translateX(-50%); animation-delay:.12s; }
+.ts-wait-icon span:nth-child(3){ width:38px; bottom:36px; transform:translateX(-50%); animation-delay:.24s; background:linear-gradient(180deg,#68c4ff,#2f8cff); }
+@keyframes tsBuild{ 0%,100%{ transform:translateX(-50%) translateY(0); } 50%{ transform:translateX(-50%) translateY(-3px); } }
+.ts-sync-line{
+  width:max-content; max-width:100%; margin:14px auto 0; display:flex; align-items:center; justify-content:center; gap:7px;
+  border:1px solid rgba(91,183,255,.16); background:rgba(47,140,255,.08);
+  border-radius:999px; padding:7px 11px 8px;
+  font-size:7px; line-height:1.5; letter-spacing:1.2px; color:#8ecfff;
+}
+.ts-sync-dot{ width:6px; height:6px; border-radius:50%; background:#66c6ff; box-shadow:0 0 0 0 rgba(102,198,255,.45); animation:tsPulse 1.25s infinite; }
+@keyframes tsPulse{ 0%{ box-shadow:0 0 0 0 rgba(102,198,255,.5); } 70%{ box-shadow:0 0 0 8px rgba(102,198,255,0); } 100%{ box-shadow:0 0 0 0 rgba(102,198,255,0); } }
+.ts-error-text,.ts-count-error{
+  margin-top:10px; font-size:8px; line-height:1.55; padding:.12em 0 .2em; color:#ff9cac;
 }
 
-/* Countdown */
-.ts-countdown{ background:radial-gradient(120% 100% at 50% 50%, rgba(5,5,7,0.30), rgba(5,5,7,0.6)); }
+/* Three-second countdown */
+.ts-countdown{
+  flex-direction:column; background:radial-gradient(circle at 50% 46%,rgba(47,140,255,.14),rgba(5,5,7,.74) 58%);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+}
+.ts-count-content{ position:relative; width:180px; height:180px; display:grid; place-items:center; overflow:visible; animation:tsCountEnter .78s ease-out both; }
+.ts-count-ring{
+  position:absolute; inset:14px; border-radius:50%;
+  border:2px solid rgba(91,183,255,.34); border-top-color:#ffd074; border-right-color:#ff9430;
+  box-shadow:0 0 34px rgba(47,140,255,.2),inset 0 0 35px rgba(47,140,255,.07);
+  animation:tsRing .9s cubic-bezier(.3,.7,.25,1) both;
+}
+.ts-count-ring::before,.ts-count-ring::after{ content:''; position:absolute; border-radius:50%; border:1px solid rgba(255,255,255,.07); }
+.ts-count-ring::before{ inset:11px; }
+.ts-count-ring::after{ inset:-10px; border-color:rgba(255,143,45,.08); }
 .ts-count-num{
-  font-size:120px; line-height:1; color:#fff;
-  text-shadow:0 0 40px rgba(47,140,255,0.6), 0 0 70px rgba(255,143,45,0.35);
-  animation:tsCount .8s ease-out;
+  position:relative; z-index:1; display:block; min-width:130px; text-align:center;
+  font-size:88px; line-height:1.25; padding:.07em 0 .18em; color:#fff;
+  text-shadow:0 0 34px rgba(47,140,255,.65),0 0 60px rgba(255,143,45,.3);
 }
-@keyframes tsCount{
-  0%{ opacity:0; transform:scale(1.7); }
-  25%{ opacity:1; transform:scale(1); }
-  100%{ opacity:0; transform:scale(.85); }
+.ts-count-label{
+  position:absolute; z-index:2; left:0; right:0; bottom:-8px; text-align:center;
+  font-size:9px; line-height:1.55; padding:.12em 0 .2em; letter-spacing:2px; color:#9fb3ca;
 }
+@keyframes tsCountEnter{ 0%{ opacity:0; transform:scale(1.55); } 28%{ opacity:1; transform:scale(.96); } 60%{ transform:scale(1.03); } 100%{ opacity:1; transform:scale(1); } }
+@keyframes tsRing{ from{ transform:rotate(-95deg) scale(.72); opacity:0; } to{ transform:rotate(255deg) scale(1); opacity:1; } }
 
-/* Result */
-.ts-result-tag{ font-size:30px; letter-spacing:2px; margin-bottom:16px; }
-.r-VICTORY{ color:#ffc96a; text-shadow:0 0 26px rgba(255,143,45,0.45); }
-.r-DEFEAT{ color:#8aa0ba; }
-.r-DRAW{ color:#cdd7e6; }
-.ts-scores{ display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:18px; }
-.ts-score-col{ display:flex; flex-direction:column; gap:4px; min-width:78px; }
-.ts-big{ font-size:34px; line-height:1; font-variant-numeric:tabular-nums; color:#f4f7fb; }
-.ts-score-col:last-of-type .ts-big{ color:#ffb45c; }
-.ts-vs{ font-size:13px; color:#6f7c92; letter-spacing:1px; }
+/* Result modal */
+.ts-result-overlay{
+  z-index:10; padding:12px; background:rgba(2,3,5,.76);
+  backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+}
+.ts-result-panel{
+  position:relative; width:100%; max-width:350px; max-height:calc(100% - 4px); overflow:hidden;
+  border-radius:30px; background:rgba(12,15,22,.97); border:1px solid rgba(255,255,255,.1);
+  box-shadow:0 32px 105px rgba(0,0,0,.76),inset 0 1px 0 rgba(255,255,255,.07);
+}
+.ts-result-glow{ position:absolute; left:-10%; right:-10%; top:-35px; height:150px; filter:blur(27px); opacity:.55; pointer-events:none; }
+.ts-result-glow.r-VICTORY{ background:rgba(255,151,45,.30); }
+.ts-result-glow.r-DEFEAT{ background:rgba(255,78,100,.23); }
+.ts-result-glow.r-DRAW{ background:rgba(103,180,255,.2); }
+.ts-result-content{ position:relative; padding:22px 18px 18px; text-align:center; overflow:visible; }
+.ts-result-kicker{ color:rgba(255,255,255,.38); letter-spacing:1.4px; }
+.ts-result-title{
+  margin:2px 0 0; padding:.12em 4px .24em; overflow:visible;
+  font-size:27px; line-height:1.35; letter-spacing:-.2px;
+}
+.ts-result-title.r-VICTORY{ color:#ffb85d; text-shadow:0 0 30px rgba(255,143,45,.28); }
+.ts-result-title.r-DEFEAT{ color:#ff7084; text-shadow:0 0 28px rgba(255,84,108,.2); }
+.ts-result-title.r-DRAW{ color:#dbe8f6; }
+.ts-winner-grid{ margin-top:10px; display:grid; grid-template-columns:1.2fr auto .88fr; align-items:end; gap:10px; }
+.ts-draw-grid{ margin-top:13px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:10px; }
+.ts-result-player{ min-width:0; display:flex; flex-direction:column; align-items:center; overflow:visible; }
+.ts-result-winner{ position:relative; }
+.ts-result-loser{ padding-bottom:4px; opacity:.72; }
+.ts-winner-crown{
+  margin-bottom:5px; border-radius:999px; padding:5px 8px 6px;
+  background:rgba(255,157,52,.1); border:1px solid rgba(255,176,76,.19);
+  font-size:6.5px; line-height:1.5; letter-spacing:1.15px; color:#ffc46f;
+}
+.ts-result-name{
+  width:100%; margin-top:7px; padding:.12em 3px .2em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:8px; line-height:1.5; color:rgba(255,255,255,.65);
+}
+.ts-result-name-winner{ color:#ffc26b; }
+.ts-result-name-muted{ color:rgba(255,255,255,.4); }
+.ts-result-score{
+  margin-top:1px; font-size:23px; line-height:1.36; padding:.04em 0 .13em;
+  font-variant-numeric:tabular-nums; color:#fff;
+}
+.ts-result-score-winner{ font-size:29px; }
+.ts-result-score-muted{ font-size:21px; color:rgba(255,255,255,.58); }
+.ts-result-vs{ align-self:center; font-size:7px; line-height:1.5; padding:.12em 0 .2em; letter-spacing:1.1px; color:rgba(255,255,255,.23); }
+.ts-result-divider{ height:1px; margin:15px 0; background:rgba(255,255,255,.07); }
+.ts-reward-pill{
+  width:max-content; margin:0 auto; display:flex; align-items:center; justify-content:center; gap:8px;
+  border-radius:999px; border:1px solid rgba(255,255,255,.1); padding:7px 13px 8px;
+}
+.ts-reward-pill.is-win{ color:#ffbb61; background:rgba(255,154,48,.1); border-color:rgba(255,173,74,.2); }
+.ts-reward-pill.is-loss{ color:#ff7588; background:rgba(255,85,110,.08); border-color:rgba(255,93,118,.16); }
+.ts-reward-pill.is-draw{ color:#b6c9dc; background:rgba(255,255,255,.045); }
+.ts-reward-value{ display:block; font-size:20px; line-height:1.35; padding:.02em 0 .1em; font-variant-numeric:tabular-nums; }
+.ts-reward-pill img{ width:24px; height:24px; display:block; object-fit:contain; }
+.ts-result-button{
+  width:100%; min-height:56px; margin-top:15px; padding:7px 9px;
+  display:grid; grid-template-columns:40px 1fr 40px; align-items:center;
+  border-radius:18px; border:1px solid rgba(255,255,255,.11);
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.045));
+  color:#fff; font-family:inherit; cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 16px 36px rgba(0,0,0,.3);
+}
+.ts-result-button > span:nth-child(2){ display:block; font-size:9px; line-height:1.55; padding:.12em 4px .2em; letter-spacing:1.1px; }
+.ts-result-button-icon{
+  width:38px; height:38px; display:grid; place-items:center; border-radius:13px;
+  border:1px solid rgba(255,255,255,.1); background:rgba(0,0,0,.2);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:20px; line-height:1; color:rgba(255,255,255,.74);
+}
+.ts-result-button-spacer{ width:38px; height:38px; }
+.ts-result-button:active{ transform:translateY(1px) scale(.988); }
 
 @media (max-width:360px){
   .ts-root{ padding-left:8px; padding-right:8px; }
-  .ts-hud{ height:48px; gap:5px; padding:6px 7px; }
-  .ts-hud-center{ flex-basis:84px; }
-  .ts-bar{ width:74px; }
-  .ts-avatar{ width:25px; height:25px; flex-basis:25px; font-size:8px; }
+  .ts-hud{ height:54px; gap:4px; padding:6px; }
+  .ts-hud-center{ flex-basis:78px; }
+  .ts-bar{ width:70px; }
+  .ts-avatar-small{ width:30px; height:30px; }
   .ts-hud-side{ gap:5px; }
-  .ts-hud-score{ font-size:13px; }
+  .ts-hud-name{ max-width:62px; font-size:6.8px; }
+  .ts-hud-score{ font-size:14px; }
   .ts-timer{ font-size:15px; }
-  .ts-hud-cap{ font-size:7px; letter-spacing:.9px; }
-  .ts-chip,.ts-combo{ font-size:7px; padding:1px 4px; }
-  .ts-title{ font-size:29px; }
-  .ts-sub{ font-size:12px; }
-  .ts-count-num{ font-size:100px; }
-  .ts-big{ font-size:28px; }
+  .ts-chip,.ts-combo{ font-size:6.2px; padding-left:4px; padding-right:4px; }
+  .ts-title{ font-size:22px; }
+  .ts-count-content{ width:164px; height:164px; }
+  .ts-count-num{ font-size:78px; }
+  .ts-result-content{ padding:19px 15px 15px; }
+  .ts-result-title{ font-size:24px; }
+  .ts-avatar-winner{ width:84px; height:84px; }
+  .ts-avatar-large{ width:68px; height:68px; }
+  .ts-avatar-medium{ width:59px; height:59px; }
+  .ts-winner-grid,.ts-draw-grid{ gap:7px; }
+}
+
+@media (max-height:630px){
+  .ts-result-content{ padding-top:16px; padding-bottom:14px; }
+  .ts-result-title{ font-size:23px; }
+  .ts-avatar-winner{ width:78px; height:78px; }
+  .ts-avatar-large{ width:64px; height:64px; }
+  .ts-avatar-medium{ width:55px; height:55px; }
+  .ts-winner-grid,.ts-draw-grid{ margin-top:6px; }
+  .ts-result-divider{ margin:10px 0; }
+  .ts-result-button{ min-height:50px; margin-top:11px; }
 }
 
 @media (min-width:430px){
@@ -1469,13 +1806,9 @@ const STYLES = `
 }
 
 @media (prefers-reduced-motion:reduce){
-  .ts-float,
-  .ts-count-num,
-  .ts-bar-fill{
-    animation:none !important;
-    transition:none !important;
+  .ts-float,.ts-count-content,.ts-count-ring,.ts-wait-icon span,.ts-sync-dot,.ts-bar-fill{
+    animation:none !important; transition:none !important;
   }
 }
 `;
-
 export default TowerStackGame;

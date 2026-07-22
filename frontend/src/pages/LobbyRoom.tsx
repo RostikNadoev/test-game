@@ -76,6 +76,14 @@ export const LobbyRoom = () => {
         'twingames_blackjack_players_info',
         JSON.stringify(playersInfo),
       );
+      window.sessionStorage.setItem(
+        `twingames_${lobby.game}_players_info`,
+        JSON.stringify(playersInfo),
+      );
+      window.sessionStorage.setItem(
+        `twingames_${lobby.game}_bet_coins`,
+        String(lobby.bet_coins),
+      );
 
       window.sessionStorage.setItem('twingames_active_lobby_id', lobby.id);
       window.sessionStorage.setItem('twingames_active_game', lobby.game);
@@ -89,6 +97,7 @@ export const LobbyRoom = () => {
         lobbyId: lobby.id,
         game: lobby.game,
         playersInfo,
+        betCoins: lobby.bet_coins,
       },
     });
   }, [isLeaving, lobby, navigate, playPath, refreshBalance, user]);
