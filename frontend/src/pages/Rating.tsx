@@ -1,7 +1,10 @@
 import {
+  Clock,
   Crown,
   Flame,
+  Gift,
   Loader2,
+  Lock,
   Medal,
   RefreshCw,
   Sparkles,
@@ -11,10 +14,44 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import type { LeaderboardEntry } from '../api/types';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 import { useAuth } from '../auth/useAuth';
 
 const podiumOrder = [1, 0, 2];
 const podiumTone = ['gold', 'blue', 'orange'];
+
+const prizeCountdown = [
+  { value: '12', label: 'дней' },
+  { value: '08', label: 'часов' },
+  { value: '34', label: 'минут' },
+] as const;
+
+const prizeTiers = [
+  {
+    place: '1',
+    placeLabel: 'место',
+    tone: 'gold',
+    Icon: Crown,
+  },
+  {
+    place: '2',
+    placeLabel: 'место',
+    tone: 'silver',
+    Icon: Medal,
+  },
+  {
+    place: '3',
+    placeLabel: 'место',
+    tone: 'bronze',
+    Icon: Medal,
+  },
+  {
+    place: '4–10',
+    placeLabel: 'места',
+    tone: 'violet',
+    Icon: Trophy,
+  },
+] as const;
 
 const formatNumber = (value: number) =>
   new Intl.NumberFormat('ru-RU').format(value);
@@ -42,7 +79,11 @@ export const Rating = () => {
       setError(null);
     } catch (requestError) {
       setPlayers([]);
-      setError(requestError instanceof Error ? requestError.message : 'Не удалось загрузить рейтинг');
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Не удалось загрузить рейтинг',
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -66,22 +107,25 @@ export const Rating = () => {
 
   return (
     <main className="app-scroll elite-rating-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-      <section className="elite-rating-hero elite-panel elite-enter">
-        <div className="elite-rating-hero-glow" />
+      <section className="elite-prize-banner elite-panel elite-enter">
+        <div className="elite-prize-banner-glow" />
+        <div className="elite-prize-orbit elite-prize-orbit-one" />
+        <div className="elite-prize-orbit elite-prize-orbit-two" />
 
-        <div className="elite-rating-top">
+        <div className="elite-prize-head">
           <div className="min-w-0">
-            <div className="elite-eyebrow">
-              <Trophy size={11} />
-              Global leaderboard
+            <div className="elite-eyebrow elite-prize-eyebrow">
+              <Gift size={11} />
+              Сезонные награды
             </div>
-            <h1 className="elite-rating-title">Рейтинг игроков</h1>
-            <p className="elite-rating-subtitle">
-              Лучшие дуэлянты по рейтингу и победам.
+
+            <h1 className="elite-prize-title">Призы за рейтинг</h1>
+            <p className="elite-prize-subtitle">
+              Поднимайся в таблице и забирай награду в игровых монетах.
             </p>
           </div>
 
-          <div className="elite-rating-actions">
+          <div className="elite-prize-actions">
             <button
               type="button"
               onClick={() => void loadLeaderboard(true)}
@@ -89,30 +133,81 @@ export const Rating = () => {
               className="pressable elite-icon-button"
               aria-label="Обновить рейтинг"
             >
-              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+              <RefreshCw
+                size={14}
+                className={refreshing ? 'animate-spin' : ''}
+              />
             </button>
-            <div className="elite-rating-crown">
-              <Crown size={25} className="fill-current" />
+
+            <div className="elite-prize-main-icon" aria-hidden="true">
+              <Trophy size={24} />
+              <Sparkles size={11} className="elite-prize-spark" />
             </div>
           </div>
         </div>
 
-        <div className="elite-rating-metrics">
-          <article>
-            <UsersRound size={14} />
-            <strong>{formatNumber(players.length)}</strong>
-            <span>Игроков</span>
-          </article>
-          <article className="is-blue">
-            <Medal size={14} />
-            <strong>{formatNumber(players[0]?.rating ?? 0)}</strong>
-            <span>Топ рейтинг</span>
-          </article>
-          <article className="is-orange">
-            <Flame size={14} />
-            <strong>{formatNumber(players[0]?.wins ?? 0)}</strong>
-            <span>Топ побед</span>
-          </article>
+        <div className="elite-prize-countdown">
+          <div className="elite-prize-countdown-copy">
+            <div className="elite-prize-clock">
+              <Clock size={15} />
+            </div>
+            <div>
+              <span>До выдачи наград</span>
+              <strong>Финал сезона</strong>
+            </div>
+          </div>
+
+          <div className="elite-prize-time" aria-label="До конца сезона">
+            {prizeCountdown.map((item, index) => (
+              <div className="elite-prize-time-item" key={item.label}>
+                <strong>{item.value}</strong>
+                <span>{item.label}</span>
+                {index < prizeCountdown.length - 1 && (
+                  <i aria-hidden="true">:</i>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="elite-prize-grid">
+          {prizeTiers.map(({ place, placeLabel, tone, Icon }) => (
+            <article
+              key={place}
+              className={`elite-prize-tier is-${tone}`}
+            >
+              <div className="elite-prize-tier-shine" />
+
+              <div className="elite-prize-tier-icon">
+                <Icon
+                  size={place === '1' ? 15 : 14}
+                  className={place === '1' ? 'fill-current' : ''}
+                />
+              </div>
+
+              <div className="elite-prize-place">
+                <strong>{place}</strong>
+                <span>{placeLabel}</span>
+              </div>
+
+              <div className="elite-prize-reward">
+                <img
+                  src={coinIcon}
+                  alt=""
+                  draggable={false}
+                  decoding="async"
+                />
+                <strong>???</strong>
+              </div>
+
+              <span className="elite-prize-currency">игровых монет</span>
+            </article>
+          ))}
+        </div>
+
+        <div className="elite-prize-note">
+          <Lock size={11} />
+          <span>Размер наград откроется ближе к финалу сезона</span>
         </div>
       </section>
 
@@ -130,7 +225,11 @@ export const Rating = () => {
           </div>
           <h2>Не удалось загрузить рейтинг</h2>
           <p>{error}</p>
-          <button type="button" onClick={() => void loadLeaderboard(false)} className="pressable elite-retry-button">
+          <button
+            type="button"
+            onClick={() => void loadLeaderboard(false)}
+            className="pressable elite-retry-button"
+          >
             Повторить
           </button>
         </section>
@@ -168,7 +267,11 @@ export const Rating = () => {
 
                   <div className="elite-podium-avatar">
                     {player.photo_url ? (
-                      <img src={player.photo_url} alt="" className="h-full w-full object-cover" />
+                      <img
+                        src={player.photo_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       avatarLabel(player)
                     )}
@@ -176,8 +279,12 @@ export const Rating = () => {
 
                   <div className="elite-podium-place">{place}</div>
                   <p className="elite-podium-name">{displayName(player)}</p>
-                  <strong className="elite-podium-score">{formatNumber(player.rating)}</strong>
-                  <span className="elite-podium-wins">{formatNumber(player.wins)} побед</span>
+                  <strong className="elite-podium-score">
+                    {formatNumber(player.rating)}
+                  </strong>
+                  <span className="elite-podium-wins">
+                    {formatNumber(player.wins)} побед
+                  </span>
                   {isYou && <div className="elite-you-chip">Вы</div>}
                 </article>
               );
@@ -204,12 +311,18 @@ export const Rating = () => {
                   <article
                     key={player.id}
                     className={`elite-leaderboard-row ${isYou ? 'is-you' : ''}`}
-                    style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+                    style={{
+                      animationDelay: `${Math.min(index, 8) * 30}ms`,
+                    }}
                   >
                     <div className="elite-rank-number">{rank}</div>
                     <div className="elite-list-avatar">
                       {player.photo_url ? (
-                        <img src={player.photo_url} alt="" className="h-full w-full object-cover" />
+                        <img
+                          src={player.photo_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         avatarLabel(player)
                       )}
@@ -237,7 +350,11 @@ export const Rating = () => {
         <div className="elite-rank-number is-you">{yourRank ?? '—'}</div>
         <div className="elite-list-avatar is-you">
           {user?.photo_url ? (
-            <img src={user.photo_url} alt="" className="h-full w-full object-cover" />
+            <img
+              src={user.photo_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           ) : (
             <Sparkles size={16} />
           )}
