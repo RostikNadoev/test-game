@@ -70,7 +70,6 @@ const FlappyRaceGame = lazy(() => import("./pages/FlappyRaceGame"));
 const DiscFootballGame = lazy(() => import("./pages/DiscFootballGame"));
 const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
 const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
-const PrismCubeGame = lazy(() => import("./pages/PrismCubeGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -385,10 +384,6 @@ function AppShell() {
               <Route
                 path="/game/crossy_road/play"
                 element={<CrossyRoadGame />}
-              />
-              <Route
-                path="/game/prism_cube/play"
-                element={<PrismCubeGame />}
               />
 
               <Route path="/profile" element={<Profile />} />
