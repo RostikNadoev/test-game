@@ -172,6 +172,7 @@ function AppShell() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [soloLoadingPath, setSoloLoadingPath] = useState<string | null>(null);
   const previousPathRef = useRef(location.pathname);
+  const mainRef = useRef<HTMLElement | null>(null);
 
   const isSoloRoute = isSoloPath(location.pathname);
   const isFruitCascadeRoute = location.pathname === FRUIT_CASCADE_ROUTE;
@@ -209,6 +210,28 @@ function AppShell() {
       window.clearTimeout(timer);
     };
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (isInitialLoading) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const scrollOptions: ScrollToOptions = {
+        top: 0,
+        left: 0,
+        behavior: "smooth",
+      };
+
+      mainRef.current?.scrollTo(scrollOptions);
+      window.scrollTo(scrollOptions);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    isInitialLoading,
+    location.key,
+    location.pathname,
+    location.search,
+  ]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -310,6 +333,7 @@ function AppShell() {
       <Header />
 
       <main
+        ref={mainRef}
         className={[
           "relative z-10 w-full min-w-0 flex-1 overflow-x-hidden",
           isSoloRoute ? "solo-main" : "",

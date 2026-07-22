@@ -1281,6 +1281,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const winnerScore = winnerIsPlayer ? playerScore : rivalScore;
   const loserScore = winnerIsPlayer ? rivalScore : playerScore;
   const displayedReward = didWin ? roundToTwo(betCoins * 0.9) : 0;
+  const countdownValue = phase === 'ready' ? COUNTDOWN_FROM : countdown;
 
   if (!lobbyId || !token) {
     return (
@@ -1337,33 +1338,11 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
           {labels.map((label) => <FloatLabelView key={label.id} label={label} />)}
         </div>
 
-        {phase === 'ready' && (
-          <div className="ts-overlay">
-            <div className="ts-panel ts-wait-panel">
-              <div className="ts-wait-icon" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <div className="ts-kicker">TOWER STACK · 1 VS 1</div>
-              <h1 className="ts-title">СОПЕРНИК НАЙДЕН</h1>
-              <p className="ts-sub">
-                Подключаем обоих игроков. Матч запустится автоматически.
-              </p>
-              <div className="ts-sync-line">
-                <span className="ts-sync-dot" />
-                <span>{connectionStatus === 'open' ? 'СИНХРОНИЗАЦИЯ' : 'ПОДКЛЮЧЕНИЕ'}</span>
-              </div>
-              {socketError && <div className="ts-error-text">{socketError}</div>}
-            </div>
-          </div>
-        )}
-
-        {phase === 'countdown' && (
+        {(phase === 'ready' || phase === 'countdown') && (
           <div className="ts-overlay ts-countdown">
-            <div className="ts-count-content" key={countdown}>
+            <div className="ts-count-content" key={countdownValue}>
               <div className="ts-count-ring" aria-hidden="true" />
-              <div className="ts-count-num">{countdown}</div>
+              <div className="ts-count-num">{countdownValue}</div>
               <div className="ts-count-label">ГОТОВЬСЯ</div>
             </div>
             {connectionStatus !== 'open' && (
