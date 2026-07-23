@@ -7,8 +7,8 @@
  *   staircase rendered as pseudo-3D concrete blocks (side view, 2.5D look).
  * - 15 turns. Each turn: 5s preparation -> both cubes launch SIMULTANEOUSLY
  *   -> turn ends only when BOTH cubes have fully stopped.
- * - Custom lightweight compliant rigid-body physics (no Matter.js needed):
- *   damped spring contacts, friction, angular inertia, soft squash feedback,
+ * - Custom lightweight impulse-based rigid-body physics (no Matter.js needed):
+ *   gravity, friction, restitution, angular velocity, corner collisions,
  *   tumbling, sliding, and stable settle/stop detection.
  * - Smooth camera that frames both cubes, with stylish offscreen-opponent
  *   directional arrows (size/brightness scale with distance).
@@ -44,50 +44,36 @@ const PREP_TIME = 5; // seconds of preparation per turn
 const MAX_RESOLVE = 10.5; // safety cap: force-settle a turn after this many seconds
 
 const FIXED_DT = 1 / 180;
-const MAX_SUBSTEPS = 6;
+const MAX_SUBSTEPS = 8;
+const SOLVER_ITERS = 8;
 
-// Soft-contact physics. Unlike the old repeated impulse solver, the cube now
-// compresses into the surface by a tiny amount and is pushed out by a damped
-// spring. That removes the sticky/jittery edge behaviour and gives the heavy,
-// slightly "rubbery" Climb Jump-style landing.
-const GRAVITY = 1925;
-const AIR_DRAG = 0.032;
-const ANG_AIR_DRAG = 0.46;
-const CONTACT_STIFFNESS = 9300;
-const CONTACT_DAMPING = 155;
-const CONTACT_MAX_FORCE = 28000;
-const CONTACT_FRICTION = 0.44;
-const TANGENT_DAMPING = 34;
-const GROUND_LINEAR_DAMP = 0.24;
-const GROUND_ANG_DAMP = 0.48;
-const REST_ALIGN_K = 13.5;
-const REST_ALIGN_DAMP = 4.8;
-const REST_ALIGN_SPEED = 105;
-const MAX_ANGULAR_SPEED = 9.5;
-const EMERGENCY_PENETRATION = 4.8;
-const EMERGENCY_CORRECTION = 0.22;
-
-// A tiny visual squash is driven by real impact speed. It does not affect the
-// collision shape, so physics stays deterministic and cheap.
-const SQUASH_K = 78;
-const SQUASH_DAMP = 13.5;
-const MAX_SQUASH = 0.14;
+const GRAVITY = 2425;
+const AIR_DRAG = 0.012;
+const ANG_AIR_DRAG = 0.28;
+const ROLL_RES = 0.9;
+const GROUND_ANG_DAMP = 1.25;
+const RESTITUTION = 0.055;
+const FRICTION = 0.47;
+const MAX_ANGULAR_SPEED = 12.5;
 
 /* --- Drag-to-launch (slingshot) tuning --- */
-const DRAG_SCALE = 4.75;
-const MIN_LAUNCH = 220;
-const MAX_LAUNCH = 1010;
+const DRAG_SCALE = 5.25;
+const MIN_LAUNCH = 255;
+const MAX_LAUNCH = 1160;
 const MIN_PULL = 12;
-const LAUNCH_ANGLE_MIN = (20 * Math.PI) / 180;
-const LAUNCH_ANGLE_MAX = (77 * Math.PI) / 180;
+const LAUNCH_ANGLE_MIN = (21 * Math.PI) / 180;
+const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180;
 const DEFAULT_ANGLE = (50 * Math.PI) / 180;
-const DEFAULT_SPEED = 455;
-const MIN_LAUNCH_SPIN = 1.05;
-const LAUNCH_SPIN_POWER = 0.0185;
+const DEFAULT_SPEED = 505;
+const MIN_LAUNCH_SPIN = 1.85;
+const LAUNCH_SPIN_POWER = 0.023;
 
-const SPEED_EPS = 11;
-const ANG_EPS = 0.3;
-const STILL_TIME = 0.42;
+const SLOP = 0.32;
+const CORR = 0.82;
+
+const SPEED_EPS = 16;
+const ANG_EPS = 0.44;
+const STILL_TIME = 0.26;
 
 const CUBE = 26;
 const CUBE_MASS = 1;
@@ -96,8 +82,8 @@ const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6);
 
 // Invisible left boundary at the start of the map.
 const START_WALL_X = 0;
-const START_WALL_STIFFNESS = 10500;
-const START_WALL_DAMPING = 165;
+const START_WALL_BOUNCE = 0.055;
+const START_WALL_SPIN_DAMP = 0.28;
 
 const DPR_CAP = 1.5;
 
@@ -108,7 +94,7 @@ const WORLD_LEN = 9000;
 const CAM_LERP = 7.2;
 const PARALLAX = 0.1;
 
-const MAX_PARTICLES = 90;
+const MAX_PARTICLES = 150;
 
 /* ===========================================================================
  * Deterministic RNG + seeded staircase generation
@@ -349,15 +335,6 @@ function surfaceYAt(s: Step, px: number): number {
   return s.topY + s.slope * (cx - s.mid);
 }
 
-function shortestAngleDelta(target: number, current: number): number {
-  return Math.atan2(Math.sin(target - current), Math.cos(target - current));
-}
-
-function nearestFaceAngle(angle: number, surfaceAngle: number): number {
-  const quarterTurn = Math.PI / 2;
-  return surfaceAngle + Math.round((angle - surfaceAngle) / quarterTurn) * quarterTurn;
-}
-
 /* ===========================================================================
  * Cube body
  * ========================================================================= */
@@ -365,42 +342,31 @@ function nearestFaceAngle(angle: number, surfaceAngle: number): number {
 interface Cube {
   x: number;
   y: number;
-  prevX: number;
-  prevY: number;
   vx: number;
   vy: number;
   angle: number;
-  prevAngle: number;
-  av: number;
+  av: number; // angular velocity
   stopped: boolean;
   stillTimer: number;
-  startX: number;
-  dustCd: number;
-  squash: number;
-  squashVel: number;
+  startX: number; // x at the start of the current turn
+  dustCd: number; // impact-dust cooldown
   isPlayer: boolean;
 }
 
 function spawnCubeOnStep(stairs: Stairs, px: number, isPlayer: boolean): Cube {
   const s = stairs.steps[stepIndexAt(stairs.steps, px)];
   const sy = surfaceYAt(s, px);
-  const y = sy - CUBE / 2 - 0.35;
   return {
     x: px,
-    y,
-    prevX: px,
-    prevY: y,
+    y: sy - CUBE / 2 - 0.5,
     vx: 0,
     vy: 0,
     angle: 0,
-    prevAngle: 0,
     av: 0,
     stopped: true,
     stillTimer: 0,
     startX: px,
     dustCd: 0,
-    squash: 0,
-    squashVel: 0,
     isPlayer,
   };
 }
@@ -415,42 +381,30 @@ function terrainContact(stairs: Stairs, px: number, py: number): TerrainContact 
   const steps = stairs.steps;
   const s = steps[stepIndexAt(steps, px)];
   const sy = surfaceYAt(s, px);
+  if (py <= sy) return null; // above the surface, not penetrating
 
-  let bestD = Infinity;
-  let bestNx = 0;
-  let bestNy = 0;
+  // Candidate 1: top face (sloped normal)
+  let bestD = py - sy;
+  let bestNx = s.nx;
+  let bestNy = s.ny;
 
-  // Sloped top face.
-  if (py > sy) {
-    bestD = py - sy;
-    bestNx = s.nx;
-    bestNy = s.ny;
-  }
-
-  // Vertical risers are checked independently from the top face. The old query
-  // returned early when a corner was above the top surface, which let fast
-  // corners graze a step edge and then "stick" on the following solver pass.
+  // Candidate 2/3: exposed risers (only consider shallow side penetration)
   if (s.leftExposed) {
-    const wallTop = surfaceYAt(s, s.x0);
     const dl = px - s.x0;
-    if (py > wallTop - 0.75 && dl >= 0 && dl < CUBE * 0.82 && dl < bestD) {
+    if (dl >= 0 && dl < bestD && dl < CUBE) {
       bestD = dl;
       bestNx = -1;
       bestNy = 0;
     }
   }
-
   if (s.rightExposed) {
-    const wallTop = surfaceYAt(s, s.x1);
     const dr = s.x1 - px;
-    if (py > wallTop - 0.75 && dr >= 0 && dr < CUBE * 0.82 && dr < bestD) {
+    if (dr >= 0 && dr < bestD && dr < CUBE) {
       bestD = dr;
       bestNx = 1;
       bestNy = 0;
     }
   }
-
-  if (!Number.isFinite(bestD)) return null;
   return { d: bestD, nx: bestNx, ny: bestNy };
 }
 
@@ -625,7 +579,6 @@ interface GameState {
   finalPlayerM: number;
   finalBotM: number;
   rndSeed: number;
-  physicsAcc: number;
 }
 
 /* ===========================================================================
@@ -704,7 +657,6 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       finalPlayerM: 0,
       finalBotM: 0,
       rndSeed: matchSeed,
-      physicsAcc: 0,
     };
   }, []);
 
@@ -730,11 +682,11 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
   /* ----- particles ----- */
   const spawnImpact = useCallback((g: GameState, x: number, y: number, strength: number) => {
-    const n = Math.min(5, 1 + Math.floor(strength / 145));
+    const n = Math.min(8, 2 + Math.floor(strength / 90));
     for (let i = 0; i < n; i++) {
       if (g.particles.length >= MAX_PARTICLES) break;
       const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
-      const sp = 34 + Math.random() * (strength * 0.38);
+      const sp = 40 + Math.random() * (strength * 0.5);
       const debris = Math.random() < 0.4;
       g.particles.push({
         x,
@@ -742,200 +694,150 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
         vx: Math.cos(a) * sp + (Math.random() - 0.5) * 30,
         vy: Math.sin(a) * sp - Math.random() * 40,
         life: 0,
-        max: 0.3 + Math.random() * 0.38,
+        max: 0.4 + Math.random() * 0.5,
         size: debris ? 1.6 + Math.random() * 2.2 : 1 + Math.random() * 1.8,
         kind: debris ? 1 : 0,
       });
     }
   }, []);
 
-  /* ----- physics for one cube, one fixed substep ----- */
+  /* ----- physics for one cube, one substep ----- */
   const stepCube = useCallback(
     (g: GameState, cube: Cube, h: number) => {
-      cube.prevX = cube.x;
-      cube.prevY = cube.y;
-      cube.prevAngle = cube.angle;
-
-      // Let the visual squash relax even if the body has already latched as still.
-      cube.squashVel += (-SQUASH_K * cube.squash - SQUASH_DAMP * cube.squashVel) * h;
-      cube.squash += cube.squashVel * h;
-      cube.squash = clampN(cube.squash, -0.045, MAX_SQUASH);
-
       if (cube.stopped) return;
 
-      const half = CUBE / 2;
-      const ca = Math.cos(cube.angle);
-      const sa = Math.sin(cube.angle);
-      const corners = [
-        [-half, -half],
-        [half, -half],
-        [half, half],
-        [-half, half],
-      ] as const;
-
-      let ax = 0;
-      let ay = GRAVITY;
-      let angularAccel = 0;
-      let contactCount = 0;
-      let topContactCount = 0;
-      let nearSurface = false;
-      let maxImpact = 0;
-      let impactX = cube.x;
-      let impactY = cube.y + half;
-      let weightedNx = 0;
-      let weightedNy = 0;
-      let maxPenetration = 0;
-      let groundSlopeSum = 0;
-
-      const applyContactForce = (
-        rx: number,
-        ry: number,
-        nx: number,
-        ny: number,
-        depth: number,
-        stiffness: number,
-        damping: number,
-      ) => {
-        const pointVx = cube.vx - cube.av * ry;
-        const pointVy = cube.vy + cube.av * rx;
-        const vn = pointVx * nx + pointVy * ny;
-
-        const safeDepth = Math.min(depth, 8);
-        const springForce = stiffness * safeDepth;
-        const dampingForce = -damping * vn;
-        const normalForce = clampN(springForce + dampingForce, 0, CONTACT_MAX_FORCE);
-
-        const tx = -ny;
-        const ty = nx;
-        const vt = pointVx * tx + pointVy * ty;
-        const wantedFriction = -vt * TANGENT_DAMPING;
-        const maxFriction = CONTACT_FRICTION * normalForce;
-        const frictionForce = clampN(wantedFriction, -maxFriction, maxFriction);
-
-        const fx = nx * normalForce + tx * frictionForce;
-        const fy = ny * normalForce + ty * frictionForce;
-
-        ax += fx * INV_M;
-        ay += fy * INV_M;
-        angularAccel += (rx * fy - ry * fx) * INV_I;
-
-        if (-vn > maxImpact) {
-          maxImpact = -vn;
-          impactX = cube.x + rx;
-          impactY = cube.y + ry;
-        }
-      };
-
-      // Soft invisible start wall. No velocity reflection and no hard position snap.
-      const bodyHalfWidth = half * (Math.abs(ca) + Math.abs(sa));
-      const leftPen = START_WALL_X - (cube.x - bodyHalfWidth);
-      if (leftPen > 0) {
-        contactCount += 1;
-        applyContactForce(
-          -bodyHalfWidth,
-          0,
-          1,
-          0,
-          leftPen,
-          START_WALL_STIFFNESS,
-          START_WALL_DAMPING,
-        );
-      }
-
-      for (const [lx, ly] of corners) {
-        const rx = lx * ca - ly * sa;
-        const ry = lx * sa + ly * ca;
-        const pxw = cube.x + rx;
-        const pyw = cube.y + ry;
-
-        const nearStep = g.stairs.steps[stepIndexAt(g.stairs.steps, pxw)];
-        const nearSy = surfaceYAt(nearStep, pxw);
-        if (pyw >= nearSy - 2.2 && pyw <= nearSy + 6.5) {
-          nearSurface = true;
-        }
-
-        const ct = terrainContact(g.stairs, pxw, pyw);
-        if (!ct || ct.d <= 0) continue;
-
-        contactCount += 1;
-        maxPenetration = Math.max(maxPenetration, ct.d);
-        weightedNx += ct.nx * ct.d;
-        weightedNy += ct.ny * ct.d;
-
-        if (ct.ny < -0.45) {
-          topContactCount += 1;
-          groundSlopeSum += nearStep.slope;
-        }
-
-        applyContactForce(
-          rx,
-          ry,
-          ct.nx,
-          ct.ny,
-          ct.d,
-          CONTACT_STIFFNESS,
-          CONTACT_DAMPING,
-        );
-      }
-
-      // Very slow contacts receive a soft face-alignment torque. This is not a
-      // snap: the body wobbles into a stable face like a slightly soft block.
-      const linearSpeedBefore = Math.hypot(cube.vx, cube.vy);
-      if (topContactCount > 0 && linearSpeedBefore < REST_ALIGN_SPEED) {
-        const avgSlope = groundSlopeSum / topContactCount;
-        const surfaceAngle = Math.atan(avgSlope);
-        const target = nearestFaceAngle(cube.angle, surfaceAngle);
-        const delta = shortestAngleDelta(target, cube.angle);
-        angularAccel += delta * REST_ALIGN_K - cube.av * REST_ALIGN_DAMP;
-      }
-
-      cube.vx += ax * h;
-      cube.vy += ay * h;
-      cube.av += angularAccel * h;
-
-      // Exponential damping makes behaviour independent of actual render FPS.
-      const airLinear = Math.exp(-AIR_DRAG * h);
-      const airAngular = Math.exp(-ANG_AIR_DRAG * h);
-      cube.vx *= airLinear;
-      cube.vy *= airLinear;
-      cube.av *= airAngular;
-
-      if (contactCount > 0) {
-        cube.vx *= Math.exp(-GROUND_LINEAR_DAMP * h);
-        cube.av *= Math.exp(-GROUND_ANG_DAMP * h);
-      }
-
-      cube.av = clampN(cube.av, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+      cube.vy += GRAVITY * h;
+      cube.vx -= cube.vx * AIR_DRAG * h;
+      cube.vy -= cube.vy * AIR_DRAG * h;
+      cube.av -= cube.av * ANG_AIR_DRAG * h;
 
       cube.x += cube.vx * h;
       cube.y += cube.vy * h;
       cube.angle += cube.av * h;
 
-      // Only severe tunnelling gets a tiny emergency projection. Normal contacts
-      // are never position-corrected, which is what removes the visible sticking.
-      if (maxPenetration > EMERGENCY_PENETRATION) {
-        const nmag = Math.hypot(weightedNx, weightedNy);
-        if (nmag > 1e-5) {
-          const extra = (maxPenetration - EMERGENCY_PENETRATION) * EMERGENCY_CORRECTION;
-          cube.x += (weightedNx / nmag) * extra;
-          cube.y += (weightedNy / nmag) * extra;
+      const half = CUBE / 2;
+      let contact = false;
+      let nearSurface = false;
+      let maxImpact = 0;
+      let impactX = 0;
+      let impactY = 0;
+
+      // Invisible start wall: prevents both cubes from flying/rolling into the
+      // left-side cliff at the very beginning of the map. Nothing is rendered.
+      if (cube.x - half < START_WALL_X) {
+        const impact = Math.abs(cube.vx);
+        cube.x = START_WALL_X + half;
+        if (cube.vx < 0) cube.vx = -cube.vx * START_WALL_BOUNCE;
+        cube.av *= START_WALL_SPIN_DAMP;
+        cube.stillTimer = 0;
+
+        if (impact > maxImpact) {
+          maxImpact = impact;
+          impactX = START_WALL_X;
+          impactY = cube.y + half;
         }
       }
 
-      cube.dustCd = Math.max(0, cube.dustCd - h);
-      if (maxImpact > 105 && cube.dustCd <= 0) {
-        const impact01 = clampN((maxImpact - 105) / 620, 0, 1);
-        cube.squashVel += 2.6 * impact01;
-        if (maxImpact > 180) spawnImpact(g, impactX, impactY, maxImpact);
-        cube.dustCd = 0.085;
+      for (let iter = 0; iter < SOLVER_ITERS; iter++) {
+        const ca = Math.cos(cube.angle);
+        const sa = Math.sin(cube.angle);
+        const corners = [
+          [-half, -half],
+          [half, -half],
+          [half, half],
+          [-half, half],
+        ];
+        for (let c = 0; c < 4; c++) {
+          const lx = corners[c][0];
+          const ly = corners[c][1];
+          const rx = lx * ca - ly * sa;
+          const ry = lx * sa + ly * ca;
+          const pxw = cube.x + rx;
+          const pyw = cube.y + ry;
+
+          const nearStep = g.stairs.steps[stepIndexAt(g.stairs.steps, pxw)];
+          const nearSy = surfaceYAt(nearStep, pxw);
+          if (pyw >= nearSy - 2.5 && pyw <= nearSy + 8) {
+            nearSurface = true;
+          }
+
+          const ct = terrainContact(g.stairs, pxw, pyw);
+          if (!ct) continue;
+          contact = true;
+
+          // Relative velocity at the contact point.
+          const rvx = cube.vx - cube.av * ry;
+          const rvy = cube.vy + cube.av * rx;
+          const vn = rvx * ct.nx + rvy * ct.ny;
+
+          if (vn < 0) {
+            const rn = rx * ct.ny - ry * ct.nx;
+            const denom = INV_M + rn * rn * INV_I;
+            let j = -(1 + RESTITUTION) * vn;
+            j = j / denom;
+            if (j < 0) j = 0;
+
+            cube.vx += j * ct.nx * INV_M;
+            cube.vy += j * ct.ny * INV_M;
+            cube.av += (rx * (j * ct.ny) - ry * (j * ct.nx)) * INV_I;
+
+            if (-vn > maxImpact && iter === 0) {
+              maxImpact = -vn;
+              impactX = pxw;
+              impactY = pyw;
+            }
+
+            // Friction (tangent impulse, clamped by Coulomb).
+            const rvx2 = cube.vx - cube.av * ry;
+            const rvy2 = cube.vy + cube.av * rx;
+            const tx = -ct.ny;
+            const ty = ct.nx;
+            const vt = rvx2 * tx + rvy2 * ty;
+            const rt = rx * ty - ry * tx;
+            const denomT = INV_M + rt * rt * INV_I;
+            let jt = -vt / denomT;
+            const maxF = FRICTION * j;
+            if (jt > maxF) jt = maxF;
+            else if (jt < -maxF) jt = -maxF;
+
+            cube.vx += jt * tx * INV_M;
+            cube.vy += jt * ty * INV_M;
+            cube.av += (rx * (jt * ty) - ry * (jt * tx)) * INV_I;
+          }
+
+          // Positional correction (de-penetration).
+          const corr = Math.max(ct.d - SLOP, 0) * CORR;
+          if (corr > 0) {
+            cube.x += ct.nx * corr;
+            cube.y += ct.ny * corr;
+          }
+        }
       }
 
+      if (contact) {
+        cube.vx -= cube.vx * ROLL_RES * h;
+        cube.av -= cube.av * GROUND_ANG_DAMP * h;
+      }
+
+      cube.av = clampN(cube.av, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+
+      // Impact feedback.
+      cube.dustCd -= h;
+      if (maxImpact > 170 && cube.dustCd <= 0) {
+        spawnImpact(g, impactX, impactY, maxImpact);
+        cube.dustCd = 0.1;
+      }
+
+      // Stop detection.
+      // The previous version required a strict contact on the exact current frame;
+      // visually the cube could already be standing still, but a tiny solver gap
+      // reset the still timer and kept the HUD stuck on “IN MOTION…”.  We accept
+      // a near-surface state too, and once the cube is visually calm we latch the
+      // stop quickly.  Faster rolls still keep going because speed/angle are above
+      // the thresholds.
       const speed = Math.hypot(cube.vx, cube.vy);
       const angsp = Math.abs(cube.av);
-      const restingCandidate =
-        (contactCount > 0 || nearSurface) &&
-        speed < SPEED_EPS &&
-        angsp < ANG_EPS;
+      const restingCandidate = (contact || nearSurface) && speed < SPEED_EPS && angsp < ANG_EPS;
 
       if (restingCandidate) {
         cube.stillTimer += h;
@@ -944,20 +846,9 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           cube.vx = 0;
           cube.vy = 0;
           cube.av = 0;
-          cube.squash = 0;
-          cube.squashVel = 0;
-
-          // By the time we latch, the soft torque has already aligned the body.
-          // We only remove sub-pixel angular noise here.
-          const step = g.stairs.steps[stepIndexAt(g.stairs.steps, cube.x)];
-          const surfaceAngle = Math.atan(step.slope);
-          const target = nearestFaceAngle(cube.angle, surfaceAngle);
-          if (Math.abs(shortestAngleDelta(target, cube.angle)) < 0.035) {
-            cube.angle = target;
-          }
-          cube.prevX = cube.x;
-          cube.prevY = cube.y;
-          cube.prevAngle = cube.angle;
+          // Snap to a tidy resting orientation only at the very end, so rolling
+          // still feels soft/arcade while the cube is actually moving.
+          cube.angle = Math.round(cube.angle / (Math.PI / 2)) * (Math.PI / 2);
         }
       } else {
         cube.stillTimer = 0;
@@ -976,14 +867,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       cube.stopped = false;
       cube.stillTimer = 0;
       cube.startX = cube.x;
-      cube.squash = 0;
-      cube.squashVel = 0;
-      cube.y -= 1.2;
-      cube.prevX = cube.x;
-      cube.prevY = cube.y;
-      cube.prevAngle = cube.angle;
+      cube.y -= 2; // lift off the surface so launch isn't eaten by friction
     };
-    g.physicsAcc = 0;
     fire(g.player, g.pendingPlayer);
     fire(g.bot, g.pendingBot);
   }, []);
@@ -1066,9 +951,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   const simulate = useCallback(
     (g: GameState, dt: number) => {
       if (g.phase === 'prep') {
-        g.physicsAcc = 0;
         g.prepLeft -= dt;
         if (g.prepLeft <= 0) {
+          // Lock in the player's move: a released drag, else the drag still held at
+          // expiry, else a small safe default if the player did nothing.
           const d = dragRef.current;
           g.pendingPlayer = d.move ?? DEFAULT_MOVE();
           d.active = false;
@@ -1079,42 +965,27 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
         }
       } else if (g.phase === 'resolve') {
         g.resolveElapsed += dt;
-
-        // Persistent accumulator = the physics clock no longer stretches/shrinks
-        // with render FPS. This removes the tiny speed changes that looked like
-        // micro-lag on mobile.
-        g.physicsAcc = Math.min(
-          g.physicsAcc + dt,
-          FIXED_DT * MAX_SUBSTEPS,
-        );
-
+        // Fixed-step physics for stability.
+        let acc = dt;
         let steps = 0;
-        while (g.physicsAcc >= FIXED_DT && steps < MAX_SUBSTEPS) {
-          stepCube(g, g.player, FIXED_DT);
-          stepCube(g, g.bot, FIXED_DT);
-          g.physicsAcc -= FIXED_DT;
+        while (acc > 1e-5 && steps < MAX_SUBSTEPS) {
+          const hsub = Math.min(FIXED_DT, acc);
+          stepCube(g, g.player, hsub);
+          stepCube(g, g.bot, hsub);
+          acc -= hsub;
           steps += 1;
         }
-
         const bothStopped = g.player.stopped && g.bot.stopped;
         if (bothStopped || g.resolveElapsed > MAX_RESOLVE) {
           g.player.stopped = true;
           g.bot.stopped = true;
           g.player.vx = g.player.vy = g.player.av = 0;
           g.bot.vx = g.bot.vy = g.bot.av = 0;
-          g.player.prevX = g.player.x;
-          g.player.prevY = g.player.y;
-          g.player.prevAngle = g.player.angle;
-          g.bot.prevX = g.bot.x;
-          g.bot.prevY = g.bot.y;
-          g.bot.prevAngle = g.bot.angle;
-          g.physicsAcc = 0;
           endTurn(g);
         }
-      } else {
-        g.physicsAcc = 0;
       }
 
+      // Particles (cheap; integrate every frame).
       const ps = g.particles;
       for (let i = ps.length - 1; i >= 0; i--) {
         const pt = ps[i];
@@ -1123,8 +994,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           ps.splice(i, 1);
           continue;
         }
-        pt.vy += GRAVITY * 0.48 * dt;
-        pt.vx *= Math.exp(-1.5 * dt);
+        pt.vy += GRAVITY * 0.55 * dt;
+        pt.vx *= 1 - 1.4 * dt;
         pt.x += pt.vx * dt;
         pt.y += pt.vy * dt;
       }
@@ -1281,47 +1152,31 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   );
 
   const renderCube = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      cube: Cube,
-      camX: number,
-      camY: number,
-      alpha: number,
-    ) => {
-      const ix = cube.prevX + (cube.x - cube.prevX) * alpha;
-      const iy = cube.prevY + (cube.y - cube.prevY) * alpha;
-      const ia = cube.prevAngle + (cube.angle - cube.prevAngle) * alpha;
-      const sx = ix - camX;
-      const sy = iy - camY;
+    (ctx: CanvasRenderingContext2D, cube: Cube, camX: number, camY: number) => {
+      const sx = cube.x - camX;
+      const sy = cube.y - camY;
       const half = CUBE / 2;
-
-      const squash = clampN(cube.squash, -0.045, MAX_SQUASH);
-      const scaleX = 1 + squash * 0.62;
-      const scaleY = 1 - squash;
 
       ctx.save();
       ctx.translate(sx, sy);
-      ctx.rotate(ia);
-      ctx.scale(scaleX, scaleY);
+      ctx.rotate(cube.angle);
 
+      // Body.
       ctx.fillStyle = '#050506';
       ctx.fillRect(-half, -half, CUBE, CUBE);
 
-      ctx.strokeStyle = cube.isPlayer
-        ? 'rgba(236,238,242,0.9)'
-        : 'rgba(150,153,158,0.75)';
+      // Edge highlight (player brighter than bot for subtle legibility).
+      ctx.strokeStyle = cube.isPlayer ? 'rgba(236,238,242,0.9)' : 'rgba(150,153,158,0.75)';
       ctx.lineWidth = 1.4;
       ctx.strokeRect(-half, -half, CUBE, CUBE);
 
-      ctx.strokeStyle = cube.isPlayer
-        ? 'rgba(255,255,255,0.5)'
-        : 'rgba(190,193,198,0.35)';
+      // Top-left specular line.
+      ctx.strokeStyle = cube.isPlayer ? 'rgba(255,255,255,0.5)' : 'rgba(190,193,198,0.35)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(-half + 2, -half + 2);
       ctx.lineTo(half - 4, -half + 2);
       ctx.stroke();
-
       ctx.restore();
     },
     [],
@@ -1462,12 +1317,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     }
 
     // --- Cubes ---
-    const physicsAlpha =
-      g.phase === 'resolve'
-        ? clampN(g.physicsAcc / FIXED_DT, 0, 1)
-        : 1;
-    renderCube(ctx, g.bot, g.cam.x, g.cam.y, physicsAlpha);
-    renderCube(ctx, g.player, g.cam.x, g.cam.y, physicsAlpha);
+    renderCube(ctx, g.bot, g.cam.x, g.cam.y);
+    renderCube(ctx, g.player, g.cam.x, g.cam.y);
 
     // Player marker (subtle caret above player's cube so "you" is legible).
     {
@@ -1565,7 +1416,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       if (!lastTimeRef.current) lastTimeRef.current = now;
       let dt = (now - lastTimeRef.current) / 1000;
       lastTimeRef.current = now;
-      if (dt > 0.033) dt = 0.033; // never feed a huge catch-up burst after a dropped frame
+      if (dt > 0.05) dt = 0.05; // clamp big stalls
 
       simulate(g, dt);
       render();
