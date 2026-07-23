@@ -1,999 +1,583 @@
-/**
- * PhysicsDuel.tsx
- * ---------------------------------------------------------------------------
- * A premium 1v1 physics duel for a React + TypeScript Telegram Mini App.
- *
- * - Two black cubes (player + bot) duel on ONE shared, irregular, seeded
- *   staircase rendered as pseudo-3D concrete blocks (side view, 2.5D look).
- * - 15 turns. Each turn: 5s preparation -> both cubes launch SIMULTANEOUSLY
- *   -> turn ends only when BOTH cubes have fully stopped.
- * - Custom lightweight impulse-based rigid-body physics (no Matter.js needed):
- *   gravity, friction, restitution, angular velocity, corner collisions,
- *   tumbling, sliding, and stable settle/stop detection.
- * - Smooth camera that frames both cubes, with stylish offscreen-opponent
- *   directional arrows (size/brightness scale with distance).
- * - Parallax background from src/assets/upback.png, plus fog, grain, vignette.
- * - Canvas for the world; React only for low-frequency HUD/overlays.
- * - Telegram Mini App safe: locked scroll/swipes, fits container height, no
- *   100vh overflow, full cleanup of RAF / timers / listeners / observers.
- *
- * Bot input is isolated behind a MoveProvider interface so it can be swapped
- * for a WebSocket remote player later WITHOUT touching the engine.
- *
- * Usage (route-compatible, fills its parent container):
- *   import { PhysicsDuel } from './games/PhysicsDuel';
- *   <Route path="/duel" element={<div style={{height:'100%'}}><PhysicsDuel /></div>} />
- *
- * The component fills 100% of its parent. Give the parent a real height
- * (the component also falls back to the Telegram viewport height if needed).
- * ---------------------------------------------------------------------------
- */
-
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import upback from '../assets/upback.png';
+import { useAuth } from '../auth/useAuth';
+import {
+  physicsDuelWsApi,
+  type PhysicsDuelSocketClient,
+  type PhysicsDuelStateMessage,
+  type PhysicsDuelStep,
+  type PhysicsDuelTrajectory,
+} from '../api/physicsDuelWs';
+import type { LobbyPlayerInfo } from '../api/types';
 import { getTelegramWebApp } from '../types/telegram';
-import { useLobbyMatchFinish } from '../hooks/useLobbyMatchFinish';
-import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
 
-/* ===========================================================================
- * Tuning constants  (safe to tweak; all in px / seconds / radians)
- * ========================================================================= */
+/* ========================================================================== */
+/* Physics Duel — online lockstep/replay version                              */
+/*                                                                            */
+/* The backend owns:                                                          */
+/* - shared terrain                                                           */
+/* - 3 second countdown                                                       */
+/* - 5 second hidden move window                                              */
+/* - authoritative physics simulation                                         */
+/* - winner + lobby settlement                                                */
+/*                                                                            */
+/* The client owns only smooth rendering. During reveal it interpolates a     */
+/* precomputed server trajectory on requestAnimationFrame, so ping cannot     */
+/* make either cube stutter or desync.                                        */
+/* ========================================================================== */
 
 const TOTAL_TURNS = 15;
-const PREP_TIME = 5; // seconds of preparation per turn
-const MAX_RESOLVE = 10.5; // safety cap: force-settle a turn after this many seconds
+const PREP_TIME = 5;
+const GRAVITY = 2100;
 
-const FIXED_DT = 1 / 120; // physics step
-const MAX_SUBSTEPS = 6; // cap substeps per frame to avoid spiral-of-death
-const SOLVER_ITERS = 6; // collision solver iterations per substep
+const DRAG_SCALE = 5.25;
+const MIN_LAUNCH = 255;
+const MAX_LAUNCH = 1120;
+const MIN_PULL = 12;
+const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180;
+const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180;
+const DEFAULT_ANGLE = (52 * Math.PI) / 180;
+const DEFAULT_SPEED = 500;
 
-const GRAVITY = 2100; // px/s^2
-const AIR_DRAG = 0.018; // linear air damping (per second)
-const ANG_AIR_DRAG = 0.2; // angular air damping (low = spin/tumble persists, but not chaotic)
-const ROLL_RES = 0.12; // very light rolling resistance; cube keeps rolling arcade-like
-const RESTITUTION = 0.12; // softer landings; less harsh bounce backward on good hits
-const FRICTION = 0.34; // a bit more grip so clean landings are friendlier
-
-/* --- Drag-to-launch (slingshot) tuning --- */
-const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
-const MIN_LAUNCH = 255; // min launch speed (px/s)
-const MAX_LAUNCH = 1120; // max launch speed (px/s) — strong but controllable for shorter, safer gaps
-const MIN_PULL = 12; // px; pulls shorter than this are ignored (accidental taps)
-const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
-const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
-const DEFAULT_ANGLE = (52 * Math.PI) / 180; // safe fallback angle if the player does nothing
-const DEFAULT_SPEED = 500; // gentle forward hop for the fallback launch
-const MIN_LAUNCH_SPIN = 1.65; // every launch must visibly rotate the cube
-const LAUNCH_SPIN_POWER = 0.026; // harder launches get more spin
-
-const SLOP = 0.5; // penetration allowance
-const CORR = 0.6; // positional correction factor
-
-const SPEED_EPS = 12; // px/s linear "stopped" threshold; lower = cube keeps rolling longer
-const ANG_EPS = 0.34; // rad/s angular "stopped" threshold; lower = visible spin must calm down first
-const STILL_TIME = 0.46; // s of stillness required to latch "stopped"
-
-const CUBE = 26; // cube side length (px)
-const CUBE_MASS = 1;
-const INV_M = 1 / CUBE_MASS;
-const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6); // square plate inertia about center
-
-// Invisible left boundary at the start of the map.
-// It blocks the launch-pad cliff without drawing any visible wall.
-const START_WALL_X = 0;
-const START_WALL_BOUNCE = 0.08;
-const START_WALL_SPIN_DAMP = 0.35;
-
+const CUBE = 26;
+const PX_PER_M = 42;
 const DPR_CAP = 1.5;
+const CAM_LERP = 6.5;
+const PARALLAX = 0.1;
 
-const LEVEL = 18; // vertical height of one staircase "level"; lower = shallower pits/steps
-const PX_PER_M = 42; // world px per displayed "meter"
-const WORLD_LEN = 9000; // generate staircase until this world x is covered
+const clampN = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
 
-const CAM_LERP = 6.5; // camera smoothing (higher = snappier)
-const PARALLAX = 0.1; // background parallax factor
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-const MAX_PARTICLES = 150;
+interface LaunchMove {
+  vx: number;
+  vy: number;
+  power: number;
+}
 
-// Friendly landing assist: only when the cube lands mostly on top/inside a step,
-// not on risky edges. This keeps the "can roll back" drama, but makes clean
-// landings feel fair instead of instantly sliding away.
-const LANDING_EDGE_PAD = CUBE * 0.14;
-const LANDING_ASSIST_LINEAR = 1.55;
-const LANDING_ASSIST_ANGULAR = 2.45;
-const LANDING_ASSIST_VERTICAL = 1.15;
+interface VisualCube {
+  x: number;
+  y: number;
+  angle: number;
+}
 
-/* ===========================================================================
- * Deterministic RNG + seeded staircase generation
- * ========================================================================= */
+type ViewPhase = 'waiting' | 'countdown' | 'select' | 'reveal' | 'result';
+type Outcome = 'VICTORY' | 'DEFEAT' | 'DRAW' | null;
+type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
 
-function mulberry32(seed: number) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+  playersInfo?: LobbyPlayerInfo[];
+};
+
+const readLobbyId = (state: LocationState, search: string) => {
+  if (state.lobbyId) return state.lobbyId;
+  const query = new URLSearchParams(search);
+  return (
+    query.get('lobby_id') ||
+    query.get('lobbyId') ||
+    window.sessionStorage.getItem('twingames_active_lobby_id') ||
+    ''
+  );
+};
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === 'undefined') return [];
+  const raw =
+    window.sessionStorage.getItem('twingames_players_info') ||
+    window.sessionStorage.getItem('twingames_blackjack_players_info');
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item): item is LobbyPlayerInfo => {
+        if (!item || typeof item !== 'object') return false;
+        const candidate = item as Partial<LobbyPlayerInfo>;
+        return Number.isFinite(Number(candidate.id));
+      })
+      .map((item) => ({
+        id: Number(item.id),
+        tg_user: String(item.tg_user || `Player #${item.id}`),
+        photo_url: String(item.photo_url || ''),
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const initials = (name: string) => {
+  const cleaned = name.replace(/^@/, '').trim();
+  if (!cleaned) return 'TG';
+  const parts = cleaned.split(/[\s._-]+/).filter(Boolean);
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || 'TG';
+};
+
+const displayName = (value?: string) => value?.replace(/^@/, '').trim() || 'Player';
+
+const defaultMove = (): LaunchMove => {
+  const speed = DEFAULT_SPEED;
+  return {
+    vx: Math.cos(DEFAULT_ANGLE) * speed,
+    vy: -Math.sin(DEFAULT_ANGLE) * speed,
+    power: Math.round(((speed - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH)) * 100),
   };
-}
+};
 
-interface Step {
-  x0: number;
-  x1: number;
-  mid: number;
-  topY: number; // world Y of top surface at mid (smaller Y = higher up)
-  slope: number; // tan of crooked tilt of the top face
-  nx: number; // top-face outward normal (pointing up-ish)
-  ny: number;
-  leftExposed: boolean; // left face is an exposed riser (this step higher than left neighbor)
-  rightExposed: boolean; // right face is an exposed riser
-  // cached cosmetic noise so the texture is stable per match
-  noise: number[];
-}
+const clampLaunch = (vxRaw: number, vyUpRaw: number): LaunchMove => {
+  const direction = vxRaw < 0 ? -1 : 1;
+  const vxAbs = Math.abs(vxRaw);
+  const vyUp = Math.max(0, vyUpRaw);
+  const speedRaw = Math.hypot(vxAbs, vyUp);
+  if (speedRaw < 1) return defaultMove();
 
-interface Stairs {
-  steps: Step[];
-  minTopY: number;
-  maxTopY: number;
-}
+  const angle = clampN(
+    Math.atan2(vyUp, Math.max(1, vxAbs)),
+    LAUNCH_ANGLE_MIN,
+    LAUNCH_ANGLE_MAX,
+  );
+  const speed = clampN(speedRaw, MIN_LAUNCH, MAX_LAUNCH);
+  const power = Math.round(
+    clampN((speed - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH), 0, 1) * 100,
+  );
 
-function generateStairs(seed: number): Stairs {
-  const rnd = mulberry32(seed);
-  const steps: Step[] = [];
-  let x = 0;
-  // Y grows downward, so SMALLER topY = HIGHER up. The ladder now feels much
-  // closer to the reference: compact cube-sized ledges, a clearly steeper climb,
-  // and occasional small safe zones where a good landing can settle instead of
-  // instantly rolling back down.
-  let topY = 540;
-  const MIN_TOP = -3200; // highest the climb may reach; gentler than before
-  const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
-  let nextSafeIn = 8 + Math.floor(rnd() * 5);
+  return {
+    vx: direction * Math.cos(angle) * speed,
+    vy: -Math.sin(angle) * speed,
+    power,
+  };
+};
 
-  while (x < WORLD_LEN) {
-    const platform = steps.length < 2; // first couple of steps: calm shared launch pad
-    const safeZone = !platform && nextSafeIn <= 0;
+const surfaceYAt = (step: PhysicsDuelStep, px: number) => {
+  const clamped = Math.max(step.x0, Math.min(step.x1, px));
+  return step.top_y + step.slope * (clamped - step.mid);
+};
 
-    // Width: harder again. Most ledges are now narrow, wide breathers are rare,
-    // and recovery zones are not huge. This keeps the start wall fix, but brings
-    // back the skill requirement of precise landings.
-    const wr = rnd();
-    let width: number;
-    if (platform) width = 128 + rnd() * 18; // safe start, but a bit tighter
-    else if (safeZone) width = CUBE * (1.2 + rnd() * 0.1); // recovery ledge, no longer wide
-    else if (wr < 0.66) width = CUBE * (1.0 + rnd() * 0.07); // very common: tight ledges
-    else if (wr < 0.91) width = CUBE * (1.08 + rnd() * 0.08); // narrow but fair
-    else if (wr < 0.99) width = CUBE * (1.18 + rnd() * 0.08); // rare medium ledge
-    else width = CUBE * (1.3 + rnd() * 0.08); // very rare wide breather
-
-    // Height change: still avoids ugly deep pits, but less flat than the easy version.
-    const hr = rnd();
-    let delta: number;
-    if (platform) delta = 0; // flat launch pad
-    else if (safeZone) delta = rnd() < 0.52 ? 0 : -1; // recovery is fair, not free
-    else if (hr < 0.61) delta = -1; // up one level, main rhythm
-    else if (hr < 0.76) delta = -2; // some two-level climbs for challenge
-    else if (hr < 0.985) delta = 0; // breathers, but less dominant
-    else delta = 1; // extremely rare one-level down step only
-
-    topY += delta * LEVEL;
-    if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
-    if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
-
-    // Crooked tops add danger again, but without turning the map into deep holes.
-    const slope = !platform && !safeZone && rnd() < 0.2 ? (rnd() - 0.5) * 0.048 : 0;
-
-    const x0 = x;
-    const x1 = x + width;
-    const mid = (x0 + x1) / 2;
-    const nmag = Math.hypot(slope, 1);
-
-    const noise: number[] = [];
-    const nseg = 5;
-    for (let i = 0; i < nseg; i++) noise.push(rnd());
-
-    steps.push({
-      x0,
-      x1,
-      mid,
-      topY,
-      slope,
-      nx: slope / nmag,
-      ny: -1 / nmag,
-      leftExposed: false,
-      rightExposed: false,
-      noise,
-    });
-
-    x = x1;
-    if (safeZone) nextSafeIn = 9 + Math.floor(rnd() * 6);
-    else nextSafeIn -= 1;
-  }
-
-  // Compute exposed risers (a face is exposed only where one step is higher).
-  let minTopY = Infinity;
-  let maxTopY = -Infinity;
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    const L = steps[i - 1];
-    const R = steps[i + 1];
-    // This step higher (smaller topY) than left neighbor -> left face is a wall.
-    s.leftExposed = !!L && s.topY < L.topY - 1;
-    s.rightExposed = !!R && s.topY < R.topY - 1;
-    minTopY = Math.min(minTopY, s.topY);
-    maxTopY = Math.max(maxTopY, s.topY);
-  }
-  return { steps, minTopY, maxTopY };
-}
-
-function stepIndexAt(steps: Step[], px: number): number {
-  // Binary search; clamps to first/last (ends extend flat to infinity).
+const stepIndexAt = (steps: PhysicsDuelStep[], px: number) => {
+  if (!steps.length) return 0;
   if (px <= steps[0].x0) return 0;
   if (px >= steps[steps.length - 1].x1) return steps.length - 1;
+
   let lo = 0;
   let hi = steps.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const s = steps[mid];
-    if (px < s.x0) hi = mid - 1;
-    else if (px >= s.x1) lo = mid + 1;
+    const step = steps[mid];
+    if (px < step.x0) hi = mid - 1;
+    else if (px >= step.x1) lo = mid + 1;
     else return mid;
   }
   return Math.max(0, Math.min(steps.length - 1, lo));
-}
+};
 
-function surfaceYAt(s: Step, px: number): number {
-  const cx = Math.max(s.x0, Math.min(s.x1, px));
-  return s.topY + s.slope * (cx - s.mid);
-}
-
-/* ===========================================================================
- * Cube body
- * ========================================================================= */
-
-interface Cube {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  angle: number;
-  av: number; // angular velocity
-  stopped: boolean;
-  stillTimer: number;
-  startX: number; // x at the start of the current turn
-  dustCd: number; // impact-dust cooldown
-  isPlayer: boolean;
-}
-
-function spawnCubeOnStep(stairs: Stairs, px: number, isPlayer: boolean): Cube {
-  const s = stairs.steps[stepIndexAt(stairs.steps, px)];
-  const sy = surfaceYAt(s, px);
+const frameCube = (
+  frame: number[],
+  orderIndex: 0 | 1,
+): VisualCube => {
+  const offset = orderIndex === 0 ? 1 : 4;
   return {
-    x: px,
-    y: sy - CUBE / 2 - 0.5,
-    vx: 0,
-    vy: 0,
-    angle: 0,
-    av: 0,
-    stopped: true,
-    stillTimer: 0,
-    startX: px,
-    dustCd: 0,
-    isPlayer,
+    x: frame[offset] ?? 0,
+    y: frame[offset + 1] ?? 0,
+    angle: frame[offset + 2] ?? 0,
   };
-}
+};
 
-interface TerrainContact {
-  d: number; // penetration depth
-  nx: number;
-  ny: number;
-}
+const sampleTrajectory = (
+  trajectory: PhysicsDuelTrajectory,
+  serverNow: number,
+  myOrderIndex: 0 | 1,
+): { me: VisualCube; rival: VisualCube } | null => {
+  const frames = trajectory.frames;
+  if (!frames.length) return null;
 
-function terrainContact(stairs: Stairs, px: number, py: number): TerrainContact | null {
-  const steps = stairs.steps;
-  const s = steps[stepIndexAt(steps, px)];
-  const sy = surfaceYAt(s, px);
-  if (py <= sy) return null; // above the surface, not penetrating
-
-  // Candidate 1: top face (sloped normal)
-  let bestD = py - sy;
-  let bestNx = s.nx;
-  let bestNy = s.ny;
-
-  // Candidate 2/3: exposed risers (only consider shallow side penetration)
-  if (s.leftExposed) {
-    const dl = px - s.x0;
-    if (dl >= 0 && dl < bestD && dl < CUBE) {
-      bestD = dl;
-      bestNx = -1;
-      bestNy = 0;
-    }
+  const t = clampN(serverNow - trajectory.start_at_ms, 0, trajectory.duration_ms);
+  if (t <= frames[0][0]) {
+    return {
+      me: frameCube(frames[0], myOrderIndex),
+      rival: frameCube(frames[0], myOrderIndex === 0 ? 1 : 0),
+    };
   }
-  if (s.rightExposed) {
-    const dr = s.x1 - px;
-    if (dr >= 0 && dr < bestD && dr < CUBE) {
-      bestD = dr;
-      bestNx = 1;
-      bestNy = 0;
-    }
+
+  const last = frames[frames.length - 1];
+  if (t >= last[0]) {
+    return {
+      me: frameCube(last, myOrderIndex),
+      rival: frameCube(last, myOrderIndex === 0 ? 1 : 0),
+    };
   }
-  return { d: bestD, nx: bestNx, ny: bestNy };
-}
 
-/* ===========================================================================
- * Move provider (bot now; swappable for WebSocket later)
- *
- * To go online later: implement RemoteMoveProvider whose requestMove() resolves
- * from network input received during the prep window, and feed its result into
- * pendingMoveRef the same way the bot's result is fed. The engine never needs
- * to know the difference.
- * ========================================================================= */
+  let lo = 0;
+  let hi = frames.length - 1;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (frames[mid][0] <= t) lo = mid;
+    else hi = mid;
+  }
 
-interface LaunchMove {
-  vx: number; // launch velocity x (px/s); forward (right) is positive
-  vy: number; // launch velocity y (px/s); up is negative (screen coords)
-  power: number; // 0..100 normalized magnitude, for the HUD / preview only
-}
-
-interface MoveContext {
-  cube: Cube;
-  stairs: Stairs;
-  turn: number;
-  totalTurns: number;
-}
-
-interface MoveProvider {
-  /** Called once at the start of a prep phase; the move stays secret until launch. */
-  requestMove(ctx: MoveContext, rnd: () => number): LaunchMove;
-}
-
-const clampN = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
-
-/** Build a sanitized launch from an angle (above horizontal) + speed. */
-function moveFromAngleSpeed(angle: number, speed: number): LaunchMove {
-  const a = clampN(angle, LAUNCH_ANGLE_MIN, LAUNCH_ANGLE_MAX);
-  const s = clampN(speed, MIN_LAUNCH, MAX_LAUNCH);
-  const power = Math.round(clampN((s - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH), 0, 1) * 100);
-  return { vx: Math.cos(a) * s, vy: -Math.sin(a) * s, power };
-}
-
-const DEFAULT_MOVE = (): LaunchMove => moveFromAngleSpeed(DEFAULT_ANGLE, DEFAULT_SPEED);
-
-/**
- * Turn a raw horizontal/up velocity request into a legal launch.
- * Unlike the bot helper, player drag is allowed to shoot LEFT or RIGHT:
- * pulling right means the cube flies left, pulling left means it flies right.
- * Vertical downward launches are still blocked, and angle/speed are clamped.
- */
-function clampLaunch(vxRaw: number, vyUpRaw: number): LaunchMove {
-  const dir = vxRaw < 0 ? -1 : 1;
-  const vxAbs = Math.abs(vxRaw);
-  const vyUp = Math.max(0, vyUpRaw); // never launch downward
-  const speed = Math.hypot(vxAbs, vyUp);
-  if (speed < 1) return DEFAULT_MOVE();
-
-  const angle = clampN(Math.atan2(vyUp, Math.max(1, vxAbs)), LAUNCH_ANGLE_MIN, LAUNCH_ANGLE_MAX);
-  const s = clampN(speed, MIN_LAUNCH, MAX_LAUNCH);
-  const power = Math.round(clampN((s - MIN_LAUNCH) / (MAX_LAUNCH - MIN_LAUNCH), 0, 1) * 100);
+  const left = frames[lo];
+  const right = frames[hi];
+  const span = Math.max(1, right[0] - left[0]);
+  const alpha = clampN((t - left[0]) / span, 0, 1);
+  const meA = frameCube(left, myOrderIndex);
+  const meB = frameCube(right, myOrderIndex);
+  const rivalA = frameCube(left, myOrderIndex === 0 ? 1 : 0);
+  const rivalB = frameCube(right, myOrderIndex === 0 ? 1 : 0);
 
   return {
-    vx: dir * Math.cos(angle) * s,
-    vy: -Math.sin(angle) * s,
-    power,
-  };
-}
-
-/** Solve a launch speed that, at the given angle, passes through (dx, dyDown). */
-function speedForTarget(dx: number, dyDown: number, angle: number): number | null {
-  if (dx <= 0) return null;
-  const c = Math.cos(angle);
-  const t = Math.tan(angle);
-  // dyDown = -dx*tan + (g*dx^2)/(2 s^2 c^2)  ->  solve for s
-  const denom = 2 * c * c * (dyDown + dx * t);
-  if (denom <= 0) return null; // can't reach with this angle (need steeper)
-  const s2 = (GRAVITY * dx * dx) / denom;
-  if (s2 <= 0) return null;
-  return Math.sqrt(s2);
-}
-
-function createBotProvider(): MoveProvider {
-  return {
-    requestMove(ctx, rnd) {
-      const { cube, stairs } = ctx;
-      const steps = stairs.steps;
-      const here = steps[stepIndexAt(steps, cube.x)];
-
-      // Score forward steps and pick a target to aim at.
-      let best: { score: number; step: Step } | null = null;
-      let farthest: Step | null = null;
-      for (let i = 0; i < steps.length; i++) {
-        const s = steps[i];
-        if (s.mid <= cube.x + 12) continue;
-        const range = s.mid - cube.x;
-        if (range > 560) break; // beyond plausible reach
-        farthest = s;
-
-        const widthScore = (s.x1 - s.x0) / 42; // prefer safer landings, tuned for forgiving cube-sized steps
-        const climb = (here.topY - s.topY) / LEVEL; // + means target is higher
-        const climbPenalty = climb > 0 ? climb * 0.45 : Math.abs(climb) * 0.18;
-        const reachBonus = range / 150; // reward forward progress
-        const jitter = (rnd() - 0.5) * 0.6;
-        const score = widthScore + reachBonus - climbPenalty + jitter;
-        if (!best || score > best.score) best = { score, step: s };
-      }
-
-      const target = best ? best.step : farthest;
-      if (!target) return DEFAULT_MOVE();
-
-      let dx = target.mid - cube.x;
-      const dyDown = target.topY - CUBE / 2 - cube.y; // + means target is below
-
-      // Personality: sometimes greedy (reach farther), sometimes cautious.
-      const mood = rnd();
-      if (mood > 0.8) dx *= 1.18; // risky overshoot
-      else if (mood < 0.22) dx *= 0.86; // play safe / short
-
-      // Pick an aim angle, steepening if a shallow shot can't clear the climb.
-      let angle = (48 + (rnd() - 0.5) * 14) * (Math.PI / 180);
-      let speed = speedForTarget(dx, dyDown, angle);
-      for (let tries = 0; tries < 4 && speed == null; tries++) {
-        angle = Math.min(LAUNCH_ANGLE_MAX, angle + 8 * (Math.PI / 180));
-        speed = speedForTarget(dx, dyDown, angle);
-      }
-      if (speed == null) speed = MAX_LAUNCH;
-
-      // Imperfect aim: never quite exact, so the bot can fall short and tumble too.
-      speed *= 1 + (rnd() - 0.5) * 0.16;
-      angle += (rnd() - 0.5) * (7 * (Math.PI / 180));
-
-      return moveFromAngleSpeed(angle, speed);
+    me: {
+      x: lerp(meA.x, meB.x, alpha),
+      y: lerp(meA.y, meB.y, alpha),
+      angle: lerp(meA.angle, meB.angle, alpha),
+    },
+    rival: {
+      x: lerp(rivalA.x, rivalB.x, alpha),
+      y: lerp(rivalA.y, rivalB.y, alpha),
+      angle: lerp(rivalA.angle, rivalB.angle, alpha),
     },
   };
-}
-
-/* ===========================================================================
- * Particles (impact dust + debris)
- * ========================================================================= */
-
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  max: number;
-  size: number;
-  kind: 0 | 1; // 0 = dust, 1 = debris
-}
-
-/* ===========================================================================
- * Game phases & mutable game state (kept in a ref; never triggers React renders)
- * ========================================================================= */
-
-type Phase = 'intro' | 'prep' | 'resolve' | 'result';
-type Outcome = 'VICTORY' | 'DEFEAT' | 'DRAW' | null;
-
-interface GameState {
-  phase: Phase;
-  turn: number;
-  prepLeft: number;
-  resolveElapsed: number;
-  stairs: Stairs;
-  player: Cube;
-  bot: Cube;
-  pendingPlayer: LaunchMove;
-  pendingBot: LaunchMove;
-  cam: { x: number; y: number };
-  particles: Particle[];
-  outcome: Outcome;
-  finalPlayerM: number;
-  finalBotM: number;
-  rndSeed: number;
-}
-
-/* ===========================================================================
- * Component
- * ========================================================================= */
+};
 
 export interface PhysicsDuelProps {
-  /** Optional fixed seed for the staircase (otherwise random per match). */
-  seed?: number;
-  /** Optional exit handler; if omitted, the Exit button tries Telegram close. */
   onExit?: () => void;
 }
 
-export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
+export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ onExit }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
+  const routeState = (location.state || {}) as LocationState;
+  const lobbyId = readLobbyId(routeState, location.search);
+  const lobbiesPath = '/game/descent_duel/lobbies';
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Low-frequency UI state (HUD only).
-  const [phase, setPhase] = useState<Phase>('intro');
-  const [turn, setTurn] = useState(1);
-  const [timeLeft, setTimeLeft] = useState(PREP_TIME);
-  const [playerM, setPlayerM] = useState(0);
-  const [botM, setBotM] = useState(0);
-  const [outcome, setOutcome] = useState<Outcome>(null);
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish('descent_duel');
-
-  useEffect(() => {
-    if (phase !== 'result' || !outcome) return;
-    void finishLobbyMatch(outcome === 'VICTORY' ? 'win' : outcome === 'DEFEAT' ? 'loss' : 'draw');
-  }, [phase, outcome, finishLobbyMatch]);
-
-  const [power, setPower] = useState(0); // live launch power 0..100 (from drag), HUD only
-  const [matchSeed] = useState(() => seed ?? ((Math.random() * 1e9) | 0));
-
-  // Mutable engine state.
-  const gameRef = useRef<GameState | null>(null);
-  const botRef = useRef<MoveProvider>(createBotProvider());
+  const socketRef = useRef<PhysicsDuelSocketClient | null>(null);
   const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef(0);
+  const uiAccumRef = useRef(0);
   const viewRef = useRef({ w: 360, h: 640, dpr: 1 });
   const imgRef = useRef<HTMLImageElement | null>(null);
   const grainRef = useRef<HTMLCanvasElement | null>(null);
   const vignetteRef = useRef<HTMLCanvasElement | null>(null);
-  const lastTimeRef = useRef(0);
-  const uiAccumRef = useRef(0);
+  const terrainRef = useRef<PhysicsDuelStep[]>([]);
+  const serverStateRef = useRef<PhysicsDuelStateMessage | null>(null);
+  const trajectoryRef = useRef<PhysicsDuelTrajectory | null>(null);
+  const baseMeRef = useRef<VisualCube>({ x: 90, y: 520, angle: 0 });
+  const baseRivalRef = useRef<VisualCube>({ x: 90, y: 520, angle: 0 });
+  const visualMeRef = useRef<VisualCube>({ x: 90, y: 520, angle: 0 });
+  const visualRivalRef = useRef<VisualCube>({ x: 90, y: 520, angle: 0 });
+  const cameraRef = useRef({ x: 0, y: 0, initialized: false });
+  const serverOffsetRef = useRef(0);
+  const hasPreciseSyncRef = useRef(false);
+  const lastRevisionRef = useRef(0);
+  const lastSelectTurnRef = useRef(0);
+  const finishHandledRef = useRef(false);
 
-  // Drag-to-launch (slingshot) state. Lives in a ref so the high-frequency render
-  // loop reads it without triggering React re-renders.
-  const dragRef = useRef<{
-    active: boolean; // finger currently down
-    locked: boolean; // released with a valid pull this prep phase
-    startX: number;
-    startY: number;
-    curX: number;
-    curY: number;
-    move: LaunchMove | null; // current legal move (live while dragging / when locked)
-  }>({ active: false, locked: false, startX: 0, startY: 0, curX: 0, curY: 0, move: null });
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    curX: 0,
+    curY: 0,
+    move: null as LaunchMove | null,
+  });
 
-  /* ----- build a fresh match ----- */
-  const buildGame = useCallback((matchSeed: number): GameState => {
-    const stairs = generateStairs(matchSeed);
-    const player = spawnCubeOnStep(stairs, 90, true);
-    const bot = spawnCubeOnStep(stairs, 150, false);
-    return {
-      phase: 'intro',
-      turn: 1,
-      prepLeft: PREP_TIME,
-      resolveElapsed: 0,
-      stairs,
-      player,
-      bot,
-      pendingPlayer: DEFAULT_MOVE(),
-      pendingBot: DEFAULT_MOVE(),
-      cam: { x: 0, y: 0 },
-      particles: [],
-      outcome: null,
-      finalPlayerM: 0,
-      finalBotM: 0,
-      rndSeed: matchSeed,
-    };
-  }, []);
+  const [phase, setPhase] = useState<ViewPhase>('waiting');
+  const [turn, setTurn] = useState(1);
+  const [totalTurns, setTotalTurns] = useState(TOTAL_TURNS);
+  const [timeLeft, setTimeLeft] = useState(PREP_TIME);
+  const [countdown, setCountdown] = useState(3);
+  const [power, setPower] = useState(0);
+  const [moveReady, setMoveReady] = useState(false);
+  const [rivalMoveReady, setRivalMoveReady] = useState(false);
+  const [playerM, setPlayerM] = useState(0);
+  const [rivalM, setRivalM] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [playerOrder, setPlayerOrder] = useState<number[]>([]);
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome>(null);
 
-  useEffect(() => {
-    if (gameRef.current === null) {
-      gameRef.current = buildGame(matchSeed);
-    }
-  }, [buildGame, matchSeed]);
+  const myUserId = user?.id || 0;
 
-  /* ----- helpers to push to React UI at low frequency ----- */
-  const syncUI = useCallback(() => {
-    const g = gameRef.current!;
-    setPhase((p) => (p !== g.phase ? g.phase : p));
-    setTurn((t) => (t !== g.turn ? g.turn : t));
-    setOutcome((o) => (o !== g.outcome ? g.outcome : o));
-    const tl = Math.max(0, Math.ceil(g.prepLeft));
-    setTimeLeft((v) => (v !== tl ? tl : v));
-    // Mirror the live launch power (from the current drag) onto the HUD meter.
-    const d = dragRef.current;
-    const pw = g.phase === 'prep' && d.move ? d.move.power : 0;
-    setPower((v) => (v !== pw ? pw : v));
-  }, []);
-
-  /* ----- particles ----- */
-  const spawnImpact = useCallback((g: GameState, x: number, y: number, strength: number) => {
-    const n = Math.min(8, 2 + Math.floor(strength / 90));
-    for (let i = 0; i < n; i++) {
-      if (g.particles.length >= MAX_PARTICLES) break;
-      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
-      const sp = 40 + Math.random() * (strength * 0.5);
-      const debris = Math.random() < 0.4;
-      g.particles.push({
-        x,
-        y,
-        vx: Math.cos(a) * sp + (Math.random() - 0.5) * 30,
-        vy: Math.sin(a) * sp - Math.random() * 40,
-        life: 0,
-        max: 0.4 + Math.random() * 0.5,
-        size: debris ? 1.6 + Math.random() * 2.2 : 1 + Math.random() * 1.8,
-        kind: debris ? 1 : 0,
+  const playersInfo = useMemo(() => {
+    const routePlayers = routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo();
+    const map = new Map<number, LobbyPlayerInfo>();
+    for (const info of routePlayers) map.set(info.id, info);
+    if (user?.id) {
+      map.set(user.id, {
+        id: user.id,
+        tg_user: user.tg_user || `Player #${user.id}`,
+        photo_url: user.photo_url || '',
       });
     }
-  }, []);
+    return map;
+  }, [routeState.playersInfo, user]);
 
-  /* ----- physics for one cube, one substep ----- */
-  const stepCube = useCallback(
-    (g: GameState, cube: Cube, h: number) => {
-      if (cube.stopped) return;
+  const myMeta = playersInfo.get(myUserId) || {
+    id: myUserId,
+    tg_user: user?.tg_user || 'YOU',
+    photo_url: user?.photo_url || '',
+  };
 
-      cube.vy += GRAVITY * h;
-      cube.vx -= cube.vx * AIR_DRAG * h;
-      cube.vy -= cube.vy * AIR_DRAG * h;
-      cube.av -= cube.av * ANG_AIR_DRAG * h;
-
-      cube.x += cube.vx * h;
-      cube.y += cube.vy * h;
-      cube.angle += cube.av * h;
-
-      const half = CUBE / 2;
-      let contact = false;
-      let nearSurface = false;
-      let landingAssist = 0;
-      let maxImpact = 0;
-      let impactX = 0;
-      let impactY = 0;
-
-      // Invisible start wall: prevents both cubes from flying/rolling into the
-      // left-side cliff at the very beginning of the map. Nothing is rendered.
-      if (cube.x - half < START_WALL_X) {
-        const impact = Math.abs(cube.vx);
-        cube.x = START_WALL_X + half;
-        if (cube.vx < 0) cube.vx = -cube.vx * START_WALL_BOUNCE;
-        cube.av *= START_WALL_SPIN_DAMP;
-        cube.stillTimer = 0;
-
-        if (impact > maxImpact) {
-          maxImpact = impact;
-          impactX = START_WALL_X;
-          impactY = cube.y + half;
-        }
-      }
-
-      for (let iter = 0; iter < SOLVER_ITERS; iter++) {
-        const ca = Math.cos(cube.angle);
-        const sa = Math.sin(cube.angle);
-        const corners = [
-          [-half, -half],
-          [half, -half],
-          [half, half],
-          [-half, half],
-        ];
-        for (let c = 0; c < 4; c++) {
-          const lx = corners[c][0];
-          const ly = corners[c][1];
-          const rx = lx * ca - ly * sa;
-          const ry = lx * sa + ly * ca;
-          const pxw = cube.x + rx;
-          const pyw = cube.y + ry;
-
-          const nearStep = g.stairs.steps[stepIndexAt(g.stairs.steps, pxw)];
-          const nearSy = surfaceYAt(nearStep, pxw);
-          if (pyw >= nearSy - 2.5 && pyw <= nearSy + 8) {
-            nearSurface = true;
-          }
-
-          const ct = terrainContact(g.stairs, pxw, pyw);
-          if (!ct) continue;
-          contact = true;
-
-          // Landing assist only helps if the cube is mostly over the top face,
-          // away from the dangerous edges. Edge/corner hits stay risky and can
-          // still tumble or roll back down.
-          const topFaceContact = ct.ny < -0.62;
-          const centeredOnStep =
-            cube.x > nearStep.x0 + LANDING_EDGE_PAD &&
-            cube.x < nearStep.x1 - LANDING_EDGE_PAD;
-          if (topFaceContact && centeredOnStep && cube.vy > -180) {
-            landingAssist = Math.max(landingAssist, 1);
-          }
-
-          // Relative velocity at the contact point.
-          const rvx = cube.vx - cube.av * ry;
-          const rvy = cube.vy + cube.av * rx;
-          const vn = rvx * ct.nx + rvy * ct.ny;
-
-          if (vn < 0) {
-            const rn = rx * ct.ny - ry * ct.nx;
-            const denom = INV_M + rn * rn * INV_I;
-            let j = -(1 + RESTITUTION) * vn;
-            j = j / denom;
-            if (j < 0) j = 0;
-
-            cube.vx += j * ct.nx * INV_M;
-            cube.vy += j * ct.ny * INV_M;
-            cube.av += (rx * (j * ct.ny) - ry * (j * ct.nx)) * INV_I;
-
-            if (-vn > maxImpact && iter === 0) {
-              maxImpact = -vn;
-              impactX = pxw;
-              impactY = pyw;
-            }
-
-            // Friction (tangent impulse, clamped by Coulomb).
-            const rvx2 = cube.vx - cube.av * ry;
-            const rvy2 = cube.vy + cube.av * rx;
-            const tx = -ct.ny;
-            const ty = ct.nx;
-            const vt = rvx2 * tx + rvy2 * ty;
-            const rt = rx * ty - ry * tx;
-            const denomT = INV_M + rt * rt * INV_I;
-            let jt = -vt / denomT;
-            const maxF = FRICTION * j;
-            if (jt > maxF) jt = maxF;
-            else if (jt < -maxF) jt = -maxF;
-
-            cube.vx += jt * tx * INV_M;
-            cube.vy += jt * ty * INV_M;
-            cube.av += (rx * (jt * ty) - ry * (jt * tx)) * INV_I;
-          }
-
-          // Positional correction (de-penetration).
-          const corr = Math.max(ct.d - SLOP, 0) * CORR;
-          if (corr > 0) {
-            cube.x += ct.nx * corr;
-            cube.y += ct.ny * corr;
-          }
-        }
-      }
-
-      if (contact) {
-        // Extremely light rolling resistance: the cube should feel soft/arcade,
-        // able to keep rolling and tumbling instead of snapping to a stop.
-        cube.vx -= cube.vx * ROLL_RES * h;
-        cube.av -= cube.av * ROLL_RES * h;
-
-        if (landingAssist > 0) {
-          // A clean top-face landing gets a tiny grip/settle bonus. It is not a
-          // magnet: the cube can still roll if it lands fast or near an edge.
-          const linearGrip = Math.min(1, LANDING_ASSIST_LINEAR * h);
-          const angularGrip = Math.min(1, LANDING_ASSIST_ANGULAR * h);
-          const verticalSoft = Math.min(1, LANDING_ASSIST_VERTICAL * h);
-          cube.vx *= 1 - linearGrip * 0.22;
-          cube.av *= 1 - angularGrip * 0.34;
-          if (cube.vy > 0) cube.vy *= 1 - verticalSoft * 0.22;
-        }
-      }
-
-      // Impact feedback.
-      cube.dustCd -= h;
-      if (maxImpact > 170 && cube.dustCd <= 0) {
-        spawnImpact(g, impactX, impactY, maxImpact);
-        cube.dustCd = 0.1;
-      }
-
-      // Stop detection.
-      // The previous version required a strict contact on the exact current frame;
-      // visually the cube could already be standing still, but a tiny solver gap
-      // reset the still timer and kept the HUD stuck on “IN MOTION…”.  We accept
-      // a near-surface state too, and once the cube is visually calm we latch the
-      // stop quickly.  Faster rolls still keep going because speed/angle are above
-      // the thresholds.
-      const speed = Math.hypot(cube.vx, cube.vy);
-      const angsp = Math.abs(cube.av);
-      const restingCandidate = (contact || nearSurface) && speed < SPEED_EPS && angsp < ANG_EPS;
-
-      if (restingCandidate) {
-        cube.stillTimer += h;
-        if (cube.stillTimer >= STILL_TIME) {
-          cube.stopped = true;
-          cube.vx = 0;
-          cube.vy = 0;
-          cube.av = 0;
-          // Snap to a tidy resting orientation only at the very end, so rolling
-          // still feels soft/arcade while the cube is actually moving.
-          cube.angle = Math.round(cube.angle / (Math.PI / 2)) * (Math.PI / 2);
-        }
-      } else {
-        cube.stillTimer = 0;
-      }
-    },
-    [spawnImpact],
+  const rivalId = useMemo(
+    () => playerOrder.find((id) => id !== myUserId) || 0,
+    [myUserId, playerOrder],
   );
 
-  /* ----- launch both cubes simultaneously ----- */
-  const launch = useCallback((g: GameState) => {
-    const fire = (cube: Cube, mv: LaunchMove) => {
-      cube.vx = mv.vx;
-      cube.vy = mv.vy;
-      // Every throw must visibly rotate.  Random near-zero spin felt broken, so
-      // give each launch a guaranteed angular kick, with harder shots spinning more.
-      const spinDirection = Math.random() < 0.5 ? -1 : 1;
-      cube.av = spinDirection * (MIN_LAUNCH_SPIN + mv.power * LAUNCH_SPIN_POWER);
-      cube.stopped = false;
-      cube.stillTimer = 0;
-      cube.startX = cube.x;
-      cube.y -= 2; // lift off the surface so launch isn't eaten by friction
-    };
-    fire(g.player, g.pendingPlayer);
-    fire(g.bot, g.pendingBot);
-  }, []);
+  const rivalMeta = playersInfo.get(rivalId) || {
+    id: rivalId,
+    tg_user: rivalId ? `Player #${rivalId}` : 'RIVAL',
+    photo_url: '',
+  };
 
-  /* ----- prep/resolve/turn transitions ----- */
-  const enterPrep = useCallback((g: GameState) => {
-    g.phase = 'prep';
-    g.prepLeft = PREP_TIME;
-    // Reset the player's aim for the new turn (defaults to a small safe hop).
+  const estimatedServerNow = useCallback(
+    () => Date.now() - serverOffsetRef.current,
+    [],
+  );
+
+  const resetAim = useCallback(() => {
     const d = dragRef.current;
     d.active = false;
-    d.locked = false;
     d.move = null;
-    g.pendingPlayer = DEFAULT_MOVE();
-    // Bot decides its (secret) move now; this is where a network move would be requested.
-    const rnd = mulberry32((g.rndSeed + g.turn * 977) >>> 0);
-    g.pendingBot = botRef.current.requestMove(
-      { cube: g.bot, stairs: g.stairs, turn: g.turn, totalTurns: TOTAL_TURNS },
-      rnd,
-    );
+    setPower(0);
+    setMoveReady(false);
   }, []);
 
-  const endTurn = useCallback(
-    (g: GameState) => {
-      if (g.turn >= TOTAL_TURNS) {
-        // Final standing = absolute world x of each cube.
-        g.finalPlayerM = g.player.x / PX_PER_M;
-        g.finalBotM = g.bot.x / PX_PER_M;
-        const diff = g.player.x - g.bot.x;
-        if (Math.abs(diff) < CUBE * 0.6) g.outcome = 'DRAW';
-        else g.outcome = diff > 0 ? 'VICTORY' : 'DEFEAT';
-        g.phase = 'result';
-      } else {
-        g.turn += 1;
-        enterPrep(g);
-      }
-    },
-    [enterPrep],
-  );
-
-  /* ----- camera ----- */
-  const updateCamera = useCallback((g: GameState, h: number) => {
-    const v = viewRef.current;
-    const p = g.player;
-    const b = g.bot;
-    const sep = Math.abs(p.x - b.x);
-    const midX = (p.x + b.x) / 2;
-
-    // --- Horizontal: frame both when close, otherwise follow the player (~42% in). ---
-    let targetX: number;
-    if (sep < v.w * 0.62) {
-      targetX = midX - v.w / 2; // frame both
-    } else {
-      targetX = p.x - v.w * 0.42; // follow the player
-    }
-    if (targetX < -v.w * 0.2) targetX = -v.w * 0.2;
-
-    // --- Vertical: anchor the GROUND beneath the player to the lower part of the
-    // screen, NOT the cube itself. This keeps the staircase in the lower ~third and
-    // leaves the upper portion for the parallax background, fog and atmosphere.
-    // When the cube launches, it arcs up into that background space and stays
-    // visible, while the ground line holds steady. ---
-    const steps = g.stairs.steps;
-    const sUnder = steps[stepIndexAt(steps, p.x)];
-    const groundY = surfaceYAt(sUnder, p.x);
-    // Player rests at groundY - CUBE/2; place that around 67% of screen height.
-    let targetY = groundY - CUBE / 2 - v.h * 0.67;
-
-    // Safety: if a big launch carries the cube near the top edge, ease the camera up
-    // just enough to keep it on-screen (rare, thanks to the launch-speed clamp).
-    const playerScreenY = p.y - targetY;
-    if (playerScreenY < v.h * 0.1) targetY = p.y - v.h * 0.1;
-
-    const k = Math.min(1, h * CAM_LERP);
-    g.cam.x += (targetX - g.cam.x) * k;
-    g.cam.y += (targetY - g.cam.y) * k;
+  const computeDragMove = useCallback((): LaunchMove | null => {
+    const d = dragRef.current;
+    const pullX = d.startX - d.curX;
+    const pullY = d.startY - d.curY;
+    if (Math.hypot(pullX, pullY) < MIN_PULL) return null;
+    return clampLaunch(pullX * DRAG_SCALE, -pullY * DRAG_SCALE);
   }, []);
 
-  /* ----- one simulation tick ----- */
-  const simulate = useCallback(
-    (g: GameState, dt: number) => {
-      if (g.phase === 'prep') {
-        g.prepLeft -= dt;
-        if (g.prepLeft <= 0) {
-          // Lock in the player's move: a released drag, else the drag still held at
-          // expiry, else a small safe default if the player did nothing.
-          const d = dragRef.current;
-          g.pendingPlayer = d.move ?? DEFAULT_MOVE();
-          d.active = false;
-          d.locked = true;
-          launch(g);
-          g.phase = 'resolve';
-          g.resolveElapsed = 0;
-        }
-      } else if (g.phase === 'resolve') {
-        g.resolveElapsed += dt;
-        // Fixed-step physics for stability.
-        let acc = dt;
-        let steps = 0;
-        while (acc > 1e-5 && steps < MAX_SUBSTEPS) {
-          const hsub = Math.min(FIXED_DT, acc);
-          stepCube(g, g.player, hsub);
-          stepCube(g, g.bot, hsub);
-          acc -= hsub;
-          steps += 1;
-        }
-        const bothStopped = g.player.stopped && g.bot.stopped;
-        if (bothStopped || g.resolveElapsed > MAX_RESOLVE) {
-          g.player.stopped = true;
-          g.bot.stopped = true;
-          g.player.vx = g.player.vy = g.player.av = 0;
-          g.bot.vx = g.bot.vy = g.bot.av = 0;
-          endTurn(g);
-        }
-      }
+  const applyPlayerPositions = useCallback(
+    (state: PhysicsDuelStateMessage) => {
+      if (!myUserId) return;
+      const mine = state.players[String(myUserId)];
+      const nextRivalId = state.player_order.find((id) => id !== myUserId) || 0;
+      const rival = nextRivalId ? state.players[String(nextRivalId)] : undefined;
 
-      // Particles (cheap; integrate every frame).
-      const ps = g.particles;
-      for (let i = ps.length - 1; i >= 0; i--) {
-        const pt = ps[i];
-        pt.life += dt;
-        if (pt.life >= pt.max) {
-          ps.splice(i, 1);
-          continue;
-        }
-        pt.vy += GRAVITY * 0.55 * dt;
-        pt.vx *= 1 - 1.4 * dt;
-        pt.x += pt.vx * dt;
-        pt.y += pt.vy * dt;
+      if (mine) {
+        baseMeRef.current = { x: mine.x, y: mine.y, angle: mine.angle };
+        if (state.phase !== 'reveal') visualMeRef.current = { ...baseMeRef.current };
+        setMoveReady(mine.move_ready);
       }
-
-      updateCamera(g, dt);
+      if (rival) {
+        baseRivalRef.current = { x: rival.x, y: rival.y, angle: rival.angle };
+        if (state.phase !== 'reveal') visualRivalRef.current = { ...baseRivalRef.current };
+        setRivalMoveReady(rival.move_ready);
+      }
     },
-    [launch, stepCube, endTurn, updateCamera],
+    [myUserId],
   );
 
-  /* ----- offscreen textures (grain + vignette) sized to viewport ----- */
+  useEffect(() => {
+    if (!lobbyId || !token || !myUserId) return;
+
+    setConnectionStatus('connecting');
+    setSocketError(null);
+
+    const client = physicsDuelWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          setConnectionStatus('open');
+          client.requestState();
+        },
+        onClose: () => setConnectionStatus('closed'),
+        onSocketError: () => {
+          setConnectionStatus('error');
+          setSocketError('Не удалось подключиться к матчу');
+        },
+        onServerError: (error) => {
+          setSocketError(error.details || error.error);
+          client.requestState();
+        },
+        onSync: (sync) => {
+          const receivedAt = Date.now();
+          const sampleOffset = receivedAt - sync.server_ms - sync.rtt_ms / 2;
+          serverOffsetRef.current = hasPreciseSyncRef.current
+            ? serverOffsetRef.current * 0.72 + sampleOffset * 0.28
+            : sampleOffset;
+          hasPreciseSyncRef.current = true;
+          client.syncAck(sync.nonce);
+        },
+        onState: (state) => {
+          if (state.revision <= lastRevisionRef.current) return;
+          lastRevisionRef.current = state.revision;
+          serverStateRef.current = state;
+          setSocketError(null);
+
+          if (!hasPreciseSyncRef.current && state.server_ms > 0) {
+            serverOffsetRef.current = Date.now() - state.server_ms;
+          }
+
+          if (state.terrain?.length) terrainRef.current = state.terrain;
+          if (state.trajectory?.frames.length) trajectoryRef.current = state.trajectory;
+          else if (state.phase !== 'reveal') trajectoryRef.current = null;
+
+          setPlayerOrder(state.player_order);
+          setTurn(state.turn);
+          setTotalTurns(state.total_turns || TOTAL_TURNS);
+          applyPlayerPositions(state);
+
+          if (state.phase === 'countdown') {
+            setPhase('countdown');
+          } else if (state.phase === 'select') {
+            setPhase('select');
+            if (lastSelectTurnRef.current !== state.turn) {
+              lastSelectTurnRef.current = state.turn;
+              resetAim();
+              const mine = state.players[String(myUserId)];
+              if (mine?.move_ready) setMoveReady(true);
+            }
+          } else if (state.phase === 'reveal') {
+            setPhase('reveal');
+            const trajectory = state.trajectory;
+            if (trajectory?.frames.length) {
+              const myIndex = state.player_order[0] === myUserId ? 0 : 1;
+              const first = trajectory.frames[0];
+              visualMeRef.current = frameCube(first, myIndex as 0 | 1);
+              visualRivalRef.current = frameCube(first, (myIndex === 0 ? 1 : 0) as 0 | 1);
+            }
+          } else if (state.phase === 'match_over') {
+            setPhase('result');
+            if (!finishHandledRef.current) {
+              finishHandledRef.current = true;
+              const nextOutcome: Outcome =
+                state.winner_user_id === undefined
+                  ? 'DRAW'
+                  : state.winner_user_id === myUserId
+                    ? 'VICTORY'
+                    : 'DEFEAT';
+              setOutcome(nextOutcome);
+              getTelegramWebApp()?.HapticFeedback?.notificationOccurred?.(
+                nextOutcome === 'VICTORY'
+                  ? 'success'
+                  : nextOutcome === 'DEFEAT'
+                    ? 'error'
+                    : 'warning',
+              );
+              void refreshBalance();
+              void refreshProfile();
+            }
+          } else {
+            setPhase('waiting');
+          }
+        },
+      },
+    });
+
+    socketRef.current = client;
+    return () => {
+      socketRef.current = null;
+      client.close();
+    };
+  }, [
+    applyPlayerPositions,
+    lobbyId,
+    myUserId,
+    refreshBalance,
+    refreshProfile,
+    resetAim,
+    token,
+  ]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const state = serverStateRef.current;
+      if (!state) return;
+      const now = estimatedServerNow();
+
+      if (state.phase === 'countdown') {
+        const left = state.start_at_ms - now;
+        if (left > 0) {
+          setCountdown(Math.max(1, Math.ceil(left / 1000)));
+          setPhase('countdown');
+        } else {
+          setPhase('select');
+          setTimeLeft(Math.max(0, Math.ceil((state.select_deadline_ms - now) / 1000)));
+        }
+      } else if (state.phase === 'select') {
+        setTimeLeft(Math.max(0, Math.ceil((state.select_deadline_ms - now) / 1000)));
+      }
+    }, 50);
+
+    return () => window.clearInterval(timer);
+  }, [estimatedServerNow]);
+
   const buildTextures = useCallback(() => {
-    const v = viewRef.current;
-    // Grain (small tile, used as a repeating pattern).
-    const g = document.createElement('canvas');
-    g.width = 160;
-    g.height = 160;
-    const gx = g.getContext('2d')!;
-    const id = gx.createImageData(160, 160);
-    for (let i = 0; i < id.data.length; i += 4) {
-      const n = (Math.random() * 255) | 0;
-      id.data[i] = n;
-      id.data[i + 1] = n;
-      id.data[i + 2] = n;
-      id.data[i + 3] = 255;
-    }
-    gx.putImageData(id, 0, 0);
-    grainRef.current = g;
+    const view = viewRef.current;
 
-    // Vignette (radial darkening), full viewport, rebuilt on resize.
-    const vg = document.createElement('canvas');
-    vg.width = Math.max(2, v.w);
-    vg.height = Math.max(2, v.h);
-    const vc = vg.getContext('2d')!;
-    const grad = vc.createRadialGradient(
-      v.w / 2,
-      v.h * 0.46,
-      Math.min(v.w, v.h) * 0.22,
-      v.w / 2,
-      v.h * 0.5,
-      Math.max(v.w, v.h) * 0.78,
-    );
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(0.7, 'rgba(0,0,0,0.28)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.7)');
-    vc.fillStyle = grad;
-    vc.fillRect(0, 0, v.w, v.h);
-    vignetteRef.current = vg;
+    const grain = document.createElement('canvas');
+    grain.width = 128;
+    grain.height = 128;
+    const grainCtx = grain.getContext('2d');
+    if (grainCtx) {
+      const image = grainCtx.createImageData(128, 128);
+      for (let i = 0; i < image.data.length; i += 4) {
+        const value = (Math.random() * 255) | 0;
+        image.data[i] = value;
+        image.data[i + 1] = value;
+        image.data[i + 2] = value;
+        image.data[i + 3] = 255;
+      }
+      grainCtx.putImageData(image, 0, 0);
+    }
+    grainRef.current = grain;
+
+    const vignette = document.createElement('canvas');
+    vignette.width = Math.max(2, Math.floor(view.w));
+    vignette.height = Math.max(2, Math.floor(view.h));
+    const ctx = vignette.getContext('2d');
+    if (ctx) {
+      const gradient = ctx.createRadialGradient(
+        view.w / 2,
+        view.h * 0.46,
+        Math.min(view.w, view.h) * 0.2,
+        view.w / 2,
+        view.h * 0.5,
+        Math.max(view.w, view.h) * 0.8,
+      );
+      gradient.addColorStop(0, 'rgba(0,0,0,0)');
+      gradient.addColorStop(0.72, 'rgba(0,0,0,.24)');
+      gradient.addColorStop(1, 'rgba(0,0,0,.68)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, view.w, view.h);
+    }
+    vignetteRef.current = vignette;
   }, []);
 
-  /* ----- rendering ----- */
   const renderStep = useCallback(
-    (ctx: CanvasRenderingContext2D, s: Step, camX: number, camY: number, viewH: number) => {
-      const sx0 = s.x0 - camX;
-      const sx1 = s.x1 - camX;
-      const topL = s.topY + s.slope * (s.x0 - s.mid) - camY;
-      const topR = s.topY + s.slope * (s.x1 - s.mid) - camY;
+    (
+      ctx: CanvasRenderingContext2D,
+      step: PhysicsDuelStep,
+      camX: number,
+      camY: number,
+      viewH: number,
+    ) => {
+      const sx0 = step.x0 - camX;
+      const sx1 = step.x1 - camX;
+      const topL = step.top_y + step.slope * (step.x0 - step.mid) - camY;
+      const topR = step.top_y + step.slope * (step.x1 - step.mid) - camY;
       const bottom = viewH + 60;
-
       const depthX = 9;
       const depthY = 7;
 
-      // Front face.
       ctx.fillStyle = '#1b1c1e';
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
@@ -1003,12 +587,11 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      // Subtle vertical shading on the front face.
-      const fg = ctx.createLinearGradient(0, Math.min(topL, topR), 0, bottom);
-      fg.addColorStop(0, 'rgba(70,72,76,0.35)');
-      fg.addColorStop(0.25, 'rgba(0,0,0,0)');
-      fg.addColorStop(1, 'rgba(0,0,0,0.45)');
-      ctx.fillStyle = fg;
+      const front = ctx.createLinearGradient(0, Math.min(topL, topR), 0, bottom);
+      front.addColorStop(0, 'rgba(70,72,76,.34)');
+      front.addColorStop(0.25, 'rgba(0,0,0,0)');
+      front.addColorStop(1, 'rgba(0,0,0,.44)');
+      ctx.fillStyle = front;
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
       ctx.lineTo(sx1, topR);
@@ -1017,7 +600,6 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      // Top face (receding parallelogram = pseudo-3D thickness).
       ctx.fillStyle = '#3a3d41';
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
@@ -1027,7 +609,6 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      // Right side face for the depth on exposed edges.
       ctx.fillStyle = '#101113';
       ctx.beginPath();
       ctx.moveTo(sx1, topR);
@@ -1037,26 +618,25 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      // Crisp light edge along the top.
-      ctx.strokeStyle = 'rgba(214,216,220,0.75)';
-      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = 'rgba(214,216,220,.72)';
+      ctx.lineWidth = 1.35;
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
       ctx.lineTo(sx1, topR);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(150,153,158,0.5)';
+
+      ctx.strokeStyle = 'rgba(150,153,158,.44)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(sx0 + depthX, topL - depthY);
       ctx.lineTo(sx1 + depthX, topR - depthY);
       ctx.stroke();
 
-      // Cheap deterministic texture flecks on the front face.
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      const w = sx1 - sx0;
-      for (let i = 0; i < s.noise.length; i++) {
-        const nx = sx0 + s.noise[i] * w;
-        const ny = Math.min(topL, topR) + 10 + s.noise[i] * 46;
+      ctx.fillStyle = 'rgba(0,0,0,.22)';
+      const width = sx1 - sx0;
+      for (let i = 0; i < step.noise.length; i += 1) {
+        const nx = sx0 + step.noise[i] * width;
+        const ny = Math.min(topL, topR) + 10 + step.noise[i] * 46;
         ctx.fillRect(nx, ny, 2, 2);
       }
     },
@@ -1064,7 +644,13 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
   );
 
   const renderCube = useCallback(
-    (ctx: CanvasRenderingContext2D, cube: Cube, camX: number, camY: number) => {
+    (
+      ctx: CanvasRenderingContext2D,
+      cube: VisualCube,
+      camX: number,
+      camY: number,
+      rival = false,
+    ) => {
       const sx = cube.x - camX;
       const sy = cube.y - camY;
       const half = CUBE / 2;
@@ -1072,18 +658,16 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(cube.angle);
+      ctx.globalAlpha = rival ? 0.34 : 1;
 
-      // Body.
-      ctx.fillStyle = '#050506';
+      ctx.fillStyle = rival ? '#d8dbe1' : '#050506';
       ctx.fillRect(-half, -half, CUBE, CUBE);
 
-      // Edge highlight (player brighter than bot for subtle legibility).
-      ctx.strokeStyle = cube.isPlayer ? 'rgba(236,238,242,0.9)' : 'rgba(150,153,158,0.75)';
-      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = rival ? 'rgba(255,255,255,.95)' : 'rgba(236,238,242,.9)';
+      ctx.lineWidth = rival ? 1.1 : 1.4;
       ctx.strokeRect(-half, -half, CUBE, CUBE);
 
-      // Top-left specular line.
-      ctx.strokeStyle = cube.isPlayer ? 'rgba(255,255,255,0.5)' : 'rgba(190,193,198,0.35)';
+      ctx.strokeStyle = rival ? 'rgba(255,255,255,.62)' : 'rgba(255,255,255,.48)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(-half + 2, -half + 2);
@@ -1094,446 +678,408 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     [],
   );
 
-  const renderArrow = useCallback(
+  const renderRivalArrow = useCallback(
     (
       ctx: CanvasRenderingContext2D,
-      g: GameState,
-      target: Cube,
+      rival: VisualCube,
+      camX: number,
+      camY: number,
       viewW: number,
       viewH: number,
     ) => {
-      const sx = target.x - g.cam.x;
-      const sy = target.y - g.cam.y;
-      const EDGE = 34;
-      const onLeft = sx < EDGE;
-      const onRight = sx > viewW - EDGE;
-      if (!onLeft && !onRight) return; // visible enough
+      const sx = rival.x - camX;
+      const sy = rival.y - camY;
+      const edge = 34;
+      const left = sx < edge;
+      const right = sx > viewW - edge;
+      if (!left && !right) return;
 
-      const offBy = onLeft ? EDGE - sx : sx - (viewW - EDGE);
-      const t = Math.max(0, Math.min(1, offBy / (viewW * 0.95)));
-      const size = 30 - 16 * t; // close -> big, far -> small
-      const alpha = 0.92 - 0.55 * t;
-      const ax = onLeft ? EDGE : viewW - EDGE;
-      const ay = Math.max(70, Math.min(viewH - 90, sy));
-      const dir = onLeft ? -1 : 1;
+      const offBy = left ? edge - sx : sx - (viewW - edge);
+      const t = clampN(offBy / (viewW * 0.95), 0, 1);
+      const size = 28 - 14 * t;
+      const alpha = 0.78 - 0.42 * t;
+      const x = left ? edge : viewW - edge;
+      const y = clampN(sy, 78, viewH - 92);
+      const dir = left ? -1 : 1;
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      // Glow halo.
-      const halo = ctx.createRadialGradient(ax, ay, 1, ax, ay, size * 1.7);
-      halo.addColorStop(0, 'rgba(235,237,241,0.5)');
-      halo.addColorStop(1, 'rgba(235,237,241,0)');
-      ctx.fillStyle = halo;
+      ctx.fillStyle = 'rgba(235,237,241,.86)';
       ctx.beginPath();
-      ctx.arc(ax, ay, size * 1.7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Chevron.
-      ctx.fillStyle = 'rgba(238,240,244,0.96)';
-      ctx.beginPath();
-      ctx.moveTo(ax + dir * size * 0.7, ay);
-      ctx.lineTo(ax - dir * size * 0.5, ay - size * 0.6);
-      ctx.lineTo(ax - dir * size * 0.16, ay);
-      ctx.lineTo(ax - dir * size * 0.5, ay + size * 0.6);
+      ctx.moveTo(x + dir * size * 0.65, y);
+      ctx.lineTo(x - dir * size * 0.48, y - size * 0.55);
+      ctx.lineTo(x - dir * size * 0.15, y);
+      ctx.lineTo(x - dir * size * 0.48, y + size * 0.55);
       ctx.closePath();
       ctx.fill();
-
-      // Distance label when far.
-      if (t > 0.5) {
-        const gapM = Math.abs(target.x - g.player.x) / PX_PER_M;
-        ctx.globalAlpha = alpha * 0.9;
-        ctx.fillStyle = 'rgba(220,222,226,0.9)';
-        ctx.font = '600 10px ui-monospace, Menlo, monospace';
-        ctx.textAlign = onLeft ? 'left' : 'right';
-        ctx.textBaseline = 'middle';
-        const tx = onLeft ? ax + size * 0.9 : ax - size * 0.9;
-        ctx.fillText(`${Math.round(gapM)}m`, tx, ay + size * 0.95);
-      }
       ctx.restore();
     },
     [],
   );
 
+  const updateVisuals = useCallback(
+    (dt: number) => {
+      const state = serverStateRef.current;
+      const terrain = terrainRef.current;
+      if (!state || !terrain.length) return;
+
+      const myIndex: 0 | 1 = state.player_order[0] === myUserId ? 0 : 1;
+      if (state.phase === 'reveal' && trajectoryRef.current) {
+        const sampled = sampleTrajectory(
+          trajectoryRef.current,
+          estimatedServerNow(),
+          myIndex,
+        );
+        if (sampled) {
+          visualMeRef.current = sampled.me;
+          visualRivalRef.current = sampled.rival;
+        }
+      } else {
+        visualMeRef.current = { ...baseMeRef.current };
+        visualRivalRef.current = { ...baseRivalRef.current };
+      }
+
+      const view = viewRef.current;
+      const me = visualMeRef.current;
+      const rival = visualRivalRef.current;
+      const camera = cameraRef.current;
+      const separation = Math.abs(me.x - rival.x);
+      const midX = (me.x + rival.x) / 2;
+
+      let targetX = separation < view.w * 0.62
+        ? midX - view.w / 2
+        : me.x - view.w * 0.42;
+      targetX = Math.max(-view.w * 0.2, targetX);
+
+      const under = terrain[stepIndexAt(terrain, me.x)];
+      const groundY = under ? surfaceYAt(under, me.x) : me.y + CUBE / 2;
+      let targetY = groundY - CUBE / 2 - view.h * 0.67;
+      const playerScreenY = me.y - targetY;
+      if (playerScreenY < view.h * 0.1) targetY = me.y - view.h * 0.1;
+
+      if (!camera.initialized) {
+        camera.x = targetX;
+        camera.y = targetY;
+        camera.initialized = true;
+      } else {
+        const k = 1 - Math.exp(-CAM_LERP * Math.max(0, dt));
+        camera.x += (targetX - camera.x) * k;
+        camera.y += (targetY - camera.y) * k;
+      }
+    },
+    [estimatedServerNow, myUserId],
+  );
+
   const render = useCallback(() => {
     const canvas = canvasRef.current;
-    const g = gameRef.current;
-    if (!canvas || !g) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const v = viewRef.current;
-    const { w, h } = v;
 
-    ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+    const view = viewRef.current;
+    const terrain = terrainRef.current;
+    const me = visualMeRef.current;
+    const rival = visualRivalRef.current;
+    const cam = cameraRef.current;
+    const { w, h, dpr } = view;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    // --- Background: base wash + parallax image cover ---
-    const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
-    baseGrad.addColorStop(0, '#0c0d0f');
-    baseGrad.addColorStop(1, '#070708');
-    ctx.fillStyle = baseGrad;
+    const base = ctx.createLinearGradient(0, 0, 0, h);
+    base.addColorStop(0, '#0c0d0f');
+    base.addColorStop(1, '#070708');
+    ctx.fillStyle = base;
     ctx.fillRect(0, 0, w, h);
 
-    const img = imgRef.current;
-    if (img && img.complete && img.naturalWidth > 0) {
-      const aspect = img.naturalWidth / img.naturalHeight;
-      const drawH = h * 1.06; // slight overscan to hide edges
+    const image = imgRef.current;
+    if (image && image.complete && image.naturalWidth > 0) {
+      const aspect = image.naturalWidth / image.naturalHeight;
+      const drawH = h * 1.06;
       const drawW = drawH * aspect;
-      let startX = (-g.cam.x * PARALLAX) % drawW;
+      let startX = (-cam.x * PARALLAX) % drawW;
       if (startX > 0) startX -= drawW;
       ctx.globalAlpha = 0.85;
       for (let x = startX; x < w; x += drawW) {
-        ctx.drawImage(img, x, -h * 0.03, drawW, drawH);
+        ctx.drawImage(image, x, -h * 0.03, drawW, drawH);
       }
       ctx.globalAlpha = 1;
-      // Dark overlay to keep the mood and contrast.
-      ctx.fillStyle = 'rgba(8,8,10,0.45)';
+      ctx.fillStyle = 'rgba(8,8,10,.45)';
       ctx.fillRect(0, 0, w, h);
     }
 
-    // --- Foreground staircase (only visible steps) ---
-    const steps = g.stairs.steps;
-    const left = g.cam.x - 60;
-    const right = g.cam.x + w + 60;
-    // narrow down with a quick scan from an estimated index
-    let i0 = stepIndexAt(steps, left);
-    while (i0 > 0 && steps[i0].x1 > left) i0--;
-    for (let i = i0; i < steps.length; i++) {
-      const s = steps[i];
-      if (s.x0 > right) break;
-      if (s.x1 < left) continue;
-      renderStep(ctx, s, g.cam.x, g.cam.y, h);
-    }
-
-    // --- Ground fog band ---
-    const fog = ctx.createLinearGradient(0, h * 0.55, 0, h);
-    fog.addColorStop(0, 'rgba(120,124,130,0)');
-    fog.addColorStop(0.7, 'rgba(96,100,107,0.1)');
-    fog.addColorStop(1, 'rgba(70,73,79,0.22)');
-    ctx.fillStyle = fog;
-    ctx.fillRect(0, h * 0.55, w, h * 0.45);
-
-    // --- Particles (debris/dust) ---
-    for (const pt of g.particles) {
-      const a = 1 - pt.life / pt.max;
-      const px = pt.x - g.cam.x;
-      const py = pt.y - g.cam.y;
-      if (pt.kind === 1) {
-        ctx.fillStyle = `rgba(30,31,33,${a})`;
-        ctx.fillRect(px, py, pt.size, pt.size);
-      } else {
-        ctx.fillStyle = `rgba(190,193,198,${a * 0.5})`;
-        ctx.beginPath();
-        ctx.arc(px, py, pt.size, 0, Math.PI * 2);
-        ctx.fill();
+    if (terrain.length) {
+      const left = cam.x - 60;
+      const right = cam.x + w + 60;
+      let index = stepIndexAt(terrain, left);
+      while (index > 0 && terrain[index].x1 > left) index -= 1;
+      for (let i = index; i < terrain.length; i += 1) {
+        const step = terrain[i];
+        if (step.x0 > right) break;
+        if (step.x1 < left) continue;
+        renderStep(ctx, step, cam.x, cam.y, h);
       }
     }
 
-    // --- Cubes ---
-    renderCube(ctx, g.bot, g.cam.x, g.cam.y);
-    renderCube(ctx, g.player, g.cam.x, g.cam.y);
+    const fog = ctx.createLinearGradient(0, h * 0.55, 0, h);
+    fog.addColorStop(0, 'rgba(120,124,130,0)');
+    fog.addColorStop(0.7, 'rgba(96,100,107,.08)');
+    fog.addColorStop(1, 'rgba(70,73,79,.2)');
+    ctx.fillStyle = fog;
+    ctx.fillRect(0, h * 0.55, w, h * 0.45);
 
-    // Player marker (subtle caret above player's cube so "you" is legible).
-    {
-      const psx = g.player.x - g.cam.x;
-      const psy = g.player.y - g.cam.y - CUBE - 6;
-      ctx.fillStyle = 'rgba(236,238,242,0.85)';
-      ctx.beginPath();
-      ctx.moveTo(psx, psy + 6);
-      ctx.lineTo(psx - 5, psy);
-      ctx.lineTo(psx + 5, psy);
-      ctx.closePath();
-      ctx.fill();
-    }
+    // Local cube first, translucent online rival second. At the shared spawn point
+    // the rival is still visible as a soft ghost over the local cube.
+    renderCube(ctx, me, cam.x, cam.y, false);
+    renderCube(ctx, rival, cam.x, cam.y, true);
 
-    // --- Aim preview (player, during prep) ---
-    // Uses the actual chosen launch velocity (drag, or the safe default) and draws
-    // a dotted gravity arc plus, while dragging, an elastic slingshot band.
-    if (g.phase === 'prep') {
+    const markerX = me.x - cam.x;
+    const markerY = me.y - cam.y - CUBE - 6;
+    ctx.fillStyle = 'rgba(236,238,242,.84)';
+    ctx.beginPath();
+    ctx.moveTo(markerX, markerY + 6);
+    ctx.lineTo(markerX - 5, markerY);
+    ctx.lineTo(markerX + 5, markerY);
+    ctx.closePath();
+    ctx.fill();
+
+    if (phase === 'select') {
+      const move = dragRef.current.move ?? defaultMove();
+      const dim = !dragRef.current.move;
+      const startY = me.y - CUBE / 2;
+      ctx.fillStyle = 'rgba(236,238,242,.58)';
+      for (let i = 1; i <= 10; i += 1) {
+        const t = i * 0.045;
+        const worldX = me.x + move.vx * t;
+        const worldY = startY + move.vy * t + 0.5 * GRAVITY * t * t;
+        if (i % 2 === 0) {
+          ctx.globalAlpha = Math.max(0, (dim ? 0.28 : 0.62) - i * 0.022);
+          ctx.beginPath();
+          ctx.arc(worldX - cam.x, worldY - cam.y, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+
       const d = dragRef.current;
-      const mv = d.move ?? DEFAULT_MOVE();
-      const cubeSX = g.player.x - g.cam.x;
-      const cubeSY = g.player.y - g.cam.y;
-
-      // Elastic band: a line from the cube to a pulled-back handle behind it.
       if (d.active) {
+        const cubeSX = me.x - cam.x;
+        const cubeSY = me.y - cam.y;
         const hx = cubeSX + (d.curX - d.startX);
         const hy = cubeSY + (d.curY - d.startY);
-        ctx.save();
-        ctx.strokeStyle = 'rgba(236,238,242,0.45)';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(236,238,242,.42)';
+        ctx.lineWidth = 1.4;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(cubeSX, cubeSY);
         ctx.lineTo(hx, hy);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(236,238,242,0.8)';
+        ctx.fillStyle = 'rgba(236,238,242,.78)';
         ctx.beginPath();
         ctx.arc(hx, hy, 4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
-
-      // Dotted gravity arc following only ~40% of the actual launch path.
-      const onlyDefault = !d.move; // dim the arc when it's just the idle default
-      ctx.fillStyle = 'rgba(236,238,242,0.55)';
-      const startSY = g.player.y - CUBE / 2;
-      for (let s = 1; s <= 10; s++) {
-        const t = s * 0.045;
-        const wx = g.player.x + mv.vx * t;
-        const wy = startSY + mv.vy * t + 0.5 * GRAVITY * t * t;
-        const psx = wx - g.cam.x;
-        const psy = wy - g.cam.y;
-        if (s % 2 === 0) {
-          ctx.globalAlpha = Math.max(0, (onlyDefault ? 0.32 : 0.62) - s * 0.022);
-          ctx.beginPath();
-          ctx.arc(psx, psy, 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        if (psy > h + 40) break;
-      }
-      ctx.globalAlpha = 1;
     }
 
-    // --- Offscreen opponent arrow (and player if needed) ---
-    renderArrow(ctx, g, g.bot, w, h);
+    renderRivalArrow(ctx, rival, cam.x, cam.y, w, h);
 
-    // --- Grain overlay ---
     const grain = grainRef.current;
     if (grain) {
-      const pat = ctx.createPattern(grain, 'repeat');
-      if (pat) {
+      const pattern = ctx.createPattern(grain, 'repeat');
+      if (pattern) {
         ctx.save();
-        ctx.globalAlpha = 0.05;
+        ctx.globalAlpha = 0.032;
         ctx.globalCompositeOperation = 'overlay';
-        const ox = (Date.now() / 90) % 160;
-        ctx.translate(-ox, -((ox * 0.7) % 160));
-        ctx.fillStyle = pat;
-        ctx.fillRect(0, 0, w + 160, h + 160);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, w, h);
         ctx.restore();
       }
     }
 
-    // --- Vignette ---
-    const vg = vignetteRef.current;
-    if (vg) ctx.drawImage(vg, 0, 0, w, h);
-  }, [renderStep, renderCube, renderArrow]);
+    const vignette = vignetteRef.current;
+    if (vignette) ctx.drawImage(vignette, 0, 0, w, h);
+  }, [phase, renderCube, renderRivalArrow, renderStep]);
 
-  /* ----- main loop ----- */
   const frameRef = useRef<(now: number) => void>(() => {});
-
   const frame = useCallback(
     (now: number) => {
-      const g = gameRef.current!;
-      if (!lastTimeRef.current) lastTimeRef.current = now;
-      let dt = (now - lastTimeRef.current) / 1000;
-      lastTimeRef.current = now;
-      if (dt > 0.05) dt = 0.05; // clamp big stalls
+      if (!lastFrameRef.current) lastFrameRef.current = now;
+      const dt = Math.min(0.05, (now - lastFrameRef.current) / 1000);
+      lastFrameRef.current = now;
 
-      simulate(g, dt);
+      updateVisuals(dt);
       render();
 
-      // Throttle UI sync (distances + phase + timer) to ~10fps.
       uiAccumRef.current += dt;
       if (uiAccumRef.current >= 0.1) {
         uiAccumRef.current = 0;
-        syncUI();
-        setPlayerM((m) => {
-          const nv = Math.round(g.player.x / PX_PER_M);
-          return nv !== m ? nv : m;
-        });
-        setBotM((m) => {
-          const nv = Math.round(g.bot.x / PX_PER_M);
-          return nv !== m ? nv : m;
-        });
+        const nextPlayer = Math.max(0, Math.round(visualMeRef.current.x / PX_PER_M));
+        const nextRival = Math.max(0, Math.round(visualRivalRef.current.x / PX_PER_M));
+        setPlayerM((value) => (value === nextPlayer ? value : nextPlayer));
+        setRivalM((value) => (value === nextRival ? value : nextRival));
       }
 
       rafRef.current = requestAnimationFrame((time) => frameRef.current(time));
     },
-    [simulate, render, syncUI],
+    [render, updateVisuals],
   );
 
   useEffect(() => {
     frameRef.current = frame;
   }, [frame]);
 
-  /* ----- mount: canvas sizing, image, telegram, listeners, RAF ----- */
   useEffect(() => {
-    // Background image.
     const image = new Image();
     image.src = upback;
     imgRef.current = image;
 
-    // Telegram Mini App: lock vertical swipes, expand, and disable page scroll.
     const tg = getTelegramWebApp();
     try {
       tg?.ready?.();
       tg?.expand?.();
       tg?.disableVerticalSwipes?.();
     } catch {
-      /* ignore */
+      // ignore Telegram wrapper differences
     }
 
-    const canvas = canvasRef.current!;
-    const container = containerRef.current!;
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      const w = rect.width || window.innerWidth;
-      let h = rect.height;
-      // Fall back to Telegram viewport / window height if container is collapsed.
-      if (!h || h < 60) {
-        h = tg?.viewportStableHeight || tg?.viewportHeight || window.innerHeight;
+      const width = rect.width || window.innerWidth;
+      let height = rect.height;
+      if (!height || height < 60) {
+        height = tg?.viewportStableHeight || tg?.viewportHeight || window.innerHeight;
       }
       const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
-      viewRef.current = { w, h, dpr };
-      canvas.width = Math.floor(w * dpr);
-      canvas.height = Math.floor(h * dpr);
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
+      viewRef.current = { w: width, h: height, dpr };
+      canvas.width = Math.max(1, Math.floor(width * dpr));
+      canvas.height = Math.max(1, Math.floor(height * dpr));
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      cameraRef.current.initialized = false;
       buildTextures();
     };
-    resize();
 
-    const ro = new ResizeObserver(resize);
-    ro.observe(container);
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
     window.addEventListener('resize', resize);
     window.addEventListener('orientationchange', resize);
 
-    // Block touchmove inside the game so the Mini App doesn't scroll/bounce.
-    const blockTouch = (e: TouchEvent) => {
-      e.preventDefault();
-    };
+    const blockTouch = (event: TouchEvent) => event.preventDefault();
     container.addEventListener('touchmove', blockTouch, { passive: false });
 
-    lastTimeRef.current = 0;
+    lastFrameRef.current = 0;
     rafRef.current = requestAnimationFrame(frame);
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      ro.disconnect();
+      observer.disconnect();
       window.removeEventListener('resize', resize);
       window.removeEventListener('orientationchange', resize);
       container.removeEventListener('touchmove', blockTouch);
       try {
         tg?.enableVerticalSwipes?.();
       } catch {
-        /* ignore */
+        // ignore
       }
     };
-  }, [frame, buildTextures]);
+  }, [buildTextures, frame]);
 
-  /* ----- controls: drag-to-launch (slingshot) ----- */
-  // Compute the legal move from the current drag (or null if the pull is too small).
-  const computeDragMove = useCallback((): LaunchMove | null => {
-    const d = dragRef.current;
-    const pullX = d.startX - d.curX; // pull LEFT (back) => launch RIGHT (forward)
-    const pullY = d.startY - d.curY; // pull DOWN (back) => launch UP
-    if (Math.hypot(pullX, pullY) < MIN_PULL) return null;
-    // pull down => curY > startY => pullY < 0 => upward magnitude = -pullY
-    return clampLaunch(pullX * DRAG_SCALE, -pullY * DRAG_SCALE);
-  }, []);
-
-  const localXY = useCallback((e: React.PointerEvent) => {
+  const localXY = useCallback((event: React.PointerEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
     return {
-      x: e.clientX - (rect?.left ?? 0),
-      y: e.clientY - (rect?.top ?? 0),
+      x: event.clientX - (rect?.left ?? 0),
+      y: event.clientY - (rect?.top ?? 0),
     };
   }, []);
 
   const onAreaDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (gameRef.current?.phase !== 'prep') return;
-      const { x, y } = localXY(e);
+    (event: React.PointerEvent) => {
+      if (phase !== 'select' || connectionStatus !== 'open') return;
+      const point = localXY(event);
       const d = dragRef.current;
       d.active = true;
-      d.locked = false;
-      d.startX = x;
-      d.startY = y;
-      d.curX = x;
-      d.curY = y;
+      d.startX = point.x;
+      d.startY = point.y;
+      d.curX = point.x;
+      d.curY = point.y;
       d.move = null;
-      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      setPower(0);
+      (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
     },
-    [localXY],
+    [connectionStatus, localXY, phase],
   );
 
   const onAreaMove = useCallback(
-    (e: React.PointerEvent) => {
+    (event: React.PointerEvent) => {
       const d = dragRef.current;
-      if (!d.active || gameRef.current?.phase !== 'prep') return;
-      const { x, y } = localXY(e);
-      d.curX = x;
-      d.curY = y;
+      if (!d.active || phase !== 'select') return;
+      const point = localXY(event);
+      d.curX = point.x;
+      d.curY = point.y;
       d.move = computeDragMove();
+      setPower(d.move?.power ?? 0);
     },
-    [localXY, computeDragMove],
+    [computeDragMove, localXY, phase],
   );
 
   const onAreaUp = useCallback(
-    (e: React.PointerEvent) => {
+    (event: React.PointerEvent) => {
       const d = dragRef.current;
-      if (!d.active) return;
-      const { x, y } = localXY(e);
-      d.curX = x;
-      d.curY = y;
-      const mv = computeDragMove();
+      if (!d.active || phase !== 'select') return;
+      const point = localXY(event);
+      d.curX = point.x;
+      d.curY = point.y;
+      const move = computeDragMove();
       d.active = false;
-      if (mv) {
-        // Released with a real pull: lock this move in for the rest of prep.
-        d.move = mv;
-        d.locked = true;
-      } else {
-        // Tiny pull: treat as no shot so the player can try again.
+
+      if (!move) {
         d.move = null;
-        d.locked = false;
+        setPower(0);
+        return;
       }
+
+      d.move = move;
+      setPower(move.power);
+      if (!socketRef.current?.sendMove(turn, move.vx, move.vy)) {
+        setSocketError('Нет подключения к матчу');
+        return;
+      }
+
+      setMoveReady(true);
+      setSocketError(null);
+      getTelegramWebApp()?.HapticFeedback?.impactOccurred?.('light');
     },
-    [localXY, computeDragMove],
+    [computeDragMove, localXY, phase, turn],
   );
 
-  const startMatch = useCallback(() => {
-    const g = gameRef.current!;
-    g.turn = 1;
-    enterPrep(g);
-    // Center camera immediately so the first frame isn't jarring.
-    updateCamera(g, 1);
-    syncUI();
-  }, [enterPrep, updateCamera, syncUI]);
-
-  const rematch = useCallback(() => {
-    const newSeed = (Math.random() * 1e9) | 0;
-    gameRef.current = buildGame(newSeed);
-    setOutcome(null);
-    setPlayerM(0);
-    setBotM(0);
-    setTurn(1);
-    setTimeLeft(PREP_TIME);
-    const g = gameRef.current;
-    g.turn = 1;
-    enterPrep(g);
-    updateCamera(g, 1);
-    syncUI();
-  }, [buildGame, enterPrep, updateCamera, syncUI]);
-
-  const exit = useCallback(() => {
+  const leave = useCallback(() => {
     if (onExit) onExit();
-    else {
-      const tg = getTelegramWebApp();
-      try {
-        tg?.close?.();
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [onExit]);
+    else navigate(lobbiesPath, { replace: true });
+  }, [lobbiesPath, navigate, onExit]);
 
-  /* ===========================================================================
-   * Render (DOM HUD over the canvas)
-   * ========================================================================= */
+  const selectionProgress = clampN(timeLeft / PREP_TIME, 0, 1);
 
-  const turnLabel = String(turn).padStart(2, '0');
+  if (!lobbyId || !token) {
+    return (
+      <div className="pd-root">
+        <style>{STYLES}</style>
+        <div className="pd-overlay">
+          <div className="pd-modal-card">
+            <div className="pd-modal-kicker">PHYSICS DUEL</div>
+            <div className="pd-modal-title">Нет матча</div>
+            <div className="pd-modal-copy">Открывай игру через активное лобби.</div>
+            <button type="button" className="pd-modal-button" onClick={leave}>К ЛОББИ</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1544,398 +1090,715 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       onPointerUp={onAreaUp}
       onPointerCancel={onAreaUp}
     >
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
-      <style>{`
-        .pd-root {
-          position: relative;
-          width: 100%;
-          height: 100%;
-          overflow: hidden;
-          background: #070708;
-          touch-action: none;
-          overscroll-behavior: none;
-          -webkit-user-select: none;
-          user-select: none;
-          -webkit-touch-callout: none;
-          color: #e9ebef;
-          font-family: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
-        }
-
-        .pd-canvas {
-          display: block;
-          width: 100%;
-          height: 100%;
-        }
-
-        .pd-hud-top {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          padding: 10px 12px;
-          pointer-events: none;
-          background: linear-gradient(180deg, rgba(6, 6, 8, 0.72) 0%, rgba(6, 6, 8, 0) 100%);
-        }
-
-        .pd-turn-wrap {
-          text-align: center;
-          flex: 1;
-        }
-
-        .pd-turn-label {
-          font-size: 11px;
-          letter-spacing: 3px;
-          opacity: 0.6;
-        }
-
-        .pd-turn-value {
-          font-size: 18px;
-          font-weight: 700;
-          letter-spacing: 2px;
-        }
-
-        .pd-stat {
-          min-width: 64px;
-        }
-
-        .pd-stat-left { text-align: left; }
-        .pd-stat-right { text-align: right; }
-
-        .pd-stat-label {
-          font-size: 10px;
-          letter-spacing: 3px;
-          opacity: 0.55;
-        }
-
-        .pd-stat-value {
-          font-size: 17px;
-          font-weight: 700;
-        }
-
-        .pd-prep {
-          position: absolute;
-          top: 64px;
-          left: 50%;
-          transform: translateX(-50%);
-          text-align: center;
-          pointer-events: none;
-        }
-
-        .pd-prep-label {
-          font-size: 10px;
-          letter-spacing: 4px;
-          opacity: 0.55;
-        }
-
-        .pd-prep-time {
-          font-size: 34px;
-          font-weight: 800;
-          line-height: 1;
-          text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
-        }
-
-        .pd-prep-progress {
-          width: 120px;
-          height: 3px;
-          margin-top: 6px;
-          background: rgba(255, 255, 255, 0.12);
-          border-radius: 2px;
-          overflow: hidden;
-        }
-
-        .pd-prep-progress-fill {
-          height: 100%;
-          background: rgba(236, 238, 242, 0.85);
-          transition: width 0.18s linear;
-        }
-
-        .pd-resolve-label {
-          position: absolute;
-          top: 70px;
-          left: 50%;
-          transform: translateX(-50%);
-          font-size: 10px;
-          letter-spacing: 4px;
-          opacity: 0.5;
-          pointer-events: none;
-        }
-
-        .pd-launch-panel {
-          position: absolute;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          padding: 12px 16px 18px;
-          background: linear-gradient(0deg, rgba(6, 6, 8, 0.82) 0%, rgba(6, 6, 8, 0) 100%);
-          opacity: 1;
-          pointer-events: none;
-          transition: opacity 0.2s;
-        }
-
-        .pd-launch-panel-dim {
-          opacity: 0.4;
-        }
-
-        .pd-launch-meta {
-          display: flex;
-          justify-content: space-between;
-          font-size: 10px;
-          letter-spacing: 3px;
-          opacity: 0.6;
-          margin-bottom: 6px;
-        }
-
-        .pd-power-track {
-          position: relative;
-          height: 8px;
-          border-radius: 5px;
-          background: rgba(255, 255, 255, 0.07);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          overflow: hidden;
-        }
-
-        .pd-power-fill {
-          position: absolute;
-          top: 0;
-          left: 0;
-          bottom: 0;
-          background: linear-gradient(90deg, rgba(120, 123, 128, 0.45), rgba(236, 238, 242, 0.7));
-          transition: width 0.06s linear;
-        }
-
-        .pd-overlay {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          padding: 24px;
-          background: radial-gradient(120% 120% at 50% 40%, rgba(8, 8, 10, 0.55), rgba(6, 6, 8, 0.9));
-          backdrop-filter: blur(2px);
-        }
-
-        .pd-intro-kicker {
-          font-size: 11px;
-          letter-spacing: 5px;
-          opacity: 0.55;
-        }
-
-        .pd-intro-title {
-          font-size: 30px;
-          font-weight: 800;
-          letter-spacing: 2px;
-          margin: 10px 0 4px;
-        }
-
-        .pd-intro-copy {
-          font-size: 12px;
-          opacity: 0.6;
-          max-width: 280px;
-          line-height: 1.5;
-          margin: 0 auto 22px;
-        }
-
-        .pd-result-kicker {
-          font-size: 13px;
-          letter-spacing: 5px;
-          opacity: 0.55;
-          margin-bottom: 4px;
-        }
-
-        .pd-outcome {
-          font-size: 44px;
-          font-weight: 900;
-          letter-spacing: 3px;
-          text-shadow: 0 4px 30px rgba(0, 0, 0, 0.8);
-        }
-
-        .pd-outcome-victory { color: #f3f4f7; }
-        .pd-outcome-defeat { color: #8b8e93; }
-        .pd-outcome-draw { color: #c8cace; }
-
-        .pd-result-scores {
-          display: flex;
-          gap: 28px;
-          justify-content: center;
-          margin: 20px 0 24px;
-        }
-
-        .pd-result-divider {
-          width: 1px;
-          background: rgba(255, 255, 255, 0.12);
-        }
-
-        .pd-result-stat-label {
-          font-size: 10px;
-          letter-spacing: 3px;
-          opacity: 0.55;
-        }
-
-        .pd-result-stat-value {
-          font-size: 24px;
-          font-weight: 800;
-        }
-
-        .pd-result-actions {
-          display: flex;
-          gap: 10px;
-          justify-content: center;
-        }
-
-        .pd-btn-primary {
-          font-size: 13px;
-          letter-spacing: 3px;
-          font-weight: 700;
-          color: #0a0a0b;
-          background: #eceef2;
-          border: none;
-          border-radius: 8px;
-          padding: 12px 22px;
-          cursor: pointer;
-        }
-
-        .pd-btn-ghost {
-          font-size: 13px;
-          letter-spacing: 3px;
-          font-weight: 700;
-          color: #e9ebef;
-          background: transparent;
-          border: 1px solid rgba(255, 255, 255, 0.22);
-          border-radius: 8px;
-          padding: 12px 22px;
-          cursor: pointer;
-        }
-      `}</style>
-
+      <style>{STYLES}</style>
       <canvas ref={canvasRef} className="pd-canvas" />
 
       <div className="pd-hud-top">
-        <Stat label="YOU" value={`${playerM}m`} align="left" />
+        <PlayerHUD
+          info={myMeta}
+          distance={`${playerM}m`}
+          side="left"
+          online={connectionStatus === 'open'}
+        />
+
         <div className="pd-turn-wrap">
           <div className="pd-turn-label">TURN</div>
           <div className="pd-turn-value">
-            {turnLabel} / {TOTAL_TURNS}
+            {String(turn).padStart(2, '0')} / {String(totalTurns).padStart(2, '0')}
           </div>
+          {phase === 'select' && <div className="pd-turn-mini">{timeLeft}s</div>}
+          {phase === 'reveal' && <div className="pd-turn-mini">IN MOTION</div>}
         </div>
-        <Stat label="RIVAL" value={`${botM}m`} align="right" />
+
+        <PlayerHUD
+          info={rivalMeta}
+          distance={`${rivalM}m`}
+          side="right"
+          online={playerOrder.length === 2}
+          ghost
+        />
       </div>
 
-      {phase === 'prep' && (
+      {phase === 'select' && (
         <div className="pd-prep">
-          <div className="pd-prep-label">PREPARE</div>
+          <div className="pd-prep-label">
+            {moveReady ? 'ХОД ВЫБРАН' : 'ВЫБЕРИ БРОСОК'}
+          </div>
           <div className="pd-prep-time">{timeLeft}</div>
           <div className="pd-prep-progress">
-            <WidthFill pct={(timeLeft / PREP_TIME) * 100} className="pd-prep-progress-fill" />
+            <div
+              className="pd-prep-progress-fill"
+              style={{ width: `${selectionProgress * 100}%` }}
+            />
+          </div>
+          <div className="pd-ready-row">
+            <span className={moveReady ? 'is-ready' : ''}>YOU</span>
+            <i />
+            <span className={rivalMoveReady ? 'is-ready' : ''}>RIVAL</span>
           </div>
         </div>
       )}
 
-      {phase === 'resolve' && <div className="pd-resolve-label">IN MOTION…</div>}
-
-      {(phase === 'prep' || phase === 'resolve') && (
-        <div className={`pd-launch-panel ${phase === 'resolve' ? 'pd-launch-panel-dim' : ''}`}>
+      {(phase === 'select' || phase === 'reveal') && (
+        <div className={`pd-launch-panel ${phase === 'reveal' ? 'pd-launch-panel-dim' : ''}`}>
           <div className="pd-launch-meta">
-            <span>{power > 0 ? 'POWER' : 'PULL BACK TO AIM'}</span>
-            <span>{power > 0 ? power : 'RELEASE TO LOCK'}</span>
+            <span>
+              {phase === 'reveal'
+                ? 'СИНХРОННЫЙ ПОЛЁТ'
+                : moveReady
+                  ? 'МОЖНО ИЗМЕНИТЬ ХОД'
+                  : power > 0
+                    ? 'POWER'
+                    : 'PULL BACK TO AIM'}
+            </span>
+            <span>{phase === 'select' ? (power > 0 ? power : 'RELEASE TO LOCK') : ''}</span>
           </div>
           <div className="pd-power-track">
-            <WidthFill pct={power} className="pd-power-fill" />
+            <div className="pd-power-fill" style={{ width: `${power}%` }} />
           </div>
         </div>
       )}
 
-      {phase === 'intro' && (
-        <Overlay>
-          <div className="pd-intro-kicker">1 V 1 · PHYSICS DUEL</div>
-          <div className="pd-intro-title">CONCRETE LADDER</div>
-          <div className="pd-intro-copy">
-            {TOTAL_TURNS} turns. Each turn you have {PREP_TIME}s — pull back to aim, release to
-            launch. Climb as far up the ladder as you can. Both cubes fire at once; furthest wins.
+      {phase === 'waiting' && (
+        <div className="pd-overlay pd-overlay-soft">
+          <div className="pd-wait-ring"><span /></div>
+          <div className="pd-wait-title">СИНХРОНИЗАЦИЯ</div>
+          <div className="pd-wait-copy">
+            {connectionStatus === 'open' ? 'Ждём подключение соперника' : 'Подключаемся к матчу'}
           </div>
-          <PrimaryButton label="BEGIN" onClick={startMatch} />
-        </Overlay>
+          {socketError && <div className="pd-error">{socketError}</div>}
+        </div>
+      )}
+
+      {phase === 'countdown' && (
+        <div className="pd-countdown-overlay">
+          <div className="pd-countdown-kicker">PHYSICS DUEL</div>
+          <div key={countdown} className="pd-countdown-number">{countdown}</div>
+          <div className="pd-countdown-copy">ОБА СТАРТУЮТ ОДНОВРЕМЕННО</div>
+        </div>
+      )}
+
+      {socketError && phase !== 'waiting' && phase !== 'result' && (
+        <div className="pd-socket-toast">{socketError}</div>
       )}
 
       {phase === 'result' && outcome && (
-        <Overlay>
-          <div className="pd-result-kicker">MATCH COMPLETE</div>
-          <div
-            className={`pd-outcome ${
-              outcome === 'VICTORY'
-                ? 'pd-outcome-victory'
-                : outcome === 'DEFEAT'
-                  ? 'pd-outcome-defeat'
-                  : 'pd-outcome-draw'
-            }`}
-          >
-            {outcome}
+        <div className="pd-result-overlay">
+          <div className="pd-result-card">
+            <div className="pd-result-kicker">MATCH COMPLETE</div>
+            <div
+              className={`pd-result-title ${
+                outcome === 'VICTORY'
+                  ? 'is-win'
+                  : outcome === 'DEFEAT'
+                    ? 'is-loss'
+                    : 'is-draw'
+              }`}
+            >
+              {outcome === 'VICTORY' ? 'ПОБЕДА' : outcome === 'DEFEAT' ? 'ПОРАЖЕНИЕ' : 'НИЧЬЯ'}
+            </div>
+
+            <div className="pd-result-players">
+              <ResultPlayer
+                info={outcome === 'DEFEAT' ? rivalMeta : myMeta}
+                distance={outcome === 'DEFEAT' ? rivalM : playerM}
+                winner={outcome !== 'DRAW'}
+              />
+              <div className="pd-result-line" />
+              <ResultPlayer
+                info={outcome === 'DEFEAT' ? myMeta : rivalMeta}
+                distance={outcome === 'DEFEAT' ? playerM : rivalM}
+                muted
+              />
+            </div>
+
+            <button type="button" className="pd-modal-button" onClick={leave}>
+              К ЛОББИ
+            </button>
           </div>
-          <div className="pd-result-scores">
-            <ResultStat label="YOU" value={`${Math.round(playerM)}m`} />
-            <div className="pd-result-divider" />
-            <ResultStat label="RIVAL" value={`${Math.round(botM)}m`} />
-          </div>
-          <div className="pd-result-actions">
-            <PrimaryButton label="REMATCH" onClick={rematch} />
-            <GhostButton label="EXIT" onClick={exit} />
-          </div>
-        </Overlay>
+        </div>
       )}
     </div>
   );
 };
 
-/* ===========================================================================
- * Small presentational helpers
- * ========================================================================= */
-
-const WidthFill = ({ pct, className }: { pct: number; className: string }) => {
-  const fillRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    fillRef.current?.style.setProperty('width', `${Math.max(0, Math.min(100, pct))}%`);
-  }, [pct]);
-
-  return <div ref={fillRef} className={className} />;
+const PlayerHUD = ({
+  info,
+  distance,
+  side,
+  online,
+  ghost = false,
+}: {
+  info: LobbyPlayerInfo;
+  distance: string;
+  side: 'left' | 'right';
+  online: boolean;
+  ghost?: boolean;
+}) => {
+  const name = displayName(info.tg_user);
+  return (
+    <div className={`pd-player-hud is-${side}`}>
+      {side === 'right' && (
+        <div className="pd-player-copy">
+          <div className="pd-player-name">{name}</div>
+          <div className="pd-player-distance">{distance}</div>
+        </div>
+      )}
+      <div className={`pd-avatar ${ghost ? 'is-ghost' : ''}`}>
+        {info.photo_url ? <img src={info.photo_url} alt="" /> : <span>{initials(name)}</span>}
+        <i className={online ? 'is-online' : ''} />
+      </div>
+      {side === 'left' && (
+        <div className="pd-player-copy">
+          <div className="pd-player-name">{name}</div>
+          <div className="pd-player-distance">{distance}</div>
+        </div>
+      )}
+    </div>
+  );
 };
 
-const Stat: React.FC<{ label: string; value: string; align: 'left' | 'right' }> = ({
-  label,
-  value,
-  align,
-}) => (
-  <div className={`pd-stat ${align === 'left' ? 'pd-stat-left' : 'pd-stat-right'}`}>
-    <div className="pd-stat-label">{label}</div>
-    <div className="pd-stat-value">{value}</div>
-  </div>
-);
+const ResultPlayer = ({
+  info,
+  distance,
+  winner = false,
+  muted = false,
+}: {
+  info: LobbyPlayerInfo;
+  distance: number;
+  winner?: boolean;
+  muted?: boolean;
+}) => {
+  const name = displayName(info.tg_user);
+  return (
+    <div className={`pd-result-player ${winner ? 'is-winner' : ''} ${muted ? 'is-muted' : ''}`}>
+      <div className="pd-result-avatar">
+        {info.photo_url ? <img src={info.photo_url} alt="" /> : <span>{initials(name)}</span>}
+      </div>
+      <div className="pd-result-player-copy">
+        <strong>{name}</strong>
+        <span>{distance}m</span>
+      </div>
+    </div>
+  );
+};
 
-const Overlay: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="pd-overlay">{children}</div>
-);
+const STYLES = `
+  .pd-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #070708;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    color: #e9ebef;
+    font-family: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace;
+  }
 
-const ResultStat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div>
-    <div className="pd-result-stat-label">{label}</div>
-    <div className="pd-result-stat-value">{value}</div>
-  </div>
-);
+  .pd-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 
-const PrimaryButton: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button onClick={onClick} className="pd-btn-primary" type="button">
-    {label}
-  </button>
-);
+  .pd-hud-top {
+    position: absolute;
+    z-index: 10;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 10px 11px 22px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(6,6,8,.76) 0%, rgba(6,6,8,0) 100%);
+  }
 
-const GhostButton: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button onClick={onClick} className="pd-btn-ghost" type="button">
-    {label}
-  </button>
-);
+  .pd-player-hud {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .pd-player-hud.is-right {
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .pd-avatar {
+    position: relative;
+    display: grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    place-items: center;
+    overflow: visible;
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 10px;
+    background: rgba(255,255,255,.07);
+    color: rgba(255,255,255,.86);
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .06em;
+  }
+
+  .pd-avatar.is-ghost { opacity: .72; }
+
+  .pd-avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+  }
+
+  .pd-avatar > i {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 7px;
+    height: 7px;
+    border: 2px solid #09090d;
+    border-radius: 50%;
+    background: #55585d;
+  }
+
+  .pd-avatar > i.is-online { background: #8fe0a4; }
+
+  .pd-player-copy { min-width: 0; }
+
+  .pd-player-name {
+    max-width: 92px;
+    overflow: hidden;
+    color: rgba(255,255,255,.68);
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: .04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pd-player-distance {
+    margin-top: 2px;
+    color: #f0f1f4;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pd-turn-wrap {
+    min-width: 72px;
+    text-align: center;
+  }
+
+  .pd-turn-label {
+    color: rgba(255,255,255,.4);
+    font-size: 7px;
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: .24em;
+  }
+
+  .pd-turn-value {
+    margin-top: 1px;
+    color: rgba(255,255,255,.9);
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1.3;
+    letter-spacing: .08em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pd-turn-mini {
+    margin-top: 2px;
+    color: rgba(255,255,255,.34);
+    font-size: 6px;
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: .16em;
+  }
+
+  .pd-prep {
+    position: absolute;
+    z-index: 10;
+    top: 64px;
+    left: 50%;
+    width: 150px;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .pd-prep-label {
+    color: rgba(255,255,255,.45);
+    font-size: 7px;
+    font-weight: 800;
+    line-height: 1.45;
+    letter-spacing: .23em;
+  }
+
+  .pd-prep-time {
+    margin-top: 1px;
+    color: #f2f3f5;
+    font-size: 30px;
+    font-weight: 900;
+    line-height: 1.18;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pd-prep-progress {
+    height: 3px;
+    margin: 4px auto 0;
+    overflow: hidden;
+    border-radius: 99px;
+    background: rgba(255,255,255,.1);
+  }
+
+  .pd-prep-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: rgba(236,238,242,.82);
+    transition: width .08s linear;
+  }
+
+  .pd-ready-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 6px;
+    color: rgba(255,255,255,.25);
+    font-size: 6px;
+    font-weight: 900;
+    letter-spacing: .13em;
+  }
+
+  .pd-ready-row i {
+    width: 12px;
+    height: 1px;
+    background: rgba(255,255,255,.12);
+  }
+
+  .pd-ready-row .is-ready { color: rgba(255,255,255,.74); }
+
+  .pd-launch-panel {
+    position: absolute;
+    z-index: 9;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px 16px calc(18px + env(safe-area-inset-bottom));
+    pointer-events: none;
+    background: linear-gradient(0deg, rgba(6,6,8,.84) 0%, rgba(6,6,8,0) 100%);
+    transition: opacity .2s ease;
+  }
+
+  .pd-launch-panel-dim { opacity: .42; }
+
+  .pd-launch-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+    color: rgba(255,255,255,.48);
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 1.35;
+    letter-spacing: .17em;
+  }
+
+  .pd-power-track {
+    height: 7px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.11);
+    border-radius: 99px;
+    background: rgba(255,255,255,.06);
+  }
+
+  .pd-power-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(120,123,128,.5), rgba(236,238,242,.78));
+    transition: width .04s linear;
+  }
+
+  .pd-overlay,
+  .pd-countdown-overlay,
+  .pd-result-overlay {
+    position: absolute;
+    z-index: 30;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(110% 100% at 50% 42%, rgba(10,10,12,.55), rgba(6,6,8,.9));
+    backdrop-filter: blur(2px);
+  }
+
+  .pd-overlay-soft { background: rgba(7,7,8,.58); }
+
+  .pd-wait-ring {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 50%;
+  }
+
+  .pd-wait-ring span {
+    position: absolute;
+    inset: -1px;
+    border: 1px solid transparent;
+    border-top-color: rgba(255,255,255,.72);
+    border-radius: 50%;
+    animation: pdSpin .9s linear infinite;
+  }
+
+  .pd-wait-title {
+    margin-top: 14px;
+    color: rgba(255,255,255,.86);
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.35;
+    letter-spacing: .22em;
+  }
+
+  .pd-wait-copy {
+    margin-top: 6px;
+    color: rgba(255,255,255,.36);
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.5;
+    letter-spacing: .08em;
+  }
+
+  .pd-error,
+  .pd-socket-toast {
+    border: 1px solid rgba(255,122,144,.18);
+    background: rgba(255,122,144,.08);
+    color: rgba(255,187,198,.9);
+  }
+
+  .pd-error {
+    margin-top: 12px;
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 8px;
+  }
+
+  .pd-socket-toast {
+    position: absolute;
+    z-index: 24;
+    top: 118px;
+    left: 50%;
+    max-width: calc(100% - 32px);
+    transform: translateX(-50%);
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 8px;
+    text-align: center;
+  }
+
+  .pd-countdown-overlay {
+    background: radial-gradient(circle at 50% 50%, rgba(25,26,29,.48), rgba(7,7,8,.83));
+  }
+
+  .pd-countdown-kicker {
+    color: rgba(255,255,255,.36);
+    font-size: 8px;
+    font-weight: 900;
+    line-height: 1.4;
+    letter-spacing: .28em;
+  }
+
+  .pd-countdown-number {
+    margin-top: 7px;
+    color: #eef0f3;
+    font-size: clamp(74px, 25vw, 104px);
+    font-weight: 900;
+    line-height: 1.04;
+    letter-spacing: -.08em;
+    animation: pdCount .42s cubic-bezier(.22,1,.36,1) both;
+  }
+
+  .pd-countdown-copy {
+    margin-top: 8px;
+    color: rgba(255,255,255,.34);
+    font-size: 7px;
+    font-weight: 800;
+    line-height: 1.5;
+    letter-spacing: .2em;
+  }
+
+  .pd-result-overlay {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(5,5,7,.72);
+    backdrop-filter: blur(6px);
+  }
+
+  .pd-result-card,
+  .pd-modal-card {
+    width: min(100%, 316px);
+    border: 1px solid rgba(255,255,255,.09);
+    border-radius: 22px;
+    padding: 18px;
+    background: linear-gradient(180deg, rgba(31,32,36,.96), rgba(13,13,16,.98));
+    box-shadow: 0 22px 60px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.07);
+  }
+
+  .pd-result-kicker,
+  .pd-modal-kicker {
+    color: rgba(255,255,255,.34);
+    font-size: 7px;
+    font-weight: 900;
+    line-height: 1.5;
+    letter-spacing: .22em;
+  }
+
+  .pd-result-title,
+  .pd-modal-title {
+    margin-top: 7px;
+    color: #eff0f2;
+    font-size: 26px;
+    font-weight: 900;
+    line-height: 1.24;
+    letter-spacing: -.04em;
+  }
+
+  .pd-result-title.is-loss { color: #9b9da2; }
+  .pd-result-title.is-draw { color: #c8cace; }
+
+  .pd-modal-copy {
+    margin: 7px auto 0;
+    max-width: 230px;
+    color: rgba(255,255,255,.38);
+    font-size: 9px;
+    line-height: 1.55;
+  }
+
+  .pd-result-players {
+    margin-top: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 15px;
+    background: rgba(0,0,0,.18);
+  }
+
+  .pd-result-player {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 54px;
+    padding: 9px 10px;
+    text-align: left;
+  }
+
+  .pd-result-player.is-muted { opacity: .5; }
+
+  .pd-result-avatar {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 10px;
+    background: rgba(255,255,255,.06);
+    font-size: 9px;
+    font-weight: 900;
+  }
+
+  .pd-result-player.is-winner .pd-result-avatar {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+    border-color: rgba(255,255,255,.28);
+  }
+
+  .pd-result-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .pd-result-player-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .pd-result-player-copy strong {
+    overflow: hidden;
+    color: rgba(255,255,255,.8);
+    font-size: 10px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pd-result-player-copy span {
+    color: rgba(255,255,255,.88);
+    font-size: 14px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pd-result-line {
+    height: 1px;
+    margin: 0 10px;
+    background: rgba(255,255,255,.06);
+  }
+
+  .pd-modal-button {
+    width: 100%;
+    min-height: 42px;
+    margin-top: 14px;
+    border: 0;
+    border-radius: 12px;
+    background: #eceef2;
+    color: #0a0a0b;
+    font: inherit;
+    font-size: 9px;
+    font-weight: 900;
+    line-height: 1.35;
+    letter-spacing: .14em;
+    cursor: pointer;
+  }
+
+  @keyframes pdSpin { to { transform: rotate(360deg); } }
+  @keyframes pdCount {
+    0% { opacity: 0; transform: scale(.72); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  @media (max-width: 370px) {
+    .pd-hud-top { padding-inline: 8px; }
+    .pd-avatar { width: 29px; height: 29px; flex-basis: 29px; }
+    .pd-player-name { max-width: 72px; font-size: 8px; }
+    .pd-player-distance { font-size: 14px; }
+    .pd-turn-wrap { min-width: 64px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pd-countdown-number,
+    .pd-wait-ring span { animation: none; }
+  }
+`;
 
 export default PhysicsDuel;
