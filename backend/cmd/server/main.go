@@ -10,6 +10,7 @@ import (
 	"tg-lobbies-base/internal/games/dunkshot"
 	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
+	"tg-lobbies-base/internal/games/physicsduel"
 	"tg-lobbies-base/internal/games/plinko"
 	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/games/towerstack"
@@ -88,6 +89,12 @@ func main() {
 	plinkoManager := plinko.NewManager()
 	go plinkoManager.CleanupLoop()
 	plinkoManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
+	physicsDuelManager := physicsduel.NewManager()
+	go physicsDuelManager.CleanupLoop()
+	physicsDuelManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
@@ -183,6 +190,12 @@ func main() {
 		Manager:    plinkoManager,
 	}
 
+	physicsDuelWSHandler := handlers.PhysicsDuelWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    physicsDuelManager,
+	}
+
 	raceWSHandler := handlers.PvpWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -201,6 +214,7 @@ func main() {
 	router.GET("/ws/crossy-road/:lobby_id", crossyPVPWSHandler.Connect)
 	router.GET("/ws/neon-matrix/:lobby_id", neonMatrixWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
+	router.GET("/ws/descent-duel/:lobby_id", physicsDuelWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
 	router.GET("/ws/street-race/:lobby_id", raceWSHandler.Connect)
 	router.GET("/ws/tower-stack/:lobby_id", towerWSHandler.Connect)
