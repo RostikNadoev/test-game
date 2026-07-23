@@ -3,9 +3,8 @@
  * ---------------------------------------------------------------------------
  * A premium 1v1 physics duel for a React + TypeScript Telegram Mini App.
  *
- * - Two black cubes (player + bot) duel on ONE shared, seeded staircase.
- * - Physics/map tuning is inspired by the readable stair-runs and momentum-heavy
- *   landing feel of Climb Jump, while keeping this game local and duel-based.
+ * - Two black cubes (player + bot) duel on ONE shared, irregular, seeded
+ *   staircase rendered as pseudo-3D concrete blocks (side view, 2.5D look).
  * - 15 turns. Each turn: 5s preparation -> both cubes launch SIMULTANEOUSLY
  *   -> turn ends only when BOTH cubes have fully stopped.
  * - Custom lightweight impulse-based rigid-body physics (no Matter.js needed):
@@ -41,71 +40,68 @@ import { MatchFinishStatus } from '../components/Match/MatchFinishStatus';
  * ========================================================================= */
 
 const TOTAL_TURNS = 15;
-const PREP_TIME = 5;
-const MAX_RESOLVE = 12;
+const PREP_TIME = 5; // seconds of preparation per turn
+const MAX_RESOLVE = 10.5; // safety cap: force-settle a turn after this many seconds
 
-// Tight fixed-step physics. The cube should react immediately to corners and
-// risers without the soft, slow correction that made the previous build feel "watery".
-const FIXED_DT = 1 / 180;
-const MAX_SUBSTEPS = 9;
-const SOLVER_ITERS = 8;
+const FIXED_DT = 1 / 120; // physics step
+const MAX_SUBSTEPS = 6; // cap substeps per frame to avoid spiral-of-death
+const SOLVER_ITERS = 6; // collision solver iterations per substep
 
-// Hard arcade body: fast ballistic arc, almost no bounce, strong dry contact.
-// Air rotation remains visible, but ground contact kills excess motion quickly.
-const GRAVITY = 2450;
-const AIR_DRAG = 0.007;
-const ANG_AIR_DRAG = 0.075;
-const ROLL_RES = 0.72;
-const RESTITUTION = 0.055;
-const FRICTION = 0.48;
-const MAX_ANGULAR_SPEED = 10.2;
-const GROUND_ANGULAR_DAMP = 1.35;
-const GROUND_LINEAR_DAMP = 0.42;
+const GRAVITY = 2100; // px/s^2
+const AIR_DRAG = 0.018; // linear air damping (per second)
+const ANG_AIR_DRAG = 0.2; // angular air damping (low = spin/tumble persists, but not chaotic)
+const ROLL_RES = 0.12; // very light rolling resistance; cube keeps rolling arcade-like
+const RESTITUTION = 0.12; // softer landings; less harsh bounce backward on good hits
+const FRICTION = 0.34; // a bit more grip so clean landings are friendlier
 
-/* --- Drag-to-launch tuning --- */
-const DRAG_SCALE = 5.45;
-const MIN_LAUNCH = 275;
-const MAX_LAUNCH = 1190;
-const MIN_PULL = 10;
-const LAUNCH_ANGLE_MIN = (19 * Math.PI) / 180;
-const LAUNCH_ANGLE_MAX = (69 * Math.PI) / 180;
-const DEFAULT_ANGLE = (44 * Math.PI) / 180;
-const DEFAULT_SPEED = 510;
+/* --- Drag-to-launch (slingshot) tuning --- */
+const DRAG_SCALE = 5.25; // launch speed (px/s) gained per px of finger pull; tuned for short mobile drags
+const MIN_LAUNCH = 255; // min launch speed (px/s)
+const MAX_LAUNCH = 1120; // max launch speed (px/s) — strong but controllable for shorter, safer gaps
+const MIN_PULL = 12; // px; pulls shorter than this are ignored (accidental taps)
+const LAUNCH_ANGLE_MIN = (22 * Math.PI) / 180; // flattest allowed shot (above horizontal)
+const LAUNCH_ANGLE_MAX = (76 * Math.PI) / 180; // steepest allowed shot
+const DEFAULT_ANGLE = (52 * Math.PI) / 180; // safe fallback angle if the player does nothing
+const DEFAULT_SPEED = 500; // gentle forward hop for the fallback launch
+const MIN_LAUNCH_SPIN = 1.65; // every launch must visibly rotate the cube
+const LAUNCH_SPIN_POWER = 0.026; // harder launches get more spin
 
-// Spin follows launch direction and is deliberately restrained. The cube still
-// tumbles, but it feels dense rather than floaty or pinwheel-like.
-const MIN_LAUNCH_SPIN = 1.45;
-const LAUNCH_SPIN_POWER = 0.024;
-const LAUNCH_SPIN_JITTER = 0.08;
+const SLOP = 0.5; // penetration allowance
+const CORR = 0.6; // positional correction factor
 
-const SLOP = 0.18;
-const CORR = 0.88;
+const SPEED_EPS = 12; // px/s linear "stopped" threshold; lower = cube keeps rolling longer
+const ANG_EPS = 0.34; // rad/s angular "stopped" threshold; lower = visible spin must calm down first
+const STILL_TIME = 0.46; // s of stillness required to latch "stopped"
 
-const SPEED_EPS = 15;
-const ANG_EPS = 0.42;
-const STILL_TIME = 0.22;
-
-const CUBE = 26;
+const CUBE = 26; // cube side length (px)
 const CUBE_MASS = 1;
 const INV_M = 1 / CUBE_MASS;
-const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6);
+const INV_I = 1 / ((CUBE_MASS * CUBE * CUBE) / 6); // square plate inertia about center
 
+// Invisible left boundary at the start of the map.
+// It blocks the launch-pad cliff without drawing any visible wall.
 const START_WALL_X = 0;
-const START_WALL_BOUNCE = 0.06;
-const START_WALL_SPIN_DAMP = 0.28;
+const START_WALL_BOUNCE = 0.08;
+const START_WALL_SPIN_DAMP = 0.35;
 
 const DPR_CAP = 1.5;
 
-// Dense staircase: the map is built mostly from cube-sized ledges with frequent
-// one- and two-level rises. Wide recovery shelves are intentionally rare.
-const LEVEL = 20;
-const PX_PER_M = 42;
-const WORLD_LEN = 9000;
+const LEVEL = 18; // vertical height of one staircase "level"; lower = shallower pits/steps
+const PX_PER_M = 42; // world px per displayed "meter"
+const WORLD_LEN = 9000; // generate staircase until this world x is covered
 
-const CAM_LERP = 5.8;
-const PARALLAX = 0.1;
+const CAM_LERP = 6.5; // camera smoothing (higher = snappier)
+const PARALLAX = 0.1; // background parallax factor
 
-const MAX_PARTICLES = 110;
+const MAX_PARTICLES = 150;
+
+// Friendly landing assist: only when the cube lands mostly on top/inside a step,
+// not on risky edges. This keeps the "can roll back" drama, but makes clean
+// landings feel fair instead of instantly sliding away.
+const LANDING_EDGE_PAD = CUBE * 0.14;
+const LANDING_ASSIST_LINEAR = 1.55;
+const LANDING_ASSIST_ANGULAR = 2.45;
+const LANDING_ASSIST_VERTICAL = 1.15;
 
 /* ===========================================================================
  * Deterministic RNG + seeded staircase generation
@@ -145,83 +141,48 @@ interface Stairs {
 function generateStairs(seed: number): Stairs {
   const rnd = mulberry32(seed);
   const steps: Step[] = [];
-
   let x = 0;
-  let topY = 548;
-  const MIN_TOP = -6200;
-  const MAX_TOP = 640;
-
-  // One real launch pad, then almost continuous small staircase. A short shelf
-  // appears only after a long technical section and is never large enough to
-  // become a free reset zone.
-  let rareShelfIn = 24 + Math.floor(rnd() * 15);
-  let burstLeft = 8 + Math.floor(rnd() * 9);
-  let burstKind = Math.floor(rnd() * 3); // 0 regular, 1 steep, 2 jagged
-  let stepNo = 0;
+  // Y grows downward, so SMALLER topY = HIGHER up. The ladder now feels much
+  // closer to the reference: compact cube-sized ledges, a clearly steeper climb,
+  // and occasional small safe zones where a good landing can settle instead of
+  // instantly rolling back down.
+  let topY = 540;
+  const MIN_TOP = -3200; // highest the climb may reach; gentler than before
+  const MAX_TOP = 620; // lowest point (start area / after the rare down steps)
+  let nextSafeIn = 8 + Math.floor(rnd() * 5);
 
   while (x < WORLD_LEN) {
-    const startPad = steps.length === 0;
-    const rareShelf = !startPad && rareShelfIn <= 0;
+    const platform = steps.length < 2; // first couple of steps: calm shared launch pad
+    const safeZone = !platform && nextSafeIn <= 0;
 
+    // Width: harder again. Most ledges are now narrow, wide breathers are rare,
+    // and recovery zones are not huge. This keeps the start wall fix, but brings
+    // back the skill requirement of precise landings.
+    const wr = rnd();
     let width: number;
-    let deltaLevels = 0;
+    if (platform) width = 128 + rnd() * 18; // safe start, but a bit tighter
+    else if (safeZone) width = CUBE * (1.2 + rnd() * 0.1); // recovery ledge, no longer wide
+    else if (wr < 0.66) width = CUBE * (1.0 + rnd() * 0.07); // very common: tight ledges
+    else if (wr < 0.91) width = CUBE * (1.08 + rnd() * 0.08); // narrow but fair
+    else if (wr < 0.99) width = CUBE * (1.18 + rnd() * 0.08); // rare medium ledge
+    else width = CUBE * (1.3 + rnd() * 0.08); // very rare wide breather
 
-    if (startPad) {
-      width = CUBE * 4.6;
-      deltaLevels = 0;
-    } else if (rareShelf) {
-      // Not a giant safe zone: just a slightly wider breath between long runs.
-      width = CUBE * (1.48 + rnd() * 0.42);
-      deltaLevels = rnd() < 0.72 ? 0 : -1;
-      rareShelfIn = 27 + Math.floor(rnd() * 18);
-      burstLeft = 9 + Math.floor(rnd() * 9);
-      burstKind = Math.floor(rnd() * 3);
-    } else {
-      // Roughly 80% of the route is almost exactly cube-width. Some ledges are
-      // even slightly narrower, so a lazy flat landing is not always enough.
-      const wr = rnd();
-      if (wr < 0.16) width = CUBE * (0.86 + rnd() * 0.08);
-      else if (wr < 0.79) width = CUBE * (0.94 + rnd() * 0.09);
-      else if (wr < 0.95) width = CUBE * (1.04 + rnd() * 0.11);
-      else width = CUBE * (1.18 + rnd() * 0.16);
+    // Height change: still avoids ugly deep pits, but less flat than the easy version.
+    const hr = rnd();
+    let delta: number;
+    if (platform) delta = 0; // flat launch pad
+    else if (safeZone) delta = rnd() < 0.52 ? 0 : -1; // recovery is fair, not free
+    else if (hr < 0.61) delta = -1; // up one level, main rhythm
+    else if (hr < 0.76) delta = -2; // some two-level climbs for challenge
+    else if (hr < 0.985) delta = 0; // breathers, but less dominant
+    else delta = 1; // extremely rare one-level down step only
 
-      const hr = rnd();
-      if (burstKind === 0) {
-        // Classic staircase run: mostly one-level climbs with occasional flat teeth.
-        if (hr < 0.72) deltaLevels = -1;
-        else if (hr < 0.86) deltaLevels = 0;
-        else if (hr < 0.96) deltaLevels = -2;
-        else deltaLevels = 1;
-      } else if (burstKind === 1) {
-        // Steep technical burst: double risers are common and force a stronger shot.
-        if (hr < 0.48) deltaLevels = -1;
-        else if (hr < 0.76) deltaLevels = -2;
-        else if (hr < 0.9) deltaLevels = 0;
-        else deltaLevels = 1;
-      } else {
-        // Jagged teeth: the route changes rhythm instead of becoming a simple ramp.
-        const tooth = stepNo % 6;
-        if (tooth === 0 || tooth === 3) deltaLevels = -2;
-        else if (tooth === 1) deltaLevels = 0;
-        else if (tooth === 4 && hr < 0.42) deltaLevels = 1;
-        else deltaLevels = -1;
-      }
-
-      rareShelfIn -= 1;
-      burstLeft -= 1;
-      if (burstLeft <= 0) {
-        burstLeft = 7 + Math.floor(rnd() * 11);
-        burstKind = Math.floor(rnd() * 3);
-      }
-    }
-
-    topY += deltaLevels * LEVEL;
-    if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL * 2;
+    topY += delta * LEVEL;
+    if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Keep the geometry crisp and readable. Sloped tops are extremely rare;
-    // difficulty comes from ledge size and riser pattern, not slippery randomness.
-    const slope = !startPad && rnd() < 0.012 ? (rnd() - 0.5) * 0.012 : 0;
+    // Crooked tops add danger again, but without turning the map into deep holes.
+    const slope = !platform && !safeZone && rnd() < 0.2 ? (rnd() - 0.5) * 0.048 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -229,7 +190,8 @@ function generateStairs(seed: number): Stairs {
     const nmag = Math.hypot(slope, 1);
 
     const noise: number[] = [];
-    for (let i = 0; i < 5; i++) noise.push(rnd());
+    const nseg = 5;
+    for (let i = 0; i < nseg; i++) noise.push(rnd());
 
     steps.push({
       x0,
@@ -245,21 +207,23 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
-    stepNo += 1;
+    if (safeZone) nextSafeIn = 9 + Math.floor(rnd() * 6);
+    else nextSafeIn -= 1;
   }
 
+  // Compute exposed risers (a face is exposed only where one step is higher).
   let minTopY = Infinity;
   let maxTopY = -Infinity;
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const L = steps[i - 1];
     const R = steps[i + 1];
+    // This step higher (smaller topY) than left neighbor -> left face is a wall.
     s.leftExposed = !!L && s.topY < L.topY - 1;
     s.rightExposed = !!R && s.topY < R.topY - 1;
     minTopY = Math.min(minTopY, s.topY);
     maxTopY = Math.max(maxTopY, s.topY);
   }
-
   return { steps, minTopY, maxTopY };
 }
 
@@ -438,46 +402,52 @@ function createBotProvider(): MoveProvider {
     requestMove(ctx, rnd) {
       const { cube, stairs } = ctx;
       const steps = stairs.steps;
-      const hereIndex = stepIndexAt(steps, cube.x);
-      const here = steps[hereIndex];
+      const here = steps[stepIndexAt(steps, cube.x)];
 
-      let best: { score: number; step: Step; speed: number; angle: number } | null = null;
+      // Score forward steps and pick a target to aim at.
+      let best: { score: number; step: Step } | null = null;
+      let farthest: Step | null = null;
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
+        if (s.mid <= cube.x + 12) continue;
+        const range = s.mid - cube.x;
+        if (range > 560) break; // beyond plausible reach
+        farthest = s;
 
-      // Prefer a real reachable landing, not simply the farthest step. This makes
-      // the bot obey the same "calculate your landing" rhythm as the player.
-      for (let i = hereIndex + 2; i < Math.min(steps.length, hereIndex + 19); i++) {
-        const target = steps[i];
-        const dx = target.mid - cube.x;
-        if (dx < 36 || dx > 470) continue;
-
-        const dyDown = target.topY - CUBE / 2 - cube.y;
-        let angle = (44 + rnd() * 16) * (Math.PI / 180);
-        let speed = speedForTarget(dx, dyDown, angle);
-
-        for (let tries = 0; tries < 5 && speed == null; tries++) {
-          angle = Math.min(LAUNCH_ANGLE_MAX, angle + 5 * (Math.PI / 180));
-          speed = speedForTarget(dx, dyDown, angle);
-        }
-        if (speed == null || speed > MAX_LAUNCH * 1.03 || speed < MIN_LAUNCH * 0.82) continue;
-
-        const width = target.x1 - target.x0;
-        const climb = Math.max(0, (here.topY - target.topY) / LEVEL);
-        const safeBonus = width / CUBE;
-        const progress = dx / 118;
-        const powerPenalty = Math.max(0, speed - MAX_LAUNCH * 0.84) / 175;
-        const tooWidePenalty = Math.max(0, safeBonus - 1.55) * 0.4;
-        const score = safeBonus * 0.9 + progress - climb * 0.2 - powerPenalty - tooWidePenalty + (rnd() - 0.5) * 0.32;
-
-        if (!best || score > best.score) best = { score, step: target, speed, angle };
+        const widthScore = (s.x1 - s.x0) / 42; // prefer safer landings, tuned for forgiving cube-sized steps
+        const climb = (here.topY - s.topY) / LEVEL; // + means target is higher
+        const climbPenalty = climb > 0 ? climb * 0.45 : Math.abs(climb) * 0.18;
+        const reachBonus = range / 150; // reward forward progress
+        const jitter = (rnd() - 0.5) * 0.6;
+        const score = widthScore + reachBonus - climbPenalty + jitter;
+        if (!best || score > best.score) best = { score, step: s };
       }
 
-      if (!best) return DEFAULT_MOVE();
+      const target = best ? best.step : farthest;
+      if (!target) return DEFAULT_MOVE();
 
-      // Human imperfection. Enough to keep the duel interesting, but not so much
-      // that the bot seems to randomly throw itself off the staircase.
-      const speedNoise = 1 + (rnd() - 0.5) * 0.085;
-      const angleNoise = (rnd() - 0.5) * (3.6 * Math.PI / 180);
-      return moveFromAngleSpeed(best.angle + angleNoise, best.speed * speedNoise);
+      let dx = target.mid - cube.x;
+      const dyDown = target.topY - CUBE / 2 - cube.y; // + means target is below
+
+      // Personality: sometimes greedy (reach farther), sometimes cautious.
+      const mood = rnd();
+      if (mood > 0.8) dx *= 1.18; // risky overshoot
+      else if (mood < 0.22) dx *= 0.86; // play safe / short
+
+      // Pick an aim angle, steepening if a shallow shot can't clear the climb.
+      let angle = (48 + (rnd() - 0.5) * 14) * (Math.PI / 180);
+      let speed = speedForTarget(dx, dyDown, angle);
+      for (let tries = 0; tries < 4 && speed == null; tries++) {
+        angle = Math.min(LAUNCH_ANGLE_MAX, angle + 8 * (Math.PI / 180));
+        speed = speedForTarget(dx, dyDown, angle);
+      }
+      if (speed == null) speed = MAX_LAUNCH;
+
+      // Imperfect aim: never quite exact, so the bot can fall short and tumble too.
+      speed *= 1 + (rnd() - 0.5) * 0.16;
+      angle += (rnd() - 0.5) * (7 * (Math.PI / 180));
+
+      return moveFromAngleSpeed(angle, speed);
     },
   };
 }
@@ -648,14 +618,9 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       if (cube.stopped) return;
 
       cube.vy += GRAVITY * h;
-
-      // Exponential damping is stable regardless of device frame pacing.
-      const linearDamp = Math.exp(-AIR_DRAG * h);
-      const angularDamp = Math.exp(-ANG_AIR_DRAG * h);
-      cube.vx *= linearDamp;
-      cube.vy *= linearDamp;
-      cube.av *= angularDamp;
-      cube.av = clampN(cube.av, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+      cube.vx -= cube.vx * AIR_DRAG * h;
+      cube.vy -= cube.vy * AIR_DRAG * h;
+      cube.av -= cube.av * ANG_AIR_DRAG * h;
 
       cube.x += cube.vx * h;
       cube.y += cube.vy * h;
@@ -664,18 +629,25 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       const half = CUBE / 2;
       let contact = false;
       let nearSurface = false;
+      let landingAssist = 0;
       let maxImpact = 0;
-      let impactX = cube.x;
-      let impactY = cube.y + half;
+      let impactX = 0;
+      let impactY = 0;
 
+      // Invisible start wall: prevents both cubes from flying/rolling into the
+      // left-side cliff at the very beginning of the map. Nothing is rendered.
       if (cube.x - half < START_WALL_X) {
         const impact = Math.abs(cube.vx);
         cube.x = START_WALL_X + half;
         if (cube.vx < 0) cube.vx = -cube.vx * START_WALL_BOUNCE;
         cube.av *= START_WALL_SPIN_DAMP;
         cube.stillTimer = 0;
-        maxImpact = Math.max(maxImpact, impact);
-        impactX = START_WALL_X;
+
+        if (impact > maxImpact) {
+          maxImpact = impact;
+          impactX = START_WALL_X;
+          impactY = cube.y + half;
+        }
       }
 
       for (let iter = 0; iter < SOLVER_ITERS; iter++) {
@@ -686,9 +658,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           [half, -half],
           [half, half],
           [-half, half],
-        ] as const;
-
-        for (let c = 0; c < corners.length; c++) {
+        ];
+        for (let c = 0; c < 4; c++) {
           const lx = corners[c][0];
           const ly = corners[c][1];
           const rx = lx * ca - ly * sa;
@@ -698,12 +669,26 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
           const nearStep = g.stairs.steps[stepIndexAt(g.stairs.steps, pxw)];
           const nearSy = surfaceYAt(nearStep, pxw);
-          if (pyw >= nearSy - 3 && pyw <= nearSy + 7) nearSurface = true;
+          if (pyw >= nearSy - 2.5 && pyw <= nearSy + 8) {
+            nearSurface = true;
+          }
 
           const ct = terrainContact(g.stairs, pxw, pyw);
           if (!ct) continue;
           contact = true;
 
+          // Landing assist only helps if the cube is mostly over the top face,
+          // away from the dangerous edges. Edge/corner hits stay risky and can
+          // still tumble or roll back down.
+          const topFaceContact = ct.ny < -0.62;
+          const centeredOnStep =
+            cube.x > nearStep.x0 + LANDING_EDGE_PAD &&
+            cube.x < nearStep.x1 - LANDING_EDGE_PAD;
+          if (topFaceContact && centeredOnStep && cube.vy > -180) {
+            landingAssist = Math.max(landingAssist, 1);
+          }
+
+          // Relative velocity at the contact point.
           const rvx = cube.vx - cube.av * ry;
           const rvy = cube.vy + cube.av * rx;
           const vn = rvx * ct.nx + rvy * ct.ny;
@@ -711,7 +696,9 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           if (vn < 0) {
             const rn = rx * ct.ny - ry * ct.nx;
             const denom = INV_M + rn * rn * INV_I;
-            const j = Math.max(0, (-(1 + RESTITUTION) * vn) / denom);
+            let j = -(1 + RESTITUTION) * vn;
+            j = j / denom;
+            if (j < 0) j = 0;
 
             cube.vx += j * ct.nx * INV_M;
             cube.vy += j * ct.ny * INV_M;
@@ -723,9 +710,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
               impactY = pyw;
             }
 
-            // Coulomb friction transfers horizontal landing speed into rotation.
-            // That coupling is what makes edge landings naturally tip/roll instead
-            // of feeling like a square sliding on rails.
+            // Friction (tangent impulse, clamped by Coulomb).
             const rvx2 = cube.vx - cube.av * ry;
             const rvy2 = cube.vy + cube.av * rx;
             const tx = -ct.ny;
@@ -735,14 +720,15 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
             const denomT = INV_M + rt * rt * INV_I;
             let jt = -vt / denomT;
             const maxF = FRICTION * j;
-            jt = clampN(jt, -maxF, maxF);
+            if (jt > maxF) jt = maxF;
+            else if (jt < -maxF) jt = -maxF;
 
             cube.vx += jt * tx * INV_M;
             cube.vy += jt * ty * INV_M;
             cube.av += (rx * (jt * ty) - ry * (jt * tx)) * INV_I;
-            cube.av = clampN(cube.av, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
           }
 
+          // Positional correction (de-penetration).
           const corr = Math.max(ct.d - SLOP, 0) * CORR;
           if (corr > 0) {
             cube.x += ct.nx * corr;
@@ -752,25 +738,37 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       if (contact) {
-        // Dry ground contact. Linear speed and spin lose energy immediately on the
-        // surface, while the air phase stays almost undamped. This is intentionally
-        // hard and gamey: hit -> rotate/slide -> settle, without a soft floaty tail.
-        const rollDamp = Math.exp(-ROLL_RES * h);
-        const linearGroundDamp = Math.exp(-GROUND_LINEAR_DAMP * h);
-        const angularGroundDamp = Math.exp(-GROUND_ANGULAR_DAMP * h);
-        cube.vx *= rollDamp * linearGroundDamp;
-        cube.av *= rollDamp * angularGroundDamp;
+        // Extremely light rolling resistance: the cube should feel soft/arcade,
+        // able to keep rolling and tumbling instead of snapping to a stop.
+        cube.vx -= cube.vx * ROLL_RES * h;
+        cube.av -= cube.av * ROLL_RES * h;
 
-        // Kill tiny vertical solver chatter only after the actual impact is over.
-        if (Math.abs(cube.vy) < 34) cube.vy *= Math.exp(-1.4 * h);
+        if (landingAssist > 0) {
+          // A clean top-face landing gets a tiny grip/settle bonus. It is not a
+          // magnet: the cube can still roll if it lands fast or near an edge.
+          const linearGrip = Math.min(1, LANDING_ASSIST_LINEAR * h);
+          const angularGrip = Math.min(1, LANDING_ASSIST_ANGULAR * h);
+          const verticalSoft = Math.min(1, LANDING_ASSIST_VERTICAL * h);
+          cube.vx *= 1 - linearGrip * 0.22;
+          cube.av *= 1 - angularGrip * 0.34;
+          if (cube.vy > 0) cube.vy *= 1 - verticalSoft * 0.22;
+        }
       }
 
+      // Impact feedback.
       cube.dustCd -= h;
-      if (maxImpact > 165 && cube.dustCd <= 0) {
+      if (maxImpact > 170 && cube.dustCd <= 0) {
         spawnImpact(g, impactX, impactY, maxImpact);
-        cube.dustCd = 0.09;
+        cube.dustCd = 0.1;
       }
 
+      // Stop detection.
+      // The previous version required a strict contact on the exact current frame;
+      // visually the cube could already be standing still, but a tiny solver gap
+      // reset the still timer and kept the HUD stuck on “IN MOTION…”.  We accept
+      // a near-surface state too, and once the cube is visually calm we latch the
+      // stop quickly.  Faster rolls still keep going because speed/angle are above
+      // the thresholds.
       const speed = Math.hypot(cube.vx, cube.vy);
       const angsp = Math.abs(cube.av);
       const restingCandidate = (contact || nearSurface) && speed < SPEED_EPS && angsp < ANG_EPS;
@@ -782,6 +780,8 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
           cube.vx = 0;
           cube.vy = 0;
           cube.av = 0;
+          // Snap to a tidy resting orientation only at the very end, so rolling
+          // still feels soft/arcade while the cube is actually moving.
           cube.angle = Math.round(cube.angle / (Math.PI / 2)) * (Math.PI / 2);
         }
       } else {
@@ -796,17 +796,15 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     const fire = (cube: Cube, mv: LaunchMove) => {
       cube.vx = mv.vx;
       cube.vy = mv.vy;
-
-      const dir = mv.vx < 0 ? -1 : 1;
-      const jitter = (Math.random() - 0.5) * LAUNCH_SPIN_JITTER;
-      cube.av = dir * (MIN_LAUNCH_SPIN + mv.power * LAUNCH_SPIN_POWER) + jitter;
-
+      // Every throw must visibly rotate.  Random near-zero spin felt broken, so
+      // give each launch a guaranteed angular kick, with harder shots spinning more.
+      const spinDirection = Math.random() < 0.5 ? -1 : 1;
+      cube.av = spinDirection * (MIN_LAUNCH_SPIN + mv.power * LAUNCH_SPIN_POWER);
       cube.stopped = false;
       cube.stillTimer = 0;
       cube.startX = cube.x;
-      cube.y -= 1.5;
+      cube.y -= 2; // lift off the surface so launch isn't eaten by friction
     };
-
     fire(g.player, g.pendingPlayer);
     fire(g.bot, g.pendingBot);
   }, []);
@@ -873,12 +871,12 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
     const sUnder = steps[stepIndexAt(steps, p.x)];
     const groundY = surfaceYAt(sUnder, p.x);
     // Player rests at groundY - CUBE/2; place that around 67% of screen height.
-    let targetY = groundY - CUBE / 2 - v.h * 0.71;
+    let targetY = groundY - CUBE / 2 - v.h * 0.67;
 
     // Safety: if a big launch carries the cube near the top edge, ease the camera up
     // just enough to keep it on-screen (rare, thanks to the launch-speed clamp).
     const playerScreenY = p.y - targetY;
-    if (playerScreenY < v.h * 0.12) targetY = p.y - v.h * 0.12;
+    if (playerScreenY < v.h * 0.1) targetY = p.y - v.h * 0.1;
 
     const k = Math.min(1, h * CAM_LERP);
     g.cam.x += (targetX - g.cam.x) * k;
@@ -990,16 +988,13 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       const sx1 = s.x1 - camX;
       const topL = s.topY + s.slope * (s.x0 - s.mid) - camY;
       const topR = s.topY + s.slope * (s.x1 - s.mid) - camY;
-      const bottom = viewH + 64;
+      const bottom = viewH + 60;
 
-      // Tall simple columns + one crisp top cap. Less fake 2.5D geometry, more of
-      // the clean readable staircase silhouette that makes Climb Jump work.
-      const body = ctx.createLinearGradient(sx0, 0, sx1, 0);
-      body.addColorStop(0, '#15171a');
-      body.addColorStop(0.55, '#1b1d20');
-      body.addColorStop(1, '#111316');
+      const depthX = 9;
+      const depthY = 7;
 
-      ctx.fillStyle = body;
+      // Front face.
+      ctx.fillStyle = '#1b1c1e';
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
       ctx.lineTo(sx1, topR);
@@ -1008,11 +1003,12 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      const faceShade = ctx.createLinearGradient(0, Math.min(topL, topR), 0, bottom);
-      faceShade.addColorStop(0, 'rgba(255,255,255,0.05)');
-      faceShade.addColorStop(0.22, 'rgba(255,255,255,0.012)');
-      faceShade.addColorStop(1, 'rgba(0,0,0,0.44)');
-      ctx.fillStyle = faceShade;
+      // Subtle vertical shading on the front face.
+      const fg = ctx.createLinearGradient(0, Math.min(topL, topR), 0, bottom);
+      fg.addColorStop(0, 'rgba(70,72,76,0.35)');
+      fg.addColorStop(0.25, 'rgba(0,0,0,0)');
+      fg.addColorStop(1, 'rgba(0,0,0,0.45)');
+      ctx.fillStyle = fg;
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
       ctx.lineTo(sx1, topR);
@@ -1021,29 +1017,47 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       ctx.closePath();
       ctx.fill();
 
-      // Thin top surface. It reads as a physical ledge without visually making the
-      // collision surface look offset from where the cube actually lands.
-      ctx.strokeStyle = 'rgba(220,224,230,0.72)';
-      ctx.lineWidth = 1.35;
+      // Top face (receding parallelogram = pseudo-3D thickness).
+      ctx.fillStyle = '#3a3d41';
+      ctx.beginPath();
+      ctx.moveTo(sx0, topL);
+      ctx.lineTo(sx0 + depthX, topL - depthY);
+      ctx.lineTo(sx1 + depthX, topR - depthY);
+      ctx.lineTo(sx1, topR);
+      ctx.closePath();
+      ctx.fill();
+
+      // Right side face for the depth on exposed edges.
+      ctx.fillStyle = '#101113';
+      ctx.beginPath();
+      ctx.moveTo(sx1, topR);
+      ctx.lineTo(sx1 + depthX, topR - depthY);
+      ctx.lineTo(sx1 + depthX, bottom - depthY);
+      ctx.lineTo(sx1, bottom);
+      ctx.closePath();
+      ctx.fill();
+
+      // Crisp light edge along the top.
+      ctx.strokeStyle = 'rgba(214,216,220,0.75)';
+      ctx.lineWidth = 1.4;
       ctx.beginPath();
       ctx.moveTo(sx0, topL);
       ctx.lineTo(sx1, topR);
       ctx.stroke();
-
-      ctx.strokeStyle = 'rgba(91,183,255,0.09)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(150,153,158,0.5)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(sx0, topL + 2.5);
-      ctx.lineTo(sx1, topR + 2.5);
+      ctx.moveTo(sx0 + depthX, topL - depthY);
+      ctx.lineTo(sx1 + depthX, topR - depthY);
       ctx.stroke();
 
-      // Sparse stable texture flecks; enough depth without noisy concrete blocks.
-      const width = sx1 - sx0;
-      ctx.fillStyle = 'rgba(255,255,255,0.035)';
+      // Cheap deterministic texture flecks on the front face.
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      const w = sx1 - sx0;
       for (let i = 0; i < s.noise.length; i++) {
-        const nx = sx0 + s.noise[i] * width;
-        const ny = Math.min(topL, topR) + 12 + s.noise[(i + 2) % s.noise.length] * 48;
-        ctx.fillRect(nx, ny, 1.4, 1.4);
+        const nx = sx0 + s.noise[i] * w;
+        const ny = Math.min(topL, topR) + 10 + s.noise[i] * 46;
+        ctx.fillRect(nx, ny, 2, 2);
       }
     },
     [],
@@ -1233,14 +1247,14 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
 
     // --- Aim preview (player, during prep) ---
     // Uses the actual chosen launch velocity (drag, or the safe default) and draws
-    // a short dotted gravity arc plus the current pull direction.
+    // a dotted gravity arc plus, while dragging, an elastic slingshot band.
     if (g.phase === 'prep') {
       const d = dragRef.current;
       const mv = d.move ?? DEFAULT_MOVE();
       const cubeSX = g.player.x - g.cam.x;
       const cubeSY = g.player.y - g.cam.y;
 
-      // Pull guide: line from the cube to the current drag handle.
+      // Elastic band: a line from the cube to a pulled-back handle behind it.
       if (d.active) {
         const hx = cubeSX + (d.curX - d.startX);
         const hy = cubeSY + (d.curY - d.startY);
@@ -1826,7 +1840,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       {(phase === 'prep' || phase === 'resolve') && (
         <div className={`pd-launch-panel ${phase === 'resolve' ? 'pd-launch-panel-dim' : ''}`}>
           <div className="pd-launch-meta">
-            <span>{power > 0 ? 'POWER' : 'DRAG TO AIM'}</span>
+            <span>{power > 0 ? 'POWER' : 'PULL BACK TO AIM'}</span>
             <span>{power > 0 ? power : 'RELEASE TO LOCK'}</span>
           </div>
           <div className="pd-power-track">
@@ -1838,10 +1852,10 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       {phase === 'intro' && (
         <Overlay>
           <div className="pd-intro-kicker">1 V 1 · PHYSICS DUEL</div>
-          <div className="pd-intro-title">CLIMB DUEL</div>
+          <div className="pd-intro-title">CONCRETE LADDER</div>
           <div className="pd-intro-copy">
-            {TOTAL_TURNS} turns. Each turn you have {PREP_TIME}s — drag to set your jump and release to
-            lock it. Read the staircase, land cleanly and keep your momentum. Furthest cube wins.
+            {TOTAL_TURNS} turns. Each turn you have {PREP_TIME}s — pull back to aim, release to
+            launch. Climb as far up the ladder as you can. Both cubes fire at once; furthest wins.
           </div>
           <PrimaryButton label="BEGIN" onClick={startMatch} />
         </Overlay>
