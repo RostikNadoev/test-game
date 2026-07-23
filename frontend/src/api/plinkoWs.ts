@@ -41,6 +41,7 @@ export type PlinkoStateMessage = {
   phase: PlinkoPhase;
   ready: boolean;
   server_ms: number;
+  revision: number;
   start_at_ms: number;
   deadline_ms: number;
   countdown_seconds: number;
@@ -164,6 +165,7 @@ const normalizeState = (raw: Record<string, unknown>): PlinkoStateMessage => {
     phase,
     ready: booleanValue(raw.ready),
     server_ms: numberValue(raw.server_ms),
+    revision: Math.max(0, numberValue(raw.revision)),
     start_at_ms: numberValue(raw.start_at_ms),
     deadline_ms: numberValue(raw.deadline_ms),
     countdown_seconds: Math.max(1, numberValue(raw.countdown_seconds, 3)),

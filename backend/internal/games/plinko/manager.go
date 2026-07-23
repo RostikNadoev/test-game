@@ -21,7 +21,7 @@ const (
 	CountdownSeconds = 3
 	AngleSeconds     = 15
 	ActionSeconds    = 15
-	RevealMaxSeconds = 35
+	RevealMaxSeconds = 70
 	BallsPerPlayer   = 5
 	ActionsPerPlayer = 2
 	NSlots           = 10
@@ -144,6 +144,7 @@ type PublicState struct {
 	Phase            Phase                `json:"phase"`
 	Ready            bool                 `json:"ready"`
 	ServerMS         int64                `json:"server_ms"`
+	Revision         uint64               `json:"revision"`
 	StartAtMS        int64                `json:"start_at_ms,omitempty"`
 	DeadlineMS       int64                `json:"deadline_ms,omitempty"`
 	CountdownSeconds int                  `json:"countdown_seconds"`
@@ -266,6 +267,7 @@ type Session struct {
 	loopStarted   bool
 	onMatchOver   func(lobbyID string, winnerUserID *uint)
 	lastBroadcast time.Time
+	revision      uint64
 }
 
 func newSession(lobbyID string, ids []uint, onMatchOver func(string, *uint)) *Session {
@@ -794,6 +796,7 @@ func (s *Session) publicStateForLocked(userID uint, message string) PublicState 
 		Phase:            s.phase,
 		Ready:            s.allReadyLocked(),
 		ServerMS:         time.Now().UnixMilli(),
+		Revision:         s.revision,
 		StartAtMS:        millis(s.startAt),
 		DeadlineMS:       millis(s.deadline),
 		CountdownSeconds: CountdownSeconds,
@@ -872,6 +875,11 @@ func (s *Session) sendErrorLocked(userID uint, message string) {
 }
 
 func (s *Session) broadcastStateLocked(message string) {
+	// Every broadcast gets a monotonically increasing revision. WebSocket writes
+	// are intentionally asynchronous, so packets from two consecutive states
+	// can arrive out of order on a client. The frontend ignores an older revision
+	// instead of visually rolling the match back (for example match_over -> reveal).
+	s.revision++
 	for userID, cl := range s.clients {
 		payload := s.publicStateForLocked(userID, message)
 		clientCopy := cl

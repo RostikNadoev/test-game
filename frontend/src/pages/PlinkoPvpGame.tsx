@@ -31,7 +31,7 @@ const CFG = {
   LAUNCH_VY: 20,
   pegFric: 0.06,
   SUBSTEPS_PER_FRAME: 4,
-  REVEAL_SPEED: 1.65,
+  REVEAL_SPEED: 1.12,
   MAX_DPR: 1.45,
   TRAIL_MAX: 8,
   MAX_PARTICLES: 90,
@@ -677,11 +677,13 @@ export default function PlinkoPvpGame() {
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
   const [resultReady, setResultReady] = useState(false);
+  const [awaitingResult, setAwaitingResult] = useState(false);
 
   const socketRef = useRef<PlinkoSocketClient | null>(null);
   const autoReadySentRef = useRef(false);
   const serverOffsetRef = useRef(0);
   const latestStateRef = useRef<PlinkoStateMessage | null>(null);
+  const lastStateRevisionRef = useRef(-1);
   const resultHandledRef = useRef(false);
   const revealStartedRef = useRef(false);
   const revealDoneSentRef = useRef(false);
@@ -801,9 +803,12 @@ export default function PlinkoPvpGame() {
     cv.style.width = `${w}px`;
     cv.style.height = `${h}px`;
 
-    // HUD прижат к самому верху, поэтому поле начинается ниже и не залезает под него.
+    // На фазе действий стаканы должны полностью оставаться выше нижней панели.
+    // В остальных фазах сохраняем прежний размер поля и ту же геометрию,
+    // которая была в приятной локальной версии игры.
     const reservedTop = 74 * dpr;
-    const reservedBottom = 156 * dpr;
+    const reservedBottomCss = phase === "actions" ? 208 : 156;
+    const reservedBottom = reservedBottomCss * dpr;
     const usableH = Math.max(240 * dpr, cv.height - reservedTop - reservedBottom);
     const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH) * 0.93;
     const boardW = CFG.VW * scale;
@@ -816,7 +821,7 @@ export default function PlinkoPvpGame() {
       offY: reservedTop + Math.max(0, freeY * 0.08),
       dpr,
     };
-  }, []);
+  }, [phase]);
 
   useEffect(() => {
     resize();
@@ -904,13 +909,22 @@ export default function PlinkoPvpGame() {
       ctx.fillStyle = "rgba(0,0,0,0.2)";
       ctx.fillRect(lx + width * 0.16, bot - S(3), width * 0.68, S(1.3));
 
+      const cupLabel = showValues ? `x${fmt(val)}` : "?";
+      const cupFontSize = showValues
+        ? cupLabel.length >= 5
+          ? 7.2
+          : cupLabel.length >= 4
+            ? 8.2
+            : 9.2
+        : 10;
+
       ctx.shadowColor = showValues ? col : "rgba(255,255,255,0.3)";
-      ctx.shadowBlur = showValues ? S(7) : S(2);
+      ctx.shadowBlur = showValues ? S(5) : S(2);
       ctx.fillStyle = showValues ? "#fff" : "rgba(255,255,255,0.5)";
-      ctx.font = `900 ${S(showValues && val >= 8 ? 13.8 : 12.2)}px "Supercell", "Inter", system-ui, sans-serif`;
+      ctx.font = `900 ${S(cupFontSize)}px "Supercell", "Inter", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(showValues ? `x${fmt(val)}` : "?", X(cx), (top + bot) / 2 + S(1));
+      ctx.fillText(cupLabel, X(cx), (top + bot) / 2 + S(1));
       ctx.shadowBlur = 0;
 
       if (showValues && !isReveal && factorOf(viewer, i) !== 1) {
@@ -918,7 +932,7 @@ export default function PlinkoPvpGame() {
         ctx.fillStyle = PLAYERS[viewer].color;
         ctx.shadowColor = PLAYERS[viewer].color;
         ctx.shadowBlur = S(6);
-        ctx.font = `900 ${S(6.8)}px "Supercell", "Inter", system-ui, sans-serif`;
+        ctx.font = `900 ${S(5.4)}px "Supercell", "Inter", system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(label, X(cx), top - S(6));
@@ -1332,6 +1346,8 @@ export default function PlinkoPvpGame() {
           client.requestState();
         },
         onState: (state) => {
+          if (state.revision < lastStateRevisionRef.current) return;
+          lastStateRevisionRef.current = Math.max(lastStateRevisionRef.current, state.revision);
           latestStateRef.current = state;
           setServerState(state);
           setSocketError(null);
@@ -1391,6 +1407,7 @@ export default function PlinkoPvpGame() {
     if (state.phase === "countdown") {
       setPhase("countdown");
       setResultReady(false);
+      setAwaitingResult(false);
       revealStartedRef.current = false;
       revealDoneSentRef.current = false;
       setScores([1, 1]);
@@ -1418,6 +1435,7 @@ export default function PlinkoPvpGame() {
       const ownFinalScore = state.players[String(myUserId)]?.score ?? 1;
       const rivalFinalScore = rivalID ? (state.players[String(rivalID)]?.score ?? 1) : 1;
       setScores([ownFinalScore, rivalFinalScore]);
+      setAwaitingResult(false);
       setResultReady(true);
       setPhase("result");
     } else {
@@ -1467,6 +1485,7 @@ export default function PlinkoPvpGame() {
 
     revealStartedRef.current = true;
     revealDoneSentRef.current = false;
+    setAwaitingResult(false);
     revealData.current = buildRevealVisuals(state.reveal, state);
     processedLandings.current.clear();
     particles.current = [];
@@ -1578,7 +1597,7 @@ export default function PlinkoPvpGame() {
       player: data.player,
       ballIdx: idx,
       landed: playback.current.landed,
-      pausing: 8,
+      pausing: 12,
       done: false,
       trail: [],
     };
@@ -1606,17 +1625,31 @@ export default function PlinkoPvpGame() {
         setLastGain(null);
         if (!revealDoneSentRef.current) {
           revealDoneSentRef.current = true;
+          setAwaitingResult(true);
           socketRef.current?.revealDone();
+          socketRef.current?.requestState();
         }
-      }, 700);
+      }, 1100);
       return;
     }
 
     window.setTimeout(() => {
       setLastGain(null);
       loadBall(nextIdx);
-    }, 520);
+    }, 850);
   };
+
+  useEffect(() => {
+    if (!awaitingResult || phase !== "reveal") return;
+
+    const requestLatestState = () => {
+      socketRef.current?.requestState();
+    };
+
+    requestLatestState();
+    const id = window.setInterval(requestLatestState, 650);
+    return () => window.clearInterval(id);
+  }, [awaitingResult, phase]);
 
   useEffect(() => {
     if (serverState?.phase !== "match_over" || resultHandledRef.current) return;
@@ -1760,7 +1793,7 @@ export default function PlinkoPvpGame() {
               <WaitingDock title="Действия готовы" subtitle={`Соперник: ${Math.min(serverState?.players[String(opponentUserId)]?.actions_used || 0, CFG.ACTIONS_PER_TURN)}/${CFG.ACTIONS_PER_TURN}`} />
             ) : (
               <>
-                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   {([
                     { m: "x2" as ActionMode, label: "x2" },
                     { m: "half" as ActionMode, label: "/2" },
@@ -1768,19 +1801,37 @@ export default function PlinkoPvpGame() {
                   ]).map((button) => {
                     const on = actionMode === button.m;
                     return (
-                      <button key={button.m} type="button" disabled={actionsLeft <= 0} onClick={() => { hapticSelection(); setActionMode(on ? null : button.m); }} className={`press h-9 min-w-0 rounded-[14px] border px-2 text-[11px] font-black plinko-safe-text disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}>
+                      <button
+                        key={button.m}
+                        type="button"
+                        disabled={actionsLeft <= 0}
+                        onClick={() => {
+                          hapticSelection();
+                          setActionMode(on ? null : button.m);
+                        }}
+                        className={`press h-10 min-w-0 rounded-[14px] border px-2 text-[11px] font-black plinko-safe-text disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}
+                      >
                         {button.label}
                       </button>
                     );
                   })}
-                  <button type="button" onClick={submitActions} className="press h-9 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3 text-[9px] font-black text-white/60 plinko-safe-text">Готово</button>
                 </div>
-                <div className="mt-1 flex items-center justify-center text-center text-[8px] font-bold text-white/36 plinko-safe-text">
-                  {actionMode === "wall"
-                    ? "Поставьте стенку между пегами · выбор соперника скрыт"
-                    : actionMode
-                      ? "Выберите стакан · выбор соперника скрыт"
-                      : `Множители открыты · выберите до ${actionsLeft} действий`}
+
+                <div className="mt-1.5 flex min-h-9 items-center gap-2">
+                  <div className="min-w-0 flex-1 text-center text-[7px] font-bold leading-[1.55] text-white/36 plinko-safe-text">
+                    {actionMode === "wall"
+                      ? "Выберите место стены между пегами"
+                      : actionMode
+                        ? "Теперь нажмите нужный стакан"
+                        : `Множители открыты · осталось действий: ${actionsLeft}`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={submitActions}
+                    className="press h-9 shrink-0 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3.5 text-[8px] font-black text-white/62 plinko-safe-text"
+                  >
+                    Готово
+                  </button>
                 </div>
               </>
             )}
@@ -1792,7 +1843,7 @@ export default function PlinkoPvpGame() {
         <StartOverlay phase={phase} countdown={countdown} connectionStatus={connectionStatus} error={socketError} />
       )}
 
-      {phase === "reveal" && revealDoneSentRef.current && (
+      {phase === "reveal" && awaitingResult && (
         <div className="plinko-dock pointer-events-none fixed inset-x-0 z-30 px-3">
           <div className="mx-auto max-w-[330px] rounded-[18px] border border-white/[0.08] bg-[#09090d]/88 px-4 py-3 text-center shadow-[0_18px_42px_rgba(0,0,0,.45)] backdrop-blur-xl">
             <div className="plinko-safe-text text-[9px] font-black uppercase tracking-[0.14em] text-white/38">Вскрытие завершено</div>
