@@ -44,45 +44,46 @@ const TOTAL_TURNS = 15;
 const PREP_TIME = 5;
 const MAX_RESOLVE = 12;
 
-// A smaller fixed step + a few more solver passes makes corner landings much less
-// jittery on 60/120 Hz phones while keeping the engine lightweight.
+// Tight fixed-step physics. The cube should react immediately to corners and
+// risers without the soft, slow correction that made the previous build feel "watery".
 const FIXED_DT = 1 / 180;
 const MAX_SUBSTEPS = 9;
-const SOLVER_ITERS = 7;
+const SOLVER_ITERS = 8;
 
-// Climb-Jump-like feel: slightly floatier arc, low air resistance and enough
-// restitution to keep a bad corner landing alive without turning the cube rubbery.
-const GRAVITY = 1850;
-const AIR_DRAG = 0.01;
-const ANG_AIR_DRAG = 0.11;
-const ROLL_RES = 0.18;
-const RESTITUTION = 0.16;
-const FRICTION = 0.25;
-const MAX_ANGULAR_SPEED = 11.5;
+// Hard arcade body: fast ballistic arc, almost no bounce, strong dry contact.
+// Air rotation remains visible, but ground contact kills excess motion quickly.
+const GRAVITY = 2450;
+const AIR_DRAG = 0.007;
+const ANG_AIR_DRAG = 0.075;
+const ROLL_RES = 0.72;
+const RESTITUTION = 0.055;
+const FRICTION = 0.48;
+const MAX_ANGULAR_SPEED = 10.2;
+const GROUND_ANGULAR_DAMP = 1.35;
+const GROUND_LINEAR_DAMP = 0.42;
 
 /* --- Drag-to-launch tuning --- */
-const DRAG_SCALE = 4.8;
-const MIN_LAUNCH = 240;
-const MAX_LAUNCH = 990;
+const DRAG_SCALE = 5.45;
+const MIN_LAUNCH = 275;
+const MAX_LAUNCH = 1190;
 const MIN_PULL = 10;
-const LAUNCH_ANGLE_MIN = (25 * Math.PI) / 180;
-const LAUNCH_ANGLE_MAX = (75 * Math.PI) / 180;
-const DEFAULT_ANGLE = (50 * Math.PI) / 180;
-const DEFAULT_SPEED = 445;
+const LAUNCH_ANGLE_MIN = (19 * Math.PI) / 180;
+const LAUNCH_ANGLE_MAX = (69 * Math.PI) / 180;
+const DEFAULT_ANGLE = (44 * Math.PI) / 180;
+const DEFAULT_SPEED = 510;
 
-// Rotation follows horizontal launch direction instead of being random. This is
-// the biggest change to how the cube "feels": rightward shots naturally tumble
-// clockwise, leftward recovery shots tumble the other way.
-const MIN_LAUNCH_SPIN = 2.05;
-const LAUNCH_SPIN_POWER = 0.034;
-const LAUNCH_SPIN_JITTER = 0.28;
+// Spin follows launch direction and is deliberately restrained. The cube still
+// tumbles, but it feels dense rather than floaty or pinwheel-like.
+const MIN_LAUNCH_SPIN = 1.45;
+const LAUNCH_SPIN_POWER = 0.024;
+const LAUNCH_SPIN_JITTER = 0.08;
 
-const SLOP = 0.35;
-const CORR = 0.72;
+const SLOP = 0.18;
+const CORR = 0.88;
 
-const SPEED_EPS = 10;
-const ANG_EPS = 0.28;
-const STILL_TIME = 0.34;
+const SPEED_EPS = 15;
+const ANG_EPS = 0.42;
+const STILL_TIME = 0.22;
 
 const CUBE = 26;
 const CUBE_MASS = 1;
@@ -95,9 +96,9 @@ const START_WALL_SPIN_DAMP = 0.28;
 
 const DPR_CAP = 1.5;
 
-// The reference game has a clear staircase rhythm: small upward steps grouped
-// into runs, then long flat ledges where a good landing can settle.
-const LEVEL = 22;
+// Dense staircase: the map is built mostly from cube-sized ledges with frequent
+// one- and two-level rises. Wide recovery shelves are intentionally rare.
+const LEVEL = 20;
 const PX_PER_M = 42;
 const WORLD_LEN = 9000;
 
@@ -147,59 +148,80 @@ function generateStairs(seed: number): Stairs {
 
   let x = 0;
   let topY = 548;
-  const MIN_TOP = -5600;
+  const MIN_TOP = -6200;
   const MAX_TOP = 640;
 
-  // A "run" is a staircase burst. At the end of each burst we insert a longer
-  // landing shelf. This gives the level the readable rhythm visible in Climb Jump
-  // instead of looking like uniform procedural noise.
-  let runLeft = 5 + Math.floor(rnd() * 4);
-  let justHadPlateau = false;
+  // One real launch pad, then almost continuous small staircase. A short shelf
+  // appears only after a long technical section and is never large enough to
+  // become a free reset zone.
+  let rareShelfIn = 24 + Math.floor(rnd() * 15);
+  let burstLeft = 8 + Math.floor(rnd() * 9);
+  let burstKind = Math.floor(rnd() * 3); // 0 regular, 1 steep, 2 jagged
+  let stepNo = 0;
 
   while (x < WORLD_LEN) {
-    const startPad = steps.length < 2;
-    const plateau = !startPad && runLeft <= 0;
+    const startPad = steps.length === 0;
+    const rareShelf = !startPad && rareShelfIn <= 0;
 
     let width: number;
     let deltaLevels = 0;
 
     if (startPad) {
-      width = 142 + rnd() * 18;
+      width = CUBE * 4.6;
       deltaLevels = 0;
-    } else if (plateau) {
-      // Long breathers are a signature part of the route. They also make a clean
-      // landing meaningful because the cube can actually settle before the next jump.
-      width = CUBE * (3.35 + rnd() * 2.05);
-      const pr = rnd();
-      deltaLevels = pr < 0.58 ? 0 : pr < 0.92 ? -1 : 1;
-      runLeft = 5 + Math.floor(rnd() * 5);
-      justHadPlateau = true;
+    } else if (rareShelf) {
+      // Not a giant safe zone: just a slightly wider breath between long runs.
+      width = CUBE * (1.48 + rnd() * 0.42);
+      deltaLevels = rnd() < 0.72 ? 0 : -1;
+      rareShelfIn = 27 + Math.floor(rnd() * 18);
+      burstLeft = 9 + Math.floor(rnd() * 9);
+      burstKind = Math.floor(rnd() * 3);
     } else {
+      // Roughly 80% of the route is almost exactly cube-width. Some ledges are
+      // even slightly narrower, so a lazy flat landing is not always enough.
       const wr = rnd();
-      if (wr < 0.5) width = CUBE * (1.02 + rnd() * 0.17);
-      else if (wr < 0.86) width = CUBE * (1.2 + rnd() * 0.34);
-      else width = CUBE * (1.58 + rnd() * 0.48);
+      if (wr < 0.16) width = CUBE * (0.86 + rnd() * 0.08);
+      else if (wr < 0.79) width = CUBE * (0.94 + rnd() * 0.09);
+      else if (wr < 0.95) width = CUBE * (1.04 + rnd() * 0.11);
+      else width = CUBE * (1.18 + rnd() * 0.16);
 
-      // Mostly climb one level at a time. Two-level jumps exist, but are rare
-      // enough to feel like deliberate obstacles instead of random punishment.
       const hr = rnd();
-      if (justHadPlateau && hr < 0.28) deltaLevels = -2;
-      else if (hr < 0.72) deltaLevels = -1;
-      else if (hr < 0.87) deltaLevels = 0;
-      else if (hr < 0.97) deltaLevels = -2;
-      else deltaLevels = 1;
+      if (burstKind === 0) {
+        // Classic staircase run: mostly one-level climbs with occasional flat teeth.
+        if (hr < 0.72) deltaLevels = -1;
+        else if (hr < 0.86) deltaLevels = 0;
+        else if (hr < 0.96) deltaLevels = -2;
+        else deltaLevels = 1;
+      } else if (burstKind === 1) {
+        // Steep technical burst: double risers are common and force a stronger shot.
+        if (hr < 0.48) deltaLevels = -1;
+        else if (hr < 0.76) deltaLevels = -2;
+        else if (hr < 0.9) deltaLevels = 0;
+        else deltaLevels = 1;
+      } else {
+        // Jagged teeth: the route changes rhythm instead of becoming a simple ramp.
+        const tooth = stepNo % 6;
+        if (tooth === 0 || tooth === 3) deltaLevels = -2;
+        else if (tooth === 1) deltaLevels = 0;
+        else if (tooth === 4 && hr < 0.42) deltaLevels = 1;
+        else deltaLevels = -1;
+      }
 
-      runLeft -= 1;
-      justHadPlateau = false;
+      rareShelfIn -= 1;
+      burstLeft -= 1;
+      if (burstLeft <= 0) {
+        burstLeft = 7 + Math.floor(rnd() * 11);
+        burstKind = Math.floor(rnd() * 3);
+      }
     }
 
     topY += deltaLevels * LEVEL;
     if (topY < MIN_TOP) topY = MIN_TOP + rnd() * LEVEL * 2;
     if (topY > MAX_TOP) topY = MAX_TOP - rnd() * LEVEL;
 
-    // Climb Jump's staircase is visually blocky and readable. Keep almost every
-    // top perfectly flat; a tiny tilt appears only occasionally for physics variety.
-    const slope = !startPad && !plateau && rnd() < 0.055 ? (rnd() - 0.5) * 0.022 : 0;
+    // Keep the geometry crisp and readable. Sloped tops are extremely rare;
+    // difficulty comes from ledge size and riser pattern, not slippery randomness.
+    const slope = !startPad && rnd() < 0.012 ? (rnd() - 0.5) * 0.012 : 0;
 
     const x0 = x;
     const x1 = x + width;
@@ -223,6 +245,7 @@ function generateStairs(seed: number): Stairs {
     });
 
     x = x1;
+    stepNo += 1;
   }
 
   let minTopY = Infinity;
@@ -422,10 +445,10 @@ function createBotProvider(): MoveProvider {
 
       // Prefer a real reachable landing, not simply the farthest step. This makes
       // the bot obey the same "calculate your landing" rhythm as the player.
-      for (let i = hereIndex + 1; i < Math.min(steps.length, hereIndex + 13); i++) {
+      for (let i = hereIndex + 2; i < Math.min(steps.length, hereIndex + 19); i++) {
         const target = steps[i];
         const dx = target.mid - cube.x;
-        if (dx < 28 || dx > 500) continue;
+        if (dx < 36 || dx > 470) continue;
 
         const dyDown = target.topY - CUBE / 2 - cube.y;
         let angle = (44 + rnd() * 16) * (Math.PI / 180);
@@ -440,9 +463,10 @@ function createBotProvider(): MoveProvider {
         const width = target.x1 - target.x0;
         const climb = Math.max(0, (here.topY - target.topY) / LEVEL);
         const safeBonus = width / CUBE;
-        const progress = dx / 110;
-        const powerPenalty = Math.max(0, speed - MAX_LAUNCH * 0.82) / 160;
-        const score = safeBonus * 1.35 + progress - climb * 0.22 - powerPenalty + (rnd() - 0.5) * 0.34;
+        const progress = dx / 118;
+        const powerPenalty = Math.max(0, speed - MAX_LAUNCH * 0.84) / 175;
+        const tooWidePenalty = Math.max(0, safeBonus - 1.55) * 0.4;
+        const score = safeBonus * 0.9 + progress - climb * 0.2 - powerPenalty - tooWidePenalty + (rnd() - 0.5) * 0.32;
 
         if (!best || score > best.score) best = { score, step: target, speed, angle };
       }
@@ -451,8 +475,8 @@ function createBotProvider(): MoveProvider {
 
       // Human imperfection. Enough to keep the duel interesting, but not so much
       // that the bot seems to randomly throw itself off the staircase.
-      const speedNoise = 1 + (rnd() - 0.5) * 0.105;
-      const angleNoise = (rnd() - 0.5) * (4.5 * Math.PI / 180);
+      const speedNoise = 1 + (rnd() - 0.5) * 0.085;
+      const angleNoise = (rnd() - 0.5) * (3.6 * Math.PI / 180);
       return moveFromAngleSpeed(best.angle + angleNoise, best.speed * speedNoise);
     },
   };
@@ -728,24 +752,23 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ seed, onExit }) => {
       }
 
       if (contact) {
+        // Dry ground contact. Linear speed and spin lose energy immediately on the
+        // surface, while the air phase stays almost undamped. This is intentionally
+        // hard and gamey: hit -> rotate/slide -> settle, without a soft floaty tail.
         const rollDamp = Math.exp(-ROLL_RES * h);
-        cube.vx *= rollDamp;
-        cube.av *= rollDamp;
+        const linearGroundDamp = Math.exp(-GROUND_LINEAR_DAMP * h);
+        const angularGroundDamp = Math.exp(-GROUND_ANGULAR_DAMP * h);
+        cube.vx *= rollDamp * linearGroundDamp;
+        cube.av *= rollDamp * angularGroundDamp;
 
-        // No magnetic landing assist. Only when the cube is already nearly calm do
-        // we add a very small sleep-friendly damping so it doesn't micro-jitter forever.
-        const lowMotion = Math.abs(cube.vx) < 48 && Math.abs(cube.vy) < 44 && Math.abs(cube.av) < 1.8;
-        if (lowMotion) {
-          cube.vx *= Math.exp(-0.7 * h);
-          cube.av *= Math.exp(-1.0 * h);
-          if (cube.vy > 0) cube.vy *= Math.exp(-0.55 * h);
-        }
+        // Kill tiny vertical solver chatter only after the actual impact is over.
+        if (Math.abs(cube.vy) < 34) cube.vy *= Math.exp(-1.4 * h);
       }
 
       cube.dustCd -= h;
-      if (maxImpact > 190 && cube.dustCd <= 0) {
+      if (maxImpact > 165 && cube.dustCd <= 0) {
         spawnImpact(g, impactX, impactY, maxImpact);
-        cube.dustCd = 0.12;
+        cube.dustCd = 0.09;
       }
 
       const speed = Math.hypot(cube.vx, cube.vy);
