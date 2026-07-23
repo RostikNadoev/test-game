@@ -10,6 +10,7 @@ import (
 	"tg-lobbies-base/internal/games/dunkshot"
 	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
+	"tg-lobbies-base/internal/games/plinko"
 	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/games/towerstack"
 	"tg-lobbies-base/internal/handlers"
@@ -81,6 +82,12 @@ func main() {
 	paperManager := paperio.NewManager()
 	go paperManager.CleanupLoop()
 	paperManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
+	plinkoManager := plinko.NewManager()
+	go plinkoManager.CleanupLoop()
+	plinkoManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
@@ -170,11 +177,10 @@ func main() {
 		Manager:    towerManager,
 	}
 
-	plinkoWSHandler := handlers.PvpWSHandler{
+	plinkoWSHandler := handlers.PlinkoWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
-		Manager:    pvpManager,
-		GameCode:   "plinko_pvp",
+		Manager:    plinkoManager,
 	}
 
 	raceWSHandler := handlers.PvpWSHandler{
