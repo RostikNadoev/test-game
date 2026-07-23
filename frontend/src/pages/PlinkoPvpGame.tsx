@@ -33,7 +33,6 @@ const CFG = {
   SUBSTEPS_PER_FRAME: 4,
   REVEAL_SPEED: 1.12,
   MAX_DPR: 1.45,
-  TRAIL_MAX: 8,
   MAX_PARTICLES: 90,
   MAX_POPS: 18,
   VALUES: [9, 6, 3.5, 2, 1.2, 1.1, 1.8, 3.2, 5.5, 8.5] as number[],
@@ -557,13 +556,31 @@ const PLINKO_SOCKET_CSS = `
   .plinko-result-name { line-height: 1.4; padding-top: .03em; padding-bottom: .07em; }
   .plinko-result-score { line-height: 1.34; padding-top: .03em; padding-bottom: .08em; }
   .plinko-status-pill { line-height: 1.4; padding-top: .05em; padding-bottom: .08em; }
+  .plinko-actions-dock {
+    bottom: max(env(safe-area-inset-bottom, 0px), 4px);
+  }
+  .plinko-actions-panel {
+    padding: 8px;
+  }
+  .plinko-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .plinko-actions-help {
+    min-height: 25px;
+  }
+  .plinko-result-backdrop {
+    animation: plinkoResultFade .2s ease-out both;
+  }
   @keyframes plinkoCountPop {
-    0% { opacity:0; transform:scale(.5); filter:blur(7px); }
-    45% { opacity:1; transform:scale(1.12); filter:blur(0); }
+    0% { opacity:0; transform:scale(.72); }
+    55% { opacity:1; transform:scale(1.06); }
     100% { opacity:1; transform:scale(1); }
   }
   @keyframes plinkoReadyPulse { 0%,100%{opacity:.5;transform:scale(.9)} 50%{opacity:1;transform:scale(1)} }
-  @keyframes plinkoResultIn { from{opacity:0;transform:translateY(16px) scale(.965)} to{opacity:1;transform:none} }
+  @keyframes plinkoResultIn { from{opacity:0;transform:translateY(10px) scale(.975)} to{opacity:1;transform:none} }
+  @keyframes plinkoResultFade { from{opacity:0} to{opacity:1} }
 `;
 
 
@@ -687,6 +704,7 @@ export default function PlinkoPvpGame() {
   const resultHandledRef = useRef(false);
   const revealStartedRef = useRef(false);
   const revealDoneSentRef = useRef(false);
+  const previousServerPhaseRef = useRef<PlinkoStateMessage["phase"] | null>(null);
 
   const opponentUserId =
     serverState?.player_order.find((id) => id !== myUserId) ||
@@ -780,8 +798,7 @@ export default function PlinkoPvpGame() {
     landed: { x: number; y: number; color: string }[];
     pausing: number;
     done: boolean;
-    trail: number[][];
-  }>({ path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] });
+  }>({ path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false });
 
   const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues });
   useEffect(() => {
@@ -807,10 +824,13 @@ export default function PlinkoPvpGame() {
     // В остальных фазах сохраняем прежний размер поля и ту же геометрию,
     // которая была в приятной локальной версии игры.
     const reservedTop = 74 * dpr;
-    const reservedBottomCss = phase === "actions" ? 208 : 156;
+    const reservedBottomCss = phase === "actions" ? 252 : 156;
     const reservedBottom = reservedBottomCss * dpr;
-    const usableH = Math.max(240 * dpr, cv.height - reservedTop - reservedBottom);
-    const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH) * 0.93;
+    const rawUsableH = cv.height - reservedTop - reservedBottom;
+    const minBoardHeight = phase === "actions" ? 165 * dpr : 220 * dpr;
+    const usableH = Math.max(minBoardHeight, rawUsableH);
+    const phaseScale = phase === "actions" ? 0.88 : 0.93;
+    const scale = Math.min(cv.width / CFG.VW, usableH / CFG.VH) * phaseScale;
     const boardW = CFG.VW * scale;
     const boardH = CFG.VH * scale;
     const freeY = cv.height - reservedTop - reservedBottom - boardH;
@@ -1148,25 +1168,14 @@ export default function PlinkoPvpGame() {
         ctx.globalAlpha = 1;
       }
 
-      // активный шарик + след
+      // активный шарик без следа — меньше отрисовки и максимально плавное движение
       if (v.phase === "reveal" && !pb.done && pb.path.length && pb.pausing <= 0) {
         const [bx, by] = pb.path[pb.i];
-        pb.trail.push([bx, by]);
-        if (pb.trail.length > CFG.TRAIL_MAX) pb.trail.shift();
-        for (let i = 0; i < pb.trail.length; i++) {
-          const [tx, ty] = pb.trail[i];
-          ctx.beginPath();
-          ctx.arc(X(tx), Y(ty), S(CFG.ballR * (0.3 + 0.6 * (i / pb.trail.length))), 0, Math.PI * 2);
-          ctx.fillStyle = pb.color;
-          ctx.globalAlpha = (i / pb.trail.length) * 0.35;
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
         ctx.beginPath();
         ctx.arc(X(bx), Y(by), S(CFG.ballR), 0, Math.PI * 2);
         ctx.fillStyle = pb.color;
         ctx.shadowColor = pb.color;
-        ctx.shadowBlur = S(12);
+        ctx.shadowBlur = S(7);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
@@ -1379,6 +1388,9 @@ export default function PlinkoPvpGame() {
     const state = serverState;
     if (!state) return;
 
+    const enteringActions = previousServerPhaseRef.current !== "actions" && state.phase === "actions";
+    previousServerPhaseRef.current = state.phase;
+
     const mine = state.players[String(myUserId)];
     const rivalID = state.player_order.find((id) => id !== myUserId) || 0;
     const rival = rivalID ? state.players[String(rivalID)] : undefined;
@@ -1416,7 +1428,7 @@ export default function PlinkoPvpGame() {
       setPhase("angles");
     } else if (state.phase === "actions") {
       setPhase("actions");
-      setActionMode(null);
+      if (enteringActions) setActionMode(null);
     } else if (state.phase === "reveal") {
       const mineWalls = state.players[String(myUserId)]?.walls || [];
       const rivalState = rivalID ? state.players[String(rivalID)] : undefined;
@@ -1491,7 +1503,7 @@ export default function PlinkoPvpGame() {
     particles.current = [];
     pops.current = [];
     screenShake.current = 0;
-    playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] };
+    playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false };
     setScores([1, 1]);
     setRevealIdx(0);
     setLastGain(null);
@@ -1599,7 +1611,6 @@ export default function PlinkoPvpGame() {
       landed: playback.current.landed,
       pausing: 12,
       done: false,
-      trail: [],
     };
   };
 
@@ -1787,13 +1798,13 @@ export default function PlinkoPvpGame() {
       )}
 
       {phase === "actions" && (
-        <div className="plinko-dock fixed inset-x-0 z-30 px-3">
-          <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
+        <div className="plinko-actions-dock fixed inset-x-0 z-30 px-3">
+          <div className="plinko-actions-panel mx-auto max-w-[460px] rounded-[20px] border border-white/[0.09] bg-[#09090d]/94 shadow-[0_16px_38px_rgba(0,0,0,0.46)] backdrop-blur-xl">
             {actionsSubmitted ? (
               <WaitingDock title="Действия готовы" subtitle={`Соперник: ${Math.min(serverState?.players[String(opponentUserId)]?.actions_used || 0, CFG.ACTIONS_PER_TURN)}/${CFG.ACTIONS_PER_TURN}`} />
             ) : (
               <>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="plinko-actions-grid">
                   {([
                     { m: "x2" as ActionMode, label: "x2" },
                     { m: "half" as ActionMode, label: "/2" },
@@ -1809,7 +1820,7 @@ export default function PlinkoPvpGame() {
                           hapticSelection();
                           setActionMode(on ? null : button.m);
                         }}
-                        className={`press h-10 min-w-0 rounded-[14px] border px-2 text-[11px] font-black plinko-safe-text disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}
+                        className={`press h-9 min-w-0 rounded-[13px] border px-2 text-[10px] font-black plinko-safe-text disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}
                       >
                         {button.label}
                       </button>
@@ -1817,7 +1828,7 @@ export default function PlinkoPvpGame() {
                   })}
                 </div>
 
-                <div className="mt-1.5 flex min-h-9 items-center gap-2">
+                <div className="plinko-actions-help mt-1 flex items-center gap-2">
                   <div className="min-w-0 flex-1 text-center text-[7px] font-bold leading-[1.55] text-white/36 plinko-safe-text">
                     {actionMode === "wall"
                       ? "Выберите место стены между пегами"
@@ -1828,7 +1839,7 @@ export default function PlinkoPvpGame() {
                   <button
                     type="button"
                     onClick={submitActions}
-                    className="press h-9 shrink-0 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3.5 text-[8px] font-black text-white/62 plinko-safe-text"
+                    className="press h-8 shrink-0 rounded-[13px] border border-white/[0.08] bg-white/[0.06] px-3 text-[7.5px] font-black text-white/62 plinko-safe-text"
                   >
                     Готово
                   </button>
@@ -1888,7 +1899,7 @@ function StartOverlay({
       {phase === "countdown" ? (
         <div key={countdown} className="grid justify-items-center">
           <div className="plinko-safe-text text-[8px] font-black uppercase tracking-[0.24em] text-white/38">Plinko duel</div>
-          <div className="plinko-countdown-number mt-1 bg-gradient-to-b from-white via-[#bfe1ff] to-[#ffad62] bg-clip-text text-[92px] font-black tracking-[-0.1em] text-transparent drop-shadow-[0_0_26px_rgba(91,183,255,.26)]">
+          <div className="plinko-countdown-number mt-1 bg-gradient-to-b from-white via-[#e8f4ff] to-[#ffd0a1] bg-clip-text text-[92px] font-black tracking-[-0.1em] text-transparent">
             {countdown}
           </div>
           <div className="plinko-safe-text -mt-2 text-[10px] font-black uppercase tracking-[0.17em] text-white/48">Приготовьтесь</div>
@@ -1929,81 +1940,78 @@ type ResultModalProps = {
 
 function ResultModal({ players, scores, winner, reward, refund, onExit }: ResultModalProps) {
   const isTie = winner < 0;
-  const heroTone = isTie ? "tie" : toneOf(winner);
-  const title = isTie ? "Ничья" : winner === 0 ? "Победа" : "Поражение";
-  const winnerPlayer = isTie ? null : players[winner];
-  const resultOrder = isTie ? [0, 1] : [winner, winner === 0 ? 1 : 0];
-  const resultAmount = winner === 0 ? reward : isTie ? refund : 0;
+  const won = winner === 0;
+  const title = isTie ? "Ничья" : won ? "Победа" : "Поражение";
+  const resultAmount = won ? reward : isTie ? refund : 0;
+  const mainPlayer = isTie ? players[0] : players[winner];
+  const mainScore = isTie ? scores[0] : scores[winner];
+  const secondaryIndex = isTie ? 1 : winner === 0 ? 1 : 0;
+  const secondaryPlayer = players[secondaryIndex];
+  const secondaryScore = scores[secondaryIndex];
+  const accent = won ? "#5BB7FF" : isTie ? "#EAF4FF" : "#FFB45C";
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#050507]/62 px-4 text-center backdrop-blur-[11px]">
-      <div className="plinko-result-sheet relative w-full max-w-[370px] overflow-hidden rounded-[32px] border border-white/[0.10] bg-[#09090d]/96 px-4 py-5 shadow-[0_30px_90px_rgba(0,0,0,.74)]">
-        <div className={`pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full blur-3xl plinko-result-glow-left-${heroTone}`} />
-        <div className={`pointer-events-none absolute -right-24 top-12 h-52 w-52 rounded-full blur-3xl plinko-result-glow-right-${heroTone}`} />
-        <div className="relative">
-          <div className="plinko-safe-text text-[8px] font-black uppercase tracking-[0.22em] text-white/34">Match result</div>
-          <div className={`plinko-result-title mt-2 text-[30px] font-black tracking-[-0.07em] plinko-result-hero-${heroTone}`}>{title}</div>
-          <div className="plinko-safe-text mx-auto mt-1 max-w-[250px] text-[9px] font-bold text-white/42">
-            {isTie ? "Оба игрока закончили с одинаковым множителем." : `${winnerPlayer?.name || "Игрок"} выигрывает Plinko Duel`}
+    <div className="plinko-result-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-[#050507]/70 px-5 backdrop-blur-[8px]">
+      <div className="plinko-result-sheet w-full max-w-[330px] rounded-[26px] border border-white/[0.09] bg-[#0b0b10]/[.97] p-4 shadow-[0_24px_70px_rgba(0,0,0,.68)]">
+        <div className="text-center">
+          <div className="plinko-safe-text text-[7px] font-black uppercase tracking-[0.18em] text-white/30">Plinko duel</div>
+          <div className="plinko-result-title mt-1.5 text-[27px] font-black tracking-[-0.06em]" style={{ color: accent }}>
+            {title}
           </div>
-
-          <div className="mt-4 grid gap-2">
-            {resultOrder.map((index) => {
-              const player = players[index];
-              return (
-                <ResultPlayerCard
-                  key={`${player.id}-${index}`}
-                  playerIdx={index}
-                  player={player}
-                  score={scores[index]}
-                  isWinner={!isTie && winner === index}
-                  isTie={isTie}
-                />
-              );
-            })}
-          </div>
-
-          <div className={`mt-3 flex min-h-[54px] items-center justify-between rounded-[19px] border px-3 ${winner === 0 ? "border-[#ffb45c]/20 bg-[#ffb45c]/[.07]" : "border-white/[0.07] bg-white/[0.035]"}`}>
-            <div className="text-left">
-              <div className="plinko-safe-text text-[7px] font-black uppercase tracking-[0.13em] text-white/30">Ваш результат</div>
-              <div className="plinko-safe-text mt-0.5 text-[11px] font-black text-white/76">{winner === 0 ? "Чистый выигрыш" : isTie ? "Возврат ставки" : "Матч завершён"}</div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <img src={coinIcon} alt="" className="h-6 w-6 object-contain" draggable={false} />
-              <strong className={`plinko-result-score text-[20px] font-black ${winner === 0 ? "text-[#ffb45c]" : "text-white/52"}`}>
-                {resultAmount > 0 ? `+${formatMoney(resultAmount)}` : "0"}
-              </strong>
-            </div>
-          </div>
-
-          <button type="button" onClick={onExit} className="press mt-4 h-11 w-full rounded-[17px] bg-gradient-to-r from-[#5bb7ff] via-[#8bbfff] to-[#ffad62] text-[10px] font-black text-[#050507] plinko-safe-text shadow-[0_14px_28px_rgba(47,140,255,.14)]">К лобби</button>
         </div>
-      </div>
-    </div>
-  );
-}
 
-type ResultPlayerCardProps = {
-  playerIdx: number;
-  player: PlayerView;
-  score: number;
-  isWinner: boolean;
-  isTie: boolean;
-};
+        <div className="mt-3 rounded-[19px] border border-white/[0.07] bg-white/[0.035] p-2.5">
+          <div className="flex items-center gap-2.5">
+            <PlayerAvatar player={mainPlayer} className="h-12 w-12 shrink-0 rounded-[16px]" />
+            <div className="min-w-0 flex-1 text-left">
+              <div className="plinko-result-name truncate text-[11px] font-black text-white">{mainPlayer.name}</div>
+              <div className="plinko-safe-text mt-0.5 text-[7px] font-bold text-white/34">
+                {isTie ? "Одинаковый результат" : "Лучший результат матча"}
+              </div>
+            </div>
+            <div className="plinko-result-score shrink-0 text-[20px] font-black tabular-nums" style={{ color: accent }}>
+              {fmt(mainScore)}
+            </div>
+          </div>
 
-function ResultPlayerCard({ playerIdx, player, score, isWinner, isTie }: ResultPlayerCardProps) {
-  const big = isWinner || isTie;
-  const tone = toneOf(playerIdx);
-  const cardClass = isWinner ? `plinko-rpc-winner-${tone}` : isTie ? "plinko-rpc-tie" : "plinko-rpc-idle";
-  return (
-    <div className={`relative flex items-center gap-3 rounded-[22px] border px-3 text-left backdrop-blur-xl ${cardClass} ${big ? "min-h-[78px]" : "min-h-[64px] opacity-70"}`}>
-      {isWinner && <div className={`absolute right-3 top-2 rounded-full px-2 py-1 text-[6px] font-black uppercase tracking-[0.14em] text-[#050507] plinko-safe-text plinko-rpc-badge-${tone}`}>Winner</div>}
-      <PlayerAvatar player={player} className={`${big ? "h-[52px] w-[52px]" : "h-11 w-11"} shrink-0 rounded-[17px]`} />
-      <div className="min-w-0 flex-1">
-        <div className="plinko-result-name truncate text-[12px] font-black tracking-[-0.03em] text-white">{player.name}</div>
-        <div className="plinko-safe-text truncate text-[8px] font-bold text-white/36">{player.nick}</div>
+          <div className="my-2 h-px bg-white/[0.055]" />
+
+          <div className="flex items-center gap-2 opacity-65">
+            <PlayerAvatar player={secondaryPlayer} className="h-9 w-9 shrink-0 rounded-[13px]" />
+            <div className="min-w-0 flex-1 truncate text-left text-[9px] font-black text-white/72 plinko-safe-text">
+              {secondaryPlayer.name}
+            </div>
+            <div className="plinko-result-score shrink-0 text-[15px] font-black text-white/52 tabular-nums">
+              {fmt(secondaryScore)}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2.5 flex min-h-[48px] items-center justify-between rounded-[17px] border border-white/[0.065] bg-white/[0.03] px-3">
+          <div className="text-left">
+            <div className="plinko-safe-text text-[6.5px] font-black uppercase tracking-[0.11em] text-white/28">
+              {won ? "Выигрыш" : isTie ? "Возврат" : "Результат"}
+            </div>
+            <div className="plinko-safe-text mt-0.5 text-[9px] font-black text-white/68">
+              {won ? "Чистая сумма" : isTie ? "Ставка возвращена" : "Матч завершён"}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <img src={coinIcon} alt="" className="h-5 w-5 object-contain" draggable={false} />
+            <strong className="plinko-result-score text-[17px] font-black" style={{ color: resultAmount > 0 ? "#FFB45C" : "rgba(255,255,255,.45)" }}>
+              {resultAmount > 0 ? `+${formatMoney(resultAmount)}` : "0"}
+            </strong>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onExit}
+          className="press mt-3 h-10 w-full rounded-[15px] bg-white text-[9px] font-black text-[#09090d] plinko-safe-text"
+        >
+          К лобби
+        </button>
       </div>
-      <div className={`plinko-result-score shrink-0 text-[24px] font-black tracking-[-0.06em] tabular-nums plinko-rpc-score-${tone}`}>{fmt(score)}</div>
     </div>
   );
 }
