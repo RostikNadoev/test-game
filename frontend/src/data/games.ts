@@ -70,6 +70,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/descent_duel/play',
     coverUrl: descentCover,
+    launchMode: 'direct'
   },
   {
     code: 'paper_io',
