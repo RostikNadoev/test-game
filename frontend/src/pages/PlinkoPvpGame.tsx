@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MatchFinishStatus } from "../components/Match/MatchFinishStatus";
-import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
-
-/* ============================================================================
-   PLINKO PvP — Telegram mini-app (mobile only)
-   ----------------------------------------------------------------------------
-   Правки:
-   1) верхний/нижний UI разнесены с полем и safe-area;
-   2) счёт снова считается как честное умножение от 1: 1 → x5 → 5 → x5 → 25,
-      плюс есть защита от двойной обработки одного приземления;
-   3) верхний UI: слева игрок, центр — счётчики шариков, справа соперник;
-   4) общий фон игры убран, декоративный фон оставлен только у поля;
-   5) в нижних кнопках используются ASCII x2 и /2, без символа деления;
-   6) доска стала ниже, стаканы ближе к последнему ряду, снизу оставлен зазор;
-   7) палитра приведена к главной теме приложения: blue/orange glass.
-   ========================================================================== */
+import { useLocation, useNavigate } from "react-router-dom";
+import type { LobbyPlayerInfo } from "../api/types";
+import {
+  plinkoWsApi,
+  type PlinkoRevealBall,
+  type PlinkoSocketClient,
+  type PlinkoStateMessage,
+} from "../api/plinkoWs";
+import { useAuth } from "../auth/useAuth";
+import coinIcon from "../assets/solo/scratch/icon-coin.webp";
 
 const CFG = {
   VW: 360, VH: 520,
@@ -37,7 +31,7 @@ const CFG = {
   LAUNCH_VY: 20,
   pegFric: 0.06,
   SUBSTEPS_PER_FRAME: 4,
-  REVEAL_SPEED: 1.12,
+  REVEAL_SPEED: 1.65,
   MAX_DPR: 1.45,
   TRAIL_MAX: 8,
   MAX_PARTICLES: 90,
@@ -100,23 +94,6 @@ function hapticNotify(type: "error" | "success" | "warning") {
   if (!tg?.HapticFeedback?.notificationOccurred && navigator.vibrate) {
     navigator.vibrate(type === "success" ? [25, 35, 25] : 35);
   }
-}
-
-function shuffleArray<T>(items: T[]): T[] {
-  const next = [...items];
-  for (let i = next.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [next[i], next[j]] = [next[j], next[i]];
-  }
-  return next;
-}
-
-function makeMatchValues() {
-  return shuffleArray(CFG.VALUES);
-}
-
-function makeMatchWind() {
-  return Math.round((Math.random() * 2 - 1) * CFG.WIND_MAX * 1000) / 1000;
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -287,17 +264,34 @@ function simulate(angleNorm: number, board: Board, userWalls: Seg[]): SimResult 
 
 /* ------------------------------- ТИПЫ ИГРЫ -------------------------------- */
 
-type Phase = "intro" | "handoff" | "angles" | "actions" | "reveal" | "result";
+
+type Phase = "waiting" | "countdown" | "angles" | "actions" | "reveal" | "result";
 type ActionMode = "x2" | "half" | "wall" | null;
 type WallKey = string;
+type PlayerTone = "p0" | "p1";
+
+type PlayerView = {
+  id: number;
+  name: string;
+  nick: string;
+  photoUrl: string;
+  initials: string;
+  color: string;
+  soft: string;
+};
+
+const PLAYER_STYLE = [
+  { color: "#5BB7FF", soft: "rgba(47,140,255,0.12)" },
+  { color: "#FFB45C", soft: "rgba(255,143,45,0.12)" },
+] as const;
 
 const PLAYERS = [
-  { name: "Игрок 1", nick: "@player_1", color: "#5BB7FF", soft: "rgba(47,140,255,0.12)", emoji: "I" },
-  { name: "Игрок 2", nick: "@player_2", color: "#FFB45C", soft: "rgba(255,143,45,0.12)", emoji: "II" },
-];
+  { color: PLAYER_STYLE[0].color, soft: PLAYER_STYLE[0].soft },
+  { color: PLAYER_STYLE[1].color, soft: PLAYER_STYLE[1].soft },
+] as const;
 
-type PlayerTone = "p0" | "p1";
 const toneOf = (idx: number): PlayerTone => (idx === 0 ? "p0" : "p1");
+
 
 const PLINKO_UI_CSS = `
   .plinko-root {
@@ -526,95 +520,219 @@ const fmt = (n: number) => {
   return rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 };
 
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; r: number };
-type Pop = { x: number; y: number; life: number; max: number; color: string; radius: number; width: number };
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  max: number;
+  color: string;
+  r: number;
+};
 
-/* =============================== КОМПОНЕНТ ================================= */
+type Pop = {
+  x: number;
+  y: number;
+  life: number;
+  max: number;
+  color: string;
+  radius: number;
+  width: number;
+};
+
+
+const PLINKO_SOCKET_CSS = `
+  .plinko-root, .plinko-root * {
+    font-family: "Supercell", "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .plinko-safe-text { line-height: 1.42; padding-top: .04em; padding-bottom: .08em; }
+  .plinko-countdown-number {
+    animation: plinkoCountPop .72s cubic-bezier(.2,.82,.2,1) both;
+    line-height: 1.18; padding: .05em .04em .11em;
+  }
+  .plinko-ready-pulse { animation: plinkoReadyPulse 1.35s ease-in-out infinite; }
+  .plinko-result-sheet { animation: plinkoResultIn .32s cubic-bezier(.18,.86,.28,1) both; }
+  .plinko-result-title { line-height: 1.35; padding-top: .04em; padding-bottom: .09em; }
+  .plinko-result-name { line-height: 1.4; padding-top: .03em; padding-bottom: .07em; }
+  .plinko-result-score { line-height: 1.34; padding-top: .03em; padding-bottom: .08em; }
+  .plinko-status-pill { line-height: 1.4; padding-top: .05em; padding-bottom: .08em; }
+  @keyframes plinkoCountPop {
+    0% { opacity:0; transform:scale(.5); filter:blur(7px); }
+    45% { opacity:1; transform:scale(1.12); filter:blur(0); }
+    100% { opacity:1; transform:scale(1); }
+  }
+  @keyframes plinkoReadyPulse { 0%,100%{opacity:.5;transform:scale(.9)} 50%{opacity:1;transform:scale(1)} }
+  @keyframes plinkoResultIn { from{opacity:0;transform:translateY(16px) scale(.965)} to{opacity:1;transform:none} }
+`;
+
+
+const PLAYERS_STORAGE_KEY = "twingames_plinko_pvp_players_info";
+const BET_STORAGE_KEY = "twingames_plinko_pvp_bet_coins";
+
+type LocationState = {
+  lobbyId?: string;
+  game?: string;
+  playersInfo?: LobbyPlayerInfo[];
+  betCoins?: number;
+};
+
+type ConnectionStatus = "connecting" | "open" | "closed" | "error";
+
+type RevealVisual = {
+  player: number;
+  path: number[][];
+  slot: number;
+  value: number;
+  stuck: boolean;
+  scoreAfter: number;
+};
+
+const getInitials = (value: string) =>
+  value
+    .replace("@", "")
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "TG";
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === "undefined") return [];
+  const raw = window.sessionStorage.getItem(PLAYERS_STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as LobbyPlayerInfo[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const readStoredBet = () => {
+  if (typeof window === "undefined") return 0;
+  const value = Number(window.sessionStorage.getItem(BET_STORAGE_KEY) || 0);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+};
+
+const readLobbyId = (locationState: LocationState, search: string) => {
+  if (locationState.lobbyId) return locationState.lobbyId;
+  const query = new URLSearchParams(search);
+  return (
+    query.get("lobby_id") ||
+    query.get("lobbyId") ||
+    window.sessionStorage.getItem("twingames_active_lobby_id") ||
+    ""
+  );
+};
+
+const roundMoney = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
+const formatMoney = (value: number) =>
+  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
 
 export default function PlinkoPvpGame() {
-  const board = useMemo(() => buildBoard(), []);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
+  const routeState = (location.state || {}) as LocationState;
+  const lobbyId = readLobbyId(routeState, location.search);
+  const myUserId = user?.id || 0;
 
+  const board = useMemo(() => buildBoard(), []);
   const gapByKey = useMemo(() => {
     const map = new Map<string, Gap>();
     for (const g of board.gaps) map.set(`${g.row}:${g.idx}`, g);
     return map;
   }, [board.gaps]);
 
-  const [matchValues, setMatchValues] = useState<number[]>(() => makeMatchValues());
-  const [matchWind, setMatchWind] = useState(0);
+  const playersInfo = useMemo(
+    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    [routeState.playersInfo],
+  );
+  const betCoins = useMemo(() => {
+    const routeBet = Number(routeState.betCoins);
+    return Number.isFinite(routeBet) && routeBet > 0 ? routeBet : readStoredBet();
+  }, [routeState.betCoins]);
 
-  const [phase, setPhase] = useState<Phase>("intro");
-  const [turn, setTurn] = useState(0);
-
-  const [angles, setAngles] = useState<number[][]>([[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]);
-  const [curBall, setCurBall] = useState(0);
-  const [liveAngle, setLiveAngle] = useState(0);
-
-  const [factors, setFactors] = useState<number[][]>([
-    Array(CFG.N_SLOTS).fill(1),
-    Array(CFG.N_SLOTS).fill(1),
-  ]);
-  const [walls, setWalls] = useState<WallKey[][]>([[], []]);
-  const [actionMode, setActionMode] = useState<ActionMode>(null);
-  const [actionsLeft, setActionsLeft] = useState(CFG.ACTIONS_PER_TURN);
+  const [serverState, setServerState] = useState<PlinkoStateMessage | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("waiting");
+  const [countdown, setCountdown] = useState(CFG.ANGLE_SECONDS > 0 ? 3 : 3);
   const [timeLeft, setTimeLeft] = useState(CFG.ANGLE_SECONDS);
 
-  // Счёт — множитель от 1. Например: старт 1 → x5 = 5 → x5 = 25.
+  const [matchValues, setMatchValues] = useState<number[]>(Array(CFG.N_SLOTS).fill(1));
+  const [combinedValues, setCombinedValues] = useState<number[]>(Array(CFG.N_SLOTS).fill(1));
+  const [factors, setFactors] = useState<number[][]>([Array(CFG.N_SLOTS).fill(1), Array(CFG.N_SLOTS).fill(1)]);
+  const [walls, setWalls] = useState<WallKey[][]>([[], []]);
+  const [anglesCount, setAnglesCount] = useState<[number, number]>([0, 0]);
+  const [anglesSubmitted, setAnglesSubmitted] = useState(false);
+  const [actionsUsed, setActionsUsed] = useState(0);
+  const [actionsSubmitted, setActionsSubmitted] = useState(false);
+  const [curBall, setCurBall] = useState(0);
+  const [liveAngle, setLiveAngle] = useState(0);
+  const [actionMode, setActionMode] = useState<ActionMode>(null);
   const [scores, setScores] = useState<[number, number]>([1, 1]);
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish("plinko_pvp");
   const [revealIdx, setRevealIdx] = useState(0);
   const [lastGain, setLastGain] = useState<{ p: number; v: number; score: number; stuck: boolean } | null>(null);
+  const [resultReady, setResultReady] = useState(false);
 
-  const [handoff, setHandoff] = useState<{ to: number; label: string; next: Phase }>(
-    { to: 0, label: "", next: "angles" }
-  );
+  const socketRef = useRef<PlinkoSocketClient | null>(null);
+  const autoReadySentRef = useRef(false);
+  const serverOffsetRef = useRef(0);
+  const latestStateRef = useRef<PlinkoStateMessage | null>(null);
+  const resultHandledRef = useRef(false);
+  const revealStartedRef = useRef(false);
+  const revealDoneSentRef = useRef(false);
 
-  const combinedValues = useMemo(
-    () => matchValues.map((v, i) => Math.round(v * factors[0][i] * factors[1][i] * 100) / 100),
-    [matchValues, factors]
-  );
+  const opponentUserId =
+    serverState?.player_order.find((id) => id !== myUserId) ||
+    playersInfo.find((player) => player.id !== myUserId)?.id ||
+    0;
 
-  const allWallSegs = useMemo<Seg[]>(() => {
-    const keys = new Set<string>([...walls[0], ...walls[1]]);
-    const segs: Seg[] = [];
+  const profiles = useMemo<[PlayerView, PlayerView]>(() => {
+    const byId = new Map<number, LobbyPlayerInfo>();
+    for (const info of playersInfo) byId.set(Number(info.id), info);
 
-    keys.forEach((k) => {
-      const g = gapByKey.get(k);
-      if (g) segs.push({ ax: g.ax, ay: g.ay, bx: g.bx, by: g.by });
-    });
+    const ownInfo = byId.get(myUserId);
+    const rivalInfo = byId.get(opponentUserId);
+    const ownName = user?.tg_user || ownInfo?.tg_user || "Ты";
+    const rivalName = rivalInfo?.tg_user || (opponentUserId ? `Player ${opponentUserId}` : "Соперник");
 
-    return segs;
-  }, [walls, gapByKey]);
+    return [
+      {
+        id: myUserId,
+        name: ownName.replace(/^@/, ""),
+        nick: ownName.startsWith("@") ? ownName : `@${ownName.replace(/^@/, "")}`,
+        photoUrl: user?.photo_url || ownInfo?.photo_url || "",
+        initials: getInitials(ownName),
+        color: PLAYER_STYLE[0].color,
+        soft: PLAYER_STYLE[0].soft,
+      },
+      {
+        id: opponentUserId,
+        name: rivalName.replace(/^@/, ""),
+        nick: rivalName.startsWith("@") ? rivalName : `@${rivalName.replace(/^@/, "")}`,
+        photoUrl: rivalInfo?.photo_url || "",
+        initials: getInitials(rivalName),
+        color: PLAYER_STYLE[1].color,
+        soft: PLAYER_STYLE[1].soft,
+      },
+    ];
+  }, [myUserId, opponentUserId, playersInfo, user?.photo_url, user?.tg_user]);
 
-  const revealOrder = useMemo(() => {
-    const order: { player: number; ball: number }[] = [];
-    for (let b = 0; b < CFG.BALLS_PER_PLAYER; b++) {
-      order.push({ player: 0, ball: b });
-      order.push({ player: 1, ball: b });
-    }
-    return order;
-  }, []);
+  const visualIndexForUser = useCallback((userID: number) => (userID === myUserId ? 0 : 1), [myUserId]);
+  const turn = 0;
+  const actionsLeft = Math.max(0, CFG.ACTIONS_PER_TURN - actionsUsed);
+  const activeTone = toneOf(0);
 
-  const revealData = useRef<{ player: number; path: number[][]; slot: number; value: number; stuck: boolean }[]>([]);
+  const revealData = useRef<RevealVisual[]>([]);
   const processedLandings = useRef<Set<number>>(new Set());
 
-  const phaseRef = useRef(phase);
-  const turnRef = useRef(turn);
-  const curBallRef = useRef(curBall);
-  const liveAngleRef = useRef(liveAngle);
-
-  useEffect(() => {
-    phaseRef.current = phase;
-    turnRef.current = turn;
-    curBallRef.current = curBall;
-    liveAngleRef.current = liveAngle;
-  }, [phase, turn, curBall, liveAngle]);
-
-  /* --------------------------- ЗАПРЕТ СКРОЛЛА ------------------------------ */
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
-
     const prevHtmlOverflow = html.style.overflow;
     const prevBodyOverflow = body.style.overflow;
     const prevHtmlOverscroll = html.style.overscrollBehavior;
@@ -627,10 +745,9 @@ export default function PlinkoPvpGame() {
     body.style.overscrollBehavior = "none";
     body.style.touchAction = "none";
 
-    const preventMove = (e: TouchEvent) => {
-      if (e.touches.length === 1) e.preventDefault();
+    const preventMove = (event: TouchEvent) => {
+      if (event.touches.length === 1) event.preventDefault();
     };
-
     document.addEventListener("touchmove", preventMove, { passive: false });
 
     return () => {
@@ -643,7 +760,6 @@ export default function PlinkoPvpGame() {
     };
   }, []);
 
-  /* --------------------------- CANVAS / АНИМАЦИЯ --------------------------- */
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const tf = useRef({ scale: 1, offX: 0, offY: 0, dpr: 1 });
@@ -665,10 +781,10 @@ export default function PlinkoPvpGame() {
     trail: number[][];
   }>({ path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] });
 
-  const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoffNext: handoff.next });
+  const view = useRef({ phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues });
   useEffect(() => {
-    view.current = { phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoffNext: handoff.next };
-  }, [phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues, handoff.next]);
+    view.current = { phase, turn, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues };
+  }, [phase, liveAngle, factors, walls, actionMode, combinedValues, revealIdx, matchValues]);
 
   const resize = useCallback(() => {
     const cv = canvasRef.current, wrap = wrapRef.current;
@@ -791,7 +907,7 @@ export default function PlinkoPvpGame() {
       ctx.shadowColor = showValues ? col : "rgba(255,255,255,0.3)";
       ctx.shadowBlur = showValues ? S(7) : S(2);
       ctx.fillStyle = showValues ? "#fff" : "rgba(255,255,255,0.5)";
-      ctx.font = `900 ${S(showValues && val >= 8 ? 13.8 : 12.2)}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `900 ${S(showValues && val >= 8 ? 13.8 : 12.2)}px "Supercell", "Inter", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(showValues ? `x${fmt(val)}` : "?", X(cx), (top + bot) / 2 + S(1));
@@ -802,7 +918,7 @@ export default function PlinkoPvpGame() {
         ctx.fillStyle = PLAYERS[viewer].color;
         ctx.shadowColor = PLAYERS[viewer].color;
         ctx.shadowBlur = S(6);
-        ctx.font = `900 ${S(6.8)}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.font = `900 ${S(6.8)}px "Supercell", "Inter", system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(label, X(cx), top - S(6));
@@ -821,8 +937,7 @@ export default function PlinkoPvpGame() {
       const showValues =
         v.phase === "actions" ||
         v.phase === "reveal" ||
-        v.phase === "result" ||
-        (v.phase === "handoff" && v.handoffNext !== "angles");
+        v.phase === "result";
       const display = isReveal
         ? v.combinedValues
         : v.matchValues.map((val, i) => Math.round(val * v.factors[viewer][i] * 100) / 100);
@@ -1189,244 +1304,283 @@ export default function PlinkoPvpGame() {
     trimFx();
   };
 
-  /* ----------------------------- ТАЙМЕР ХОДА ------------------------------ */
   useEffect(() => {
-    if (phase !== "angles" && phase !== "actions") return;
+    if (!lobbyId || !token || !myUserId) return;
 
-    const total = phase === "angles" ? CFG.ANGLE_SECONDS : CFG.ACTION_SECONDS;
-    let fired = false;
-    const t0 = Date.now();
+    setConnectionStatus("connecting");
+    setSocketError(null);
 
-    setTimeLeft(total);
+    const client = plinkoWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          autoReadySentRef.current = false;
+          setConnectionStatus("open");
+          client.requestState();
+        },
+        onClose: () => {
+          autoReadySentRef.current = false;
+          setConnectionStatus("closed");
+        },
+        onSocketError: () => {
+          setConnectionStatus("error");
+          setSocketError("Ошибка подключения к матчу");
+        },
+        onServerError: (error) => {
+          setSocketError(error.details || error.error);
+          client.requestState();
+        },
+        onState: (state) => {
+          latestStateRef.current = state;
+          setServerState(state);
+          setSocketError(null);
+          if (state.server_ms > 0) {
+            const sample = Date.now() - state.server_ms;
+            serverOffsetRef.current = serverOffsetRef.current === 0
+              ? sample
+              : serverOffsetRef.current * 0.72 + sample * 0.28;
+          }
+        },
+      },
+    });
 
-    const id = window.setInterval(() => {
-      const left = Math.max(0, total - Math.floor((Date.now() - t0) / 1000));
-      setTimeLeft(left);
+    socketRef.current = client;
+    return () => {
+      socketRef.current = null;
+      client.close();
+    };
+  }, [lobbyId, myUserId, token]);
 
-      if (left <= 0 && !fired) {
-        fired = true;
-        window.clearInterval(id);
+  useEffect(() => {
+    if (connectionStatus !== "open" || serverState?.phase !== "waiting") return;
+    if (autoReadySentRef.current) return;
+    if (!socketRef.current?.ready()) return;
+    autoReadySentRef.current = true;
+  }, [connectionStatus, serverState?.phase]);
 
-        if (phaseRef.current === "angles") finishAngleTurn();
-        if (phaseRef.current === "actions") finishActionTurn();
+  useEffect(() => {
+    const state = serverState;
+    if (!state) return;
+
+    const mine = state.players[String(myUserId)];
+    const rivalID = state.player_order.find((id) => id !== myUserId) || 0;
+    const rival = rivalID ? state.players[String(rivalID)] : undefined;
+
+    if (mine) {
+      setAnglesCount([mine.angles_count || 0, rival?.angles_count || 0]);
+      setAnglesSubmitted(Boolean(mine.angles_submitted));
+      if (state.phase === "angles") {
+        setCurBall(Math.min(CFG.BALLS_PER_PLAYER, mine.angles_count || 0));
       }
-    }, 150);
+      setActionsUsed(mine.actions_used || 0);
+      setActionsSubmitted(Boolean(mine.actions_submitted));
 
+      if (state.phase === "actions") {
+        const mineFactors = mine.factors?.length === CFG.N_SLOTS
+          ? [...mine.factors]
+          : Array(CFG.N_SLOTS).fill(1);
+        setFactors([mineFactors, Array(CFG.N_SLOTS).fill(1)]);
+        setWalls([mine.walls ? [...mine.walls] : [], []]);
+      }
+    }
+
+    if (state.values.length === CFG.N_SLOTS) setMatchValues([...state.values]);
+    if (state.combined_values.length === CFG.N_SLOTS) setCombinedValues([...state.combined_values]);
+
+    if (state.phase === "countdown") {
+      setPhase("countdown");
+      setResultReady(false);
+      revealStartedRef.current = false;
+      revealDoneSentRef.current = false;
+      setScores([1, 1]);
+      setRevealIdx(0);
+    } else if (state.phase === "angles") {
+      setPhase("angles");
+    } else if (state.phase === "actions") {
+      setPhase("actions");
+      setActionMode(null);
+    } else if (state.phase === "reveal") {
+      const mineWalls = state.players[String(myUserId)]?.walls || [];
+      const rivalState = rivalID ? state.players[String(rivalID)] : undefined;
+      const rivalWalls = rivalState?.walls || [];
+      setWalls([state.all_walls.length ? [...state.all_walls] : [...mineWalls], state.all_walls.length ? [] : [...rivalWalls]]);
+      setFactors([
+        state.players[String(myUserId)]?.factors?.length === CFG.N_SLOTS
+          ? [...(state.players[String(myUserId)]?.factors || [])]
+          : Array(CFG.N_SLOTS).fill(1),
+        rivalState?.factors?.length === CFG.N_SLOTS
+          ? [...(rivalState?.factors || [])]
+          : Array(CFG.N_SLOTS).fill(1),
+      ]);
+      setPhase("reveal");
+    } else if (state.phase === "match_over") {
+      const ownFinalScore = state.players[String(myUserId)]?.score ?? 1;
+      const rivalFinalScore = rivalID ? (state.players[String(rivalID)]?.score ?? 1) : 1;
+      setScores([ownFinalScore, rivalFinalScore]);
+      setResultReady(true);
+      setPhase("result");
+    } else {
+      setPhase("waiting");
+    }
+  }, [myUserId, serverState]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const state = latestStateRef.current;
+      if (!state) return;
+      const serverNow = Date.now() - serverOffsetRef.current;
+
+      if (state.phase === "countdown") {
+        setCountdown(Math.max(1, Math.ceil((state.start_at_ms - serverNow) / 1000)));
+      } else if (state.phase === "angles" || state.phase === "actions") {
+        setTimeLeft(Math.max(0, Math.ceil((state.deadline_ms - serverNow) / 1000)));
+      }
+    }, 80);
     return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, turn]);
+  }, []);
 
-  /* ------------------------------- ХЕНДЛЕРЫ ------------------------------- */
-  const toHandoff = (to: number, label: string, next: Phase) => {
-    setHandoff({ to, label, next });
-    setPhase("handoff");
-  };
+  const buildRevealVisuals = useCallback((items: PlinkoRevealBall[], state: PlinkoStateMessage) => {
+    const segs: Seg[] = [];
+    for (const key of state.all_walls) {
+      const gap = gapByKey.get(key);
+      if (gap) segs.push({ ax: gap.ax, ay: gap.ay, bx: gap.bx, by: gap.by });
+    }
+    const wind = state.wind || 0;
 
-  const startGame = () => {
-    hapticNotify("success");
-    setMatchValues(makeMatchValues());
-    setMatchWind(makeMatchWind());
-    setScores([1, 1]);
-    setFactors([Array(CFG.N_SLOTS).fill(1), Array(CFG.N_SLOTS).fill(1)]);
-    setWalls([[], []]);
-    setAngles([
-      Array(CFG.BALLS_PER_PLAYER).fill(0),
-      Array(CFG.BALLS_PER_PLAYER).fill(0),
-    ]);
-    setTurn(0); setCurBall(0); setLiveAngle(0);
-    setRevealIdx(0);
-    setLastGain(null);
+    return items.map<RevealVisual>((item) => {
+      const sim = simulate(clamp(item.angle + wind, -1, 1), board, segs);
+      return {
+        player: visualIndexForUser(item.user_id),
+        path: sim.path,
+        slot: item.slot,
+        value: item.value,
+        stuck: item.stuck,
+        scoreAfter: item.score_after,
+      };
+    });
+  }, [board, gapByKey, visualIndexForUser]);
+
+  useEffect(() => {
+    const state = serverState;
+    if (!state || state.phase !== "reveal" || !state.reveal.length || revealStartedRef.current) return;
+
+    revealStartedRef.current = true;
+    revealDoneSentRef.current = false;
+    revealData.current = buildRevealVisuals(state.reveal, state);
     processedLandings.current.clear();
-    particles.current = []; pops.current = [];
+    particles.current = [];
+    pops.current = [];
     screenShake.current = 0;
     playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] };
-    setPhase("angles");
-  };
+    setScores([1, 1]);
+    setRevealIdx(0);
+    setLastGain(null);
+    window.setTimeout(() => loadBall(0), 120);
+  }, [buildRevealVisuals, serverState]);
 
-  useEffect(() => {
-    if (phase !== "intro") return;
-
-    const id = window.setTimeout(() => {
-      startGame();
-    }, 4000);
-
-    return () => window.clearTimeout(id);
-  }, [phase]);
-
-  const finishAngleTurn = () => {
-    if (phaseRef.current !== "angles") return;
-
-    hapticSelection();
-
-    const p = turnRef.current;
-    const b = curBallRef.current;
-    const a = liveAngleRef.current;
-
-    setAngles((prev) => {
-      const next = prev.map((items) => [...items]);
-      next[p][b] = a;
-      return next;
-    });
-
-    setCurBall(0);
-    setLiveAngle(0);
-
-    if (p === 0) {
-      toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков · ${CFG.ANGLE_SECONDS} секунд`, "angles");
-    } else {
-      toHandoff(0, `Множители открыты · ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
-    }
-  };
-
-  const confirmAngle = () => {
-    hapticSelection();
-
-    setAngles((prev) => {
-      const next = prev.map((a) => [...a]);
-      next[turn][curBall] = liveAngle;
-      return next;
-    });
-    if (curBall < CFG.BALLS_PER_PLAYER - 1) {
-      setCurBall((b) => b + 1);
-      setLiveAngle(0);
-    } else {
-      if (turn === 0) {
-        setCurBall(0); setLiveAngle(0);
-        toHandoff(1, `Задайте углы своих ${CFG.BALLS_PER_PLAYER} шариков · ${CFG.ANGLE_SECONDS} секунд`, "angles");
-      } else {
-        setCurBall(0);
-        toHandoff(0, `Множители открыты · ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
-      }
-    }
-  };
-
-  const worldFromEvent = (e: { clientX: number; clientY: number }) => {
+  const worldFromEvent = (event: { clientX: number; clientY: number }) => {
     const cv = canvasRef.current;
     if (!cv) return { wx: 0, wy: 0 };
     const rect = cv.getBoundingClientRect();
-    const px = (e.clientX - rect.left) * tf.current.dpr;
-    const py = (e.clientY - rect.top) * tf.current.dpr;
+    const px = (event.clientX - rect.left) * tf.current.dpr;
+    const py = (event.clientY - rect.top) * tf.current.dpr;
     return {
       wx: (px - tf.current.offX) / tf.current.scale,
       wy: (py - tf.current.offY) / tf.current.scale,
     };
   };
 
-  const onCanvasPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const { wx, wy } = worldFromEvent(e);
+  const onCanvasPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const { wx, wy } = worldFromEvent(event);
 
-    // прицеливание перетаскиванием в фазе углов
-    if (phase === "angles") {
-      const a = (wx - CFG.VW / 2) / ((CFG.WALL_R - CFG.WALL_L) / 2);
-      setLiveAngle(Math.max(-1, Math.min(1, a)));
+    if (phase === "angles" && !anglesSubmitted) {
+      const next = (wx - CFG.VW / 2) / ((CFG.WALL_R - CFG.WALL_L) / 2);
+      setLiveAngle(clamp(next, -1, 1));
       return;
     }
 
-    if (phase !== "actions" || actionsLeft <= 0 || !actionMode) return;
+    if (phase !== "actions" || actionsSubmitted || actionsLeft <= 0 || !actionMode) return;
 
     if (actionMode === "wall") {
-      let best: Gap | null = null, bestD = 22;
-      for (const g of board.gaps) {
-        const d = Math.hypot(wx - g.mx, wy - g.my);
-        if (d < bestD) { bestD = d; best = g; }
+      let best: Gap | null = null;
+      let bestDistance = 22;
+      for (const gap of board.gaps) {
+        const distance = Math.hypot(wx - gap.mx, wy - gap.my);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = gap;
+        }
       }
-      if (best) {
-        const key = `${best.row}:${best.idx}`;
-        setWalls((prev) => {
-          const mine = prev[turn];
-          if (mine.includes(key)) return prev;
-          const next = prev.map((w) => [...w]) as WallKey[][];
-          next[turn].push(key);
-          return next;
-        });
-        consumeAction();
-      }
+      if (!best) return;
+      const key = `${best.row}:${best.idx}`;
+      if (walls[0].includes(key)) return;
+      if (!socketRef.current?.action({ mode: "wall", wallKey: key })) return;
+
+      hapticImpact("medium");
+      setWalls((prev) => [[...prev[0], key], prev[1]]);
+      setActionsUsed((value) => Math.min(CFG.ACTIONS_PER_TURN, value + 1));
+      setActionMode(null);
       return;
     }
 
-    // x2 / /2 — по лунке
-    const d = board.dividers;
+    const dividers = board.dividers;
     let slot = -1;
-    for (let i = 0; i < d.length - 1; i++) if (wx >= d[i] && wx < d[i + 1]) { slot = i; break; }
-    if (slot >= 0 && wy > CFG.SLOT_TOP - 40) {
-      setFactors((prev) => {
-        const n = prev.map((f) => [...f]);
-        n[turn][slot] *= actionMode === "x2" ? 2 : 0.5;
-        n[turn][slot] = Math.round(n[turn][slot] * 100) / 100;
-        return n;
-      });
-      consumeAction();
+    for (let i = 0; i < dividers.length - 1; i++) {
+      if (wx >= dividers[i] && wx < dividers[i + 1]) {
+        slot = i;
+        break;
+      }
     }
-  };
+    if (slot < 0 || wy <= CFG.SLOT_TOP - 40) return;
 
-  const consumeAction = () => {
+    const mode = actionMode;
+    if (!socketRef.current?.action({ mode, slotIndex: slot })) return;
     hapticImpact("medium");
-
-    setActionMode(null);
-    setActionsLeft((a) => {
-      const left = a - 1;
-      if (left <= 0) window.setTimeout(finishActionTurn, 250);
-      return left;
+    setFactors((prev) => {
+      const next = prev.map((row) => [...row]);
+      next[0][slot] = Math.round(next[0][slot] * (mode === "x2" ? 2 : 0.5) * 100) / 100;
+      return next;
     });
+    setActionsUsed((value) => Math.min(CFG.ACTIONS_PER_TURN, value + 1));
+    setActionMode(null);
   };
 
-  const finishActionTurn = () => {
-    if (phaseRef.current !== "actions") return;
-
+  const confirmAngle = () => {
+    if (phase !== "angles" || anglesSubmitted || curBall >= CFG.BALLS_PER_PLAYER) return;
+    if (!socketRef.current?.setAngle(curBall, liveAngle)) return;
     hapticSelection();
-
-    setActionMode(null);
-    setActionsLeft(CFG.ACTIONS_PER_TURN);
-
-    if (turnRef.current === 0) {
-      toHandoff(1, `Ваши ${CFG.ACTIONS_PER_TURN} действия · ${CFG.ACTION_SECONDS} секунд`, "actions");
-    } else {
-      toHandoff(0, "Вскрытие — запуск шариков", "reveal");
+    const nextBall = curBall + 1;
+    setAnglesCount((current) => [Math.max(current[0], nextBall), current[1]]);
+    setCurBall(nextBall);
+    setLiveAngle(0);
+    if (nextBall >= CFG.BALLS_PER_PLAYER) {
+      setAnglesSubmitted(true);
+      socketRef.current?.submitAngles();
     }
   };
 
-  const proceedHandoff = () => {
+  const submitActions = () => {
+    if (phase !== "actions" || actionsSubmitted) return;
+    if (!socketRef.current?.submitActions()) return;
     hapticSelection();
-
-    setTurn(handoff.to);
-    if (handoff.next === "actions") { setActionsLeft(CFG.ACTIONS_PER_TURN); setActionMode(null); }
-    if (handoff.next === "reveal") { startReveal(); return; }
-    setPhase(handoff.next);
-  };
-
-  /* ------------------------------ ВСКРЫТИЕ -------------------------------- */
-  const startReveal = () => {
-    revealData.current = revealOrder.map(({ player, ball }) => {
-      const r = simulate(clamp(angles[player][ball] + matchWind, -1, 1), board, allWallSegs);
-      const last = r.path[r.path.length - 1];
-      const stuck = !last || last[1] < CFG.SLOT_TOP + 6;
-      return {
-        player,
-        path: r.path,
-        slot: r.slot,
-        value: stuck ? 1 : combinedValues[r.slot],
-        stuck,
-      };
-    });
-    processedLandings.current.clear();
-    particles.current = []; pops.current = [];
-    screenShake.current = 0;
-    playback.current = { path: [], i: 0, color: "#fff", player: 0, ballIdx: -1, landed: [], pausing: 0, done: false, trail: [] };
-    setScores([1, 1]); setRevealIdx(0); setLastGain(null);
-    setPhase("reveal");
-    loadBall(0);
+    setActionsSubmitted(true);
+    setActionMode(null);
   };
 
   const loadBall = (idx: number) => {
-    const d = revealData.current[idx];
-    if (!d) return;
+    const data = revealData.current[idx];
+    if (!data) return;
     playback.current = {
-      path: d.path, i: 0,
-      color: PLAYERS[d.player].color,
-      player: d.player,
+      path: data.path,
+      i: 0,
+      color: PLAYER_STYLE[data.player].color,
+      player: data.player,
       ballIdx: idx,
       landed: playback.current.landed,
-      pausing: 12, done: false, trail: [],
+      pausing: 8,
+      done: false,
+      trail: [],
     };
   };
 
@@ -1435,96 +1589,99 @@ export default function PlinkoPvpGame() {
     if (idx < 0 || processedLandings.current.has(idx)) return;
     processedLandings.current.add(idx);
 
-    const d = revealData.current[idx];
-    if (d) {
-      setScores((s) => {
-        const ns: [number, number] = [s[0], s[1]];
-        ns[d.player] = Math.round(ns[d.player] * d.value * 100) / 100;
-        setLastGain({ p: d.player, v: d.value, score: ns[d.player], stuck: d.stuck });
-        return ns;
+    const data = revealData.current[idx];
+    if (data) {
+      setScores((current) => {
+        const next: [number, number] = [current[0], current[1]];
+        next[data.player] = data.scoreAfter;
+        return next;
       });
+      setLastGain({ p: data.player, v: data.value, score: data.scoreAfter, stuck: data.stuck });
     }
 
     const nextIdx = idx + 1;
     setRevealIdx(nextIdx);
-
     if (nextIdx >= revealData.current.length) {
       window.setTimeout(() => {
-        hapticNotify("success");
-        setPhase("result");
-      }, 1100);
+        setLastGain(null);
+        if (!revealDoneSentRef.current) {
+          revealDoneSentRef.current = true;
+          socketRef.current?.revealDone();
+        }
+      }, 700);
       return;
     }
 
     window.setTimeout(() => {
       setLastGain(null);
       loadBall(nextIdx);
-    }, 850);
+    }, 520);
   };
 
-  /* ------------------------------- ПРОИЗВОДНОЕ ---------------------------- */
-  const angleDeg = Math.round(liveAngle * CFG.ANGLE_MAX_DEG);
-  const winner = scores[0] === scores[1] ? -1 : scores[0] > scores[1] ? 0 : 1;
-
   useEffect(() => {
-    if (phase !== "result") return;
-    void finishLobbyMatch(winner < 0 ? "draw" : winner === 0 ? "win" : "loss");
-  }, [phase, winner, finishLobbyMatch]);
+    if (serverState?.phase !== "match_over" || resultHandledRef.current) return;
+    resultHandledRef.current = true;
+    const winner = serverState.winner_user_id;
+    hapticNotify(winner === undefined ? "warning" : winner === myUserId ? "success" : "error");
+    const refreshTimer = window.setTimeout(() => {
+      void refreshBalance();
+      void refreshProfile();
+    }, 500);
 
-  const ballCounters = useMemo<[number, number]>(() => {
-    if (phase === "intro") return [0, 0];
+    return () => window.clearTimeout(refreshTimer);
+  }, [myUserId, refreshBalance, refreshProfile, serverState]);
 
-    if (phase === "angles") {
-      if (turn === 0) return [curBall, 0];
-      return [CFG.BALLS_PER_PLAYER, curBall];
-    }
-
-    if (phase === "handoff" && handoff.next === "angles") {
-      return handoff.to === 1 ? [CFG.BALLS_PER_PLAYER, 0] : [0, 0];
-    }
-
-    if (phase === "reveal") {
-      const done = clamp(revealIdx, 0, revealOrder.length);
-      const counts: [number, number] = [0, 0];
-      for (let i = 0; i < done; i++) counts[revealOrder[i].player]++;
-      return counts;
-    }
-
-    return [CFG.BALLS_PER_PLAYER, CFG.BALLS_PER_PLAYER];
-  }, [phase, turn, curBall, handoff.next, handoff.to, revealIdx, revealOrder]);
-
-  // кастомный ползунок (надёжный для webview): pointer-события
   const sliderRef = useRef<HTMLDivElement | null>(null);
   const setAngleFromClientX = (clientX: number) => {
     const el = sliderRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const ratio = (clientX - rect.left) / rect.width;
-    setLiveAngle(Math.max(-1, Math.min(1, ratio * 2 - 1)));
+    setLiveAngle(clamp(ratio * 2 - 1, -1, 1));
   };
-  const sliderDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+  const sliderDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     hapticSelection();
-    setAngleFromClientX(e.clientX);
+    setAngleFromClientX(event.clientX);
   };
-  const sliderMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.buttons === 0 && e.pressure === 0) return;
-    setAngleFromClientX(e.clientX);
+  const sliderMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.buttons === 0 && event.pressure === 0) return;
+    setAngleFromClientX(event.clientX);
   };
 
-  const activeTone = toneOf(turn);
+  const angleDeg = Math.round(liveAngle * CFG.ANGLE_MAX_DEG);
+  const ballCounters = useMemo<[number, number]>(() => {
+    if (phase === "reveal" || phase === "result") {
+      const counts: [number, number] = [0, 0];
+      const done = clamp(revealIdx, 0, revealData.current.length);
+      for (let i = 0; i < done; i++) {
+        const item = revealData.current[i];
+        if (item) counts[item.player] += 1;
+      }
+      if (phase === "result") return [CFG.BALLS_PER_PLAYER, CFG.BALLS_PER_PLAYER];
+      return counts;
+    }
+    if (phase === "actions") return [CFG.BALLS_PER_PLAYER, CFG.BALLS_PER_PLAYER];
+    return anglesCount;
+  }, [anglesCount, phase, revealIdx]);
+
+  const winnerVisual = serverState?.winner_user_id === undefined
+    ? -1
+    : visualIndexForUser(serverState.winner_user_id);
+  const didWin = serverState?.winner_user_id === myUserId;
+  const netReward = didWin ? roundMoney(betCoins * 0.9) : 0;
 
   return (
     <div className="plinko-root relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white">
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
       <style>{PLINKO_UI_CSS}</style>
+      <style>{PLINKO_SOCKET_CSS}</style>
 
       <div ref={wrapRef} className="absolute inset-0 z-10">
         <canvas
           ref={canvasRef}
           onPointerDown={onCanvasPointer}
-          onPointerMove={(e) => {
-            if (phase === "angles" && e.buttons === 1) onCanvasPointer(e);
+          onPointerMove={(event) => {
+            if (phase === "angles" && !anglesSubmitted && event.buttons === 1) onCanvasPointer(event);
           }}
           className="absolute inset-0 h-full w-full touch-none translate-z-0"
         />
@@ -1532,18 +1689,18 @@ export default function PlinkoPvpGame() {
 
       <div className="plinko-hud-top pointer-events-none absolute left-2 right-2 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-1.5">
         <div className="flex min-w-0 justify-start">
-          <PlayerScoreCard playerIdx={0} player={PLAYERS[0]} score={scores[0]} active={(phase === "angles" || phase === "actions") && turn === 0} />
+          <PlayerScoreCard playerIdx={0} player={profiles[0]} score={scores[0]} active={phase === "angles" || phase === "actions"} />
         </div>
 
         <div className="flex h-11 items-center gap-1.5 rounded-[16px] border border-white/[0.08] bg-[#09090d]/82 px-2 shadow-[0_10px_24px_rgba(0,0,0,.26)] backdrop-blur-xl">
           <BallCounter playerIdx={0} value={ballCounters[0]} />
-          {(phase === "angles" || phase === "actions") ? (
+          {phase === "angles" || phase === "actions" ? (
             <TurnTimer
               total={phase === "angles" ? CFG.ANGLE_SECONDS : CFG.ACTION_SECONDS}
               left={timeLeft}
-              playerIdx={turn}
-              label={phase === "angles" ? "углы" : "ход"}
-              meta={phase === "actions" ? `${actionsLeft}/${CFG.ACTIONS_PER_TURN}` : `${curBall + 1}/${CFG.BALLS_PER_PLAYER}`}
+              playerIdx={0}
+              label={phase === "angles" ? "углы" : "действия"}
+              meta={phase === "actions" ? `${actionsLeft}/${CFG.ACTIONS_PER_TURN}` : `${Math.min(curBall + 1, CFG.BALLS_PER_PLAYER)}/${CFG.BALLS_PER_PLAYER}`}
             />
           ) : (
             <div className="h-5 w-px bg-white/12" />
@@ -1552,14 +1709,12 @@ export default function PlinkoPvpGame() {
         </div>
 
         <div className="flex min-w-0 justify-end">
-          <PlayerScoreCard playerIdx={1} player={PLAYERS[1]} score={scores[1]} active={(phase === "angles" || phase === "actions") && turn === 1} reverse />
+          <PlayerScoreCard playerIdx={1} player={profiles[1]} score={scores[1]} active={phase === "angles" || phase === "actions"} reverse />
         </div>
       </div>
 
       {lastGain && (
-        <div
-          className={`plinko-gain pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl plinko-gain-${toneOf(lastGain.p)}`}
-        >
+        <div className={`plinko-gain plinko-safe-text pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/[0.10] bg-[#09090d]/90 px-4 py-2 text-[12px] font-black tracking-[-0.02em] shadow-[0_14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl plinko-gain-${toneOf(lastGain.p)}`}>
           {lastGain.stuck ? "x1" : `x${fmt(lastGain.v)} → ${fmt(lastGain.score)}`}
         </div>
       )}
@@ -1567,62 +1722,33 @@ export default function PlinkoPvpGame() {
       {phase === "angles" && (
         <div className="plinko-dock fixed inset-x-0 z-30 px-3">
           <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
-            <div className="mb-1 flex items-center justify-between px-1">
-              <span className="text-[8px] font-black uppercase tracking-[0.18em] text-white/32">
-                Прицел
-              </span>
-              <span className={`text-[12px] font-black tracking-[-0.04em] tabular-nums plinko-tone-${activeTone}`}>
-                {angleDeg > 0 ? "+" : ""}
-                {angleDeg}°
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  hapticSelection();
-                  setLiveAngle((a) =>
-                    Math.max(-1, Math.round((a - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
-                  );
-                }}
-                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78 shadow-[inset_0_1px_0_rgba(255,255,255,.06)] active:bg-white/[0.10]"
-              >
-                −
-              </button>
-
-              <div
-                ref={sliderRef}
-                onPointerDown={sliderDown}
-                onPointerMove={sliderMove}
-                className="relative h-8 min-w-0 flex-1 cursor-pointer touch-none"
-              >
-                <div className="absolute inset-x-0 top-1/2 h-[5px] -translate-y-1/2 rounded-full bg-white/[0.13] shadow-[inset_0_1px_0_rgba(255,255,255,.12)]" />
-                <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
-                <SliderThumb pct={((liveAngle + 1) / 2) * 100} tone={activeTone} />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  hapticSelection();
-                  setLiveAngle((a) =>
-                    Math.min(1, Math.round((a + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000),
-                  );
-                }}
-                className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78 shadow-[inset_0_1px_0_rgba(255,255,255,.06)] active:bg-white/[0.10]"
-              >
-                +
-              </button>
-
-              <button
-                type="button"
-                onClick={confirmAngle}
-                className={`press h-9 shrink-0 rounded-[14px] px-4 text-[12px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_10px_22px_rgba(0,0,0,.28)] active:scale-[0.98] plinko-btn-ok-${activeTone}`}
-              >
-                OK {curBall + 1}/{CFG.BALLS_PER_PLAYER}
-              </button>
-            </div>
+            {anglesSubmitted ? (
+              <WaitingDock title="Углы зафиксированы" subtitle={`Ждём соперника · ${anglesCount[1]}/${CFG.BALLS_PER_PLAYER}`} />
+            ) : (
+              <>
+                <div className="mb-1 flex items-center justify-between px-1">
+                  <span className="plinko-safe-text text-[8px] font-black uppercase tracking-[0.18em] text-white/32">Прицел · шар {curBall + 1}</span>
+                  <span className={`plinko-safe-text text-[12px] font-black tracking-[-0.04em] tabular-nums plinko-tone-${activeTone}`}>
+                    {angleDeg > 0 ? "+" : ""}{angleDeg}°
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => { hapticSelection(); setLiveAngle((value) => clamp(Math.round((value - 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000, -1, 1)); }} className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78">−</button>
+                  <div ref={sliderRef} onPointerDown={sliderDown} onPointerMove={sliderMove} className="relative h-8 min-w-0 flex-1 cursor-pointer touch-none">
+                    <div className="absolute inset-x-0 top-1/2 h-[5px] -translate-y-1/2 rounded-full bg-white/[0.13]" />
+                    <div className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
+                    <SliderThumb pct={((liveAngle + 1) / 2) * 100} tone={activeTone} />
+                  </div>
+                  <button type="button" onClick={() => { hapticSelection(); setLiveAngle((value) => clamp(Math.round((value + 1 / CFG.ANGLE_MAX_DEG) * 1000) / 1000, -1, 1)); }} className="press grid h-9 w-9 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.06] text-lg font-black text-white/78">+</button>
+                  <button type="button" onClick={confirmAngle} className={`press h-9 shrink-0 rounded-[14px] px-4 text-[11px] font-black text-[#050507] plinko-safe-text plinko-btn-ok-${activeTone}`}>
+                    OK {curBall + 1}/{CFG.BALLS_PER_PLAYER}
+                  </button>
+                </div>
+                <div className="mt-1 text-center text-[7px] font-bold text-white/30 plinko-safe-text">
+                  Выбор скрыт · оба игрока выбирают одновременно · соперник {anglesCount[1]}/{CFG.BALLS_PER_PLAYER}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1630,163 +1756,176 @@ export default function PlinkoPvpGame() {
       {phase === "actions" && (
         <div className="plinko-dock fixed inset-x-0 z-30 px-3">
           <div className="mx-auto max-w-[460px] rounded-[22px] border border-white/[0.09] bg-[#09090d]/90 p-2.5 shadow-[0_22px_52px_rgba(0,0,0,0.50)] backdrop-blur-xl">
-            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
-              {([
-                { m: "x2" as ActionMode, label: "x2" },
-                { m: "half" as ActionMode, label: "/2" },
-                { m: "wall" as ActionMode, label: "Wall" },
-              ]).map((b) => {
-                const on = actionMode === b.m;
-                return (
-                  <button
-                    key={b.m}
-                    type="button"
-                    disabled={actionsLeft <= 0}
-                    onClick={() => {
-                      hapticSelection();
-                      setActionMode(on ? null : b.m);
-                    }}
-                    className={`press h-9 min-w-0 rounded-[14px] border px-2 text-[12px] font-black tracking-[-0.01em] shadow-[inset_0_1px_0_rgba(255,255,255,.06)] disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}
-                  >
-                    {b.label}
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={finishActionTurn}
-                className="press h-9 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3 text-[11px] font-black text-white/60"
-              >
-                Skip
-              </button>
-            </div>
-
-            <div className="mt-1 flex items-center justify-center text-[9px] font-bold text-white/36">
-              <span>
-                {actionMode === "wall"
-                  ? "Поставьте стенку между пегами"
-                  : actionMode
-                  ? "Выберите лунку"
-                  : "Выберите действие"}
-              </span>
-            </div>
+            {actionsSubmitted ? (
+              <WaitingDock title="Действия готовы" subtitle={`Соперник: ${Math.min(serverState?.players[String(opponentUserId)]?.actions_used || 0, CFG.ACTIONS_PER_TURN)}/${CFG.ACTIONS_PER_TURN}`} />
+            ) : (
+              <>
+                <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
+                  {([
+                    { m: "x2" as ActionMode, label: "x2" },
+                    { m: "half" as ActionMode, label: "/2" },
+                    { m: "wall" as ActionMode, label: "Wall" },
+                  ]).map((button) => {
+                    const on = actionMode === button.m;
+                    return (
+                      <button key={button.m} type="button" disabled={actionsLeft <= 0} onClick={() => { hapticSelection(); setActionMode(on ? null : button.m); }} className={`press h-9 min-w-0 rounded-[14px] border px-2 text-[11px] font-black plinko-safe-text disabled:opacity-35 ${on ? `plinko-action-on-${activeTone}` : "plinko-action-off"}`}>
+                        {button.label}
+                      </button>
+                    );
+                  })}
+                  <button type="button" onClick={submitActions} className="press h-9 rounded-[14px] border border-white/[0.08] bg-white/[0.06] px-3 text-[9px] font-black text-white/60 plinko-safe-text">Готово</button>
+                </div>
+                <div className="mt-1 flex items-center justify-center text-center text-[8px] font-bold text-white/36 plinko-safe-text">
+                  {actionMode === "wall"
+                    ? "Поставьте стенку между пегами · выбор соперника скрыт"
+                    : actionMode
+                      ? "Выберите стакан · выбор соперника скрыт"
+                      : `Множители открыты · выберите до ${actionsLeft} действий`}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {phase === "intro" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.62)] backdrop-blur-xl">
-            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-[#FFB45C]/70">
-              Battle Club
-            </div>
-            <div className="mt-2 bg-gradient-to-b from-white to-white/58 bg-clip-text text-[34px] font-black leading-none tracking-[-0.08em] text-transparent">
-              Plinko PvP
-            </div>
-            <p className="mx-auto mt-3 max-w-[250px] text-[12px] font-medium leading-snug text-white/48">
-              Два игрока, скрытые углы, два действия и честное вскрытие на общем поле.
-            </p>
-            <button
-              type="button"
-              onClick={startGame}
-              className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
-            >
-              Начать
-            </button>
+      {(phase === "waiting" || phase === "countdown") && (
+        <StartOverlay phase={phase} countdown={countdown} connectionStatus={connectionStatus} error={socketError} />
+      )}
+
+      {phase === "reveal" && revealDoneSentRef.current && (
+        <div className="plinko-dock pointer-events-none fixed inset-x-0 z-30 px-3">
+          <div className="mx-auto max-w-[330px] rounded-[18px] border border-white/[0.08] bg-[#09090d]/88 px-4 py-3 text-center shadow-[0_18px_42px_rgba(0,0,0,.45)] backdrop-blur-xl">
+            <div className="plinko-safe-text text-[9px] font-black uppercase tracking-[0.14em] text-white/38">Вскрытие завершено</div>
+            <div className="plinko-safe-text mt-1 text-[12px] font-black text-white/78">Сверяем результат</div>
           </div>
         </div>
       )}
 
-      {phase === "handoff" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center px-7 text-center">
-          <div className="w-full max-w-[340px] rounded-[30px] border border-white/[0.09] bg-[#09090d]/90 px-5 py-6 shadow-[0_26px_80px_rgba(0,0,0,0.64)] backdrop-blur-xl">
-            <div className={`mx-auto grid h-12 w-12 place-items-center rounded-[16px] text-[14px] font-black text-[#050507] plinko-handoff-badge-${toneOf(handoff.to)}`}>
-              {PLAYERS[handoff.to].emoji}
-            </div>
-            <div className="mt-4 text-[20px] font-black tracking-[-0.06em]">
-              Передай телефон
-            </div>
-            <div className="mt-1 text-[12px] font-bold text-white/46">
-              {PLAYERS[handoff.to].name} · {handoff.label}
-            </div>
-            <button
-              type="button"
-              onClick={proceedHandoff}
-              className={`press mt-5 h-11 w-full rounded-[16px] text-[13px] font-black tracking-[-0.02em] text-[#050507] active:scale-[0.98] plinko-handoff-btn-${toneOf(handoff.to)}`}
-            >
-              Продолжить
-            </button>
-          </div>
-        </div>
+      {phase === "result" && resultReady && (
+        <ResultModal
+          players={profiles}
+          scores={scores}
+          winner={winnerVisual}
+          reward={netReward}
+          refund={betCoins}
+          onExit={() => navigate("/game/plinko_pvp/lobbies", { replace: true })}
+        />
       )}
 
-      {phase === "result" && (
-        <ResultModal players={PLAYERS} scores={scores} winner={winner} onRestart={startGame} />
+      {socketError && phase !== "waiting" && (
+        <div className="pointer-events-none absolute left-1/2 top-[58px] z-50 w-[min(88vw,340px)] -translate-x-1/2 rounded-[14px] border border-[#ff7588]/20 bg-[#2a1016]/92 px-3 py-2 text-center text-[8px] font-black text-[#ffabb7] plinko-safe-text">
+          {socketError}
+        </div>
       )}
     </div>
   );
 }
 
+function StartOverlay({
+  phase,
+  countdown,
+  connectionStatus,
+  error,
+}: {
+  phase: "waiting" | "countdown";
+  countdown: number;
+  connectionStatus: ConnectionStatus;
+  error: string | null;
+}) {
+  return (
+    <div className="absolute inset-0 z-40 grid place-items-center bg-[#09090d]/76 px-6 text-center backdrop-blur-[10px]">
+      {phase === "countdown" ? (
+        <div key={countdown} className="grid justify-items-center">
+          <div className="plinko-safe-text text-[8px] font-black uppercase tracking-[0.24em] text-white/38">Plinko duel</div>
+          <div className="plinko-countdown-number mt-1 bg-gradient-to-b from-white via-[#bfe1ff] to-[#ffad62] bg-clip-text text-[92px] font-black tracking-[-0.1em] text-transparent drop-shadow-[0_0_26px_rgba(91,183,255,.26)]">
+            {countdown}
+          </div>
+          <div className="plinko-safe-text -mt-2 text-[10px] font-black uppercase tracking-[0.17em] text-white/48">Приготовьтесь</div>
+        </div>
+      ) : (
+        <div className="grid justify-items-center">
+          <div className="plinko-ready-pulse h-3 w-3 rounded-full bg-[#5bb7ff] shadow-[0_0_24px_rgba(91,183,255,.7)]" />
+          <div className="plinko-safe-text mt-4 text-[13px] font-black text-white/78">Подключаем матч</div>
+          <div className="plinko-safe-text mt-1 text-[8px] font-bold text-white/34">
+            {error || (connectionStatus === "open" ? "Синхронизация игроков" : "Соединение с сервером")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WaitingDock({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-3 px-1">
+      <div className="min-w-0">
+        <div className="plinko-safe-text text-[10px] font-black text-white/82">{title}</div>
+        <div className="plinko-safe-text text-[7px] font-bold text-white/34">{subtitle}</div>
+      </div>
+      <div className="plinko-ready-pulse h-2.5 w-2.5 shrink-0 rounded-full bg-[#5bb7ff] shadow-[0_0_16px_rgba(91,183,255,.6)]" />
+    </div>
+  );
+}
+
 type ResultModalProps = {
-  players: typeof PLAYERS;
+  players: [PlayerView, PlayerView];
   scores: [number, number];
   winner: number;
-  onRestart: () => void;
+  reward: number;
+  refund: number;
+  onExit: () => void;
 };
 
-function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
+function ResultModal({ players, scores, winner, reward, refund, onExit }: ResultModalProps) {
   const isTie = winner < 0;
   const heroTone = isTie ? "tie" : toneOf(winner);
-  const title = isTie ? "Ничья" : `${players[winner].name} победил`;
-  const subtitle = isTie
-    ? "Матч закончился ровно — оба игрока удержались."
-    : `${players[winner].nick} забирает матч`;
+  const title = isTie ? "Ничья" : winner === 0 ? "Победа" : "Поражение";
+  const winnerPlayer = isTie ? null : players[winner];
+  const resultOrder = isTie ? [0, 1] : [winner, winner === 0 ? 1 : 0];
+  const resultAmount = winner === 0 ? reward : isTie ? refund : 0;
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center px-5 text-center">
-      <div className="relative w-full max-w-[370px] overflow-hidden rounded-[34px] border border-white/[0.10] bg-[#09090d]/92 px-4 py-5 shadow-[0_28px_90px_rgba(0,0,0,0.70)] backdrop-blur-2xl">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#050507]/62 px-4 text-center backdrop-blur-[11px]">
+      <div className="plinko-result-sheet relative w-full max-w-[370px] overflow-hidden rounded-[32px] border border-white/[0.10] bg-[#09090d]/96 px-4 py-5 shadow-[0_30px_90px_rgba(0,0,0,.74)]">
         <div className={`pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full blur-3xl plinko-result-glow-left-${heroTone}`} />
         <div className={`pointer-events-none absolute -right-24 top-12 h-52 w-52 rounded-full blur-3xl plinko-result-glow-right-${heroTone}`} />
-
         <div className="relative">
-          <div className="text-[9px] font-black uppercase tracking-[0.24em] text-white/36">
-            Match result
+          <div className="plinko-safe-text text-[8px] font-black uppercase tracking-[0.22em] text-white/34">Match result</div>
+          <div className={`plinko-result-title mt-2 text-[30px] font-black tracking-[-0.07em] plinko-result-hero-${heroTone}`}>{title}</div>
+          <div className="plinko-safe-text mx-auto mt-1 max-w-[250px] text-[9px] font-bold text-white/42">
+            {isTie ? "Оба игрока закончили с одинаковым множителем." : `${winnerPlayer?.name || "Игрок"} выигрывает Plinko Duel`}
           </div>
 
-          <div className="mt-3 flex justify-center">
-            <div className={`grid h-16 w-16 place-items-center rounded-[24px] border text-[18px] font-black text-[#050507] plinko-result-icon-${heroTone}`}>
-              {isTie ? "=" : players[winner].emoji}
+          <div className="mt-4 grid gap-2">
+            {resultOrder.map((index) => {
+              const player = players[index];
+              return (
+                <ResultPlayerCard
+                  key={`${player.id}-${index}`}
+                  playerIdx={index}
+                  player={player}
+                  score={scores[index]}
+                  isWinner={!isTie && winner === index}
+                  isTie={isTie}
+                />
+              );
+            })}
+          </div>
+
+          <div className={`mt-3 flex min-h-[54px] items-center justify-between rounded-[19px] border px-3 ${winner === 0 ? "border-[#ffb45c]/20 bg-[#ffb45c]/[.07]" : "border-white/[0.07] bg-white/[0.035]"}`}>
+            <div className="text-left">
+              <div className="plinko-safe-text text-[7px] font-black uppercase tracking-[0.13em] text-white/30">Ваш результат</div>
+              <div className="plinko-safe-text mt-0.5 text-[11px] font-black text-white/76">{winner === 0 ? "Чистый выигрыш" : isTie ? "Возврат ставки" : "Матч завершён"}</div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <img src={coinIcon} alt="" className="h-6 w-6 object-contain" draggable={false} />
+              <strong className={`plinko-result-score text-[20px] font-black ${winner === 0 ? "text-[#ffb45c]" : "text-white/52"}`}>
+                {resultAmount > 0 ? `+${formatMoney(resultAmount)}` : "0"}
+              </strong>
             </div>
           </div>
 
-          <div className={`mt-3 text-[30px] font-black leading-none tracking-[-0.08em] plinko-result-hero-${heroTone}`}>
-            {title}
-          </div>
-          <div className="mx-auto mt-1 max-w-[250px] text-[11px] font-bold leading-snug text-white/46">
-            {subtitle}
-          </div>
-
-          <div className="mt-5 grid gap-2">
-            {players.map((player, idx) => (
-              <ResultPlayerCard
-                key={player.name}
-                playerIdx={idx}
-                player={player}
-                score={scores[idx]}
-                isWinner={!isTie && winner === idx}
-                isTie={isTie}
-              />
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={onRestart}
-            className="press mt-5 h-12 w-full rounded-[18px] bg-gradient-to-br from-[#2F8CFF] to-[#FF8F2D] text-[13px] font-black tracking-[-0.02em] text-[#050507] shadow-[0_16px_34px_rgba(47,140,255,.18)] active:scale-[0.98]"
-          >
-            Играть снова
-          </button>
+          <button type="button" onClick={onExit} className="press mt-4 h-11 w-full rounded-[17px] bg-gradient-to-r from-[#5bb7ff] via-[#8bbfff] to-[#ffad62] text-[10px] font-black text-[#050507] plinko-safe-text shadow-[0_14px_28px_rgba(47,140,255,.14)]">К лобби</button>
         </div>
       </div>
     </div>
@@ -1795,7 +1934,7 @@ function ResultModal({ players, scores, winner, onRestart }: ResultModalProps) {
 
 type ResultPlayerCardProps = {
   playerIdx: number;
-  player: typeof PLAYERS[number];
+  player: PlayerView;
   score: number;
   isWinner: boolean;
   isTie: boolean;
@@ -1804,139 +1943,84 @@ type ResultPlayerCardProps = {
 function ResultPlayerCard({ playerIdx, player, score, isWinner, isTie }: ResultPlayerCardProps) {
   const big = isWinner || isTie;
   const tone = toneOf(playerIdx);
-  const cardClass = isWinner
-    ? `plinko-rpc-winner-${tone}`
-    : isTie
-      ? "plinko-rpc-tie"
-      : "plinko-rpc-idle";
-
+  const cardClass = isWinner ? `plinko-rpc-winner-${tone}` : isTie ? "plinko-rpc-tie" : "plinko-rpc-idle";
   return (
-    <div
-      className={`relative flex items-center gap-3 rounded-[24px] border px-3 text-left backdrop-blur-xl ${cardClass} ${big ? "min-h-[88px]" : "min-h-[66px] opacity-72"}`}
-    >
-      {isWinner && (
-        <div className={`absolute right-3 top-2 rounded-full px-2 py-1 text-[7px] font-black uppercase tracking-[0.16em] text-[#050507] plinko-rpc-badge-${tone}`}>
-          Winner
-        </div>
-      )}
-
-      <div
-        className={`${big ? "h-14 w-14 rounded-[20px] text-[15px]" : "h-11 w-11 rounded-[16px] text-[12px]"} grid shrink-0 place-items-center border font-black text-[#050507] plinko-rpc-avatar-${tone}`}
-      >
-        {player.emoji}
-      </div>
-
+    <div className={`relative flex items-center gap-3 rounded-[22px] border px-3 text-left backdrop-blur-xl ${cardClass} ${big ? "min-h-[78px]" : "min-h-[64px] opacity-70"}`}>
+      {isWinner && <div className={`absolute right-3 top-2 rounded-full px-2 py-1 text-[6px] font-black uppercase tracking-[0.14em] text-[#050507] plinko-safe-text plinko-rpc-badge-${tone}`}>Winner</div>}
+      <PlayerAvatar player={player} className={`${big ? "h-[52px] w-[52px]" : "h-11 w-11"} shrink-0 rounded-[17px]`} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-black tracking-[-0.04em] text-white">
-          {player.name}
-        </div>
-        <div className="mt-0.5 truncate text-[10px] font-bold tracking-[-0.02em] text-white/40">
-          {player.nick}
-        </div>
+        <div className="plinko-result-name truncate text-[12px] font-black tracking-[-0.03em] text-white">{player.name}</div>
+        <div className="plinko-safe-text truncate text-[8px] font-bold text-white/36">{player.nick}</div>
       </div>
-
-      <div
-        className={`${big ? "text-[30px]" : "text-[22px]"} shrink-0 font-black leading-none tracking-[-0.07em] tabular-nums plinko-rpc-score-${tone}`}
-      >
-        {fmt(score)}
-      </div>
+      <div className={`plinko-result-score shrink-0 text-[24px] font-black tracking-[-0.06em] tabular-nums plinko-rpc-score-${tone}`}>{fmt(score)}</div>
     </div>
   );
 }
 
-type TurnTimerProps = {
-  total: number;
-  left: number;
-  playerIdx: number;
-  label: string;
-  meta?: string;
-};
-
+type TurnTimerProps = { total: number; left: number; playerIdx: number; label: string; meta?: string };
 function TurnTimer({ total, left, playerIdx, label, meta }: TurnTimerProps) {
   const safeTotal = Math.max(1, total);
   const safeLeft = clamp(Math.ceil(left), 0, safeTotal);
   const progress = clamp(safeLeft / safeTotal, 0, 1);
   const degrees = Math.round(progress * 360);
-  const color = PLAYERS[playerIdx]?.color ?? "#5BB7FF";
+  const color = PLAYER_STYLE[playerIdx]?.color ?? "#5BB7FF";
   const ringRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
     const ring = ringRef.current;
     if (!ring) return;
     ring.style.background = `conic-gradient(${color} ${degrees}deg, rgba(255,255,255,0.12) ${degrees}deg)`;
     ring.style.boxShadow = `0 0 13px ${color}38`;
   }, [color, degrees]);
-
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,.06)]">
+    <div className="flex h-8 shrink-0 items-center gap-1 rounded-[14px] border border-white/[0.08] bg-white/[0.055] pl-1 pr-1.5">
       <div ref={ringRef} className="plinko-timer-ring">
         <span className="absolute inset-[3px] rounded-full bg-[#09090d]" />
-        <span className="relative leading-none">{safeLeft}</span>
+        <span className="relative plinko-safe-text">{safeLeft}</span>
       </div>
-      <span className="grid gap-0.5 text-left leading-none">
-        <span className="text-[7px] font-black uppercase tracking-[0.13em] text-white/42">
-          {label}
-        </span>
-        {meta && (
-          <span className="text-[9px] font-black tracking-[-0.03em] text-white/74 tabular-nums">
-            {meta}
-          </span>
-        )}
+      <span className="grid gap-0 text-left">
+        <span className="plinko-safe-text text-[6px] font-black uppercase tracking-[0.1em] text-white/38">{label}</span>
+        {meta && <span className="plinko-safe-text text-[8px] font-black text-white/72 tabular-nums">{meta}</span>}
       </span>
     </div>
   );
 }
 
-type PlayerScoreCardProps = {
-  playerIdx: number;
-  player: typeof PLAYERS[number];
-  score: number;
-  active: boolean;
-  reverse?: boolean;
-};
-
+type PlayerScoreCardProps = { playerIdx: number; player: PlayerView; score: number; active: boolean; reverse?: boolean };
 function PlayerScoreCard({ playerIdx, player, score, active, reverse = false }: PlayerScoreCardProps) {
   const tone = toneOf(playerIdx);
-
   return (
-    <div
-      className={`flex h-11 max-w-[122px] min-w-[84px] items-center gap-1.5 overflow-visible rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""} ${active ? `plinko-score-active-${tone}` : "plinko-score-idle"}`}
-    >
-      <div className={`grid h-7 w-7 shrink-0 place-items-center rounded-[11px] border text-[8px] font-black text-[#050507] plinko-score-badge-${tone}`}>
-        {player.emoji}
-      </div>
-      <div
-        className={`min-w-0 flex-1 whitespace-nowrap font-black tracking-[-0.025em] tabular-nums ${reverse ? "text-right" : "text-left"} plinko-score-value-${tone}`}
-      >
-        {fmt(score)}
+    <div className={`flex h-11 max-w-[132px] min-w-[92px] items-center gap-1.5 overflow-hidden rounded-[16px] border px-1.5 backdrop-blur-xl ${reverse ? "flex-row-reverse" : ""} ${active ? `plinko-score-active-${tone}` : "plinko-score-idle"}`}>
+      <PlayerAvatar player={player} className="h-8 w-8 shrink-0 rounded-[12px]" />
+      <div className={`min-w-0 flex-1 ${reverse ? "text-right" : "text-left"}`}>
+        <div className="plinko-safe-text truncate text-[6.5px] font-black text-white/58">{player.name}</div>
+        <div className={`plinko-safe-text truncate text-[10px] font-black tracking-[-0.03em] tabular-nums plinko-score-value-${tone}`}>{fmt(score)}</div>
       </div>
     </div>
   );
 }
 
-type BallCounterProps = {
-  playerIdx: number;
-  value: number;
-  reverse?: boolean;
-};
+function PlayerAvatar({ player, className }: { player: PlayerView; className: string }) {
+  return (
+    <div className={`plinko-safe-text grid overflow-hidden place-items-center border border-white/[0.10] bg-white/[0.05] text-[8px] font-black text-white ${className}`}>
+      {player.photoUrl ? <img src={player.photoUrl} alt="" className="h-full w-full object-cover" draggable={false} /> : player.initials}
+    </div>
+  );
+}
 
+type BallCounterProps = { playerIdx: number; value: number; reverse?: boolean };
 function BallCounter({ playerIdx, value, reverse = false }: BallCounterProps) {
   return (
     <div className={`flex items-center gap-1 ${reverse ? "flex-row-reverse" : ""}`}>
       <span className={`h-1.5 w-1.5 rounded-full plinko-ball-${toneOf(playerIdx)}`} />
-      <span className="text-[10px] font-black leading-none tracking-[-0.04em] text-white/82 tabular-nums">
-        {value}/{CFG.BALLS_PER_PLAYER}
-      </span>
+      <span className="plinko-safe-text text-[9px] font-black tracking-[-0.03em] text-white/78 tabular-nums">{Math.min(value, CFG.BALLS_PER_PLAYER)}/{CFG.BALLS_PER_PLAYER}</span>
     </div>
   );
 }
 
 function SliderThumb({ pct, tone }: { pct: number; tone: PlayerTone }) {
   const thumbRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
-    thumbRef.current?.style.setProperty("left", `${Math.max(0, Math.min(100, pct))}%`);
+    thumbRef.current?.style.setProperty("left", `${clamp(pct, 0, 100)}%`);
   }, [pct]);
-
   return <div ref={thumbRef} className={`plinko-slider-thumb plinko-slider-thumb-${tone}`} />;
 }
