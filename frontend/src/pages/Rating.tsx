@@ -26,16 +26,13 @@ const prizeCountdown = [
   { value: '34', label: 'минут' },
 ] as const;
 
-const featuredPrize = {
-  place: '1',
-  placeLabel: 'место',
-  title: 'Главный приз сезона',
-  description: 'Финишируй первым в таблице и забери максимальную награду.',
-  tone: 'gold',
-  Icon: Crown,
-} as const;
-
-const sidePrizeTiers = [
+const prizeTiers = [
+  {
+    place: '1',
+    placeLabel: 'место',
+    tone: 'gold',
+    Icon: Crown,
+  },
   {
     place: '2',
     placeLabel: 'место',
@@ -112,112 +109,105 @@ export const Rating = () => {
     <main className="app-scroll elite-rating-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
       <section className="elite-prize-banner elite-panel elite-enter">
         <div className="elite-prize-banner-glow" />
-        <div className="elite-prize-grid-lines" />
-        <div className="elite-prize-art-slot elite-prize-art-left" />
-        <div className="elite-prize-art-slot elite-prize-art-right" />
+        <div className="elite-prize-orbit elite-prize-orbit-one" />
+        <div className="elite-prize-orbit elite-prize-orbit-two" />
 
         <div className="elite-prize-head">
           <div className="min-w-0">
             <div className="elite-eyebrow elite-prize-eyebrow">
               <Gift size={11} />
-              Season rewards
+              Сезонные награды
             </div>
+
             <h1 className="elite-prize-title">Призы за рейтинг</h1>
             <p className="elite-prize-subtitle">
-              В конце сезона лучшие игроки получают награды в игровой валюте.
+              Поднимайся в таблице и забирай награду в игровых монетах.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadLeaderboard(true)}
-            disabled={refreshing}
-            className="pressable elite-icon-button elite-prize-refresh"
-            aria-label="Обновить рейтинг"
-          >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          </button>
-        </div>
+          <div className="elite-prize-actions">
+            <button
+              type="button"
+              onClick={() => void loadLeaderboard(true)}
+              disabled={refreshing}
+              className="pressable elite-icon-button"
+              aria-label="Обновить рейтинг"
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing ? 'animate-spin' : ''}
+              />
+            </button>
 
-        <div className="elite-prize-showcase">
-          <article className="elite-prize-feature is-gold">
-            <div className="elite-prize-feature-glow" />
-
-            <div className="elite-prize-feature-top">
-              <div className="elite-prize-feature-icon">
-                <featuredPrize.Icon size={22} className="fill-current" />
-              </div>
-              <div className="elite-prize-feature-chip">Топ награда</div>
-            </div>
-
-            <div className="elite-prize-feature-place">
-              <strong>{featuredPrize.place}</strong>
-              <span>{featuredPrize.placeLabel}</span>
-            </div>
-
-            <h2 className="elite-prize-feature-title">{featuredPrize.title}</h2>
-            <p className="elite-prize-feature-text">{featuredPrize.description}</p>
-
-            <div className="elite-prize-feature-reward">
-              <div className="elite-prize-feature-reward-main">
-                <img src={coinIcon} alt="" draggable={false} decoding="async" />
-                <strong>???</strong>
-              </div>
-              <span>игровых монет</span>
-            </div>
-          </article>
-
-          <div className="elite-prize-side">
-            <div className="elite-prize-countdown">
-              <div className="elite-prize-countdown-copy">
-                <div className="elite-prize-clock">
-                  <Clock size={15} />
-                </div>
-                <div>
-                  <span>Выдача наград через</span>
-                  <strong>Финал сезона</strong>
-                </div>
-              </div>
-
-              <div className="elite-prize-time" aria-label="До конца сезона">
-                {prizeCountdown.map((item, index) => (
-                  <div className="elite-prize-time-item" key={item.label}>
-                    <strong>{item.value}</strong>
-                    <span>{item.label}</span>
-                    {index < prizeCountdown.length - 1 && <i aria-hidden="true">:</i>}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="elite-prize-side-grid">
-              {sidePrizeTiers.map(({ place, placeLabel, tone, Icon }) => (
-                <article key={place} className={`elite-prize-tier is-${tone}`}>
-                  <div className="elite-prize-tier-shine" />
-                  <div className="elite-prize-tier-icon">
-                    <Icon size={14} />
-                  </div>
-
-                  <div className="elite-prize-place">
-                    <strong>{place}</strong>
-                    <span>{placeLabel}</span>
-                  </div>
-
-                  <div className="elite-prize-reward">
-                    <img src={coinIcon} alt="" draggable={false} decoding="async" />
-                    <strong>???</strong>
-                  </div>
-
-                  <span className="elite-prize-currency">игровых монет</span>
-                </article>
-              ))}
+            <div className="elite-prize-main-icon" aria-hidden="true">
+              <Trophy size={24} />
+              <Sparkles size={11} className="elite-prize-spark" />
             </div>
           </div>
+        </div>
+
+        <div className="elite-prize-countdown">
+          <div className="elite-prize-countdown-copy">
+            <div className="elite-prize-clock">
+              <Clock size={15} />
+            </div>
+            <div>
+              <span>До выдачи наград</span>
+              <strong>Финал сезона</strong>
+            </div>
+          </div>
+
+          <div className="elite-prize-time" aria-label="До конца сезона">
+            {prizeCountdown.map((item, index) => (
+              <div className="elite-prize-time-item" key={item.label}>
+                <strong>{item.value}</strong>
+                <span>{item.label}</span>
+                {index < prizeCountdown.length - 1 && (
+                  <i aria-hidden="true">:</i>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="elite-prize-grid">
+          {prizeTiers.map(({ place, placeLabel, tone, Icon }) => (
+            <article
+              key={place}
+              className={`elite-prize-tier is-${tone}`}
+            >
+              <div className="elite-prize-tier-shine" />
+
+              <div className="elite-prize-tier-icon">
+                <Icon
+                  size={place === '1' ? 15 : 14}
+                  className={place === '1' ? 'fill-current' : ''}
+                />
+              </div>
+
+              <div className="elite-prize-place">
+                <strong>{place}</strong>
+                <span>{placeLabel}</span>
+              </div>
+
+              <div className="elite-prize-reward">
+                <img
+                  src={coinIcon}
+                  alt=""
+                  draggable={false}
+                  decoding="async"
+                />
+                <strong>???</strong>
+              </div>
+
+              <span className="elite-prize-currency">игровых монет</span>
+            </article>
+          ))}
         </div>
 
         <div className="elite-prize-note">
           <Lock size={11} />
-          <span>Точные суммы откроются ближе к завершению сезона</span>
+          <span>Размер наград откроется ближе к финалу сезона</span>
         </div>
       </section>
 
@@ -277,7 +267,11 @@ export const Rating = () => {
 
                   <div className="elite-podium-avatar">
                     {player.photo_url ? (
-                      <img src={player.photo_url} alt="" className="h-full w-full object-cover" />
+                      <img
+                        src={player.photo_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       avatarLabel(player)
                     )}
@@ -285,8 +279,12 @@ export const Rating = () => {
 
                   <div className="elite-podium-place">{place}</div>
                   <p className="elite-podium-name">{displayName(player)}</p>
-                  <strong className="elite-podium-score">{formatNumber(player.rating)}</strong>
-                  <span className="elite-podium-wins">{formatNumber(player.wins)} побед</span>
+                  <strong className="elite-podium-score">
+                    {formatNumber(player.rating)}
+                  </strong>
+                  <span className="elite-podium-wins">
+                    {formatNumber(player.wins)} побед
+                  </span>
                   {isYou && <div className="elite-you-chip">Вы</div>}
                 </article>
               );
@@ -313,12 +311,18 @@ export const Rating = () => {
                   <article
                     key={player.id}
                     className={`elite-leaderboard-row ${isYou ? 'is-you' : ''}`}
-                    style={{ animationDelay: `${Math.min(index, 8) * 30}ms` }}
+                    style={{
+                      animationDelay: `${Math.min(index, 8) * 30}ms`,
+                    }}
                   >
                     <div className="elite-rank-number">{rank}</div>
                     <div className="elite-list-avatar">
                       {player.photo_url ? (
-                        <img src={player.photo_url} alt="" className="h-full w-full object-cover" />
+                        <img
+                          src={player.photo_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         avatarLabel(player)
                       )}
@@ -346,7 +350,11 @@ export const Rating = () => {
         <div className="elite-rank-number is-you">{yourRank ?? '—'}</div>
         <div className="elite-list-avatar is-you">
           {user?.photo_url ? (
-            <img src={user.photo_url} alt="" className="h-full w-full object-cover" />
+            <img
+              src={user.photo_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           ) : (
             <Sparkles size={16} />
           )}
