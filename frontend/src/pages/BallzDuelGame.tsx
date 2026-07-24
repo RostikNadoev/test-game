@@ -106,12 +106,13 @@ const THEMES: readonly StageTheme[] = [
 const STAGE_COUNT = 2;
 const WORLD_COLS = 7;
 const WORLD_ROWS = 9;
+const BRICK_ROWS = 6;
 const BRICK_PADDING = 0.075;
 const BALL_RADIUS = 0.11;
-const BALL_SPEED = 10.9;
+const BALL_SPEED = 9.7;
 const FIXED_STEP = 1 / 120;
 const MAX_STEPS_PER_FRAME = 5;
-const LAUNCH_INTERVAL = 0.044;
+const LAUNCH_INTERVAL = 0.052;
 const SAME_BRICK_COOLDOWN = 0.034;
 const CANNON_Y = 8.28;
 const BALL_START_Y = 7.98;
@@ -124,7 +125,8 @@ const IS_MOBILE_RENDER =
   (window.matchMedia('(pointer: coarse)').matches ||
     window.innerWidth <= 640);
 
-const DPR_CAP = IS_MOBILE_RENDER ? 1 : 1.2;
+const DPR_CAP = IS_MOBILE_RENDER ? 1 : 1.15;
+const BREAK_UI_THROTTLE_MS = IS_MOBILE_RENDER ? 150 : 100;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -172,7 +174,7 @@ function PlayerAvatar({
 }) {
   return (
     <div
-      className="grid shrink-0 place-items-center overflow-hidden rounded-[13px] border border-white/[0.1] bg-white/[0.06] text-[8px] font-black uppercase leading-[1.4] text-[#56e3ff]"
+      className="grid shrink-0 place-items-center overflow-hidden rounded-[13px] border border-white/[0.1] bg-white/[0.06] text-[8px] font-black uppercase leading-[1.65] text-[#56e3ff]"
       style={{ width: size, height: size }}
     >
       {profile.photoUrl ? (
@@ -261,6 +263,31 @@ export default function BallzDuelGame() {
   const bricksRef = useRef<LocalBrick[]>([]);
   const pickupsRef = useRef<LocalPickup[]>([]);
   const ballsRef = useRef<SimBall[]>([]);
+  const brickCandidatesRef = useRef<Array<Array<LocalBrick[]>>>(
+    Array.from({ length: BRICK_ROWS }, () =>
+      Array.from({ length: WORLD_COLS }, () => [] as LocalBrick[]),
+    ),
+  );
+  const pickupCandidatesRef = useRef<Array<Array<LocalPickup[]>>>(
+    Array.from({ length: BRICK_ROWS }, () =>
+      Array.from({ length: WORLD_COLS }, () => [] as LocalPickup[]),
+    ),
+  );
+  const renderDprRef = useRef(1);
+  const lastCanvasSizeRef = useRef({
+    width: 0,
+    height: 0,
+    dpr: 0,
+  });
+  const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const staticCacheKeyRef = useRef('');
+  const brickSpriteCacheRef = useRef<{
+    key: string;
+    normal: HTMLCanvasElement;
+    hot: HTMLCanvasElement;
+    pickup: HTMLCanvasElement;
+  } | null>(null);
+  const lastBreakUiAtRef = useRef(0);
 
   const localModeRef = useRef<LocalMode>('aiming');
   const localStageIndexRef = useRef(0);
@@ -304,6 +331,19 @@ export default function BallzDuelGame() {
 
   const setTemporaryEvent = useCallback(
     (text: string, duration = 500) => {
+      const now = performance.now();
+
+      if (
+        text === 'BREAK' &&
+        now - lastBreakUiAtRef.current < BREAK_UI_THROTTLE_MS
+      ) {
+        return;
+      }
+
+      if (text === 'BREAK') {
+        lastBreakUiAtRef.current = now;
+      }
+
       setLastEvent(text);
 
       if (eventTimerRef.current !== null) {
@@ -364,6 +404,30 @@ export default function BallzDuelGame() {
         row: pickup.row,
         alive: pickupAlive[index] ?? true,
       }));
+
+      brickCandidatesRef.current = Array.from(
+        { length: BRICK_ROWS },
+        (_, row) =>
+          Array.from({ length: WORLD_COLS }, (_, col) =>
+            bricksRef.current.filter(
+              (brick) =>
+                Math.abs(brick.row - row) <= 1 &&
+                Math.abs(brick.col - col) <= 1,
+            ),
+          ),
+      );
+
+      pickupCandidatesRef.current = Array.from(
+        { length: BRICK_ROWS },
+        (_, row) =>
+          Array.from({ length: WORLD_COLS }, (_, col) =>
+            pickupsRef.current.filter(
+              (pickup) =>
+                Math.abs(pickup.row - row) <= 1 &&
+                Math.abs(pickup.col - col) <= 1,
+            ),
+          ),
+      );
 
       ballsRef.current = [];
       launchXRef.current = clamp(launchX, 0.035, 0.965);
@@ -429,7 +493,7 @@ export default function BallzDuelGame() {
         match.myStage,
         match.myLaunchX.toFixed(4),
         match.myBrickHP.join(','),
-        match.myPickupAlive.map((value) => (value ? '1' : '0')).join(''),
+        match.myPickupAlive.map((value: boolean) => (value ? '1' : '0')).join(''),
       ].join('|'),
     [
       match.matchInstanceKey,
@@ -745,14 +809,34 @@ export default function BallzDuelGame() {
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+      const pixelWidth = Math.max(1, Math.floor(rect.width * dpr));
+      const pixelHeight = Math.max(1, Math.floor(rect.height * dpr));
 
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      const previous = lastCanvasSizeRef.current;
+      if (
+        previous.width === pixelWidth &&
+        previous.height === pixelHeight &&
+        previous.dpr === dpr
+      ) {
+        return;
+      }
+
+      lastCanvasSizeRef.current = {
+        width: pixelWidth,
+        height: pixelHeight,
+        dpr,
+      };
+      renderDprRef.current = dpr;
+
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
+      staticCacheKeyRef.current = '';
+      brickSpriteCacheRef.current = null;
 
       const horizontalMargin = Math.max(6, rect.width * 0.018);
-      const controlsReserve = 58;
+      const controlsReserve = 70;
       const top = 6;
       const maxWidth = rect.width - horizontalMargin * 2;
       const maxHeight = Math.max(120, rect.height - controlsReserve - top - 3);
@@ -968,8 +1052,21 @@ export default function BallzDuelGame() {
         }
 
         let collided = false;
+        const candidateCol = clamp(
+          Math.floor(ball.x),
+          0,
+          WORLD_COLS - 1,
+        );
+        const candidateRow = clamp(
+          Math.floor(ball.y),
+          0,
+          BRICK_ROWS - 1,
+        );
 
-        for (const brick of bricksRef.current) {
+        const brickCandidates =
+          brickCandidatesRef.current[candidateRow]?.[candidateCol] || [];
+
+        for (const brick of brickCandidates) {
           if (collideBallWithBrick(ball, brick, elapsed, now)) {
             collided = true;
             break;
@@ -980,8 +1077,13 @@ export default function BallzDuelGame() {
           ball.lastBrickId = null;
         }
 
-        for (const pickup of pickupsRef.current) {
-          collideBallWithPickup(ball, pickup);
+        const pickupCandidates =
+          pickupCandidatesRef.current[candidateRow]?.[candidateCol] || [];
+
+        for (const pickup of pickupCandidates) {
+          if (pickup.alive) {
+            collideBallWithPickup(ball, pickup);
+          }
         }
 
         if (ball.y + BALL_RADIUS >= RETURN_Y && ball.vy > 0) {
@@ -1040,62 +1142,102 @@ export default function BallzDuelGame() {
     };
 
     const render = (now: number) => {
-      const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+      const dpr = renderDprRef.current;
       const width = canvas.width / dpr;
       const height = canvas.height / dpr;
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
       const currentTheme =
         THEMES[localStageIndexRef.current] || THEMES[0];
-      const background = ctx.createLinearGradient(0, 0, 0, height);
-
-      background.addColorStop(0, currentTheme.backgroundTop);
-      background.addColorStop(1, currentTheme.backgroundBottom);
-
-      ctx.fillStyle = background;
-      ctx.fillRect(0, 0, width, height);
-
       const board = boardRef.current;
+      const staticKey = [
+        canvas.width,
+        canvas.height,
+        dpr,
+        localStageIndexRef.current,
+        board.left.toFixed(2),
+        board.top.toFixed(2),
+        board.right.toFixed(2),
+        board.bottom.toFixed(2),
+        board.cell.toFixed(2),
+      ].join(':');
 
-      roundedRectPath(
-        ctx,
-        board.left - 4,
-        board.top - 4,
-        board.right - board.left + 8,
-        board.bottom - board.top + 8,
-        18,
-      );
+      let staticCanvas = staticCanvasRef.current;
 
-      ctx.fillStyle = currentTheme.board;
-      ctx.fill();
-
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,.075)';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.strokeStyle = currentTheme.grid;
-      ctx.lineWidth = 1;
-
-      for (let col = 1; col < WORLD_COLS; col += 1) {
-        const x = board.left + col * board.cell;
-
-        ctx.beginPath();
-        ctx.moveTo(x, board.top);
-        ctx.lineTo(x, board.bottom);
-        ctx.stroke();
+      if (!staticCanvas) {
+        staticCanvas = document.createElement('canvas');
+        staticCanvasRef.current = staticCanvas;
       }
 
-      for (let row = 1; row < WORLD_ROWS; row += 1) {
-        const y = board.top + row * board.cell;
+      if (staticCacheKeyRef.current !== staticKey) {
+        staticCanvas.width = canvas.width;
+        staticCanvas.height = canvas.height;
 
-        ctx.beginPath();
-        ctx.moveTo(board.left, y);
-        ctx.lineTo(board.right, y);
-        ctx.stroke();
+        const staticCtx = staticCanvas.getContext('2d', {
+          alpha: false,
+        });
+
+        if (staticCtx) {
+          staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          const background = staticCtx.createLinearGradient(
+            0,
+            0,
+            0,
+            height,
+          );
+
+          background.addColorStop(0, currentTheme.backgroundTop);
+          background.addColorStop(1, currentTheme.backgroundBottom);
+
+          staticCtx.fillStyle = background;
+          staticCtx.fillRect(0, 0, width, height);
+
+          roundedRectPath(
+            staticCtx,
+            board.left - 4,
+            board.top - 4,
+            board.right - board.left + 8,
+            board.bottom - board.top + 8,
+            18,
+          );
+
+          staticCtx.fillStyle = currentTheme.board;
+          staticCtx.fill();
+
+          staticCtx.save();
+          staticCtx.strokeStyle = 'rgba(255,255,255,.075)';
+          staticCtx.lineWidth = 1.2;
+          staticCtx.stroke();
+          staticCtx.restore();
+
+          staticCtx.strokeStyle = currentTheme.grid;
+          staticCtx.lineWidth = 1;
+
+          for (let col = 1; col < WORLD_COLS; col += 1) {
+            const x = board.left + col * board.cell;
+
+            staticCtx.beginPath();
+            staticCtx.moveTo(x, board.top);
+            staticCtx.lineTo(x, board.bottom);
+            staticCtx.stroke();
+          }
+
+          for (let row = 1; row < WORLD_ROWS; row += 1) {
+            const y = board.top + row * board.cell;
+
+            staticCtx.beginPath();
+            staticCtx.moveTo(board.left, y);
+            staticCtx.lineTo(board.right, y);
+            staticCtx.stroke();
+          }
+        }
+
+        staticCacheKeyRef.current = staticKey;
       }
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(staticCanvas, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const previous = lastFrameRef.current || now;
       const frameDt = Math.min(
@@ -1121,76 +1263,174 @@ export default function BallzDuelGame() {
         accumulatorRef.current = 0;
       }
 
+      const brickPadding = board.cell * BRICK_PADDING;
+      const brickSize = board.cell - brickPadding * 2;
+      const spriteKey = [
+        localStageIndexRef.current,
+        brickSize.toFixed(2),
+        dpr,
+      ].join(':');
+
+      let spriteCache = brickSpriteCacheRef.current;
+
+      if (!spriteCache || spriteCache.key !== spriteKey) {
+        const createBrickSprite = (
+          topColor: string,
+          bottomColor: string,
+        ) => {
+          const sprite = document.createElement('canvas');
+          sprite.width = Math.max(1, Math.ceil(brickSize * dpr));
+          sprite.height = Math.max(1, Math.ceil(brickSize * dpr));
+
+          const spriteCtx = sprite.getContext('2d');
+          if (!spriteCtx) {
+            return sprite;
+          }
+
+          spriteCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          roundedRectPath(
+            spriteCtx,
+            0,
+            0,
+            brickSize,
+            brickSize,
+            Math.max(6, brickSize * 0.17),
+          );
+
+          const gradient = spriteCtx.createLinearGradient(
+            0,
+            0,
+            0,
+            brickSize,
+          );
+          gradient.addColorStop(0, topColor);
+          gradient.addColorStop(1, bottomColor);
+
+          spriteCtx.fillStyle = gradient;
+          spriteCtx.fill();
+
+          spriteCtx.save();
+          spriteCtx.globalAlpha = 0.16;
+          spriteCtx.fillStyle = '#ffffff';
+
+          roundedRectPath(
+            spriteCtx,
+            brickSize * 0.1,
+            brickSize * 0.09,
+            brickSize * 0.8,
+            brickSize * 0.11,
+            brickSize * 0.05,
+          );
+
+          spriteCtx.fill();
+          spriteCtx.restore();
+
+          return sprite;
+        };
+
+        const pickupSize = board.cell * 0.62;
+        const pickupSprite = document.createElement('canvas');
+        pickupSprite.width = Math.max(1, Math.ceil(pickupSize * dpr));
+        pickupSprite.height = Math.max(1, Math.ceil(pickupSize * dpr));
+
+        const pickupCtx = pickupSprite.getContext('2d');
+        if (pickupCtx) {
+          pickupCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          const center = pickupSize / 2;
+          const radius = board.cell * 0.18;
+
+          pickupCtx.globalAlpha = 0.13;
+          pickupCtx.fillStyle = currentTheme.pickup;
+          pickupCtx.beginPath();
+          pickupCtx.arc(center, center, radius * 1.7, 0, Math.PI * 2);
+          pickupCtx.fill();
+
+          pickupCtx.globalAlpha = 1;
+          pickupCtx.fillStyle = currentTheme.pickup;
+          pickupCtx.beginPath();
+          pickupCtx.arc(center, center, radius, 0, Math.PI * 2);
+          pickupCtx.fill();
+
+          pickupCtx.fillStyle = '#071516';
+          pickupCtx.font = `900 ${Math.max(
+            8,
+            radius * 0.86,
+          )}px Inter, sans-serif`;
+          pickupCtx.textAlign = 'center';
+          pickupCtx.textBaseline = 'middle';
+          pickupCtx.fillText('+1', center, center + 0.5);
+        }
+
+        spriteCache = {
+          key: spriteKey,
+          normal: createBrickSprite(
+            currentTheme.brickA,
+            currentTheme.brickB,
+          ),
+          hot: createBrickSprite(
+            currentTheme.brickHot,
+            currentTheme.brickA,
+          ),
+          pickup: pickupSprite,
+        };
+
+        brickSpriteCacheRef.current = spriteCache;
+      }
+
+      ctx.font = `900 ${Math.max(
+        11,
+        brickSize * 0.3,
+      )}px Inter, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
       for (const brick of bricksRef.current) {
         if (!brick.alive) {
           continue;
         }
 
-        const padding = board.cell * BRICK_PADDING;
-        const x = board.left + brick.col * board.cell + padding;
-        const y = board.top + brick.row * board.cell + padding;
-        const size = board.cell - padding * 2;
+        const x =
+          board.left + brick.col * board.cell + brickPadding;
+        const y =
+          board.top + brick.row * board.cell + brickPadding;
 
         const isHot =
           brick.hp >=
           (localStageIndexRef.current === 0 ? 17 : 25);
 
-        roundedRectPath(
-          ctx,
+        ctx.drawImage(
+          isHot ? spriteCache.hot : spriteCache.normal,
           x,
           y,
-          size,
-          size,
-          Math.max(6, size * 0.17),
+          brickSize,
+          brickSize,
         );
 
-        const gradient = ctx.createLinearGradient(x, y, x, y + size);
+        if (now < brick.hitFlash) {
+          ctx.save();
+          ctx.globalAlpha = 0.78;
+          ctx.fillStyle = '#ffffff';
 
-        gradient.addColorStop(
-          0,
-          now < brick.hitFlash
-            ? '#ffffff'
-            : isHot
-              ? currentTheme.brickHot
-              : currentTheme.brickA,
-        );
+          roundedRectPath(
+            ctx,
+            x,
+            y,
+            brickSize,
+            brickSize,
+            Math.max(6, brickSize * 0.17),
+          );
 
-        gradient.addColorStop(
-          1,
-          isHot ? currentTheme.brickA : currentTheme.brickB,
-        );
-
-        ctx.fillStyle = gradient;
-        ctx.fill();
-
-        ctx.save();
-        ctx.globalAlpha = 0.16;
-        ctx.fillStyle = '#ffffff';
-
-        roundedRectPath(
-          ctx,
-          x + size * 0.1,
-          y + size * 0.09,
-          size * 0.8,
-          size * 0.11,
-          size * 0.05,
-        );
-
-        ctx.fill();
-        ctx.restore();
+          ctx.fill();
+          ctx.restore();
+        }
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = `900 ${Math.max(
-          11,
-          size * 0.3,
-        )}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
         ctx.fillText(
           String(brick.hp),
-          x + size / 2,
-          y + size / 2 + 1,
+          x + brickSize / 2,
+          y + brickSize / 2 + 1,
         );
       }
 
@@ -1199,35 +1439,23 @@ export default function BallzDuelGame() {
           continue;
         }
 
-        const cx =
-          board.left + (pickup.col + 0.5) * board.cell;
-        const cy =
-          board.top + (pickup.row + 0.5) * board.cell;
-        const radius = board.cell * 0.18;
+        const pickupSize = board.cell * 0.62;
+        const x =
+          board.left +
+          (pickup.col + 0.5) * board.cell -
+          pickupSize / 2;
+        const y =
+          board.top +
+          (pickup.row + 0.5) * board.cell -
+          pickupSize / 2;
 
-        ctx.globalAlpha = 0.13;
-        ctx.fillStyle = currentTheme.pickup;
-
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius * 1.7, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = currentTheme.pickup;
-
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#071516';
-        ctx.font = `900 ${Math.max(
-          8,
-          radius * 0.86,
-        )}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-
-        ctx.fillText('+1', cx, cy + 0.5);
+        ctx.drawImage(
+          spriteCache.pickup,
+          x,
+          y,
+          pickupSize,
+          pickupSize,
+        );
       }
 
       for (const ball of ballsRef.current) {
@@ -1400,6 +1628,8 @@ export default function BallzDuelGame() {
       style={{
         fontFamily:
           "'Supercell','Supercell-Magic','SupercellMagic',Inter,system-ui,sans-serif",
+        lineHeight: 1.65,
+        WebkitFontSmoothing: 'antialiased',
       }}
     >
       <div
@@ -1416,7 +1646,7 @@ export default function BallzDuelGame() {
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <PlayerAvatar profile={match.playerProfile} />
           <div className="min-w-0">
-            <p className="max-w-[82px] truncate text-[6px] font-black uppercase tracking-[.08em] text-white/70">
+            <p className="max-w-[82px] truncate py-[2px] text-[6px] font-black uppercase tracking-[.08em] text-white/70">
               {match.playerProfile.name}
             </p>
             <p className="mt-1 text-[5px] font-black uppercase tracking-[.09em] text-white/27">
@@ -1432,14 +1662,14 @@ export default function BallzDuelGame() {
           >
             STAGE {ownDisplayStage}/{STAGE_COUNT}
           </p>
-          <strong className="mt-1 block text-[17px] font-black leading-[1.35] tabular-nums text-white">
+          <strong className="mt-1 block text-[17px] font-black leading-[1.65] tabular-nums text-white">
             {formatTime(match.matchTimeLeft)}
           </strong>
         </div>
 
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-right">
           <div className="min-w-0">
-            <p className="max-w-[82px] truncate text-[6px] font-black uppercase tracking-[.08em] text-white/70">
+            <p className="max-w-[82px] truncate py-[2px] text-[6px] font-black uppercase tracking-[.08em] text-white/70">
               {match.opponentProfile.name}
             </p>
             <p className="mt-1 text-[5px] font-black uppercase tracking-[.09em] text-white/27">
@@ -1479,7 +1709,7 @@ export default function BallzDuelGame() {
         )}
 
         <div
-          className="absolute bottom-1.5 left-1/2 z-30 w-[min(360px,94%)] -translate-x-1/2 rounded-[14px] border border-white/[0.075] px-2.5 py-2"
+          className="absolute bottom-[18px] left-1/2 z-30 w-[min(360px,94%)] -translate-x-1/2 rounded-[14px] border border-white/[0.075] px-2.5 py-2"
           style={{ background: `${theme.board}F3` }}
         >
           <div className="flex items-center gap-2">
@@ -1501,7 +1731,7 @@ export default function BallzDuelGame() {
                 BALLS THIS SHOT
               </p>
               <strong
-                className="mt-[1px] block text-[14px] font-black leading-[1.35]"
+                className="mt-[1px] block text-[14px] font-black leading-[1.65]"
                 style={{ color: theme.accent }}
               >
                 {selectedBalls}
@@ -1580,7 +1810,7 @@ export default function BallzDuelGame() {
             onChange={(event) =>
               changeSelectedBalls(Number(event.target.value))
             }
-            className="mt-1.5 block h-[16px] w-full cursor-pointer accent-current disabled:opacity-30"
+            className="mt-1 block h-[24px] w-full cursor-pointer accent-current disabled:opacity-30"
             style={{ color: theme.accent }}
             aria-label="Количество шаров в залпе"
           />
@@ -1593,7 +1823,7 @@ export default function BallzDuelGame() {
                 CLEARED
               </p>
               <p
-                className="mt-1 text-[24px] font-black uppercase leading-[1.4]"
+                className="mt-1 text-[24px] font-black uppercase leading-[1.65]"
                 style={{ color: theme.accent }}
               >
                 STAGE {transitionStage - 1}
@@ -1646,7 +1876,7 @@ export default function BallzDuelGame() {
               2 RANDOM STAGES · 90 SEC
             </p>
             <div
-              className="mt-2 text-[64px] font-black leading-[1.25]"
+              className="mt-2 text-[64px] font-black leading-[1.55]"
               style={{ color: theme.accent }}
             >
               {Math.max(1, match.countdownLeft)}
@@ -1669,7 +1899,7 @@ export default function BallzDuelGame() {
                 BALLZ DUEL
               </p>
               <h2
-                className="mt-1 text-[20px] font-black uppercase leading-[1.4]"
+                className="mt-1 text-[20px] font-black uppercase leading-[1.65]"
                 style={{
                   color:
                     resultStage < 4
@@ -1691,7 +1921,7 @@ export default function BallzDuelGame() {
                   profile={match.playerProfile}
                   size={42}
                 />
-                <p className="mx-auto mt-2 max-w-[92px] truncate text-[6px] font-black uppercase text-white/65">
+                <p className="mx-auto mt-2 max-w-[92px] truncate py-[2px] text-[6px] font-black uppercase text-white/65">
                   {match.playerProfile.name}
                 </p>
               </div>
@@ -1707,7 +1937,7 @@ export default function BallzDuelGame() {
                     size={42}
                   />
                 </div>
-                <p className="mx-auto mt-2 max-w-[92px] truncate text-[6px] font-black uppercase text-white/65">
+                <p className="mx-auto mt-2 max-w-[92px] truncate py-[2px] text-[6px] font-black uppercase text-white/65">
                   {match.opponentProfile.name}
                 </p>
               </div>

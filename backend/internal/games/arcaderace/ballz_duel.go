@@ -14,15 +14,15 @@ const (
 	ballzBrickRows          = 6
 	ballzStartBalls         = 25
 	ballzBallRadius         = 0.11
-	ballzBallSpeed          = 10.90
+	ballzBallSpeed          = 9.70
 	ballzFixedStep          = 1.0 / 120.0
-	ballzLaunchInterval     = 0.044
+	ballzLaunchInterval     = 0.052
 	ballzSameBrickCooldown  = 0.034
 	ballzCannonY            = 8.28
 	ballzBallStartY         = 7.98
 	ballzReturnY            = 8.92
 	ballzBrickPadding       = 0.075
-	ballzMaxShotSeconds     = 18.0
+	ballzMaxShotSeconds     = 22.0
 	ballzEfficiencyBallCost = 3
 )
 

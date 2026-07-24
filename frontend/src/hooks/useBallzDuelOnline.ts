@@ -37,8 +37,8 @@ const IS_MOBILE_CLIENT =
   typeof window !== 'undefined' &&
   (window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 640);
 
-const CLOCK_TICK_MS = IS_MOBILE_CLIENT ? 250 : 160;
-const STATE_COMMIT_MS = IS_MOBILE_CLIENT ? 150 : 100;
+const CLOCK_TICK_MS = IS_MOBILE_CLIENT ? 300 : 180;
+const STATE_COMMIT_MS = IS_MOBILE_CLIENT ? 180 : 110;
 
 const readStoredPlayersInfo = () => {
   if (typeof window === 'undefined') {
