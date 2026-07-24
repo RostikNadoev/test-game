@@ -12,6 +12,8 @@ import discCover from '../assets/home/disc.webp';
 import doodleCover from '../assets/home/doodle.webp';
 import flappyCover from '../assets/home/flappy.webp';
 import crossyCover from '../assets/home/crossy.webp';
+import coinCover from '../assets/home/coinchase.webp';
+import cubeCover from '../assets/home/cubefill.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -216,6 +218,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/coin_chase/play',
     launchMode: 'lobby',
+    coverUrl: coinCover,
   },
   {
     code: 'cube_fill',
@@ -227,6 +230,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/cube_fill/play',
     launchMode: 'lobby',
+    coverUrl: cubeCover
   },
 ];
 
