@@ -231,7 +231,8 @@ export const LobbyRoom = () => {
         matchedDurationMs={
           lobbyGameCode === 'descent_duel' ||
           lobbyGameCode === 'coin_chase' ||
-          lobbyGameCode === 'cube_fill'
+          lobbyGameCode === 'cube_fill' ||
+          lobbyGameCode === 'ballz_duel'
             ? 0
             : undefined
         }

@@ -59,7 +59,6 @@ const NeonScratchSoloGame = lazy(() =>
 const RaceGame = lazy(() => import("./pages/RaceGame"));
 const BlackjackDuelGame = lazy(() => import("./pages/BlackjackDuelGame"));
 const GridLockGame = lazy(() => import("./pages/GridLockGame"));
-const DiceDuelGame = lazy(() => import("./pages/DiceDuelGame"));
 const NeonMatrixGame = lazy(() => import("./pages/NeonMatrixGame"));
 const PaperIoGame = lazy(() => import("./pages/PaperIoGame"));
 const TowerStackGame = lazy(() => import("./pages/TowerStackGame"));
@@ -72,6 +71,7 @@ const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
 const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
 const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
 const CubeFillGame = lazy(() => import("./pages/CubeFillGame"));
+const BallzDuelGame = lazy(() => import("./pages/BallzDuelGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -183,12 +183,14 @@ function AppShell() {
   const isPrismCubeRoute = location.pathname === "/game/prism_cube/play";
   const isCoinChaseRoute = location.pathname === "/game/coin_chase/play";
   const isCubeFillRoute = location.pathname === "/game/cube_fill/play";
+  const isBallzDuelRoute = location.pathname === "/game/ballz_duel/play";
   const hasFullScreenArcadeBackground =
     isFlappyRaceRoute ||
     isDoodleJumpRoute ||
     isPrismCubeRoute ||
     isCoinChaseRoute ||
-    isCubeFillRoute;
+    isCubeFillRoute ||
+    isBallzDuelRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
@@ -277,13 +279,20 @@ function AppShell() {
       ? "#10081f"
       : isCubeFillRoute
         ? "#171137"
-        : isSoloRoute
-          ? "#060b14"
-          : "#09090d";
+        : isBallzDuelRoute
+          ? "#0b1c2e"
+          : isSoloRoute
+            ? "#060b14"
+            : "#09090d";
 
     tg?.setHeaderColor?.(themeColor);
     tg?.setBackgroundColor?.(themeColor);
-  }, [isCubeFillRoute, isFruitCascadeRoute, isSoloRoute]);
+  }, [
+    isBallzDuelRoute,
+    isCubeFillRoute,
+    isFruitCascadeRoute,
+    isSoloRoute,
+  ]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -339,6 +348,8 @@ function AppShell() {
                   ? "radial-gradient(circle at 50% 0%, rgba(255,214,74,0.08), transparent 42%), linear-gradient(180deg, #12070f 0%, #1b0915 46%, #0b050b 100%)"
                 : isCubeFillRoute
                   ? "radial-gradient(circle at 50% 0%, rgba(111,82,224,0.26), transparent 38%), radial-gradient(circle at 10% 78%, rgba(80,55,184,0.18), transparent 38%), linear-gradient(180deg, #20164a 0%, #151033 48%, #0c0a20 100%)"
+                : isBallzDuelRoute
+                  ? "radial-gradient(circle at 70% 8%, rgba(86,227,255,0.15), transparent 42%), radial-gradient(circle at 16% 78%, rgba(255,214,74,0.08), transparent 36%), linear-gradient(180deg, #071425 0%, #07101b 100%)"
                 : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
@@ -400,7 +411,6 @@ function AppShell() {
                 path="/game/blackjack_duel/play"
                 element={<BlackjackDuelGame />}
               />
-              <Route path="/game/dice_duel/play" element={<DiceDuelGame />} />
               <Route
                 path="/game/neon_matrix/play"
                 element={<NeonMatrixGame />}
@@ -430,6 +440,10 @@ function AppShell() {
               <Route
                 path="/game/cube_fill/play"
                 element={<CubeFillGame />}
+              />
+              <Route
+                path="/game/ballz_duel/play"
+                element={<BallzDuelGame />}
               />
 
               <Route path="/profile" element={<Profile />} />

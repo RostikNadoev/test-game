@@ -2,7 +2,6 @@ import plinkoCover from '../assets/home/plinko.webp';
 import descentCover from '../assets/home/descent.webp';
 import blCover from '../assets/home/21.webp';
 import paperCover from '../assets/home/paper.webp';
-import diceCover from '../assets/home/dice.webp';
 import towerCover from '../assets/home/tower.webp';
 import raceCover from '../assets/home/race.webp';
 import gridCover from '../assets/home/grid.webp';
@@ -25,7 +24,6 @@ export type GameCode =
   | 'rps_duel'
   | 'grid_lock'
   | 'blackjack_duel'
-  | 'dice_duel'
   | 'neon_matrix'
   | 'street_race'
   | 'penalty_pvp'
@@ -37,7 +35,8 @@ export type GameCode =
   | 'crossy_pvp'
   | 'prism_cube'
   | 'coin_chase'
-  | 'cube_fill';
+  | 'cube_fill'
+  | 'ballz_duel';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -116,16 +115,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Cards',
     playPath: '/game/blackjack_duel/play',
     coverUrl: blCover,
-  },
-  {
-    code: 'dice_duel',
-    displayName: 'Dice Duel',
-    icon: '🎲',
-    description: '3 кубика и риск-переброс',
-    color: 'from-[#F2C766]/26 via-[#FF7A90]/10 to-transparent',
-    meta: 'Risk',
-    playPath: '/game/dice_duel/play',
-    coverUrl: diceCover,
   },
   {
     code: 'neon_matrix',
@@ -230,7 +219,18 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/cube_fill/play',
     launchMode: 'lobby',
-    coverUrl: cubeCover
+    coverUrl: cubeCover,
+  },
+  {
+    code: 'ballz_duel',
+    displayName: 'Ballz Duel',
+    icon: '⚪',
+    description: 'Разбей 2 случайных поля точными рикошетами за 90 секунд',
+    color: 'from-[#56E3FF]/24 via-[#FFD64A]/14 to-transparent',
+    meta: 'Arcade PvP',
+    status: 'New',
+    playPath: '/game/ballz_duel/play',
+    launchMode: 'lobby',
   },
 ];
 

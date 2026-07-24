@@ -19,6 +19,7 @@ const (
 	CrossyPVPGameCode  = "crossy_pvp"
 	CoinChaseGameCode  = "coin_chase"
 	CubeFillGameCode   = "cube_fill"
+	BallzDuelGameCode  = "ballz_duel"
 
 	PhaseWaiting   = "waiting"
 	PhaseCountdown = "countdown"
@@ -29,51 +30,66 @@ const (
 	MatchDuration          = 45 * time.Second
 	CoinChaseMatchDuration = 60 * time.Second
 	CubeFillMatchDuration  = 60 * time.Second
+	BallzDuelMatchDuration = 90 * time.Second
 	SessionTTL             = 30 * time.Minute
 )
 
 type ClientMessage struct {
-	Type     string `json:"type"`
-	EventID  uint64 `json:"event_id,omitempty"`
-	Kind     string `json:"kind,omitempty"`
-	Grade    string `json:"grade,omitempty"`
-	ObjectID int64  `json:"object_id,omitempty"`
-	Value    int    `json:"value,omitempty"`
-	Perfect  bool   `json:"perfect,omitempty"`
+	Type     string  `json:"type"`
+	EventID  uint64  `json:"event_id,omitempty"`
+	Kind     string  `json:"kind,omitempty"`
+	Grade    string  `json:"grade,omitempty"`
+	ObjectID int64   `json:"object_id,omitempty"`
+	Value    int     `json:"value,omitempty"`
+	Perfect  bool    `json:"perfect,omitempty"`
+	Angle    float64 `json:"angle,omitempty"`
+	Balls    int     `json:"balls,omitempty"`
 }
 
 type PublicState struct {
-	Type              string        `json:"type"`
-	Game              string        `json:"game"`
-	LobbyID           string        `json:"lobby_id"`
-	Phase             string        `json:"phase"`
-	Ready             bool          `json:"ready"`
-	ServerMS          int64         `json:"server_ms"`
-	Seed              int64         `json:"seed"`
-	PlayerOrder       []uint        `json:"player_order"`
-	Scores            map[uint]int  `json:"scores"`
-	Combos            map[uint]int  `json:"combos"`
-	BestCombos        map[uint]int  `json:"best_combos"`
-	HeightScores      map[uint]int  `json:"height_scores"`
-	CubeLevelIndices  []int         `json:"cube_level_indices,omitempty"`
-	CubeLevels        map[uint]int  `json:"cube_levels,omitempty"`
-	CubeLevelProgress map[uint]int  `json:"cube_level_progress,omitempty"`
-	CubeProgressBP    map[uint]int  `json:"cube_progress_bp,omitempty"`
-	CubeMoves         map[uint]int  `json:"cube_moves,omitempty"`
-	CubeEfficiency    map[uint]int  `json:"cube_efficiency,omitempty"`
-	CubeFinished      map[uint]bool `json:"cube_finished,omitempty"`
-	BetCoins          float64       `json:"bet_coins"`
-	WinnerProfit      float64       `json:"winner_profit"`
-	CountdownEndsMS   int64         `json:"countdown_ends_ms,omitempty"`
-	MatchEndsMS       int64         `json:"match_ends_ms,omitempty"`
-	WinnerUserID      uint          `json:"winner_user_id,omitempty"`
-	Draw              bool          `json:"draw,omitempty"`
-	LastEventUserID   uint          `json:"last_event_user_id,omitempty"`
-	LastEventKind     string        `json:"last_event_kind,omitempty"`
-	LastEventGrade    string        `json:"last_event_grade,omitempty"`
-	LastEventPoints   int           `json:"last_event_points,omitempty"`
-	LastEventID       uint64        `json:"last_event_id,omitempty"`
-	Message           string        `json:"message,omitempty"`
+	Type                string             `json:"type"`
+	Game                string             `json:"game"`
+	LobbyID             string             `json:"lobby_id"`
+	Phase               string             `json:"phase"`
+	Ready               bool               `json:"ready"`
+	ServerMS            int64              `json:"server_ms"`
+	Seed                int64              `json:"seed"`
+	PlayerOrder         []uint             `json:"player_order"`
+	Scores              map[uint]int       `json:"scores"`
+	Combos              map[uint]int       `json:"combos"`
+	BestCombos          map[uint]int       `json:"best_combos"`
+	HeightScores        map[uint]int       `json:"height_scores"`
+	CubeLevelIndices    []int              `json:"cube_level_indices,omitempty"`
+	CubeLevels          map[uint]int       `json:"cube_levels,omitempty"`
+	CubeLevelProgress   map[uint]int       `json:"cube_level_progress,omitempty"`
+	CubeProgressBP      map[uint]int       `json:"cube_progress_bp,omitempty"`
+	CubeMoves           map[uint]int       `json:"cube_moves,omitempty"`
+	CubeEfficiency      map[uint]int       `json:"cube_efficiency,omitempty"`
+	CubeFinished        map[uint]bool      `json:"cube_finished,omitempty"`
+	BallzStages         []BallzStageLayout `json:"ballz_stages,omitempty"`
+	BallzStage          map[uint]int       `json:"ballz_stage,omitempty"`
+	BallzBrickHP        map[uint][]int     `json:"ballz_brick_hp,omitempty"`
+	BallzPickupAlive    map[uint][]bool    `json:"ballz_pickup_alive,omitempty"`
+	BallzAvailableBalls map[uint]int       `json:"ballz_available_balls,omitempty"`
+	BallzBallsUsed      map[uint]int       `json:"ballz_balls_used,omitempty"`
+	BallzShots          map[uint]int       `json:"ballz_shots,omitempty"`
+	BallzProgressBP     map[uint]int       `json:"ballz_progress_bp,omitempty"`
+	BallzEfficiencyBP   map[uint]int       `json:"ballz_efficiency_bp,omitempty"`
+	BallzFinished       map[uint]bool      `json:"ballz_finished,omitempty"`
+	BallzLaunchXBP      map[uint]int       `json:"ballz_launch_x_bp,omitempty"`
+	LastEventIDs        map[uint]uint64    `json:"last_event_ids,omitempty"`
+	BetCoins            float64            `json:"bet_coins"`
+	WinnerProfit        float64            `json:"winner_profit"`
+	CountdownEndsMS     int64              `json:"countdown_ends_ms,omitempty"`
+	MatchEndsMS         int64              `json:"match_ends_ms,omitempty"`
+	WinnerUserID        uint               `json:"winner_user_id,omitempty"`
+	Draw                bool               `json:"draw,omitempty"`
+	LastEventUserID     uint               `json:"last_event_user_id,omitempty"`
+	LastEventKind       string             `json:"last_event_kind,omitempty"`
+	LastEventGrade      string             `json:"last_event_grade,omitempty"`
+	LastEventPoints     int                `json:"last_event_points,omitempty"`
+	LastEventID         uint64             `json:"last_event_id,omitempty"`
+	Message             string             `json:"message,omitempty"`
 }
 
 type Manager struct {
@@ -178,6 +194,8 @@ type Session struct {
 	lastGateID       map[uint]int64
 	cubeLevelIndices []int
 	cubeStates       map[uint]*CubeFillPlayerState
+	ballzStages      []BallzStageLayout
+	ballzStates      map[uint]*BallzPlayerState
 
 	phase           string
 	seed            int64
@@ -194,9 +212,10 @@ type Session struct {
 	settled         bool
 	closed          bool
 
-	countdownTimer *time.Timer
-	matchTimer     *time.Timer
-	onMatchOver    func(lobbyID string, winnerUserID *uint)
+	countdownTimer   *time.Timer
+	matchTimer       *time.Timer
+	ballzFinishTimer *time.Timer
+	onMatchOver      func(lobbyID string, winnerUserID *uint)
 }
 
 func NewSession(
@@ -222,6 +241,7 @@ func NewSession(
 		seenObjects:  make(map[uint]map[string]bool),
 		lastGateID:   make(map[uint]int64),
 		cubeStates:   make(map[uint]*CubeFillPlayerState),
+		ballzStates:  make(map[uint]*BallzPlayerState),
 		phase:        PhaseWaiting,
 		seed:         randomSeed(),
 		lastActivity: time.Now(),
@@ -374,6 +394,26 @@ func (s *Session) applyEventLocked(userID uint, message ClientMessage) {
 		s.finishLocked()
 		return
 	}
+	if s.gameCode == BallzDuelGameCode && s.ballzAllFinishedLocked() {
+		s.broadcastLocked(s.publicStateLocked())
+		delay := s.ballzFinishDelayLocked(now)
+		if delay <= 0 {
+			s.finishLocked()
+			return
+		}
+		if s.ballzFinishTimer != nil {
+			s.ballzFinishTimer.Stop()
+		}
+		s.ballzFinishTimer = time.AfterFunc(delay, func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.closed || s.settled || s.phase != PhasePlaying {
+				return
+			}
+			s.finishLocked()
+		})
+		return
+	}
 
 	s.broadcastLocked(s.publicStateLocked())
 }
@@ -396,6 +436,8 @@ func (s *Session) calculateEventLocked(
 		return s.applyCoinChaseEventLocked(userID, message, kind, now)
 	case CubeFillGameCode:
 		return s.applyCubeFillEventLocked(userID, message, kind)
+	case BallzDuelGameCode:
+		return s.applyBallzEventLocked(userID, message, kind, now)
 	default:
 		return 0, false, errors.New("unsupported game")
 	}
@@ -666,6 +708,8 @@ func (s *Session) eventIntervalAllowedLocked(userID uint, kind string, now time.
 		minimum = 110 * time.Millisecond
 	case "swipe":
 		minimum = 95 * time.Millisecond
+	case "shot":
+		minimum = 300 * time.Millisecond
 	}
 	previous := s.lastEventAt[userID][kind]
 	return previous.IsZero() || now.Sub(previous) >= minimum
@@ -695,6 +739,10 @@ func (s *Session) startCountdownLocked() {
 	}
 	if s.matchTimer != nil {
 		s.matchTimer.Stop()
+	}
+	if s.ballzFinishTimer != nil {
+		s.ballzFinishTimer.Stop()
+		s.ballzFinishTimer = nil
 	}
 
 	s.seed = randomSeed()
@@ -749,15 +797,26 @@ func (s *Session) finishLocked() {
 	}
 	s.phase = PhaseMatchOver
 	s.matchEndsAt = time.Time{}
+	if s.ballzFinishTimer != nil {
+		s.ballzFinishTimer.Stop()
+		s.ballzFinishTimer = nil
+	}
 
 	first := s.playerOrder[0]
 	second := s.playerOrder[1]
-	s.draw = s.scores[first] == s.scores[second]
-	if !s.draw {
-		if s.scores[first] > s.scores[second] {
-			s.winnerUserID = first
-		} else {
-			s.winnerUserID = second
+
+	if s.gameCode == BallzDuelGameCode {
+		winner, draw := s.ballzWinnerLocked()
+		s.winnerUserID = winner
+		s.draw = draw
+	} else {
+		s.draw = s.scores[first] == s.scores[second]
+		if !s.draw {
+			if s.scores[first] > s.scores[second] {
+				s.winnerUserID = first
+			} else {
+				s.winnerUserID = second
+			}
 		}
 	}
 
@@ -798,6 +857,13 @@ func (s *Session) resetScoresLocked() {
 		s.cubeLevelIndices = nil
 		s.cubeStates = make(map[uint]*CubeFillPlayerState)
 	}
+
+	if s.gameCode == BallzDuelGameCode {
+		s.resetBallzLocked()
+	} else {
+		s.ballzStages = nil
+		s.ballzStates = make(map[uint]*BallzPlayerState)
+	}
 }
 
 func (s *Session) publicStateLocked() PublicState {
@@ -819,6 +885,18 @@ func (s *Session) publicStateLocked() PublicState {
 	var cubeMoves map[uint]int
 	var cubeEfficiency map[uint]int
 	var cubeFinished map[uint]bool
+
+	var ballzStages []BallzStageLayout
+	var ballzStage map[uint]int
+	var ballzBrickHP map[uint][]int
+	var ballzPickupAlive map[uint][]bool
+	var ballzAvailableBalls map[uint]int
+	var ballzBallsUsed map[uint]int
+	var ballzShots map[uint]int
+	var ballzProgressBP map[uint]int
+	var ballzEfficiencyBP map[uint]int
+	var ballzFinished map[uint]bool
+	var ballzLaunchXBP map[uint]int
 
 	if s.gameCode == CubeFillGameCode {
 		cubeLevelIndices = append([]int(nil), s.cubeLevelIndices...)
@@ -843,35 +921,91 @@ func (s *Session) publicStateLocked() PublicState {
 		}
 	}
 
+	if s.gameCode == BallzDuelGameCode {
+		ballzStages = append([]BallzStageLayout(nil), s.ballzStages...)
+		ballzStage = make(map[uint]int, len(s.playerOrder))
+		ballzBrickHP = make(map[uint][]int, len(s.playerOrder))
+		ballzPickupAlive = make(map[uint][]bool, len(s.playerOrder))
+		ballzAvailableBalls = make(map[uint]int, len(s.playerOrder))
+		ballzBallsUsed = make(map[uint]int, len(s.playerOrder))
+		ballzShots = make(map[uint]int, len(s.playerOrder))
+		ballzProgressBP = make(map[uint]int, len(s.playerOrder))
+		ballzEfficiencyBP = make(map[uint]int, len(s.playerOrder))
+		ballzFinished = make(map[uint]bool, len(s.playerOrder))
+		ballzLaunchXBP = make(map[uint]int, len(s.playerOrder))
+
+		for _, id := range s.playerOrder {
+			player := s.ballzStates[id]
+			if player == nil {
+				continue
+			}
+
+			ballzStage[id] = player.displayStage()
+			ballzAvailableBalls[id] = player.AvailableBalls
+			ballzBallsUsed[id] = player.BallsUsed
+			ballzShots[id] = player.Shots
+			ballzProgressBP[id] = s.ballzProgressBPLocked(player)
+			ballzEfficiencyBP[id] = s.ballzEfficiencyBPLocked(player)
+			ballzFinished[id] = player.Finished
+			ballzLaunchXBP[id] = ballzClampInt(int(player.LaunchX*10_000+0.5), 0, 10_000)
+
+			stageIndex := player.Stage
+			if player.Finished {
+				stageIndex = ballzStageCount - 1
+			}
+			if stageIndex >= 0 && stageIndex < len(player.BrickHP) {
+				ballzBrickHP[id] = append([]int(nil), player.BrickHP[stageIndex]...)
+				ballzPickupAlive[id] = append([]bool(nil), player.PickupAlive[stageIndex]...)
+			}
+		}
+	}
+
+	lastEventIDs := make(map[uint]uint64, len(s.playerOrder))
+	for _, id := range s.playerOrder {
+		lastEventIDs[id] = s.lastEventID[id]
+	}
+
 	state := PublicState{
-		Type:              "state",
-		Game:              s.gameCode,
-		LobbyID:           s.lobbyID,
-		Phase:             s.phase,
-		Ready:             len(s.clients) == 2,
-		ServerMS:          time.Now().UTC().UnixMilli(),
-		Seed:              s.seed,
-		PlayerOrder:       append([]uint(nil), s.playerOrder...),
-		Scores:            scores,
-		Combos:            combos,
-		BestCombos:        bestCombos,
-		HeightScores:      heightScores,
-		CubeLevelIndices:  cubeLevelIndices,
-		CubeLevels:        cubeLevels,
-		CubeLevelProgress: cubeLevelProgress,
-		CubeProgressBP:    cubeProgressBP,
-		CubeMoves:         cubeMoves,
-		CubeEfficiency:    cubeEfficiency,
-		CubeFinished:      cubeFinished,
-		BetCoins:          s.betCoins,
-		WinnerProfit:      s.winnerProfitLocked(),
-		WinnerUserID:      s.winnerUserID,
-		Draw:              s.draw,
-		LastEventUserID:   s.lastEventUserID,
-		LastEventKind:     s.lastEventKind,
-		LastEventGrade:    s.lastEventGrade,
-		LastEventPoints:   s.lastEventPoints,
-		Message:           s.messageLocked(),
+		Type:                "state",
+		Game:                s.gameCode,
+		LobbyID:             s.lobbyID,
+		Phase:               s.phase,
+		Ready:               len(s.clients) == 2,
+		ServerMS:            time.Now().UTC().UnixMilli(),
+		Seed:                s.seed,
+		PlayerOrder:         append([]uint(nil), s.playerOrder...),
+		Scores:              scores,
+		Combos:              combos,
+		BestCombos:          bestCombos,
+		HeightScores:        heightScores,
+		CubeLevelIndices:    cubeLevelIndices,
+		CubeLevels:          cubeLevels,
+		CubeLevelProgress:   cubeLevelProgress,
+		CubeProgressBP:      cubeProgressBP,
+		CubeMoves:           cubeMoves,
+		CubeEfficiency:      cubeEfficiency,
+		CubeFinished:        cubeFinished,
+		BallzStages:         ballzStages,
+		BallzStage:          ballzStage,
+		BallzBrickHP:        ballzBrickHP,
+		BallzPickupAlive:    ballzPickupAlive,
+		BallzAvailableBalls: ballzAvailableBalls,
+		BallzBallsUsed:      ballzBallsUsed,
+		BallzShots:          ballzShots,
+		BallzProgressBP:     ballzProgressBP,
+		BallzEfficiencyBP:   ballzEfficiencyBP,
+		BallzFinished:       ballzFinished,
+		BallzLaunchXBP:      ballzLaunchXBP,
+		LastEventIDs:        lastEventIDs,
+		BetCoins:            s.betCoins,
+		WinnerProfit:        s.winnerProfitLocked(),
+		WinnerUserID:        s.winnerUserID,
+		Draw:                s.draw,
+		LastEventUserID:     s.lastEventUserID,
+		LastEventKind:       s.lastEventKind,
+		LastEventGrade:      s.lastEventGrade,
+		LastEventPoints:     s.lastEventPoints,
+		Message:             s.messageLocked(),
 	}
 	if !s.countdownEndsAt.IsZero() {
 		state.CountdownEndsMS = s.countdownEndsAt.UTC().UnixMilli()
@@ -964,6 +1098,9 @@ func (s *Session) Close() {
 	if s.matchTimer != nil {
 		s.matchTimer.Stop()
 	}
+	if s.ballzFinishTimer != nil {
+		s.ballzFinishTimer.Stop()
+	}
 	for _, client := range s.clients {
 		_ = client.conn.Close()
 	}
@@ -976,6 +1113,8 @@ func matchDurationForGame(gameCode string) time.Duration {
 		return CoinChaseMatchDuration
 	case CubeFillGameCode:
 		return CubeFillMatchDuration
+	case BallzDuelGameCode:
+		return BallzDuelMatchDuration
 	default:
 		return MatchDuration
 	}
@@ -983,7 +1122,7 @@ func matchDurationForGame(gameCode string) time.Duration {
 
 func IsSupportedGame(gameCode string) bool {
 	switch normalizeGameCode(gameCode) {
-	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode, CubeFillGameCode:
+	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode, CubeFillGameCode, BallzDuelGameCode:
 		return true
 	default:
 		return false

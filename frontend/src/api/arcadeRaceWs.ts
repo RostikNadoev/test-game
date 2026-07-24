@@ -3,13 +3,32 @@ export type ArcadeRaceGameCode =
   | 'doodle_jump'
   | 'crossy_pvp'
   | 'coin_chase'
-  | 'cube_fill';
+  | 'cube_fill'
+  | 'ballz_duel';
 
 export type ArcadeRaceMatchPhase =
   | 'waiting'
   | 'countdown'
   | 'playing'
   | 'match_over';
+
+export type BallzBrickLayout = {
+  id: number;
+  col: number;
+  row: number;
+  hp: number;
+};
+
+export type BallzPickupLayout = {
+  id: number;
+  col: number;
+  row: number;
+};
+
+export type BallzStageLayout = {
+  bricks: BallzBrickLayout[];
+  pickups: BallzPickupLayout[];
+};
 
 export type ArcadeRaceStateMessage = {
   type: 'state';
@@ -31,6 +50,18 @@ export type ArcadeRaceStateMessage = {
   cube_moves: Record<string, number>;
   cube_efficiency: Record<string, number>;
   cube_finished: Record<string, boolean>;
+  ballz_stages: BallzStageLayout[];
+  ballz_stage: Record<string, number>;
+  ballz_brick_hp: Record<string, number[]>;
+  ballz_pickup_alive: Record<string, boolean[]>;
+  ballz_available_balls: Record<string, number>;
+  ballz_balls_used: Record<string, number>;
+  ballz_shots: Record<string, number>;
+  ballz_progress_bp: Record<string, number>;
+  ballz_efficiency_bp: Record<string, number>;
+  ballz_finished: Record<string, boolean>;
+  ballz_launch_x_bp: Record<string, number>;
+  last_event_ids: Record<string, number>;
   bet_coins: number;
   winner_profit: number;
   countdown_ends_ms?: number;
@@ -58,6 +89,8 @@ export type ArcadeRaceEvent = {
   objectId?: number;
   value?: number;
   perfect?: boolean;
+  angle?: number;
+  balls?: number;
 };
 
 export type ArcadeRaceSocketClient = {
@@ -110,6 +143,73 @@ const normalizeBooleanMap = (value: unknown): Record<string, boolean> => {
   );
 };
 
+const normalizeNumberArrayMap = (
+  value: unknown,
+): Record<string, number[]> => {
+  if (!isObject(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      Array.isArray(item)
+        ? item.map((entry) => Math.max(0, Math.trunc(toNumber(entry))))
+        : [],
+    ]),
+  );
+};
+
+const normalizeBooleanArrayMap = (
+  value: unknown,
+): Record<string, boolean[]> => {
+  if (!isObject(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      Array.isArray(item) ? item.map((entry) => entry === true) : [],
+    ]),
+  );
+};
+
+const normalizeBallzStages = (value: unknown): BallzStageLayout[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((stage) => {
+    if (!isObject(stage)) {
+      return { bricks: [], pickups: [] };
+    }
+
+    const bricks = Array.isArray(stage.bricks)
+      ? stage.bricks
+          .map((brick) => {
+            if (!isObject(brick)) return null;
+            return {
+              id: Math.trunc(toNumber(brick.id)),
+              col: Math.trunc(toNumber(brick.col)),
+              row: Math.trunc(toNumber(brick.row)),
+              hp: Math.max(0, Math.trunc(toNumber(brick.hp))),
+            };
+          })
+          .filter((brick): brick is BallzBrickLayout => brick !== null)
+      : [];
+
+    const pickups = Array.isArray(stage.pickups)
+      ? stage.pickups
+          .map((pickup) => {
+            if (!isObject(pickup)) return null;
+            return {
+              id: Math.trunc(toNumber(pickup.id)),
+              col: Math.trunc(toNumber(pickup.col)),
+              row: Math.trunc(toNumber(pickup.row)),
+            };
+          })
+          .filter((pickup): pickup is BallzPickupLayout => pickup !== null)
+      : [];
+
+    return { bricks, pickups };
+  });
+};
+
 const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
   if (!isObject(value) || value.type !== 'state') return null;
 
@@ -119,7 +219,8 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     rawGame !== 'doodle_jump' &&
     rawGame !== 'crossy_pvp' &&
     rawGame !== 'coin_chase' &&
-    rawGame !== 'cube_fill'
+    rawGame !== 'cube_fill' &&
+    rawGame !== 'ballz_duel'
   ) {
     return null;
   }
@@ -161,6 +262,18 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     cube_moves: normalizeNumberMap(value.cube_moves),
     cube_efficiency: normalizeNumberMap(value.cube_efficiency),
     cube_finished: normalizeBooleanMap(value.cube_finished),
+    ballz_stages: normalizeBallzStages(value.ballz_stages),
+    ballz_stage: normalizeNumberMap(value.ballz_stage),
+    ballz_brick_hp: normalizeNumberArrayMap(value.ballz_brick_hp),
+    ballz_pickup_alive: normalizeBooleanArrayMap(value.ballz_pickup_alive),
+    ballz_available_balls: normalizeNumberMap(value.ballz_available_balls),
+    ballz_balls_used: normalizeNumberMap(value.ballz_balls_used),
+    ballz_shots: normalizeNumberMap(value.ballz_shots),
+    ballz_progress_bp: normalizeNumberMap(value.ballz_progress_bp),
+    ballz_efficiency_bp: normalizeNumberMap(value.ballz_efficiency_bp),
+    ballz_finished: normalizeBooleanMap(value.ballz_finished),
+    ballz_launch_x_bp: normalizeNumberMap(value.ballz_launch_x_bp),
+    last_event_ids: normalizeNumberMap(value.last_event_ids),
     bet_coins: Math.max(0, toNumber(value.bet_coins)),
     winner_profit: Math.max(0, toNumber(value.winner_profit)),
     countdown_ends_ms: toNumber(value.countdown_ends_ms) || undefined,
@@ -200,6 +313,8 @@ const pathForGame = (gameCode: ArcadeRaceGameCode) => {
       return '/ws/coin-chase/';
     case 'cube_fill':
       return '/ws/cube-fill/';
+    case 'ballz_duel':
+      return '/ws/ballz-duel/';
   }
 };
 
@@ -265,7 +380,16 @@ export const arcadeRaceWsApi = {
     return {
       socket,
       requestState: () => sendJson(socket, { type: 'state' }),
-      sendEvent: ({ eventId, kind, grade, objectId, value, perfect }) =>
+      sendEvent: ({
+        eventId,
+        kind,
+        grade,
+        objectId,
+        value,
+        perfect,
+        angle,
+        balls,
+      }) =>
         sendJson(socket, {
           type: 'event',
           event_id: eventId,
@@ -274,6 +398,8 @@ export const arcadeRaceWsApi = {
           object_id: objectId,
           value,
           perfect,
+          angle,
+          balls,
         }),
       ping: () => sendJson(socket, { type: 'ping' }),
       close: () => socket.close(),
