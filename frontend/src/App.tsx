@@ -275,13 +275,15 @@ function AppShell() {
     const tg = getTelegramWebApp();
     const themeColor = isFruitCascadeRoute
       ? "#10081f"
-      : isSoloRoute
-        ? "#060b14"
-        : "#09090d";
+      : isCubeFillRoute
+        ? "#171137"
+        : isSoloRoute
+          ? "#060b14"
+          : "#09090d";
 
     tg?.setHeaderColor?.(themeColor);
     tg?.setBackgroundColor?.(themeColor);
-  }, [isFruitCascadeRoute, isSoloRoute]);
+  }, [isCubeFillRoute, isFruitCascadeRoute, isSoloRoute]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -336,7 +338,7 @@ function AppShell() {
                 : isCoinChaseRoute
                   ? "radial-gradient(circle at 50% 0%, rgba(255,214,74,0.08), transparent 42%), linear-gradient(180deg, #12070f 0%, #1b0915 46%, #0b050b 100%)"
                 : isCubeFillRoute
-                  ? "radial-gradient(circle at 50% 14%, rgba(105,232,255,0.16), transparent 42%), radial-gradient(circle at 12% 70%, rgba(77,141,255,0.12), transparent 44%), linear-gradient(180deg, #07101c 0%, #09182a 52%, #050b14 100%)"
+                  ? "radial-gradient(circle at 50% 0%, rgba(111,82,224,0.26), transparent 38%), radial-gradient(circle at 10% 78%, rgba(80,55,184,0.18), transparent 38%), linear-gradient(180deg, #20164a 0%, #151033 48%, #0c0a20 100%)"
                 : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
