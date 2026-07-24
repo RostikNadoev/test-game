@@ -8,36 +8,37 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 
-type Vec = { r: number; c: number };
 type Dir = 'up' | 'down' | 'left' | 'right';
 type Phase = 'countdown' | 'playing' | 'finished';
-type ActorKind = 'player' | 'rival';
+type Cell = { r: number; c: number };
 
-type DashPlan = {
-  cells: Vec[];
-  destination: Vec;
-  fatal: boolean;
-  reachedGoal: boolean;
-};
-
-type Arena = {
-  variant: number;
+type Maze = {
+  seed: number;
+  rows: number;
+  cols: number;
   walls: boolean[][];
-  spikes: Set<string>;
+  start: Cell;
+  monsterStarts: Cell[];
   coins: Set<string>;
-  treasures: Set<string>;
-  start: Vec;
-  goal: Vec;
+  totalCoins: number;
 };
 
-type ActorMotion = {
-  cell: Vec;
-  from: Vec;
-  to: Vec;
-  moving: boolean;
-  startedAt: number;
-  duration: number;
-  generation: number;
+type Mover = {
+  cell: Cell;
+  next: Cell;
+  x: number;
+  y: number;
+  progress: number;
+  dir: Dir | null;
+  desiredDir: Dir | null;
+  speed: number;
+};
+
+type Monster = Mover & {
+  id: number;
+  kind: 'hunter' | 'ambusher' | 'wanderer';
+  color: string;
+  lastCell: Cell;
 };
 
 type Particle = {
@@ -48,7 +49,7 @@ type Particle = {
   life: number;
   maxLife: number;
   size: number;
-  kind: 'coin' | 'impact' | 'danger';
+  color: string;
 };
 
 type BoardLayout = {
@@ -59,498 +60,598 @@ type BoardLayout = {
   height: number;
 };
 
-const ROWS = 19;
-const COLS = 15;
-const ROUND_SECONDS = 45;
+const ROWS = 21;
+const COLS = 17;
 const DPR_CAP = 1.5;
-const START: Vec = { r: 17, c: 7 };
-const GOAL: Vec = { r: 1, c: 7 };
+const PLAYER_SPEED = 5.15;
+const MONSTER_SPEED = 3.75;
+const START_COUNTDOWN = 3;
+const DEATH_PENALTY_SECONDS = 7;
+const RESPAWN_INVULNERABLE_MS = 1250;
+const RESPAWN_MIN_MONSTER_DISTANCE = 6;
+const HUD_SYNC_MS = 80;
+const MAX_MATCH_SECONDS = 240;
 
-const DIRS: Record<Dir, Vec> = {
+const DIRS: Record<Dir, Cell> = {
   up: { r: -1, c: 0 },
   down: { r: 1, c: 0 },
   left: { r: 0, c: -1 },
   right: { r: 0, c: 1 },
 };
 
-const BASE_STOPPERS: Vec[] = [
-  { r: 15, c: 3 },
-  { r: 15, c: 11 },
-  { r: 13, c: 7 },
-  { r: 11, c: 4 },
-  { r: 11, c: 10 },
-  { r: 9, c: 7 },
-  { r: 7, c: 3 },
-  { r: 7, c: 11 },
-  { r: 5, c: 7 },
-  { r: 3, c: 4 },
-  { r: 3, c: 10 },
-];
+const OPPOSITE: Record<Dir, Dir> = {
+  up: 'down',
+  down: 'up',
+  left: 'right',
+  right: 'left',
+};
 
-const VARIANT_STOPPERS: Vec[][] = [
-  [
-    { r: 16, c: 5 },
-    { r: 14, c: 9 },
-    { r: 12, c: 2 },
-    { r: 10, c: 12 },
-    { r: 8, c: 5 },
-    { r: 6, c: 9 },
-    { r: 4, c: 12 },
-  ],
-  [
-    { r: 16, c: 9 },
-    { r: 14, c: 5 },
-    { r: 12, c: 12 },
-    { r: 10, c: 2 },
-    { r: 8, c: 9 },
-    { r: 6, c: 5 },
-    { r: 4, c: 2 },
-  ],
-  [
-    { r: 16, c: 4 },
-    { r: 14, c: 10 },
-    { r: 12, c: 6 },
-    { r: 10, c: 3 },
-    { r: 8, c: 12 },
-    { r: 6, c: 6 },
-    { r: 4, c: 9 },
-  ],
-  [
-    { r: 16, c: 10 },
-    { r: 14, c: 4 },
-    { r: 12, c: 8 },
-    { r: 10, c: 12 },
-    { r: 8, c: 2 },
-    { r: 6, c: 10 },
-    { r: 4, c: 5 },
-  ],
-];
+const MONSTER_COLORS = ['#ff607f', '#69d9ff', '#f3a84a'];
 
-const VARIANT_SPIKES: Vec[][] = [
-  [
-    { r: 16, c: 12 },
-    { r: 12, c: 9 },
-    { r: 8, c: 2 },
-    { r: 4, c: 6 },
-  ],
-  [
-    { r: 16, c: 2 },
-    { r: 12, c: 5 },
-    { r: 8, c: 12 },
-    { r: 4, c: 8 },
-  ],
-  [
-    { r: 14, c: 12 },
-    { r: 10, c: 5 },
-    { r: 6, c: 2 },
-    { r: 2, c: 11 },
-  ],
-  [
-    { r: 14, c: 2 },
-    { r: 10, c: 9 },
-    { r: 6, c: 12 },
-    { r: 2, c: 3 },
-  ],
-];
-
-const VARIANT_TREASURE_HINTS: Vec[][] = [
-  [
-    { r: 16, c: 6 },
-    { r: 14, c: 8 },
-    { r: 12, c: 3 },
-    { r: 10, c: 11 },
-    { r: 8, c: 6 },
-    { r: 6, c: 8 },
-    { r: 4, c: 11 },
-    { r: 2, c: 4 },
-  ],
-  [
-    { r: 16, c: 8 },
-    { r: 14, c: 6 },
-    { r: 12, c: 11 },
-    { r: 10, c: 3 },
-    { r: 8, c: 8 },
-    { r: 6, c: 6 },
-    { r: 4, c: 3 },
-    { r: 2, c: 10 },
-  ],
-  [
-    { r: 16, c: 5 },
-    { r: 14, c: 9 },
-    { r: 12, c: 5 },
-    { r: 10, c: 4 },
-    { r: 8, c: 11 },
-    { r: 6, c: 5 },
-    { r: 4, c: 8 },
-    { r: 2, c: 11 },
-  ],
-  [
-    { r: 16, c: 9 },
-    { r: 14, c: 5 },
-    { r: 12, c: 9 },
-    { r: 10, c: 11 },
-    { r: 8, c: 3 },
-    { r: 6, c: 9 },
-    { r: 4, c: 6 },
-    { r: 2, c: 3 },
-  ],
-];
-
-const BASE_COIN_ROUTES: Vec[] = [
-  { r: 17, c: 3 }, { r: 17, c: 5 }, { r: 17, c: 9 }, { r: 17, c: 11 },
-  { r: 16, c: 3 }, { r: 16, c: 7 }, { r: 16, c: 11 },
-  { r: 14, c: 2 }, { r: 14, c: 4 }, { r: 14, c: 7 }, { r: 14, c: 10 }, { r: 14, c: 12 },
-  { r: 12, c: 2 }, { r: 12, c: 4 }, { r: 12, c: 7 }, { r: 12, c: 10 }, { r: 12, c: 12 },
-  { r: 10, c: 2 }, { r: 10, c: 4 }, { r: 10, c: 7 }, { r: 10, c: 10 }, { r: 10, c: 12 },
-  { r: 8, c: 2 }, { r: 8, c: 4 }, { r: 8, c: 7 }, { r: 8, c: 10 }, { r: 8, c: 12 },
-  { r: 6, c: 2 }, { r: 6, c: 4 }, { r: 6, c: 7 }, { r: 6, c: 10 }, { r: 6, c: 12 },
-  { r: 4, c: 2 }, { r: 4, c: 4 }, { r: 4, c: 7 }, { r: 4, c: 10 }, { r: 4, c: 12 },
-  { r: 2, c: 3 }, { r: 2, c: 5 }, { r: 2, c: 9 }, { r: 2, c: 11 },
-];
-
-const VARIANT_EXTRA_COINS: Vec[][] = [
-  [{ r: 15, c: 7 }, { r: 13, c: 3 }, { r: 11, c: 7 }, { r: 9, c: 11 }, { r: 5, c: 3 }],
-  [{ r: 15, c: 7 }, { r: 13, c: 11 }, { r: 11, c: 7 }, { r: 9, c: 3 }, { r: 5, c: 11 }],
-  [{ r: 15, c: 5 }, { r: 13, c: 10 }, { r: 11, c: 2 }, { r: 7, c: 7 }, { r: 3, c: 12 }],
-  [{ r: 15, c: 9 }, { r: 13, c: 4 }, { r: 11, c: 12 }, { r: 7, c: 7 }, { r: 3, c: 2 }],
-];
-
-const keyOf = (cell: Vec) => `${cell.r}:${cell.c}`;
+const keyOf = (cell: Cell) => `${cell.r}:${cell.c}`;
+const sameCell = (a: Cell, b: Cell) => a.r === b.r && a.c === b.c;
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
-const sameCell = (a: Vec, b: Vec) => a.r === b.r && a.c === b.c;
 
 const initials = (name?: string) => {
   const value = name?.replace(/^@/, '').trim();
   return value ? value.slice(0, 2).toUpperCase() : 'TG';
 };
 
-function makeWallGrid() {
-  return Array.from({ length: ROWS }, (_, r) =>
-    Array.from({ length: COLS }, (_, c) =>
-      r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1,
-    ),
-  );
+function mulberry32(seed: number) {
+  let value = seed >>> 0;
+  return () => {
+    value |= 0;
+    value = (value + 0x6d2b79f5) | 0;
+    let t = Math.imul(value ^ (value >>> 15), 1 | value);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function isInside(r: number, c: number) {
-  return r >= 0 && c >= 0 && r < ROWS && c < COLS;
-}
-
-function collectReachableStops(
-  walls: boolean[][],
-  spikes: Set<string>,
-  start: Vec,
-  goal: Vec,
-) {
-  const result: Vec[] = [];
-  const seen = new Set<string>([keyOf(start)]);
-  const queue: Vec[] = [{ ...start }];
-
-  while (queue.length) {
-    const from = queue.shift();
-    if (!from) break;
-
-    for (const dir of Object.keys(DIRS) as Dir[]) {
-      const delta = DIRS[dir];
-      let r = from.r;
-      let c = from.c;
-      let fatal = false;
-      let moved = false;
-
-      while (
-        isInside(r + delta.r, c + delta.c) &&
-        !walls[r + delta.r][c + delta.c]
-      ) {
-        r += delta.r;
-        c += delta.c;
-        moved = true;
-
-        if (spikes.has(`${r}:${c}`)) {
-          fatal = true;
-          break;
-        }
-
-        if (r === goal.r && c === goal.c) break;
-      }
-
-      if (!moved || fatal) continue;
-
-      const destination = { r, c };
-      const key = keyOf(destination);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push(destination);
-      queue.push(destination);
-    }
+function shuffle<T>(items: T[], random: () => number) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
   }
-
   return result;
 }
 
-function buildArena(variantRaw: number): Arena {
-  const variant = ((variantRaw % VARIANT_STOPPERS.length) + VARIANT_STOPPERS.length) % VARIANT_STOPPERS.length;
-  const walls = makeWallGrid();
+function inside(rows: number, cols: number, r: number, c: number) {
+  return r >= 0 && c >= 0 && r < rows && c < cols;
+}
 
-  for (const cell of BASE_STOPPERS) walls[cell.r][cell.c] = true;
-  for (const cell of VARIANT_STOPPERS[variant]) walls[cell.r][cell.c] = true;
+function isWall(maze: Maze, r: number, c: number) {
+  return !inside(maze.rows, maze.cols, r, c) || maze.walls[r][c];
+}
 
-  const spikes = new Set<string>();
-  for (const cell of VARIANT_SPIKES[variant]) {
-    if (!walls[cell.r][cell.c]) spikes.add(keyOf(cell));
+function canMove(maze: Maze, cell: Cell, dir: Dir) {
+  const delta = DIRS[dir];
+  return !isWall(maze, cell.r + delta.r, cell.c + delta.c);
+}
+
+function nextCell(cell: Cell, dir: Dir): Cell {
+  const delta = DIRS[dir];
+  return { r: cell.r + delta.r, c: cell.c + delta.c };
+}
+
+function floorCells(maze: Maze) {
+  const result: Cell[] = [];
+  for (let r = 1; r < maze.rows - 1; r += 1) {
+    for (let c = 1; c < maze.cols - 1; c += 1) {
+      if (!maze.walls[r][c]) result.push({ r, c });
+    }
+  }
+  return result;
+}
+
+function manhattan(a: Cell, b: Cell) {
+  return Math.abs(a.r - b.r) + Math.abs(a.c - b.c);
+}
+
+function generateMaze(seed: number): Maze {
+  const random = mulberry32(seed);
+  const walls = Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => true),
+  );
+
+  const startNode: Cell = { r: ROWS - 2, c: 1 };
+  walls[startNode.r][startNode.c] = false;
+
+  const stack: Cell[] = [startNode];
+  const carveDirections: Cell[] = [
+    { r: -2, c: 0 },
+    { r: 2, c: 0 },
+    { r: 0, c: -2 },
+    { r: 0, c: 2 },
+  ];
+
+  while (stack.length > 0) {
+    const current = stack[stack.length - 1];
+    const options = shuffle(carveDirections, random).filter((delta) => {
+      const nr = current.r + delta.r;
+      const nc = current.c + delta.c;
+      return (
+        nr > 0 &&
+        nc > 0 &&
+        nr < ROWS - 1 &&
+        nc < COLS - 1 &&
+        walls[nr][nc]
+      );
+    });
+
+    if (!options.length) {
+      stack.pop();
+      continue;
+    }
+
+    const delta = options[0];
+    const next = { r: current.r + delta.r, c: current.c + delta.c };
+    walls[current.r + delta.r / 2][current.c + delta.c / 2] = false;
+    walls[next.r][next.c] = false;
+    stack.push(next);
   }
 
-  const reachableStops = collectReachableStops(walls, spikes, START, GOAL)
-    .filter((cell) => !sameCell(cell, START) && !sameCell(cell, GOAL));
-  const unusedStops = new Map(reachableStops.map((cell) => [keyOf(cell), cell]));
-  const treasures = new Set<string>();
+  // Open extra passages so the board feels like an arcade maze instead of a tight labyrinth.
+  const candidates: Cell[] = [];
+  for (let r = 1; r < ROWS - 1; r += 1) {
+    for (let c = 1; c < COLS - 1; c += 1) {
+      if (!walls[r][c]) continue;
 
-  for (const hint of VARIANT_TREASURE_HINTS[variant]) {
-    let best: Vec | null = null;
-    let bestScore = Infinity;
+      const horizontal =
+        !walls[r][c - 1] &&
+        !walls[r][c + 1] &&
+        walls[r - 1][c] &&
+        walls[r + 1][c];
+      const vertical =
+        !walls[r - 1][c] &&
+        !walls[r + 1][c] &&
+        walls[r][c - 1] &&
+        walls[r][c + 1];
 
-    for (const cell of unusedStops.values()) {
-      const distance = Math.abs(cell.r - hint.r) + Math.abs(cell.c - hint.c);
-      const edgePenalty = cell.c <= 1 || cell.c >= COLS - 2 ? 1.4 : 0;
-      const score = distance + edgePenalty;
-      if (score < bestScore) {
-        bestScore = score;
-        best = cell;
+      if (horizontal || vertical) candidates.push({ r, c });
+    }
+  }
+
+  const extraOpenings = Math.min(
+    candidates.length,
+    17 + Math.floor(random() * 9),
+  );
+  for (const cell of shuffle(candidates, random).slice(0, extraOpenings)) {
+    walls[cell.r][cell.c] = false;
+  }
+
+  // Small open rooms make route choice more interesting and reduce repetitive corridors.
+  const roomAnchors = shuffle(
+    [
+      { r: 3, c: 3 },
+      { r: 3, c: COLS - 5 },
+      { r: 9, c: 3 },
+      { r: 9, c: COLS - 5 },
+      { r: ROWS - 6, c: 3 },
+      { r: ROWS - 6, c: COLS - 5 },
+      { r: 9, c: 7 },
+    ],
+    random,
+  ).slice(0, 3);
+
+  for (const anchor of roomAnchors) {
+    for (let rr = anchor.r; rr <= anchor.r + 2; rr += 1) {
+      for (let cc = anchor.c; cc <= anchor.c + 2; cc += 1) {
+        if (rr > 0 && cc > 0 && rr < ROWS - 1 && cc < COLS - 1) {
+          walls[rr][cc] = false;
+        }
       }
     }
+  }
 
-    if (best) {
-      const key = keyOf(best);
-      treasures.add(key);
-      unusedStops.delete(key);
+  // Keep the outer frame fully closed.
+  for (let r = 0; r < ROWS; r += 1) {
+    walls[r][0] = true;
+    walls[r][COLS - 1] = true;
+  }
+  for (let c = 0; c < COLS; c += 1) {
+    walls[0][c] = true;
+    walls[ROWS - 1][c] = true;
+  }
+
+  const start = { r: ROWS - 2, c: 1 };
+  walls[start.r][start.c] = false;
+  walls[start.r][start.c + 1] = false;
+  walls[start.r - 1][start.c] = false;
+
+  const open: Cell[] = [];
+  for (let r = 1; r < ROWS - 1; r += 1) {
+    for (let c = 1; c < COLS - 1; c += 1) {
+      if (!walls[r][c]) open.push({ r, c });
     }
+  }
+
+  const farCells = [...open]
+    .filter((cell) => manhattan(cell, start) >= 13)
+    .sort((a, b) => manhattan(b, start) - manhattan(a, start));
+
+  const monsterStarts: Cell[] = [];
+  for (const candidate of farCells) {
+    if (
+      monsterStarts.every((spawn) => manhattan(spawn, candidate) >= 7) &&
+      monsterStarts.length < 3
+    ) {
+      monsterStarts.push(candidate);
+    }
+  }
+
+  while (monsterStarts.length < 3) {
+    const fallback =
+      farCells[monsterStarts.length] ??
+      open[Math.max(0, open.length - 1 - monsterStarts.length)] ??
+      start;
+    monsterStarts.push({ ...fallback });
   }
 
   const coins = new Set<string>();
-  for (const cell of [...BASE_COIN_ROUTES, ...VARIANT_EXTRA_COINS[variant]]) {
-    const key = keyOf(cell);
-    if (
-      isInside(cell.r, cell.c) &&
-      !walls[cell.r][cell.c] &&
-      !spikes.has(key) &&
-      !treasures.has(key) &&
-      !sameCell(cell, START) &&
-      !sameCell(cell, GOAL)
-    ) {
-      coins.add(key);
-    }
+  for (const cell of open) {
+    if (sameCell(cell, start)) continue;
+    if (monsterStarts.some((monsterStart) => sameCell(monsterStart, cell))) continue;
+    coins.add(keyOf(cell));
   }
 
   return {
-    variant,
+    seed,
+    rows: ROWS,
+    cols: COLS,
     walls,
-    spikes,
+    start,
+    monsterStarts,
     coins,
-    treasures,
-    start: START,
-    goal: GOAL,
+    totalCoins: coins.size,
   };
 }
 
-function isWall(arena: Arena, r: number, c: number) {
-  return !isInside(r, c) || arena.walls[r][c];
-}
-
-function buildDashPlan(arena: Arena, from: Vec, dir: Dir): DashPlan | null {
-  const delta = DIRS[dir];
-  let r = from.r;
-  let c = from.c;
-  const cells: Vec[] = [];
-  let fatal = false;
-  let reachedGoal = false;
-
-  while (!isWall(arena, r + delta.r, c + delta.c)) {
-    r += delta.r;
-    c += delta.c;
-    const cell = { r, c };
-    cells.push(cell);
-
-    if (arena.spikes.has(keyOf(cell))) {
-      fatal = true;
-      break;
-    }
-
-    if (sameCell(cell, arena.goal)) {
-      reachedGoal = true;
-      break;
-    }
-  }
-
-  if (!cells.length) return null;
-
-  return {
-    cells,
-    destination: cells[cells.length - 1],
-    fatal,
-    reachedGoal,
-  };
-}
-
-function dashDuration(cellCount: number) {
-  return clamp(105 + cellCount * 22, 135, 330);
-}
-
-function createActor(cell: Vec): ActorMotion {
+function createMover(cell: Cell, speed: number): Mover {
   return {
     cell: { ...cell },
-    from: { ...cell },
-    to: { ...cell },
-    moving: false,
-    startedAt: 0,
-    duration: 1,
-    generation: 0,
+    next: { ...cell },
+    x: cell.c + 0.5,
+    y: cell.r + 0.5,
+    progress: 0,
+    dir: null,
+    desiredDir: null,
+    speed,
   };
 }
 
-function easeDash(t: number) {
-  const x = clamp(t, 0, 1);
-  return 1 - Math.pow(1 - x, 3.2);
+function createMonsters(maze: Maze): Monster[] {
+  return maze.monsterStarts.map((cell, index) => ({
+    ...createMover(cell, MONSTER_SPEED + index * 0.08),
+    id: index,
+    kind: index === 0 ? 'hunter' : index === 1 ? 'ambusher' : 'wanderer',
+    color: MONSTER_COLORS[index % MONSTER_COLORS.length],
+    lastCell: { ...cell },
+  }));
 }
 
-function actorPosition(actor: ActorMotion, now: number) {
-  if (!actor.moving) return actor.cell;
-  const t = easeDash((now - actor.startedAt) / Math.max(1, actor.duration));
+function availableDirections(
+  maze: Maze,
+  cell: Cell,
+  currentDir: Dir | null,
+): Dir[] {
+  const directions = (Object.keys(DIRS) as Dir[]).filter((dir) =>
+    canMove(maze, cell, dir),
+  );
+  if (!currentDir || directions.length <= 1) return directions;
+
+  const reverse = OPPOSITE[currentDir];
+  const withoutReverse = directions.filter((dir) => dir !== reverse);
+  return withoutReverse.length ? withoutReverse : directions;
+}
+
+function projectedPlayerCell(player: Mover, tilesAhead: number) {
+  if (!player.dir) return player.cell;
+  const delta = DIRS[player.dir];
   return {
-    r: actor.from.r + (actor.to.r - actor.from.r) * t,
-    c: actor.from.c + (actor.to.c - actor.from.c) * t,
+    r: player.cell.r + delta.r * tilesAhead,
+    c: player.cell.c + delta.c * tilesAhead,
   };
 }
 
-function scoreDirection(
-  arena: Arena,
-  actor: ActorMotion,
-  dir: Dir,
-  collectedCoins: Set<string>,
-  collectedTreasures: Set<string>,
-  goalClaimed: boolean,
-) {
-  const plan = buildDashPlan(arena, actor.cell, dir);
-  if (!plan) return -Infinity;
+function chooseMonsterDirection(
+  maze: Maze,
+  monster: Monster,
+  player: Mover,
+  random: () => number,
+): Dir | null {
+  const options = availableDirections(maze, monster.cell, monster.dir);
+  if (!options.length) return null;
 
-  let score = 0;
-  for (const cell of plan.cells) {
-    const key = keyOf(cell);
-    if (arena.coins.has(key) && !collectedCoins.has(key)) score += 1.5;
+  if (monster.kind === 'wanderer' && random() < 0.72) {
+    return options[Math.floor(random() * options.length)];
   }
 
-  const destinationKey = keyOf(plan.destination);
-  if (arena.treasures.has(destinationKey) && !collectedTreasures.has(destinationKey)) score += 11;
-  if (plan.reachedGoal && !goalClaimed) score += 20;
-  if (plan.fatal) score -= 30;
+  const target =
+    monster.kind === 'ambusher'
+      ? projectedPlayerCell(player, 3)
+      : player.cell;
 
-  score += (actor.cell.r - plan.destination.r) * 0.35;
-  score += plan.cells.length * 0.06;
-  score += (Math.random() - 0.5) * 2.1;
-  return score;
+  let bestDir = options[0];
+  let bestScore = Infinity;
+
+  for (const dir of options) {
+    const candidate = nextCell(monster.cell, dir);
+    let score = manhattan(candidate, target);
+
+    if (monster.kind === 'wanderer') score += random() * 4;
+    if (monster.kind === 'ambusher') score += random() * 0.65;
+    if (monster.kind === 'hunter') score += random() * 0.18;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestDir = dir;
+    }
+  }
+
+  return bestDir;
 }
 
-function pickBotDirection(
-  arena: Arena,
-  actor: ActorMotion,
-  collectedCoins: Set<string>,
-  collectedTreasures: Set<string>,
-  goalClaimed: boolean,
-) {
-  const options = (Object.keys(DIRS) as Dir[])
-    .map((dir) => ({
-      dir,
-      score: scoreDirection(
-        arena,
-        actor,
-        dir,
-        collectedCoins,
-        collectedTreasures,
-        goalClaimed,
-      ),
-    }))
-    .filter((item) => Number.isFinite(item.score))
-    .sort((a, b) => b.score - a.score);
+function beginSegment(mover: Mover, maze: Maze, dir: Dir | null) {
+  if (!dir || !canMove(maze, mover.cell, dir)) {
+    mover.dir = null;
+    mover.next = { ...mover.cell };
+    mover.progress = 0;
+    mover.x = mover.cell.c + 0.5;
+    mover.y = mover.cell.r + 0.5;
+    return false;
+  }
 
-  if (!options.length) return 'up' as Dir;
-  if (options.length > 1 && Math.random() < 0.16) return options[1].dir;
-  return options[0].dir;
+  mover.dir = dir;
+  mover.next = nextCell(mover.cell, dir);
+  mover.progress = 0;
+  return true;
+}
+
+function updateMover(
+  mover: Mover,
+  maze: Maze,
+  dt: number,
+  chooseDirection: () => Dir | null,
+  onCellReached?: (cell: Cell) => void,
+) {
+  let remaining = mover.speed * dt;
+  let guard = 0;
+
+  while (remaining > 0.0001 && guard < 8) {
+    guard += 1;
+
+    if (sameCell(mover.cell, mover.next) || mover.progress >= 0.99999) {
+      mover.cell = { ...mover.next };
+      mover.progress = 0;
+      mover.x = mover.cell.c + 0.5;
+      mover.y = mover.cell.r + 0.5;
+      onCellReached?.(mover.cell);
+
+      const wanted = chooseDirection();
+      if (!beginSegment(mover, maze, wanted)) break;
+    }
+
+    const distanceLeft = 1 - mover.progress;
+    const step = Math.min(distanceLeft, remaining);
+    mover.progress += step;
+    remaining -= step;
+
+    mover.x =
+      mover.cell.c +
+      0.5 +
+      (mover.next.c - mover.cell.c) * mover.progress;
+    mover.y =
+      mover.cell.r +
+      0.5 +
+      (mover.next.r - mover.cell.r) * mover.progress;
+
+    if (mover.progress >= 0.99999) {
+      mover.cell = { ...mover.next };
+      mover.progress = 1;
+    }
+  }
+}
+
+function pickSafeRespawn(
+  maze: Maze,
+  monsters: Monster[],
+  random: () => number,
+): Cell {
+  const cells = floorCells(maze);
+  let bestCells: Cell[] = [];
+  let bestDistance = -Infinity;
+
+  for (const cell of cells) {
+    const edgeDistance = Math.min(
+      cell.r,
+      cell.c,
+      maze.rows - 1 - cell.r,
+      maze.cols - 1 - cell.c,
+    );
+    if (edgeDistance < 1) continue;
+
+    let nearestMonster = Infinity;
+    for (const monster of monsters) {
+      const monsterCell = {
+        r: Math.round(monster.y - 0.5),
+        c: Math.round(monster.x - 0.5),
+      };
+      nearestMonster = Math.min(
+        nearestMonster,
+        manhattan(cell, monsterCell),
+      );
+    }
+
+    if (nearestMonster > bestDistance) {
+      bestDistance = nearestMonster;
+      bestCells = [cell];
+    } else if (nearestMonster === bestDistance) {
+      bestCells.push(cell);
+    }
+  }
+
+  const safe = bestCells.filter((cell) =>
+    monsters.every((monster) => {
+      const monsterCell = {
+        r: Math.round(monster.y - 0.5),
+        c: Math.round(monster.x - 0.5),
+      };
+      return manhattan(cell, monsterCell) >= RESPAWN_MIN_MONSTER_DISTANCE;
+    }),
+  );
+
+  const pool = safe.length ? safe : bestCells.length ? bestCells : [maze.start];
+  return { ...pool[Math.floor(random() * pool.length)] };
+}
+
+function formatTime(seconds: number) {
+  const safe = Math.max(0, seconds);
+  const minutes = Math.floor(safe / 60);
+  const rest = safe - minutes * 60;
+  return `${minutes}:${rest.toFixed(1).padStart(4, '0')}`;
 }
 
 export default function TombDashDuel() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const cacheRef = useRef<HTMLCanvasElement | null>(null);
-  const layoutRef = useRef<BoardLayout>({ cell: 24, x: 0, y: 0, width: 360, height: 456 });
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const layoutRef = useRef<BoardLayout>({
+    cell: 20,
+    x: 0,
+    y: 0,
+    width: 340,
+    height: 420,
+  });
   const rafRef = useRef<number | null>(null);
-  const touchRef = useRef<{ x: number; y: number } | null>(null);
-  const phaseRef = useRef<Phase>('countdown');
-  const generationRef = useRef(1);
-  const variantRef = useRef(Math.floor(Math.random() * VARIANT_STOPPERS.length));
-  const arenaRef = useRef<Arena>(buildArena(variantRef.current));
-  const playerActorRef = useRef<ActorMotion>(createActor(START));
-  const rivalActorRef = useRef<ActorMotion>(createActor(START));
-  const particlesRef = useRef<Particle[]>([]);
-  const botTimerRef = useRef<number | null>(null);
-  const finishTimersRef = useRef<number[]>([]);
+  const lastFrameRef = useRef(0);
+  const lastHudSyncRef = useRef(0);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
 
-  const playerCoinsRef = useRef<Set<string>>(new Set());
-  const rivalCoinsRef = useRef<Set<string>>(new Set());
-  const playerTreasuresRef = useRef<Set<string>>(new Set());
-  const rivalTreasuresRef = useRef<Set<string>>(new Set());
-  const playerGoalRef = useRef(false);
-  const rivalGoalRef = useRef(false);
-  const playerScoreRef = useRef(0);
-  const rivalScoreRef = useRef(0);
+  const seedRef = useRef(Math.floor(Math.random() * 2_000_000_000));
+  const randomRef = useRef(mulberry32(seedRef.current ^ 0x514f2a));
+  const mazeRef = useRef<Maze>(generateMaze(seedRef.current));
+  const playerRef = useRef<Mover>(
+    createMover(mazeRef.current.start, PLAYER_SPEED),
+  );
+  const monstersRef = useRef<Monster[]>(createMonsters(mazeRef.current));
+  const coinsRef = useRef<Set<string>>(new Set(mazeRef.current.coins));
+  const particlesRef = useRef<Particle[]>([]);
+  const phaseRef = useRef<Phase>('countdown');
+  const startedAtRef = useRef(0);
+  const penaltySecondsRef = useRef(0);
+  const finishedTimeRef = useRef(0);
+  const deathsRef = useRef(0);
+  const invulnerableUntilRef = useRef(0);
+  const hitFlashUntilRef = useRef(0);
+  const respawnLabelUntilRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>('countdown');
-  const [countdown, setCountdown] = useState(3);
-  const [timeLeft, setTimeLeft] = useState(ROUND_SECONDS);
-  const [playerScore, setPlayerScore] = useState(0);
-  const [rivalScore, setRivalScore] = useState(0);
-  const [playerTreasureCount, setPlayerTreasureCount] = useState(0);
-  const [playerCoinCount, setPlayerCoinCount] = useState(0);
-  const [isMoving, setIsMoving] = useState(false);
-  const [message, setMessage] = useState('SWIPE TO DASH');
+  const [countdown, setCountdown] = useState(START_COUNTDOWN);
+  const [elapsed, setElapsed] = useState(0);
+  const [coinsLeft, setCoinsLeft] = useState(mazeRef.current.totalCoins);
+  const [deaths, setDeaths] = useState(0);
+  const [penaltySeconds, setPenaltySeconds] = useState(0);
   const [showResult, setShowResult] = useState(false);
-  const [arenaNumber, setArenaNumber] = useState(arenaRef.current.variant + 1);
+  const [mazeSeedLabel, setMazeSeedLabel] = useState(
+    String(seedRef.current % 10000).padStart(4, '0'),
+  );
 
-  const clearFinishTimers = useCallback(() => {
-    for (const timer of finishTimersRef.current) window.clearTimeout(timer);
-    finishTimersRef.current = [];
+  const spawnParticles = useCallback(
+    (x: number, y: number, color: string, count: number) => {
+      const particles = particlesRef.current;
+      for (let i = 0; i < count && particles.length < 48; i += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.55 + Math.random() * 1.35;
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0,
+          maxLife: 0.22 + Math.random() * 0.24,
+          size: 0.045 + Math.random() * 0.055,
+          color,
+        });
+      }
+    },
+    [],
+  );
+
+  const collectCoin = useCallback(
+    (cell: Cell) => {
+      const key = keyOf(cell);
+      if (!coinsRef.current.delete(key)) return;
+
+      setCoinsLeft(coinsRef.current.size);
+      spawnParticles(cell.c + 0.5, cell.r + 0.5, '#ffd64a', 3);
+
+      if (coinsRef.current.size === 0 && phaseRef.current === 'playing') {
+        const now = performance.now();
+        const baseSeconds = (now - startedAtRef.current) / 1000;
+        finishedTimeRef.current = baseSeconds + penaltySecondsRef.current;
+        phaseRef.current = 'finished';
+        setPhase('finished');
+        setElapsed(finishedTimeRef.current);
+        window.setTimeout(() => setShowResult(true), 260);
+      }
+    },
+    [spawnParticles],
+  );
+
+  const resetPlayerTo = useCallback((cell: Cell) => {
+    const player = playerRef.current;
+    player.cell = { ...cell };
+    player.next = { ...cell };
+    player.x = cell.c + 0.5;
+    player.y = cell.r + 0.5;
+    player.progress = 0;
+    player.dir = null;
+    player.desiredDir = null;
   }, []);
 
-  const spawnParticles = useCallback((cell: Vec, kind: Particle['kind'], amount: number) => {
-    const particles = particlesRef.current;
-    for (let i = 0; i < amount && particles.length < 42; i += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 0.55 + Math.random() * 1.15;
-      particles.push({
-        x: cell.c + 0.5,
-        y: cell.r + 0.5,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 0,
-        maxLife: 0.22 + Math.random() * 0.18,
-        size: 0.045 + Math.random() * 0.04,
-        kind,
-      });
-    }
-  }, []);
+  const handleMonsterHit = useCallback(
+    (now: number) => {
+      if (
+        phaseRef.current !== 'playing' ||
+        now < invulnerableUntilRef.current
+      ) {
+        return;
+      }
 
-  const updateScore = useCallback((kind: ActorKind, delta: number) => {
-    if (kind === 'player') {
-      playerScoreRef.current = Math.max(0, playerScoreRef.current + delta);
-      setPlayerScore(playerScoreRef.current);
-    } else {
-      rivalScoreRef.current = Math.max(0, rivalScoreRef.current + delta);
-      setRivalScore(rivalScoreRef.current);
-    }
-  }, []);
+      deathsRef.current += 1;
+      penaltySecondsRef.current += DEATH_PENALTY_SECONDS;
+      setDeaths(deathsRef.current);
+      setPenaltySeconds(penaltySecondsRef.current);
 
-  const rebuildTerrainCache = useCallback(() => {
+      spawnParticles(
+        playerRef.current.x,
+        playerRef.current.y,
+        '#ff607f',
+        14,
+      );
+
+      const respawn = pickSafeRespawn(
+        mazeRef.current,
+        monstersRef.current,
+        randomRef.current,
+      );
+      resetPlayerTo(respawn);
+      collectCoin(respawn);
+
+      invulnerableUntilRef.current = now + RESPAWN_INVULNERABLE_MS;
+      hitFlashUntilRef.current = now + 360;
+      respawnLabelUntilRef.current = now + 1150;
+    },
+    [collectCoin, resetPlayerTo, spawnParticles],
+  );
+
+  const rebuildStaticCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -558,9 +659,12 @@ export default function TombDashDuel() {
     const viewH = canvas.clientHeight;
     if (!viewW || !viewH) return;
 
-    const cell = Math.floor(Math.min(viewW / COLS, viewH / ROWS) * 10) / 10;
-    const width = cell * COLS;
-    const height = cell * ROWS;
+    const maze = mazeRef.current;
+    const cell = Math.floor(
+      Math.min(viewW / maze.cols, viewH / maze.rows) * 10,
+    ) / 10;
+    const width = cell * maze.cols;
+    const height = cell * maze.rows;
     const x = (viewW - width) / 2;
     const y = (viewH - height) / 2;
     layoutRef.current = { cell, x, y, width, height };
@@ -571,258 +675,102 @@ export default function TombDashDuel() {
     const ctx = cache.getContext('2d');
     if (!ctx) return;
 
-    const arena = arenaRef.current;
-    ctx.fillStyle = '#09050a';
+    ctx.fillStyle = '#080509';
     ctx.fillRect(0, 0, viewW, viewH);
 
-    ctx.fillStyle = '#11070f';
+    ctx.fillStyle = '#0d0710';
     ctx.fillRect(x, y, width, height);
 
-    for (let r = 0; r < ROWS; r += 1) {
-      for (let c = 0; c < COLS; c += 1) {
+    for (let r = 0; r < maze.rows; r += 1) {
+      for (let c = 0; c < maze.cols; c += 1) {
         const px = x + c * cell;
         const py = y + r * cell;
-        const key = `${r}:${c}`;
 
-        if (arena.walls[r][c]) {
-          const boundary = r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1;
-          ctx.fillStyle = boundary ? '#47132f' : '#5a1739';
-          ctx.fillRect(px + 0.5, py + 0.5, cell - 1, cell - 1);
-          ctx.fillStyle = boundary ? '#7a2450' : '#91305e';
-          ctx.fillRect(px + 1, py + 1, cell - 2, Math.max(1, cell * 0.12));
-          ctx.fillStyle = 'rgba(0,0,0,.24)';
-          ctx.fillRect(px + cell * 0.72, py + cell * 0.22, Math.max(1, cell * 0.08), cell * 0.55);
-        } else {
-          ctx.fillStyle = (r + c) % 2 === 0 ? '#10070f' : '#0e060d';
+        if (maze.walls[r][c]) {
+          const boundary =
+            r === 0 ||
+            c === 0 ||
+            r === maze.rows - 1 ||
+            c === maze.cols - 1;
+
+          ctx.fillStyle = boundary ? '#351025' : '#48132f';
           ctx.fillRect(px, py, cell, cell);
 
-          if ((r * 5 + c * 3 + arena.variant) % 11 === 0) {
-            ctx.fillStyle = 'rgba(255,214,74,.045)';
-            ctx.fillRect(px + cell * 0.24, py + cell * 0.28, cell * 0.12, cell * 0.08);
-          }
-        }
+          ctx.fillStyle = boundary ? '#6d2049' : '#7e2553';
+          ctx.fillRect(
+            px + cell * 0.07,
+            py + cell * 0.07,
+            cell * 0.86,
+            Math.max(1, cell * 0.105),
+          );
 
-        if (arena.spikes.has(key)) {
-          ctx.fillStyle = '#ff5578';
-          const baseY = py + cell * 0.78;
-          for (let i = 0; i < 3; i += 1) {
-            const left = px + cell * (0.18 + i * 0.22);
-            ctx.beginPath();
-            ctx.moveTo(left, baseY);
-            ctx.lineTo(left + cell * 0.11, py + cell * (i === 1 ? 0.18 : 0.30));
-            ctx.lineTo(left + cell * 0.22, baseY);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
+          ctx.fillStyle = 'rgba(0,0,0,.23)';
+          ctx.fillRect(
+            px + cell * 0.78,
+            py + cell * 0.18,
+            Math.max(1, cell * 0.07),
+            cell * 0.63,
+          );
 
-        if (sameCell({ r, c }, arena.goal)) {
-          ctx.strokeStyle = '#ffd64a';
-          ctx.lineWidth = Math.max(1, cell * 0.065);
-          ctx.strokeRect(px + cell * 0.18, py + cell * 0.18, cell * 0.64, cell * 0.64);
-          ctx.fillStyle = 'rgba(255,214,74,.12)';
-          ctx.fillRect(px + cell * 0.20, py + cell * 0.20, cell * 0.60, cell * 0.60);
-          ctx.fillStyle = '#ffd64a';
-          ctx.beginPath();
-          ctx.moveTo(px + cell * 0.50, py + cell * 0.27);
-          ctx.lineTo(px + cell * 0.70, py + cell * 0.62);
-          ctx.lineTo(px + cell * 0.30, py + cell * 0.62);
-          ctx.closePath();
-          ctx.fill();
+          if ((r * 7 + c * 5 + maze.seed) % 13 === 0) {
+            ctx.fillStyle = 'rgba(255,214,74,.055)';
+            ctx.fillRect(
+              px + cell * 0.23,
+              py + cell * 0.5,
+              cell * 0.28,
+              Math.max(1, cell * 0.055),
+            );
+          }
+        } else {
+          ctx.fillStyle =
+            (r + c) % 2 === 0 ? '#0f0710' : '#0d060e';
+          ctx.fillRect(px, py, cell, cell);
         }
       }
     }
 
-    ctx.strokeStyle = 'rgba(255,214,74,.12)';
+    ctx.strokeStyle = 'rgba(255,214,74,.10)';
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
 
-    cacheRef.current = cache;
+    staticCanvasRef.current = cache;
   }, []);
 
-  const finishDash = useCallback(
-    (kind: ActorKind, plan: DashPlan, generation: number) => {
-      if (generation !== generationRef.current || phaseRef.current !== 'playing') return;
-
-      const arena = arenaRef.current;
-      const actor = kind === 'player' ? playerActorRef.current : rivalActorRef.current;
-      actor.moving = false;
-      actor.cell = { ...plan.destination };
-      actor.from = { ...plan.destination };
-      actor.to = { ...plan.destination };
-
-      if (kind === 'player') setIsMoving(false);
-
-      const coins = kind === 'player' ? playerCoinsRef.current : rivalCoinsRef.current;
-      const treasures = kind === 'player' ? playerTreasuresRef.current : rivalTreasuresRef.current;
-      let coinGain = 0;
-
-      const safeCells = plan.fatal ? plan.cells.slice(0, -1) : plan.cells;
-      for (const cell of safeCells) {
-        const key = keyOf(cell);
-        if (arena.coins.has(key) && !coins.has(key)) {
-          coins.add(key);
-          coinGain += 1;
-        }
+  const resetGame = useCallback(
+    (newMap: boolean) => {
+      if (newMap) {
+        seedRef.current = Math.floor(Math.random() * 2_000_000_000);
+        randomRef.current = mulberry32(seedRef.current ^ 0x514f2a);
+        mazeRef.current = generateMaze(seedRef.current);
+        setMazeSeedLabel(String(seedRef.current % 10000).padStart(4, '0'));
       }
 
-      if (coinGain > 0) {
-        updateScore(kind, coinGain);
-        if (kind === 'player') {
-          setPlayerCoinCount(coins.size);
-          spawnParticles(plan.destination, 'coin', Math.min(8, 2 + coinGain));
-        }
-      }
-
-      if (!plan.fatal) {
-        const destinationKey = keyOf(plan.destination);
-        if (arena.treasures.has(destinationKey) && !treasures.has(destinationKey)) {
-          treasures.add(destinationKey);
-          updateScore(kind, 8);
-          if (kind === 'player') {
-            setPlayerTreasureCount(treasures.size);
-            setMessage('PERFECT STOP +8');
-            spawnParticles(plan.destination, 'coin', 10);
-          }
-        }
-      }
-
-      if (plan.fatal) {
-        updateScore(kind, -4);
-        spawnParticles(plan.destination, 'danger', 10);
-        if (kind === 'player') setMessage('SPIKES -4');
-
-        const respawnTimer = window.setTimeout(() => {
-          if (generation !== generationRef.current || phaseRef.current !== 'playing') return;
-          actor.cell = { ...arena.start };
-          actor.from = { ...arena.start };
-          actor.to = { ...arena.start };
-          actor.moving = false;
-          if (kind === 'player') setMessage('SWIPE TO DASH');
-        }, 160);
-        finishTimersRef.current.push(respawnTimer);
-        return;
-      }
-
-      if (plan.reachedGoal) {
-        const goalRef = kind === 'player' ? playerGoalRef : rivalGoalRef;
-        if (!goalRef.current) {
-          goalRef.current = true;
-          updateScore(kind, 20);
-          spawnParticles(plan.destination, 'impact', 14);
-          if (kind === 'player') setMessage('EXIT +20');
-        }
-      } else if (kind === 'player' && coinGain >= 4) {
-        setMessage(`COINS +${coinGain}`);
-      } else if (kind === 'player' && !arena.treasures.has(keyOf(plan.destination))) {
-        setMessage('FIND THE GOLD');
-      }
-
-      spawnParticles(plan.destination, 'impact', 4);
-    },
-    [spawnParticles, updateScore],
-  );
-
-  const startDash = useCallback(
-    (kind: ActorKind, dir: Dir) => {
-      if (phaseRef.current !== 'playing') return false;
-
-      const actor = kind === 'player' ? playerActorRef.current : rivalActorRef.current;
-      if (actor.moving) return false;
-
-      const plan = buildDashPlan(arenaRef.current, actor.cell, dir);
-      if (!plan) return false;
-
-      const generation = generationRef.current;
-      const duration = dashDuration(plan.cells.length);
-      actor.from = { ...actor.cell };
-      actor.to = { ...plan.destination };
-      actor.moving = true;
-      actor.startedAt = performance.now();
-      actor.duration = duration;
-      actor.generation = generation;
-
-      if (kind === 'player') {
-        setIsMoving(true);
-        setMessage('DASH');
-      }
-
-      const timer = window.setTimeout(() => finishDash(kind, plan, generation), duration);
-      finishTimersRef.current.push(timer);
-      return true;
-    },
-    [finishDash],
-  );
-
-  const dash = useCallback(
-    (dir: Dir) => {
-      startDash('player', dir);
-    },
-    [startDash],
-  );
-
-  const scheduleBot = useCallback(() => {
-    if (phaseRef.current !== 'playing') return;
-
-    const delay = 350 + Math.random() * 330;
-    botTimerRef.current = window.setTimeout(() => {
-      if (phaseRef.current !== 'playing') return;
-
-      const direction = pickBotDirection(
-        arenaRef.current,
-        rivalActorRef.current,
-        rivalCoinsRef.current,
-        rivalTreasuresRef.current,
-        rivalGoalRef.current,
+      playerRef.current = createMover(
+        mazeRef.current.start,
+        PLAYER_SPEED,
       );
-
-      const started = startDash('rival', direction);
-      const nextDelay = started ? 420 : 160;
-      botTimerRef.current = window.setTimeout(scheduleBot, nextDelay + Math.random() * 180);
-    }, delay);
-  }, [startDash]);
-
-  const resetRound = useCallback(
-    (newArena: boolean) => {
-      generationRef.current += 1;
-      clearFinishTimers();
-      if (botTimerRef.current !== null) window.clearTimeout(botTimerRef.current);
-
-      if (newArena) {
-        const previous = variantRef.current;
-        const shift = 1 + Math.floor(Math.random() * (VARIANT_STOPPERS.length - 1));
-        variantRef.current = (previous + shift) % VARIANT_STOPPERS.length;
-        arenaRef.current = buildArena(variantRef.current);
-        setArenaNumber(arenaRef.current.variant + 1);
-      }
-
-      playerActorRef.current = createActor(arenaRef.current.start);
-      rivalActorRef.current = createActor(arenaRef.current.start);
-      playerCoinsRef.current = new Set();
-      rivalCoinsRef.current = new Set();
-      playerTreasuresRef.current = new Set();
-      rivalTreasuresRef.current = new Set();
-      playerGoalRef.current = false;
-      rivalGoalRef.current = false;
-      playerScoreRef.current = 0;
-      rivalScoreRef.current = 0;
+      monstersRef.current = createMonsters(mazeRef.current);
+      coinsRef.current = new Set(mazeRef.current.coins);
       particlesRef.current = [];
+      deathsRef.current = 0;
+      penaltySecondsRef.current = 0;
+      finishedTimeRef.current = 0;
+      invulnerableUntilRef.current = 0;
+      hitFlashUntilRef.current = 0;
+      respawnLabelUntilRef.current = 0;
 
-      setPlayerScore(0);
-      setRivalScore(0);
-      setPlayerTreasureCount(0);
-      setPlayerCoinCount(0);
-      setIsMoving(false);
-      setMessage('SWIPE TO DASH');
-      setTimeLeft(ROUND_SECONDS);
-      setCountdown(3);
+      setElapsed(0);
+      setCoinsLeft(mazeRef.current.totalCoins);
+      setDeaths(0);
+      setPenaltySeconds(0);
       setShowResult(false);
+      setCountdown(START_COUNTDOWN);
       phaseRef.current = 'countdown';
       setPhase('countdown');
 
-      window.requestAnimationFrame(rebuildTerrainCache);
+      window.requestAnimationFrame(rebuildStaticCanvas);
     },
-    [clearFinishTimers, rebuildTerrainCache],
+    [rebuildStaticCanvas],
   );
 
   useEffect(() => {
@@ -836,33 +784,9 @@ export default function TombDashDuel() {
       setCountdown((current) => {
         if (current <= 1) {
           window.clearInterval(interval);
+          startedAtRef.current = performance.now();
           phaseRef.current = 'playing';
           setPhase('playing');
-          setMessage('GO!');
-          window.setTimeout(() => {
-            if (phaseRef.current === 'playing') setMessage('SWIPE TO DASH');
-          }, 520);
-          window.setTimeout(scheduleBot, 420);
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [phase, scheduleBot]);
-
-  useEffect(() => {
-    if (phase !== 'playing') return;
-
-    const interval = window.setInterval(() => {
-      setTimeLeft((current) => {
-        if (current <= 1) {
-          window.clearInterval(interval);
-          phaseRef.current = 'finished';
-          setPhase('finished');
-          if (botTimerRef.current !== null) window.clearTimeout(botTimerRef.current);
-          window.setTimeout(() => setShowResult(true), 220);
           return 0;
         }
         return current - 1;
@@ -872,23 +796,37 @@ export default function TombDashDuel() {
     return () => window.clearInterval(interval);
   }, [phase]);
 
+  const setDirection = useCallback((dir: Dir) => {
+    if (phaseRef.current !== 'playing') return;
+    playerRef.current.desiredDir = dir;
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const map: Partial<Record<string, Dir>> = {
-        ArrowUp: 'up', w: 'up', W: 'up',
-        ArrowDown: 'down', s: 'down', S: 'down',
-        ArrowLeft: 'left', a: 'left', A: 'left',
-        ArrowRight: 'right', d: 'right', D: 'right',
+        ArrowUp: 'up',
+        w: 'up',
+        W: 'up',
+        ArrowDown: 'down',
+        s: 'down',
+        S: 'down',
+        ArrowLeft: 'left',
+        a: 'left',
+        A: 'left',
+        ArrowRight: 'right',
+        d: 'right',
+        D: 'right',
       };
-      const direction = map[event.key];
-      if (!direction) return;
+
+      const dir = map[event.key];
+      if (!dir) return;
       event.preventDefault();
-      dash(direction);
+      setDirection(dir);
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [dash]);
+  }, [setDirection]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -902,10 +840,11 @@ export default function TombDashDuel() {
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
-      rebuildTerrainCache();
+      rebuildStaticCanvas();
     };
 
     resize();
+
     const observer = new ResizeObserver(resize);
     observer.observe(wrap);
     window.addEventListener('resize', resize);
@@ -914,7 +853,7 @@ export default function TombDashDuel() {
       observer.disconnect();
       window.removeEventListener('resize', resize);
     };
-  }, [rebuildTerrainCache]);
+  }, [rebuildStaticCanvas]);
 
   useEffect(() => {
     const render = (now: number) => {
@@ -922,6 +861,82 @@ export default function TombDashDuel() {
       if (!canvas) {
         rafRef.current = window.requestAnimationFrame(render);
         return;
+      }
+
+      if (!lastFrameRef.current) lastFrameRef.current = now;
+      const dt = Math.min(0.033, Math.max(0, (now - lastFrameRef.current) / 1000));
+      lastFrameRef.current = now;
+
+      const maze = mazeRef.current;
+      const player = playerRef.current;
+      const monsters = monstersRef.current;
+
+      if (phaseRef.current === 'playing') {
+        updateMover(
+          player,
+          maze,
+          dt,
+          () => {
+            const desired = player.desiredDir;
+            if (desired && canMove(maze, player.cell, desired)) {
+              return desired;
+            }
+            if (player.dir && canMove(maze, player.cell, player.dir)) {
+              return player.dir;
+            }
+            return null;
+          },
+          collectCoin,
+        );
+
+        for (const monster of monsters) {
+          updateMover(
+            monster,
+            maze,
+            dt,
+            () =>
+              chooseMonsterDirection(
+                maze,
+                monster,
+                player,
+                randomRef.current,
+              ),
+            (cell) => {
+              monster.lastCell = { ...cell };
+            },
+          );
+        }
+
+        if (now >= invulnerableUntilRef.current) {
+          for (const monster of monsters) {
+            const distance = Math.hypot(
+              player.x - monster.x,
+              player.y - monster.y,
+            );
+            if (distance < 0.52) {
+              handleMonsterHit(now);
+              break;
+            }
+          }
+        }
+
+        const baseSeconds = (now - startedAtRef.current) / 1000;
+        const displaySeconds = baseSeconds + penaltySecondsRef.current;
+
+        if (
+          now - lastHudSyncRef.current >= HUD_SYNC_MS ||
+          displaySeconds >= MAX_MATCH_SECONDS
+        ) {
+          lastHudSyncRef.current = now;
+          setElapsed(displaySeconds);
+
+          if (displaySeconds >= MAX_MATCH_SECONDS) {
+            finishedTimeRef.current = displaySeconds;
+            phaseRef.current = 'finished';
+            setPhase('finished');
+            setShowResult(true);
+          }
+        }
       }
 
       const ctx = canvas.getContext('2d');
@@ -934,176 +949,248 @@ export default function TombDashDuel() {
       const viewW = canvas.width / dpr;
       const viewH = canvas.height / dpr;
       const layout = layoutRef.current;
-      const arena = arenaRef.current;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, viewW, viewH);
 
-      if (cacheRef.current) ctx.drawImage(cacheRef.current, 0, 0, viewW, viewH);
+      if (staticCanvasRef.current) {
+        ctx.drawImage(staticCanvasRef.current, 0, 0, viewW, viewH);
+      }
 
-      const cellCenter = (cell: Vec) => ({
-        x: layout.x + (cell.c + 0.5) * layout.cell,
-        y: layout.y + (cell.r + 0.5) * layout.cell,
+      const cellCenter = (r: number, c: number) => ({
+        x: layout.x + (c + 0.5) * layout.cell,
+        y: layout.y + (r + 0.5) * layout.cell,
       });
 
-      for (const key of arena.coins) {
-        if (playerCoinsRef.current.has(key)) continue;
+      // Coins.
+      ctx.fillStyle = '#ffd64a';
+      for (const key of coinsRef.current) {
         const [r, c] = key.split(':').map(Number);
-        const pos = cellCenter({ r, c });
-        ctx.fillStyle = '#ffe063';
+        const pos = cellCenter(r, c);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, Math.max(1.6, layout.cell * 0.075), 0, Math.PI * 2);
+        ctx.arc(
+          pos.x,
+          pos.y,
+          Math.max(1.4, layout.cell * 0.075),
+          0,
+          Math.PI * 2,
+        );
         ctx.fill();
       }
 
-      const treasurePulse = 0.92 + Math.sin(now * 0.006) * 0.06;
-      for (const key of arena.treasures) {
-        if (playerTreasuresRef.current.has(key)) continue;
-        const [r, c] = key.split(':').map(Number);
-        const pos = cellCenter({ r, c });
-        const radius = layout.cell * 0.24 * treasurePulse;
-        ctx.fillStyle = '#f6a93b';
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#fff0a2';
-        ctx.lineWidth = Math.max(1, layout.cell * 0.055);
-        ctx.stroke();
-        ctx.fillStyle = '#9b4b20';
-        ctx.fillRect(pos.x - radius * 0.13, pos.y - radius * 0.52, radius * 0.26, radius * 1.04);
-      }
-
-      const drawActor = (actor: ActorMotion, rival: boolean) => {
-        const posCell = actorPosition(actor, now);
-        const pos = cellCenter(posCell);
-        const size = layout.cell * (rival ? 0.58 : 0.64);
-
-        if (actor.moving) {
-          const start = cellCenter(actor.from);
-          ctx.strokeStyle = rival ? 'rgba(255,96,127,.18)' : 'rgba(255,214,74,.20)';
-          ctx.lineWidth = Math.max(2, layout.cell * 0.12);
-          ctx.beginPath();
-          ctx.moveTo(start.x, start.y);
-          ctx.lineTo(pos.x, pos.y);
-          ctx.stroke();
-        }
+      // Monsters.
+      for (const monster of monsters) {
+        const x = layout.x + monster.x * layout.cell;
+        const y = layout.y + monster.y * layout.cell;
+        const size = layout.cell * 0.67;
 
         ctx.save();
-        ctx.translate(pos.x, pos.y);
-        ctx.globalAlpha = rival ? 0.38 : 1;
-        ctx.fillStyle = rival ? '#ff607f' : '#ffd64a';
-        ctx.strokeStyle = rival ? '#ffd0da' : '#fff2ad';
-        ctx.lineWidth = Math.max(1.2, layout.cell * 0.065);
+        ctx.translate(x, y);
+
+        ctx.fillStyle = monster.color;
         ctx.beginPath();
-        ctx.moveTo(0, -size * 0.56);
-        ctx.lineTo(size * 0.42, -size * 0.34);
-        ctx.lineTo(size * 0.55, size * 0.12);
-        ctx.lineTo(size * 0.32, size * 0.55);
-        ctx.lineTo(-size * 0.32, size * 0.55);
-        ctx.lineTo(-size * 0.55, size * 0.12);
-        ctx.lineTo(-size * 0.42, -size * 0.34);
+        ctx.arc(0, -size * 0.07, size * 0.45, Math.PI, 0);
+        ctx.lineTo(size * 0.45, size * 0.33);
+        ctx.lineTo(size * 0.22, size * 0.18);
+        ctx.lineTo(0, size * 0.35);
+        ctx.lineTo(-size * 0.22, size * 0.18);
+        ctx.lineTo(-size * 0.45, size * 0.33);
         ctx.closePath();
         ctx.fill();
-        ctx.stroke();
 
-        if (!rival) {
-          ctx.fillStyle = '#2a1020';
-          const eye = size * 0.11;
-          ctx.fillRect(-size * 0.28, -size * 0.14, eye, eye);
-          ctx.fillRect(size * 0.17, -size * 0.14, eye, eye);
-          ctx.fillStyle = '#a55320';
-          ctx.fillRect(-size * 0.13, size * 0.24, size * 0.26, size * 0.07);
-        }
+        ctx.fillStyle = '#fff6df';
+        ctx.beginPath();
+        ctx.arc(-size * 0.17, -size * 0.1, size * 0.11, 0, Math.PI * 2);
+        ctx.arc(size * 0.17, -size * 0.1, size * 0.11, 0, Math.PI * 2);
+        ctx.fill();
+
+        const look = monster.dir ? DIRS[monster.dir] : { r: 0, c: 0 };
+        ctx.fillStyle = '#28101d';
+        ctx.beginPath();
+        ctx.arc(
+          -size * 0.17 + look.c * size * 0.035,
+          -size * 0.1 + look.r * size * 0.035,
+          size * 0.045,
+          0,
+          Math.PI * 2,
+        );
+        ctx.arc(
+          size * 0.17 + look.c * size * 0.035,
+          -size * 0.1 + look.r * size * 0.035,
+          size * 0.045,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+
         ctx.restore();
-      };
+      }
 
-      drawActor(rivalActorRef.current, true);
-      drawActor(playerActorRef.current, false);
+      // Player.
+      {
+        const x = layout.x + player.x * layout.cell;
+        const y = layout.y + player.y * layout.cell;
+        const radius = layout.cell * 0.33;
+        const blink =
+          now < invulnerableUntilRef.current &&
+          Math.floor(now / 90) % 2 === 0;
 
+        if (!blink) {
+          const direction = player.dir ?? player.desiredDir ?? 'right';
+          const angle =
+            direction === 'right'
+              ? 0
+              : direction === 'down'
+                ? Math.PI / 2
+                : direction === 'left'
+                  ? Math.PI
+                  : -Math.PI / 2;
+          const mouth =
+            0.22 +
+            Math.abs(Math.sin(now * 0.014)) * 0.18;
+
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(angle);
+          ctx.fillStyle = '#ffd64a';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(
+            0,
+            0,
+            radius,
+            mouth * Math.PI,
+            (2 - mouth) * Math.PI,
+          );
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#2a1020';
+          ctx.beginPath();
+          ctx.arc(
+            radius * 0.08,
+            -radius * 0.52,
+            Math.max(1, radius * 0.09),
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      // Particles.
       const particles = particlesRef.current;
-      const dt = 1 / 60;
       for (let i = particles.length - 1; i >= 0; i -= 1) {
         const particle = particles[i];
         particle.life += dt;
+
         if (particle.life >= particle.maxLife) {
           particles.splice(i, 1);
           continue;
         }
 
-        particle.x += particle.vx * dt * 6;
-        particle.y += particle.vy * dt * 6;
-        particle.vx *= 0.94;
-        particle.vy *= 0.94;
+        particle.x += particle.vx * dt * 3.5;
+        particle.y += particle.vy * dt * 3.5;
+        particle.vx *= Math.pow(0.12, dt);
+        particle.vy *= Math.pow(0.12, dt);
 
         const alpha = 1 - particle.life / particle.maxLife;
-        const px = layout.x + particle.x * layout.cell;
-        const py = layout.y + particle.y * layout.cell;
         ctx.globalAlpha = alpha;
-        ctx.fillStyle =
-          particle.kind === 'coin'
-            ? '#ffd64a'
-            : particle.kind === 'danger'
-              ? '#ff5578'
-              : '#e2d5bd';
-        ctx.fillRect(px, py, Math.max(1, particle.size * layout.cell), Math.max(1, particle.size * layout.cell));
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(
+          layout.x + particle.x * layout.cell,
+          layout.y + particle.y * layout.cell,
+          Math.max(1, particle.size * layout.cell),
+          Math.max(1, particle.size * layout.cell),
+        );
       }
       ctx.globalAlpha = 1;
+
+      if (now < hitFlashUntilRef.current) {
+        const alpha =
+          0.16 * (1 - (hitFlashUntilRef.current - now) / 360);
+        ctx.fillStyle = `rgba(255,96,127,${Math.max(0.03, alpha)})`;
+        ctx.fillRect(0, 0, viewW, viewH);
+      }
 
       rafRef.current = window.requestAnimationFrame(render);
     };
 
     rafRef.current = window.requestAnimationFrame(render);
-    return () => {
-      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
 
-  useEffect(() => {
     return () => {
-      generationRef.current += 1;
-      clearFinishTimers();
-      if (botTimerRef.current !== null) window.clearTimeout(botTimerRef.current);
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+      }
     };
-  }, [clearFinishTimers]);
+  }, [collectCoin, handleMonsterHit]);
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    touchRef.current = { x: event.clientX, y: event.clientY };
+  const handlePointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    pointerRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+    };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
-  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = touchRef.current;
-    touchRef.current = null;
+  const handlePointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const start = pointerRef.current;
+    pointerRef.current = null;
+
     if (!start || phaseRef.current !== 'playing') return;
 
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (Math.hypot(dx, dy) < 18) return;
 
-    if (Math.abs(dx) > Math.abs(dy)) dash(dx > 0 ? 'right' : 'left');
-    else dash(dy > 0 ? 'down' : 'up');
+    if (Math.hypot(dx, dy) < 14) return;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      setDirection(dx > 0 ? 'right' : 'left');
+    } else {
+      setDirection(dy > 0 ? 'down' : 'up');
+    }
   };
 
-  const youWon = playerScore > rivalScore;
-  const draw = playerScore === rivalScore;
-  const totalCoins = arenaRef.current.coins.size;
-  const totalTreasures = arenaRef.current.treasures.size;
+  const currentTime =
+    phase === 'finished' && finishedTimeRef.current > 0
+      ? finishedTimeRef.current
+      : elapsed;
+
+  const totalCoins = mazeRef.current.totalCoins;
+  const collectedCoins = totalCoins - coinsLeft;
+  const progress =
+    totalCoins > 0 ? clamp((collectedCoins / totalCoins) * 100, 0, 100) : 0;
 
   return (
-    <div className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden bg-[#0c050b] text-white">
+    <div className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden bg-[#0b050a] text-white">
       <style>{`
-        @keyframes td-count {
+        @keyframes tc-count {
           0% { opacity: 0; transform: scale(.55); }
           38% { opacity: 1; transform: scale(1.08); }
           100% { opacity: 1; transform: scale(1); }
         }
+        @keyframes tc-penalty {
+          0% { opacity: 0; transform: translate(-50%, 8px) scale(.9); }
+          30% { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
+          100% { opacity: 0; transform: translate(-50%, -16px) scale(1); }
+        }
       `}</style>
 
-      <header className="relative z-30 flex h-[70px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#0c050b] px-3">
+      <header className="relative z-30 flex h-[70px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#0b050a] px-3">
         <div className="flex min-w-0 items-center gap-2">
           <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[9px] border-2 border-[#ffd64a]/35 bg-[#291020] text-[10px] font-black text-[#ffd64a]">
             {user?.photo_url ? (
-              <img src={user.photo_url} alt="" className="h-full w-full object-cover" draggable={false} />
+              <img
+                src={user.photo_url}
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             ) : (
               initials(user?.tg_user)
             )}
@@ -1112,29 +1199,34 @@ export default function TombDashDuel() {
             <p className="max-w-[92px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/90">
               {user?.tg_user || 'YOU'}
             </p>
-            <p className="mt-1 text-[10px] font-black leading-none text-[#ffd64a]">
-              {playerScore} <span className="text-[6px] text-white/30">PTS</span>
+            <p className="mt-1 text-[9px] font-black leading-none text-[#ffd64a]">
+              {collectedCoins}
+              <span className="ml-1 text-[6px] text-white/30">
+                / {totalCoins}
+              </span>
             </p>
           </div>
         </div>
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-          <p className="text-[6px] font-black uppercase tracking-[.22em] text-white/28">Tomb Dash</p>
-          <div className="mt-1 min-w-[54px] border-x-2 border-[#5b183b] bg-[#180913] px-2 py-1 text-[14px] font-black text-[#fff0a1]">
-            0:{String(timeLeft).padStart(2, '0')}
+          <p className="text-[6px] font-black uppercase tracking-[.2em] text-white/28">
+            Tomb Chase
+          </p>
+          <div className="mt-1 min-w-[64px] border-x-2 border-[#5b183b] bg-[#180913] px-2 py-1 text-[13px] font-black text-[#fff0a1]">
+            {formatTime(currentTime)}
           </div>
         </div>
 
         <div className="flex min-w-0 items-center gap-2 text-right">
           <div className="min-w-0">
-            <p className="max-w-[92px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/90">
+            <p className="max-w-[88px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/42">
               RIVAL
             </p>
-            <p className="mt-1 text-[10px] font-black leading-none text-[#ff607f]">
-              {rivalScore} <span className="text-[6px] text-white/30">PTS</span>
+            <p className="mt-1 text-[8px] font-black leading-none text-[#ff607f]/70">
+              --:--
             </p>
           </div>
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border-2 border-[#ff607f]/30 bg-[#291020] text-[9px] font-black text-[#ff607f]">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border-2 border-[#ff607f]/20 bg-[#291020] text-[8px] font-black text-[#ff607f]/55">
             R
           </div>
         </div>
@@ -1142,59 +1234,96 @@ export default function TombDashDuel() {
 
       <div
         ref={wrapRef}
-        className="relative mx-auto min-h-0 w-full max-w-[430px] flex-1 touch-none overflow-hidden bg-[#09050a]"
+        className="relative mx-auto min-h-0 w-full max-w-[430px] flex-1 touch-none overflow-hidden bg-[#080509]"
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={() => {
-          touchRef.current = null;
+          pointerRef.current = null;
         }}
       >
-        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full"
+        />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2">
-          <div className="border-l-2 border-[#ffd64a]/35 bg-black/28 px-2 py-1 text-[6px] font-black uppercase tracking-[.12em] text-white/42">
-            Coins <span className="text-[#ffd64a]">{playerCoinCount}/{totalCoins}</span>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-2">
+          <div className="h-[3px] overflow-hidden bg-white/[0.055]">
+            <div
+              className="h-full bg-[#ffd64a] transition-[width] duration-150"
+              style={{ width: `${progress}%` }}
+            />
           </div>
-          <div className="border-r-2 border-[#f6a93b]/40 bg-black/28 px-2 py-1 text-right text-[6px] font-black uppercase tracking-[.12em] text-white/42">
-            Gold <span className="text-[#f6a93b]">{playerTreasureCount}/{totalTreasures}</span>
+          <div className="mt-1 flex items-center justify-between text-[6px] font-black uppercase tracking-[.12em] text-white/28">
+            <span>
+              Coins{' '}
+              <b className="text-[#ffd64a]">
+                {collectedCoins}/{totalCoins}
+              </b>
+            </span>
+            <span>
+              Map <b className="text-white/55">#{mazeSeedLabel}</b>
+            </span>
           </div>
         </div>
 
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2">
-          <div
-            className={[
-              'border-x-2 px-3 py-1.5 text-center text-[7px] font-black uppercase tracking-[.14em]',
-              isMoving
-                ? 'border-[#ffd64a] bg-[#ffd64a]/10 text-[#ffe98d]'
-                : 'border-white/10 bg-black/50 text-white/52',
-            ].join(' ')}
-          >
-            {isMoving ? 'DASHING' : message}
+        {phase === 'playing' && (
+          <div className="pointer-events-none absolute bottom-3 left-3 z-30 border-l-2 border-[#ff607f]/45 bg-black/35 px-2 py-1 text-[6px] font-black uppercase tracking-[.12em] text-white/38">
+            Deaths{' '}
+            <strong className="text-[#ff8098]">{deaths}</strong>
+            {penaltySeconds > 0 && (
+              <span className="ml-2 text-[#ff8098]">
+                +{penaltySeconds}s
+              </span>
+            )}
           </div>
-        </div>
+        )}
 
-        <div className="pointer-events-none absolute bottom-4 right-3 z-30 text-[6px] font-black uppercase tracking-[.12em] text-white/22">
-          Arena {arenaNumber}
-        </div>
+        {phase === 'playing' && (
+          <div className="pointer-events-none absolute bottom-3 right-3 z-30 text-right text-[6px] font-black uppercase tracking-[.12em] text-white/24">
+            Swipe to turn
+          </div>
+        )}
+
+        {phase === 'playing' &&
+          performance.now() < respawnLabelUntilRef.current && (
+            <div
+              key={`${deaths}-${penaltySeconds}`}
+              className="pointer-events-none absolute left-1/2 top-[18%] z-40 border-x-2 border-[#ff607f] bg-[#250b19]/90 px-3 py-2 text-[9px] font-black uppercase tracking-[.13em] text-[#ff8ca3]"
+              style={{
+                animation: 'tc-penalty 1.05s ease-out both',
+              }}
+            >
+              CAUGHT +{DEATH_PENALTY_SECONDS}s
+            </div>
+          )}
 
         {phase === 'countdown' && (
-          <div className="absolute inset-0 z-50 grid place-items-center bg-[#09050a]/90">
+          <div className="absolute inset-0 z-50 grid place-items-center bg-[#080509]/92">
             <div className="text-center">
               <div className="mx-auto grid h-14 w-14 place-items-center border-2 border-[#ffd64a] bg-[#551533]">
-                <span className="text-[17px] font-black text-[#ffd64a]">T</span>
+                <div className="relative h-8 w-8 overflow-hidden rounded-full bg-[#ffd64a]">
+                  <div
+                    className="absolute right-[-2px] top-1/2 h-5 w-5 -translate-y-1/2 rotate-45 bg-[#551533]"
+                  />
+                </div>
               </div>
+
               <p className="mt-4 text-[7px] font-black uppercase tracking-[.24em] text-white/35">
-                Read the room
+                Collect everything
               </p>
+
               <strong
                 key={countdown}
                 className="mt-1 block text-[52px] font-black leading-[1.1] text-[#ffd64a]"
-                style={{ animation: 'td-count .38s ease-out both' }}
+                style={{
+                  animation: 'tc-count .38s ease-out both',
+                }}
               >
                 {countdown}
               </strong>
+
               <p className="mt-2 text-[7px] font-black uppercase tracking-[.12em] text-white/28">
-                Swipe · Stop · Collect
+                Swipe · Turn · Survive
               </p>
             </div>
           </div>
@@ -1202,45 +1331,60 @@ export default function TombDashDuel() {
       </div>
 
       {showResult && (
-        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/76 px-5 backdrop-blur-[2px]">
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/78 px-5 backdrop-blur-[2px]">
           <div className="w-full max-w-[324px] border-2 border-[#5b183b] bg-[#130811] p-5 text-center shadow-[0_28px_80px_rgba(0,0,0,.62)]">
-            <div
-              className={[
-                'mx-auto grid h-14 w-14 place-items-center border-2',
-                draw
-                  ? 'border-white/35 bg-white/10 text-white'
-                  : youWon
-                    ? 'border-[#ffd64a] bg-[#5b183b] text-[#ffd64a]'
-                    : 'border-[#ff607f] bg-[#4b122a] text-[#ff8ca3]',
-              ].join(' ')}
-            >
-              <span className="text-[17px] font-black">{draw ? '=' : youWon ? 'W' : 'L'}</span>
+            <div className="mx-auto grid h-14 w-14 place-items-center border-2 border-[#ffd64a] bg-[#5b183b]">
+              <span className="text-[19px] font-black text-[#ffd64a]">
+                ✓
+              </span>
             </div>
 
-            <p className="mt-4 text-[7px] font-black uppercase tracking-[.22em] text-white/28">Tomb Dash Duel</p>
+            <p className="mt-4 text-[7px] font-black uppercase tracking-[.22em] text-white/28">
+              Tomb Chase
+            </p>
             <h2 className="mt-1 text-[23px] font-black text-white">
-              {draw ? 'НИЧЬЯ' : youWon ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}
+              ЛАБИРИНТ ПРОЙДЕН
             </h2>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="border border-[#ffd64a]/15 bg-[#ffd64a]/[.055] p-3">
-                <span className="text-[6px] font-black uppercase tracking-[.14em] text-white/28">You</span>
-                <strong className="mt-1 block text-[19px] font-black text-[#ffd64a]">{playerScore}</strong>
-              </div>
-              <div className="border border-[#ff607f]/15 bg-[#ff607f]/[.055] p-3">
-                <span className="text-[6px] font-black uppercase tracking-[.14em] text-white/28">Rival</span>
-                <strong className="mt-1 block text-[19px] font-black text-[#ff607f]">{rivalScore}</strong>
-              </div>
+            <div className="mt-4 border-y border-white/[0.06] py-4">
+              <span className="text-[6px] font-black uppercase tracking-[.15em] text-white/28">
+                Final time
+              </span>
+              <strong className="mt-1 block text-[31px] font-black text-[#ffd64a]">
+                {formatTime(currentTime)}
+              </strong>
             </div>
 
-            <div className="mt-2 flex items-center justify-between border-y border-white/[0.06] py-2 text-[6px] font-black uppercase tracking-[.12em] text-white/28">
-              <span>Gold stops</span>
-              <strong className="text-[8px] text-[#f6a93b]">{playerTreasureCount}/{totalTreasures}</strong>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="border border-white/[0.06] bg-white/[0.025] p-2.5">
+                <span className="text-[6px] font-black uppercase text-white/25">
+                  Coins
+                </span>
+                <strong className="mt-1 block text-[14px] font-black text-white/80">
+                  {collectedCoins}
+                </strong>
+              </div>
+              <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
+                <span className="text-[6px] font-black uppercase text-white/25">
+                  Caught
+                </span>
+                <strong className="mt-1 block text-[14px] font-black text-[#ff8098]">
+                  {deaths}
+                </strong>
+              </div>
+              <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
+                <span className="text-[6px] font-black uppercase text-white/25">
+                  Penalty
+                </span>
+                <strong className="mt-1 block text-[14px] font-black text-[#ff8098]">
+                  +{penaltySeconds}s
+                </strong>
+              </div>
             </div>
 
             <button
               type="button"
-              onClick={() => resetRound(true)}
+              onClick={() => resetGame(true)}
               className="mt-4 w-full bg-[#ffd64a] px-4 py-3 text-[9px] font-black uppercase tracking-[.1em] text-[#210d19] active:scale-[.985]"
             >
               НОВАЯ КАРТА
@@ -1248,8 +1392,16 @@ export default function TombDashDuel() {
 
             <button
               type="button"
+              onClick={() => resetGame(false)}
+              className="mt-2 w-full border border-[#ffd64a]/15 bg-[#ffd64a]/[.045] px-4 py-3 text-[8px] font-black uppercase tracking-[.1em] text-[#ffe58a] active:scale-[.985]"
+            >
+              ЕЩЁ РАЗ
+            </button>
+
+            <button
+              type="button"
               onClick={() => navigate('/')}
-              className="mt-2 w-full border border-white/10 bg-white/[.035] px-4 py-3 text-[8px] font-black uppercase tracking-[.1em] text-white/50 active:scale-[.985]"
+              className="mt-2 w-full border border-white/10 bg-white/[.03] px-4 py-3 text-[8px] font-black uppercase tracking-[.1em] text-white/45 active:scale-[.985]"
             >
               НА ГЛАВНУЮ
             </button>
