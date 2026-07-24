@@ -492,15 +492,15 @@ export default function CubeFillGame() {
         viewH * 0.42,
         Math.max(viewW, viewH) * 0.68,
       );
-      bg.addColorStop(0, '#2b1a59');
-      bg.addColorStop(0.58, '#161038');
-      bg.addColorStop(1, '#0c0a20');
+      bg.addColorStop(0, '#231652');
+      bg.addColorStop(0.58, '#151031');
+      bg.addColorStop(1, '#0b091b');
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, viewW, viewH);
 
       // Subtle board halo.
       ctx.save();
-      ctx.shadowColor = 'rgba(125,94,255,.26)';
+      ctx.shadowColor = 'rgba(31,22,69,.40)';
       ctx.shadowBlur = 34;
       roundedRect(
         layout.originX - 10,
@@ -509,7 +509,7 @@ export default function CubeFillGame() {
         layout.boardH + 20,
         28,
       );
-      ctx.fillStyle = 'rgba(20,13,49,.78)';
+      ctx.fillStyle = 'rgba(16,12,42,.88)';
       ctx.fill();
       ctx.restore();
 
@@ -520,7 +520,7 @@ export default function CubeFillGame() {
         layout.boardH + 16,
         25,
       );
-      ctx.fillStyle = '#120d2f';
+      ctx.fillStyle = '#130f32';
       ctx.fill();
 
       // Update motion before drawing.
@@ -587,47 +587,85 @@ export default function CubeFillGame() {
         }
       }
 
-      // Maze floor.
+      // Maze floor and blockers.
       for (let r = 0; r < rows; r += 1) {
         for (let c = 0; c < cols; c += 1) {
-          if (currentLevel.map[r][c] === '#') continue;
-
           const rect = cellRect(r, c);
           const key = `${r}:${c}`;
+          const blocked = currentLevel.map[r][c] === '#';
+          const radius = Math.max(7, layout.cell * 0.18);
+
+          roundedRect(
+            rect.x,
+            rect.y,
+            rect.size,
+            rect.size,
+            radius,
+          );
+
+          if (blocked) {
+            const wallGradient = ctx.createLinearGradient(
+              rect.x,
+              rect.y,
+              rect.x,
+              rect.y + rect.size,
+            );
+            wallGradient.addColorStop(0, '#2f275f');
+            wallGradient.addColorStop(1, '#201946');
+            ctx.fillStyle = wallGradient;
+            ctx.fill();
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(203,188,255,.28)';
+            ctx.lineWidth = Math.max(1.2, layout.cell * 0.035);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = 0.22;
+            ctx.strokeStyle = '#cabaff';
+            ctx.lineWidth = Math.max(1, layout.cell * 0.03);
+            ctx.beginPath();
+            ctx.moveTo(rect.x + rect.size * 0.26, rect.y + rect.size * 0.26);
+            ctx.lineTo(rect.x + rect.size * 0.74, rect.y + rect.size * 0.74);
+            ctx.moveTo(rect.x + rect.size * 0.74, rect.y + rect.size * 0.26);
+            ctx.lineTo(rect.x + rect.size * 0.26, rect.y + rect.size * 0.74);
+            ctx.stroke();
+            ctx.restore();
+            continue;
+          }
+
           const painted = paintedRef.current.has(key);
           const paintedAt = paintTimeRef.current.get(key) ?? -10000;
           const fillT = painted
             ? easePop(clamp((now - paintedAt) / TILE_FILL_MS, 0, 1))
             : 0;
 
-          // Unpainted white surface.
-          roundedRect(
+          const floorGradient = ctx.createLinearGradient(
             rect.x,
             rect.y,
-            rect.size,
-            rect.size,
-            Math.max(6, layout.cell * 0.16),
+            rect.x,
+            rect.y + rect.size,
           );
-          ctx.fillStyle = '#f8f7fb';
+          floorGradient.addColorStop(0, '#fcfbff');
+          floorGradient.addColorStop(1, '#efedf8');
+          ctx.fillStyle = floorGradient;
           ctx.fill();
 
           ctx.save();
-          ctx.globalAlpha = 0.12;
-          ctx.strokeStyle = '#9c99ad';
+          ctx.strokeStyle = 'rgba(111,98,154,.16)';
           ctx.lineWidth = 1;
           ctx.stroke();
           ctx.restore();
 
           if (painted) {
-            const inset =
-              (1 - clamp(fillT, 0, 1)) * layout.cell * 0.18;
-
+            const inset = (1 - clamp(fillT, 0, 1)) * layout.cell * 0.16;
             roundedRect(
               rect.x + inset,
               rect.y + inset,
               rect.size - inset * 2,
               rect.size - inset * 2,
-              Math.max(5, layout.cell * 0.15),
+              Math.max(6, layout.cell * 0.17),
             );
 
             const paintGradient = ctx.createLinearGradient(
@@ -636,9 +674,9 @@ export default function CubeFillGame() {
               rect.x + rect.size,
               rect.y + rect.size,
             );
-            paintGradient.addColorStop(0, '#8b5cff');
-            paintGradient.addColorStop(0.5, '#6f54f7');
-            paintGradient.addColorStop(1, '#5b42dc');
+            paintGradient.addColorStop(0, '#7b57f4');
+            paintGradient.addColorStop(0.55, '#6849eb');
+            paintGradient.addColorStop(1, '#573bdb');
             ctx.fillStyle = paintGradient;
             ctx.fill();
 
@@ -646,10 +684,10 @@ export default function CubeFillGame() {
             ctx.globalAlpha = 0.18;
             ctx.fillStyle = '#ffffff';
             roundedRect(
-              rect.x + rect.size * 0.12,
+              rect.x + rect.size * 0.13,
               rect.y + rect.size * 0.10,
-              rect.size * 0.76,
-              rect.size * 0.16,
+              rect.size * 0.70,
+              rect.size * 0.14,
               rect.size * 0.08,
             );
             ctx.fill();
@@ -658,28 +696,21 @@ export default function CubeFillGame() {
         }
       }
 
-      // Extra continuous paint ribbon under the moving cube.
+      // Moving paint glow.
       if (motion && phase === 'playing') {
-        const from = cellCenter(motion.from.r, motion.from.c);
         const current = cellCenter(cubeR, cubeC);
-
         ctx.save();
-        ctx.strokeStyle = '#7352f5';
-        ctx.lineWidth = Math.max(7, layout.cell - layout.gap * 2.15);
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(current.x, current.y);
-        ctx.stroke();
-
         ctx.globalAlpha = 0.14;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = Math.max(2, layout.cell * 0.13);
+        ctx.fillStyle = '#9f86ff';
         ctx.beginPath();
-        ctx.moveTo(from.x, from.y - layout.cell * 0.12);
-        ctx.lineTo(current.x, current.y - layout.cell * 0.12);
-        ctx.stroke();
+        ctx.arc(
+          current.x,
+          current.y,
+          Math.max(14, layout.cell * 0.42),
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
         ctx.restore();
       }
 
@@ -746,16 +777,16 @@ export default function CubeFillGame() {
       const cubeY = cubeCenter.y - cubeSize / 2 + kickY;
 
       ctx.save();
-      ctx.shadowColor = 'rgba(20,8,70,.38)';
-      ctx.shadowBlur = layout.cell * 0.25;
-      ctx.shadowOffsetY = layout.cell * 0.11;
+      ctx.shadowColor = 'rgba(0,0,0,.28)';
+      ctx.shadowBlur = layout.cell * 0.22;
+      ctx.shadowOffsetY = layout.cell * 0.10;
 
       roundedRect(
         cubeX,
         cubeY,
         cubeSize,
         cubeSize,
-        cubeSize * 0.27,
+        cubeSize * 0.29,
       );
 
       const cubeGradient = ctx.createLinearGradient(
@@ -764,22 +795,48 @@ export default function CubeFillGame() {
         cubeX + cubeSize,
         cubeY + cubeSize,
       );
-      cubeGradient.addColorStop(0, '#a77aff');
-      cubeGradient.addColorStop(0.46, '#815cf8');
-      cubeGradient.addColorStop(1, '#6446dd');
+      cubeGradient.addColorStop(0, '#ffe07e');
+      cubeGradient.addColorStop(0.5, '#f6c84e');
+      cubeGradient.addColorStop(1, '#e1ad25');
       ctx.fillStyle = cubeGradient;
       ctx.fill();
       ctx.restore();
 
       ctx.save();
-      ctx.globalAlpha = 0.34;
-      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = 'rgba(95,65,5,.32)';
+      ctx.lineWidth = Math.max(1.1, layout.cell * 0.03);
       roundedRect(
-        cubeX + cubeSize * 0.14,
+        cubeX,
+        cubeY,
+        cubeSize,
+        cubeSize,
+        cubeSize * 0.29,
+      );
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.36;
+      ctx.fillStyle = '#fff7d8';
+      roundedRect(
+        cubeX + cubeSize * 0.13,
         cubeY + cubeSize * 0.11,
         cubeSize * 0.72,
-        cubeSize * 0.18,
+        cubeSize * 0.16,
         cubeSize * 0.09,
+      );
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = '#8a5f10';
+      roundedRect(
+        cubeX + cubeSize * 0.22,
+        cubeY + cubeSize * 0.58,
+        cubeSize * 0.56,
+        cubeSize * 0.13,
+        cubeSize * 0.08,
       );
       ctx.fill();
       ctx.restore();
@@ -905,6 +962,8 @@ export default function CubeFillGame() {
           "'Supercell','Supercell-Magic','SupercellMagic',Inter,system-ui,sans-serif",
       }}
     >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(98,74,200,.42),transparent_34%),radial-gradient(circle_at_12%_100%,rgba(75,45,182,.26),transparent_28%),linear-gradient(180deg,#21164b_0%,#130d31_38%,#0c0a20_100%)]" />
+
       <style>{`
         @keyframes cf-pop {
           from { opacity: 0; transform: translateY(8px) scale(.97); }
@@ -917,12 +976,12 @@ export default function CubeFillGame() {
         }
       `}</style>
 
-      <header className="relative z-30 flex h-[70px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#0d0a22]/96 px-3">
+      <header className="relative z-30 flex h-[70px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#110d2b]/58 backdrop-blur-md px-3">
         <div className="min-w-[92px]">
           <p className="py-[1px] text-[6px] font-black uppercase leading-[1.5] tracking-[.14em] text-white/30">
             Filled
           </p>
-          <strong className="mt-[1px] block py-[1px] text-[18px] font-black leading-[1.38] tabular-nums text-[#9c78ff]">
+          <strong className="mt-[1px] block py-[1px] text-[18px] font-black leading-[1.38] tabular-nums text-[#f5c94f]">
             {progress}%
           </strong>
         </div>
@@ -967,7 +1026,7 @@ export default function CubeFillGame() {
         <div className="pointer-events-none absolute inset-x-5 top-4 z-20">
           <div className="h-[4px] overflow-hidden rounded-full bg-white/[0.07]">
             <div
-              className="h-full rounded-full bg-[linear-gradient(90deg,#7352f5,#a987ff)] transition-[width] duration-150"
+              className="h-full rounded-full bg-[linear-gradient(90deg,#f5c94f,#ffde7e)] transition-[width] duration-150"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -975,15 +1034,15 @@ export default function CubeFillGame() {
 
         {hintVisible && phase === 'playing' && (
           <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 text-center">
-            <div className="mx-auto w-fit rounded-full border border-white/[0.09] bg-[#110c31]/78 px-3 py-2 backdrop-blur-sm">
+            <div className="mx-auto w-fit rounded-full border border-white/[0.09] bg-[#140f36]/80 px-3 py-2 backdrop-blur-sm">
               <div
-                className="mx-auto mb-1 h-[2px] w-8 rounded-full bg-[#9d7cff]"
+                className="mx-auto mb-1 h-[2px] w-8 rounded-full bg-[#f5c94f]"
                 style={{
                   animation: 'cf-hint 1.05s ease-in-out infinite',
                 }}
               />
               <p className="py-[1px] text-[6px] font-black uppercase leading-[1.45] tracking-[.13em] text-white/42">
-                Swipe · Fill every tile
+                Swipe · Fill every cell
               </p>
             </div>
           </div>
@@ -1001,14 +1060,14 @@ export default function CubeFillGame() {
       {phase === 'level_complete' && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-[#080619]/76 px-4 backdrop-blur-[6px]">
           <div
-            className="relative w-full max-w-[286px] overflow-hidden rounded-[24px] border border-[#9d7cff]/25 bg-[#120d30]/[.99] px-4 pb-4 pt-5 text-center shadow-[0_28px_90px_rgba(0,0,0,.62)]"
+            className="relative w-full max-w-[286px] overflow-hidden rounded-[24px] border border-[#7d69c2]/34 bg-[#120d30]/[.99] px-4 pb-4 pt-5 text-center shadow-[0_28px_90px_rgba(0,0,0,.62)]"
             style={{ animation: 'cf-pop .25s ease-out both' }}
           >
             <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-[radial-gradient(circle_at_50%_0%,rgba(157,124,255,.20),transparent_70%)]" />
 
             <div className="relative">
-              <div className="mx-auto grid h-11 w-11 place-items-center rounded-[14px] border border-[#b49cff]/35 bg-[#815cf8]/12">
-                <span className="pt-[2px] text-[17px] font-black leading-[1.35] text-[#a98bff]">
+              <div className="mx-auto grid h-11 w-11 place-items-center rounded-[14px] border border-[#f5c94f]/38 bg-[#f5c94f]/12">
+                <span className="pt-[2px] text-[17px] font-black leading-[1.35] text-[#f5c94f]">
                   ✓
                 </span>
               </div>
@@ -1025,7 +1084,7 @@ export default function CubeFillGame() {
                   <span className="text-[5.5px] font-black uppercase leading-[1.45] tracking-[.10em] text-white/25">
                     Moves
                   </span>
-                  <strong className="mt-1 block py-[1px] text-[16px] font-black leading-[1.4] text-[#a98bff]">
+                  <strong className="mt-1 block py-[1px] text-[16px] font-black leading-[1.4] text-[#f5c94f]">
                     {moves}
                   </strong>
                 </div>
@@ -1043,7 +1102,7 @@ export default function CubeFillGame() {
               <button
                 type="button"
                 onClick={nextLevel}
-                className="mt-3 w-full rounded-[14px] bg-[linear-gradient(180deg,#9d7cff,#7653ee)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.10em] text-white shadow-[0_10px_26px_rgba(118,83,238,.22)] transition active:translate-y-[1px] active:scale-[.985]"
+                className="mt-3 w-full rounded-[14px] bg-[linear-gradient(180deg,#f5c94f,#e1ad25)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.10em] text-white shadow-[0_10px_26px_rgba(118,83,238,.22)] transition active:translate-y-[1px] active:scale-[.985]"
               >
                 NEXT LEVEL
               </button>
@@ -1055,20 +1114,20 @@ export default function CubeFillGame() {
       {phase === 'all_complete' && (
         <div className="fixed inset-0 z-[120] grid place-items-center bg-[#080619]/80 px-4 backdrop-blur-[7px]">
           <div
-            className="relative w-full max-w-[292px] overflow-hidden rounded-[25px] border border-[#9d7cff]/26 bg-[#120d30]/[.99] px-4 pb-4 pt-5 text-center shadow-[0_30px_100px_rgba(0,0,0,.66)]"
+            className="relative w-full max-w-[292px] overflow-hidden rounded-[25px] border border-[#7d69c2]/34 bg-[#120d30]/[.99] px-4 pb-4 pt-5 text-center shadow-[0_30px_100px_rgba(0,0,0,.66)]"
             style={{ animation: 'cf-pop .25s ease-out both' }}
           >
             <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_50%_0%,rgba(157,124,255,.22),transparent_70%)]" />
 
             <div className="relative">
-              <div className="mx-auto grid h-13 w-13 place-items-center rounded-[16px] border border-[#b49cff]/38 bg-[#815cf8]/14">
+              <div className="mx-auto grid h-13 w-13 place-items-center rounded-[16px] border border-[#b49cff]/38 bg-[#f5c94f]/14">
                 <div className="h-6 w-6 rounded-[7px] bg-[linear-gradient(135deg,#ab8cff,#7552ed)] shadow-[0_0_20px_rgba(157,124,255,.32)]" />
               </div>
 
               <p className="mt-3 py-[1px] text-[6px] font-black uppercase leading-[1.5] tracking-[.17em] text-white/28">
                 Cube Fill
               </p>
-              <h2 className="mt-1 py-[2px] text-[19px] font-black uppercase leading-[1.4] text-[#ad91ff]">
+              <h2 className="mt-1 py-[2px] text-[19px] font-black uppercase leading-[1.4] text-[#f5c94f]">
                 ВСЕ КАРТЫ ПРОЙДЕНЫ
               </h2>
 
@@ -1084,7 +1143,7 @@ export default function CubeFillGame() {
               <button
                 type="button"
                 onClick={restartAll}
-                className="mt-3 w-full rounded-[14px] bg-[linear-gradient(180deg,#9d7cff,#7653ee)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.10em] text-white transition active:scale-[.985]"
+                className="mt-3 w-full rounded-[14px] bg-[linear-gradient(180deg,#f5c94f,#e1ad25)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.10em] text-white transition active:scale-[.985]"
               >
                 PLAY AGAIN
               </button>
