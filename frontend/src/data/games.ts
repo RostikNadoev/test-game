@@ -33,7 +33,8 @@ export type GameCode =
   | 'disc_football'
   | 'doodle_jump'
   | 'crossy_pvp'
-  | 'prism_cube';
+  | 'prism_cube'
+  | 'tomb_dash_duel';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -203,6 +204,17 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/crossy_road/play',
     launchMode: 'lobby',
     coverUrl: crossyCover,
+  },
+  {
+    code: 'tomb_dash_duel',
+    displayName: 'Tomb Dash Duel',
+    icon: '🗿',
+    description: 'Мчись по лабиринту, собирай точки и избегай ловушек',
+    color: 'from-[#FFD64A]/26 via-[#FF4D74]/14 to-transparent',
+    meta: 'Retro Arcade',
+    status: 'New',
+    playPath: '/game/tomb_dash_duel/play',
+    launchMode: 'direct',
   },
 ];
 
