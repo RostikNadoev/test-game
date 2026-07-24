@@ -166,6 +166,13 @@ func main() {
 		GameCode:   arcaderace.CrossyPVPGameCode,
 	}
 
+	coinChaseWSHandler := handlers.ArcadeRaceWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    arcadeRaceManager,
+		GameCode:   arcaderace.CoinChaseGameCode,
+	}
+
 	neonMatrixWSHandler := handlers.NeonMatrixWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -212,6 +219,7 @@ func main() {
 	router.GET("/ws/flappy-race/:lobby_id", flappyRaceWSHandler.Connect)
 	router.GET("/ws/doodle-jump/:lobby_id", doodleJumpWSHandler.Connect)
 	router.GET("/ws/crossy-road/:lobby_id", crossyPVPWSHandler.Connect)
+	router.GET("/ws/coin-chase/:lobby_id", coinChaseWSHandler.Connect)
 	router.GET("/ws/neon-matrix/:lobby_id", neonMatrixWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/descent-duel/:lobby_id", physicsDuelWSHandler.Connect)

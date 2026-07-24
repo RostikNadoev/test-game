@@ -5,11 +5,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCoinChaseOnline } from '../hooks/useCoinChaseOnline';
 import { useAuth } from '../auth/useAuth';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
 type Dir = 'up' | 'down' | 'left' | 'right';
-type Phase = 'countdown' | 'playing' | 'finished';
+type Phase = 'waiting' | 'countdown' | 'playing' | 'finished';
 type Cell = { r: number; c: number };
 
 type Maze = {
@@ -66,11 +67,10 @@ const DPR_CAP = 1.5;
 const PLAYER_SPEED = 5.45;
 const MONSTER_SPEED = 3.75;
 const START_COUNTDOWN = 3;
-const MATCH_SECONDS = 90;
+const MATCH_SECONDS = 60;
 const MONSTER_HIT_COIN_PENALTY = 6;
 const RESPAWN_INVULNERABLE_MS = 1250;
 const RESPAWN_MIN_MONSTER_DISTANCE = 6;
-const HUD_SYNC_MS = 80;
 
 const DIRS: Record<Dir, Cell> = {
   up: { r: -1, c: 0 },
@@ -508,15 +508,16 @@ function pickSafeRespawn(
 }
 
 function formatTime(seconds: number) {
-  const safe = Math.max(0, seconds);
+  const safe = Math.max(0, Math.ceil(seconds));
   const minutes = Math.floor(safe / 60);
-  const rest = safe - minutes * 60;
-  return `${minutes}:${rest.toFixed(1).padStart(4, '0')}`;
+  const rest = safe % 60;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
 }
 
-export default function TombDashDuel() {
-  const navigate = useNavigate();
-  const { user } = useAuth();
+export default function CoinChaseGame() {
+  const match = useCoinChaseOnline();
+  const { refreshBalance } = useAuth();
+  const sendEvent = match.sendEvent;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -530,41 +531,51 @@ export default function TombDashDuel() {
   });
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
-  const lastHudSyncRef = useRef(0);
   const pointerRef = useRef<{ x: number; y: number; fired: boolean } | null>(null);
 
-  const seedRef = useRef(Math.floor(Math.random() * 2_000_000_000));
-  const randomRef = useRef(mulberry32(seedRef.current ^ 0x514f2a));
-  const mazeRef = useRef<Maze>(generateMaze(seedRef.current));
+  const [initialMaze] = useState(() => generateMaze(1));
+  const seedRef = useRef(1);
+  const randomRef = useRef(mulberry32(1 ^ 0x514f2a));
+  const mazeRef = useRef<Maze>(initialMaze);
   const playerRef = useRef<Mover>(
-    createMover(mazeRef.current.start, PLAYER_SPEED),
+    createMover(initialMaze.start, PLAYER_SPEED),
   );
-  const monstersRef = useRef<Monster[]>(createMonsters(mazeRef.current));
-  const coinsRef = useRef<Set<string>>(new Set(mazeRef.current.coins));
+  const monstersRef = useRef<Monster[]>(createMonsters(initialMaze));
+  const coinsRef = useRef<Set<string>>(new Set(initialMaze.coins));
   const particlesRef = useRef<Particle[]>([]);
-  const phaseRef = useRef<Phase>('countdown');
-  const startedAtRef = useRef(0);
+  const phaseRef = useRef<'waiting' | 'countdown' | 'playing' | 'match_over'>(
+    'waiting',
+  );
   const scoreRef = useRef(0);
   const lostCoinsRef = useRef(0);
   const wavesRef = useRef(1);
   const deathsRef = useRef(0);
   const invulnerableUntilRef = useRef(0);
   const hitFlashUntilRef = useRef(0);
-  const respawnLabelUntilRef = useRef(0);
+  const penaltyTimerRef = useRef<number | null>(null);
 
-  const [phase, setPhase] = useState<Phase>('countdown');
-  const [countdown, setCountdown] = useState(START_COUNTDOWN);
-  const [timeLeft, setTimeLeft] = useState(MATCH_SECONDS);
-  const [score, setScore] = useState(0);
-  const [coinsLeft, setCoinsLeft] = useState(mazeRef.current.totalCoins);
+  const [totalCoins, setTotalCoins] = useState(initialMaze.totalCoins);
+  const [coinsLeft, setCoinsLeft] = useState(initialMaze.totalCoins);
   const [deaths, setDeaths] = useState(0);
   const [lostCoins, setLostCoins] = useState(0);
   const [lastLoss, setLastLoss] = useState(0);
+  const [showPenalty, setShowPenalty] = useState(false);
   const [wave, setWave] = useState(1);
-  const [showResult, setShowResult] = useState(false);
-  const [mazeSeedLabel, setMazeSeedLabel] = useState(
-    String(seedRef.current % 10000).padStart(4, '0'),
-  );
+  const [mazeSeedLabel, setMazeSeedLabel] = useState('0001');
+
+  const phase: Phase =
+    match.phase === 'match_over'
+      ? 'finished'
+      : match.phase === 'playing'
+        ? 'playing'
+        : match.phase === 'waiting'
+          ? 'waiting'
+          : 'countdown';
+  const countdown = Math.max(1, match.countdownLeft || START_COUNTDOWN);
+  const timeLeft = Math.max(0, match.matchTimeLeft);
+  const score = match.myScore;
+  const opponentScore = match.opponentScore;
+  const showResult = match.phase === 'match_over';
 
   const spawnParticles = useCallback(
     (x: number, y: number, color: string, count: number) => {
@@ -593,12 +604,18 @@ export default function TombDashDuel() {
       if (!coinsRef.current.delete(key)) return;
 
       scoreRef.current += 1;
-      setScore(scoreRef.current);
       setCoinsLeft(coinsRef.current.size);
       spawnParticles(cell.c + 0.5, cell.r + 0.5, '#ffd64a', 3);
 
+      const objectId =
+        wavesRef.current * 100_000 + cell.r * COLS + cell.c + 1;
+      sendEvent({
+        kind: 'coin',
+        objectId,
+      });
+
       // A very fast player should never run out of things to collect during
-      // the fixed 90-second round. Refill the same map after a full clear.
+      // the fixed 60-second round. Refill the same map after a full clear.
       if (coinsRef.current.size === 0 && phaseRef.current === 'playing') {
         wavesRef.current += 1;
         setWave(wavesRef.current);
@@ -607,7 +624,7 @@ export default function TombDashDuel() {
         setCoinsLeft(coinsRef.current.size);
       }
     },
-    [spawnParticles],
+    [phaseRef, sendEvent, spawnParticles],
   );
 
   const resetPlayerTo = useCallback((cell: Cell) => {
@@ -636,9 +653,10 @@ export default function TombDashDuel() {
       lostCoinsRef.current += lost;
 
       setDeaths(deathsRef.current);
-      setScore(scoreRef.current);
       setLostCoins(lostCoinsRef.current);
       setLastLoss(lost);
+
+      sendEvent({ kind: 'caught' });
 
       spawnParticles(
         playerRef.current.x,
@@ -656,9 +674,16 @@ export default function TombDashDuel() {
 
       invulnerableUntilRef.current = now + RESPAWN_INVULNERABLE_MS;
       hitFlashUntilRef.current = now + 360;
-      respawnLabelUntilRef.current = now + 1150;
+      setShowPenalty(true);
+      if (penaltyTimerRef.current !== null) {
+        window.clearTimeout(penaltyTimerRef.current);
+      }
+      penaltyTimerRef.current = window.setTimeout(() => {
+        setShowPenalty(false);
+        penaltyTimerRef.current = null;
+      }, 1050);
     },
-    [resetPlayerTo, spawnParticles],
+    [phaseRef, resetPlayerTo, sendEvent, spawnParticles],
   );
 
   const rebuildStaticCanvas = useCallback(() => {
@@ -746,19 +771,14 @@ export default function TombDashDuel() {
     staticCanvasRef.current = cache;
   }, []);
 
-  const resetGame = useCallback(
-    (newMap: boolean) => {
-      if (newMap) {
-        seedRef.current = Math.floor(Math.random() * 2_000_000_000);
-        randomRef.current = mulberry32(seedRef.current ^ 0x514f2a);
-        mazeRef.current = generateMaze(seedRef.current);
-        setMazeSeedLabel(String(seedRef.current % 10000).padStart(4, '0'));
-      }
+  const resetFromSeed = useCallback(
+    (seed: number) => {
+      seedRef.current = Math.max(1, Math.floor(seed || 1));
+      randomRef.current = mulberry32(seedRef.current ^ 0x514f2a);
+      mazeRef.current = generateMaze(seedRef.current);
+      setMazeSeedLabel(String(seedRef.current % 10000).padStart(4, '0'));
 
-      playerRef.current = createMover(
-        mazeRef.current.start,
-        PLAYER_SPEED,
-      );
+      playerRef.current = createMover(mazeRef.current.start, PLAYER_SPEED);
       monstersRef.current = createMonsters(mazeRef.current);
       coinsRef.current = new Set(mazeRef.current.coins);
       particlesRef.current = [];
@@ -768,19 +788,18 @@ export default function TombDashDuel() {
       wavesRef.current = 1;
       invulnerableUntilRef.current = 0;
       hitFlashUntilRef.current = 0;
-      respawnLabelUntilRef.current = 0;
 
-      setTimeLeft(MATCH_SECONDS);
-      setScore(0);
+      setTotalCoins(mazeRef.current.totalCoins);
       setCoinsLeft(mazeRef.current.totalCoins);
       setDeaths(0);
       setLostCoins(0);
       setLastLoss(0);
+      setShowPenalty(false);
+      if (penaltyTimerRef.current !== null) {
+        window.clearTimeout(penaltyTimerRef.current);
+        penaltyTimerRef.current = null;
+      }
       setWave(1);
-      setShowResult(false);
-      setCountdown(START_COUNTDOWN);
-      phaseRef.current = 'countdown';
-      setPhase('countdown');
 
       window.requestAnimationFrame(rebuildStaticCanvas);
     },
@@ -788,27 +807,29 @@ export default function TombDashDuel() {
   );
 
   useEffect(() => {
-    phaseRef.current = phase;
-  }, [phase]);
+    phaseRef.current = match.phase;
+  }, [match.phase]);
 
   useEffect(() => {
-    if (phase !== 'countdown') return;
+    if (match.phase !== 'countdown') return;
+    resetFromSeed(match.seed);
+  }, [match.matchInstanceKey, match.phase, match.seed, resetFromSeed]);
 
-    const interval = window.setInterval(() => {
-      setCountdown((current) => {
-        if (current <= 1) {
-          window.clearInterval(interval);
-          startedAtRef.current = performance.now();
-          phaseRef.current = 'playing';
-          setPhase('playing');
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
+  useEffect(() => {
+    scoreRef.current = match.myScore;
+  }, [match.myScore]);
 
-    return () => window.clearInterval(interval);
-  }, [phase]);
+  useEffect(() => {
+    if (match.phase !== 'match_over') return;
+
+    const first = window.setTimeout(() => void refreshBalance(), 450);
+    const second = window.setTimeout(() => void refreshBalance(), 1300);
+
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+  }, [match.phase, refreshBalance]);
 
   const setDirection = useCallback((dir: Dir) => {
     if (phaseRef.current !== 'playing') return;
@@ -835,7 +856,7 @@ export default function TombDashDuel() {
     if (!player.dir && canMove(mazeRef.current, player.cell, dir)) {
       beginSegment(player, mazeRef.current, dir);
     }
-  }, []);
+  }, [phaseRef]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -956,22 +977,6 @@ export default function TombDashDuel() {
           }
         }
 
-        const elapsedSeconds = (now - startedAtRef.current) / 1000;
-        const remainingSeconds = Math.max(0, MATCH_SECONDS - elapsedSeconds);
-
-        if (
-          now - lastHudSyncRef.current >= HUD_SYNC_MS ||
-          remainingSeconds <= 0
-        ) {
-          lastHudSyncRef.current = now;
-          setTimeLeft(remainingSeconds);
-
-          if (remainingSeconds <= 0) {
-            phaseRef.current = 'finished';
-            setPhase('finished');
-            setShowResult(true);
-          }
-        }
       }
 
       const ctx = canvas.getContext('2d');
@@ -1159,7 +1164,7 @@ export default function TombDashDuel() {
         window.cancelAnimationFrame(rafRef.current);
       }
     };
-  }, [collectCoin, handleMonsterHit]);
+  }, [collectCoin, handleMonsterHit, phaseRef]);
 
   const directionFromDelta = (dx: number, dy: number): Dir =>
     Math.abs(dx) > Math.abs(dy)
@@ -1192,7 +1197,7 @@ export default function TombDashDuel() {
 
     // Recognize the swipe as soon as the finger clearly commits to a
     // direction. This removes the old "wait until finger-up" feeling.
-    if (Math.hypot(dx, dy) < 7) return;
+    if (Math.hypot(dx, dy) < 5) return;
 
     start.fired = true;
     setDirection(directionFromDelta(dx, dy));
@@ -1208,78 +1213,115 @@ export default function TombDashDuel() {
 
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (Math.hypot(dx, dy) < 7) return;
+    if (Math.hypot(dx, dy) < 5) return;
 
     setDirection(directionFromDelta(dx, dy));
   };
 
-  const totalCoins = mazeRef.current.totalCoins;
+  useEffect(() => {
+    return () => {
+      if (penaltyTimerRef.current !== null) {
+        window.clearTimeout(penaltyTimerRef.current);
+      }
+    };
+  }, []);
+
   const boardCollected = totalCoins - coinsLeft;
   const progress =
     totalCoins > 0 ? clamp((boardCollected / totalCoins) * 100, 0, 100) : 0;
 
+  const isDraw = match.draw;
+  const didWin = !isDraw && match.winnerUserId === match.myUserId;
+  const winnerProfile = didWin ? match.playerProfile : match.opponentProfile;
+  const loserProfile = didWin ? match.opponentProfile : match.playerProfile;
+  const winnerScore = didWin ? score : opponentScore;
+  const loserScore = didWin ? opponentScore : score;
+  const displayedReward = didWin
+    ? Math.max(0, match.serverState?.winner_profit ?? 0)
+    : 0;
+  const formatReward = (value: number) =>
+    new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+
   return (
-    <div className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden bg-[#0b050a] text-white">
+    <div
+      className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden bg-[#0b050a] text-white"
+      style={{
+        fontFamily:
+          "'Supercell','Supercell-Magic','SupercellMagic',Inter,system-ui,sans-serif",
+      }}
+    >
       <style>{`
-        @keyframes tc-count {
-          0% { opacity: 0; transform: scale(.55); }
-          38% { opacity: 1; transform: scale(1.08); }
+        @keyframes cc-count {
+          0% { opacity: 0; transform: scale(.58); }
+          42% { opacity: 1; transform: scale(1.08); }
           100% { opacity: 1; transform: scale(1); }
         }
-        @keyframes tc-penalty {
-          0% { opacity: 0; transform: translate(-50%, 8px) scale(.9); }
-          30% { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
-          100% { opacity: 0; transform: translate(-50%, -16px) scale(1); }
+        @keyframes cc-penalty {
+          0% { opacity: 0; transform: translate(-50%, 8px) scale(.92); }
+          28% { opacity: 1; transform: translate(-50%, 0) scale(1.035); }
+          100% { opacity: 0; transform: translate(-50%, -14px) scale(1); }
+        }
+        @keyframes cc-result {
+          from { opacity: 0; transform: translateY(12px) scale(.965); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
       `}</style>
 
-      <header className="relative z-30 flex h-[70px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#0b050a] px-3">
+      <header className="relative z-30 flex h-[76px] shrink-0 items-center justify-between border-b border-white/[0.045] bg-[#0b050a] px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[9px] border-2 border-[#ffd64a]/35 bg-[#291020] text-[10px] font-black text-[#ffd64a]">
-            {user?.photo_url ? (
+          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[10px] border-2 border-[#ffd64a]/38 bg-[#291020] text-[10px] font-black uppercase leading-[1.35] text-[#ffd64a]">
+            {match.playerProfile.photoUrl ? (
               <img
-                src={user.photo_url}
-                alt=""
+                src={match.playerProfile.photoUrl}
+                alt={match.playerProfile.name}
                 className="h-full w-full object-cover"
                 draggable={false}
               />
             ) : (
-              initials(user?.tg_user)
+              initials(match.playerProfile.name)
             )}
           </div>
-          <div className="min-w-0">
-            <p className="max-w-[92px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/90">
-              {user?.tg_user || 'YOU'}
+          <div className="min-w-0 pt-[2px]">
+            <p className="max-w-[92px] truncate py-[1px] text-[9px] font-black uppercase leading-[1.45] tracking-[.055em] text-white/90">
+              {match.playerProfile.name || 'YOU'}
             </p>
-            <p className="mt-1 text-[9px] font-black leading-none text-[#ffd64a]">
+            <p className="mt-[1px] py-[1px] text-[10px] font-black leading-[1.4] text-[#ffd64a]">
               {score}
-              <span className="ml-1 text-[6px] text-white/30">
-                PTS
-              </span>
+              <span className="ml-1 text-[6px] text-white/30">PTS</span>
             </p>
           </div>
         </div>
 
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-          <p className="text-[6px] font-black uppercase tracking-[.2em] text-white/28">
-            Tomb Chase
+        <div className="absolute left-1/2 top-1/2 min-w-[88px] -translate-x-1/2 -translate-y-1/2 text-center">
+          <p className="py-[1px] text-[6px] font-black uppercase leading-[1.45] tracking-[.19em] text-white/28">
+            Coin Chase
           </p>
-          <div className="mt-1 min-w-[64px] border-x-2 border-[#5b183b] bg-[#180913] px-2 py-1 text-[13px] font-black text-[#fff0a1]">
+          <div className="mt-[2px] border-x-2 border-[#5b183b] bg-[#180913] px-2 py-[5px] text-[14px] font-black leading-[1.25] tabular-nums text-[#fff0a1]">
             {formatTime(timeLeft)}
           </div>
         </div>
 
         <div className="flex min-w-0 items-center gap-2 text-right">
-          <div className="min-w-0">
-            <p className="max-w-[88px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/42">
-              RIVAL
+          <div className="min-w-0 pt-[2px]">
+            <p className="max-w-[92px] truncate py-[1px] text-[9px] font-black uppercase leading-[1.45] tracking-[.055em] text-white/78">
+              {match.opponentProfile.name || 'RIVAL'}
             </p>
-            <p className="mt-1 text-[8px] font-black leading-none text-[#9b7cff]/70">
-              -- PTS
+            <p className="mt-[1px] py-[1px] text-[10px] font-black leading-[1.4] text-[#9b7cff]">
+              {opponentScore}
+              <span className="ml-1 text-[6px] text-white/30">PTS</span>
             </p>
           </div>
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border-2 border-[#9b7cff]/20 bg-[#291020] text-[8px] font-black text-[#9b7cff]/55">
-            R
+          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[10px] border-2 border-[#9b7cff]/35 bg-[#291020] text-[9px] font-black uppercase leading-[1.35] text-[#b7a5ff]">
+            {match.opponentProfile.photoUrl ? (
+              <img
+                src={match.opponentProfile.photoUrl}
+                alt={match.opponentProfile.name}
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
+            ) : (
+              initials(match.opponentProfile.name)
+            )}
           </div>
         </div>
       </header>
@@ -1294,19 +1336,16 @@ export default function TombDashDuel() {
           pointerRef.current = null;
         }}
       >
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 h-full w-full"
-        />
+        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-2">
-          <div className="h-[3px] overflow-hidden bg-white/[0.055]">
+          <div className="h-[3px] overflow-hidden rounded-full bg-white/[0.055]">
             <div
-              className="h-full bg-[#ffd64a] transition-[width] duration-150"
+              className="h-full rounded-full bg-[#ffd64a] transition-[width] duration-150"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="mt-1 flex items-center justify-between text-[6px] font-black uppercase tracking-[.12em] text-white/28">
+          <div className="mt-1 flex items-center justify-between py-[1px] text-[6px] font-black uppercase leading-[1.4] tracking-[.11em] text-white/28">
             <span>
               Board{' '}
               <b className="text-[#ffd64a]">
@@ -1321,144 +1360,274 @@ export default function TombDashDuel() {
         </div>
 
         {phase === 'playing' && (
-          <div className="pointer-events-none absolute bottom-3 left-3 z-30 border-l-2 border-[#ff607f]/45 bg-black/35 px-2 py-1 text-[6px] font-black uppercase tracking-[.12em] text-white/38">
-            Caught{' '}
-            <strong className="text-[#ff8098]">{deaths}</strong>
+          <div className="pointer-events-none absolute bottom-3 left-3 z-30 border-l-2 border-[#ff607f]/45 bg-black/35 px-2 py-[6px] text-[6px] font-black uppercase leading-[1.4] tracking-[.11em] text-white/38">
+            Caught <strong className="text-[#ff8098]">{deaths}</strong>
             {lostCoins > 0 && (
-              <span className="ml-2 text-[#ff8098]">
-                -{lostCoins} pts
-              </span>
+              <span className="ml-2 text-[#ff8098]">-{lostCoins} pts</span>
             )}
           </div>
         )}
 
         {phase === 'playing' && (
-          <div className="pointer-events-none absolute bottom-3 right-3 z-30 text-right text-[6px] font-black uppercase tracking-[.12em] text-white/24">
+          <div className="pointer-events-none absolute bottom-3 right-3 z-30 py-[2px] text-right text-[6px] font-black uppercase leading-[1.4] tracking-[.11em] text-white/24">
             Swipe to turn
           </div>
         )}
 
-        {phase === 'playing' &&
-          performance.now() < respawnLabelUntilRef.current && (
+        {phase === 'playing' && showPenalty && (
             <div
               key={`${deaths}-${lastLoss}`}
-              className="pointer-events-none absolute left-1/2 top-[18%] z-40 border-x-2 border-[#ff607f] bg-[#250b19]/90 px-3 py-2 text-[9px] font-black uppercase tracking-[.13em] text-[#ff8ca3]"
-              style={{
-                animation: 'tc-penalty 1.05s ease-out both',
-              }}
+              className="pointer-events-none absolute left-1/2 top-[18%] z-40 border-x-2 border-[#ff607f] bg-[#250b19]/92 px-3 py-[9px] text-[9px] font-black uppercase leading-[1.4] tracking-[.12em] text-[#ff8ca3]"
+              style={{ animation: 'cc-penalty 1.05s ease-out both' }}
             >
               CAUGHT -{lastLoss} PTS
             </div>
           )}
 
+        {phase === 'waiting' && (
+          <div className="absolute inset-0 z-50 grid place-items-center bg-[#080509]/92 px-6 text-center">
+            <div>
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/12 border-t-[#ffd64a]" />
+              <p className="mt-4 py-1 text-[13px] font-black uppercase leading-[1.45] text-white">
+                Ждём соперника
+              </p>
+              <p className="mt-1 py-1 text-[7px] font-black uppercase leading-[1.5] tracking-[.15em] text-white/30">
+                Матч начнётся после подключения обоих игроков
+              </p>
+            </div>
+          </div>
+        )}
+
         {phase === 'countdown' && (
-          <div className="absolute inset-0 z-50 grid place-items-center bg-[#080509]/92">
+          <div className="absolute inset-0 z-50 grid place-items-center bg-[#080509]/94">
             <div className="text-center">
               <div className="mx-auto grid h-14 w-14 place-items-center border-2 border-[#ffd64a] bg-[#551533]">
                 <div className="relative h-8 w-8 overflow-hidden rounded-full bg-[#ffd64a]">
-                  <div
-                    className="absolute right-[-2px] top-1/2 h-5 w-5 -translate-y-1/2 rotate-45 bg-[#551533]"
-                  />
+                  <div className="absolute right-[-2px] top-1/2 h-5 w-5 -translate-y-1/2 rotate-45 bg-[#551533]" />
                 </div>
               </div>
 
-              <p className="mt-4 text-[7px] font-black uppercase tracking-[.24em] text-white/35">
-                Collect more in 90 seconds
+              <p className="mt-4 py-[2px] text-[7px] font-black uppercase leading-[1.5] tracking-[.22em] text-white/35">
+                Collect more in {MATCH_SECONDS} seconds
               </p>
 
               <strong
                 key={countdown}
-                className="mt-1 block text-[52px] font-black leading-[1.1] text-[#ffd64a]"
-                style={{
-                  animation: 'tc-count .38s ease-out both',
-                }}
+                className="mt-1 block min-h-[70px] overflow-visible px-3 pt-[5px] text-[52px] font-black leading-[1.28] text-[#ffd64a]"
+                style={{ animation: 'cc-count .38s ease-out both' }}
               >
                 {countdown}
               </strong>
 
-              <p className="mt-2 text-[7px] font-black uppercase tracking-[.12em] text-white/28">
+              <p className="mt-1 py-[2px] text-[7px] font-black uppercase leading-[1.5] tracking-[.12em] text-white/28">
                 Swipe · Collect · Survive
               </p>
             </div>
           </div>
         )}
+
+        {match.socketError && phase !== 'finished' && (
+          <div className="pointer-events-none absolute inset-x-4 bottom-12 z-[70] border border-[#ff607f]/20 bg-[#2a0b1c]/92 px-3 py-2 text-center text-[7px] font-black leading-[1.45] text-[#ff9bae]">
+            {match.socketError}
+          </div>
+        )}
       </div>
 
       {showResult && (
-        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/78 px-5 backdrop-blur-[2px]">
-          <div className="w-full max-w-[324px] border-2 border-[#5b183b] bg-[#130811] p-5 text-center shadow-[0_28px_80px_rgba(0,0,0,.62)]">
-            <div className="mx-auto grid h-14 w-14 place-items-center border-2 border-[#ffd64a] bg-[#5b183b]">
-              <span className="text-[19px] font-black text-[#ffd64a]">
-                90
-              </span>
-            </div>
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/78 px-4 backdrop-blur-[7px]">
+          <div
+            className="relative w-full max-w-[350px] overflow-hidden rounded-[30px] border border-white/[0.10] bg-[#0d0910]/[.98] px-5 pb-5 pt-6 text-center shadow-[0_32px_110px_rgba(0,0,0,.76)]"
+            style={{ animation: 'cc-result .28s ease-out both' }}
+          >
+            <div
+              className={[
+                'pointer-events-none absolute inset-x-0 top-0 h-36 opacity-55 blur-3xl',
+                isDraw
+                  ? 'bg-white/10'
+                  : didWin
+                    ? 'bg-[#49E99A]/20'
+                    : 'bg-[#FF667B]/18',
+              ].join(' ')}
+            />
 
-            <p className="mt-4 text-[7px] font-black uppercase tracking-[.22em] text-white/28">
-              Tomb Chase
-            </p>
-            <h2 className="mt-1 text-[23px] font-black text-white">
-              ВРЕМЯ ВЫШЛО
-            </h2>
+            <div className="relative">
+              <p className="py-[2px] text-[7px] font-black uppercase leading-[1.5] tracking-[.20em] text-white/30">
+                Coin Chase · Match Result
+              </p>
 
-            <div className="mt-4 border-y border-white/[0.06] py-4">
-              <span className="text-[6px] font-black uppercase tracking-[.15em] text-white/28">
-                Final score
-              </span>
-              <strong className="mt-1 block text-[31px] font-black text-[#ffd64a]">
-                {score} PTS
-              </strong>
-            </div>
+              <h2
+                className={[
+                  'mt-1 py-[4px] text-[27px] font-black uppercase leading-[1.35]',
+                  isDraw
+                    ? 'text-white'
+                    : didWin
+                      ? 'text-[#49E99A]'
+                      : 'text-[#FF667B]',
+                ].join(' ')}
+              >
+                {isDraw ? 'НИЧЬЯ' : didWin ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}
+              </h2>
 
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <div className="border border-white/[0.06] bg-white/[0.025] p-2.5">
-                <span className="text-[6px] font-black uppercase text-white/25">
-                  Waves
+              {isDraw ? (
+                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                  {[
+                    { profile: match.playerProfile, value: score },
+                    { profile: match.opponentProfile, value: opponentScore },
+                  ].map(({ profile, value }, index) => (
+                    <div key={profile.id || index} className="min-w-0">
+                      <div className="mx-auto grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[15px] font-black uppercase leading-[1.35] text-white">
+                        {profile.photoUrl ? (
+                          <img
+                            src={profile.photoUrl}
+                            alt={profile.name}
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        ) : (
+                          initials(profile.name)
+                        )}
+                      </div>
+                      <div className="mt-2 truncate px-1 py-[2px] text-[8px] font-black leading-[1.45] text-white/60">
+                        {profile.name}
+                      </div>
+                      <div className="mt-1 py-[2px] text-[22px] font-black leading-[1.35] tabular-nums text-white">
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pb-3 text-[8px] font-black uppercase leading-[1.4] tracking-[0.16em] text-white/24">
+                    VS
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 grid grid-cols-[1.18fr_auto_.9fr] items-end gap-3">
+                  <div className="min-w-0">
+                    <div className="relative mx-auto w-fit">
+                      <div className="absolute -inset-2 rounded-full bg-[#ffd64a]/12 blur-xl" />
+                      <div className="relative grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-2 border-[#ffd64a]/65 bg-white/[0.07] text-[18px] font-black uppercase leading-[1.35] text-white shadow-[0_15px_45px_rgba(255,214,74,.14)]">
+                        {winnerProfile.photoUrl ? (
+                          <img
+                            src={winnerProfile.photoUrl}
+                            alt={winnerProfile.name}
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        ) : (
+                          initials(winnerProfile.name)
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 truncate px-1 py-[2px] text-[8px] font-black leading-[1.45] text-[#ffd64a]">
+                      {winnerProfile.name}
+                    </div>
+                    <div className="mt-1 py-[2px] text-[27px] font-black leading-[1.35] tabular-nums text-white">
+                      {winnerScore}
+                    </div>
+                  </div>
+
+                  <div className="pb-10 text-[8px] font-black uppercase leading-[1.4] tracking-[.16em] text-white/20">
+                    VS
+                  </div>
+
+                  <div className="min-w-0 pb-1">
+                    <div className="mx-auto grid h-[64px] w-[64px] place-items-center overflow-hidden rounded-full border border-white/12 bg-white/[0.045] text-[13px] font-black uppercase leading-[1.35] text-white/65">
+                      {loserProfile.photoUrl ? (
+                        <img
+                          src={loserProfile.photoUrl}
+                          alt={loserProfile.name}
+                          className="h-full w-full object-cover opacity-80"
+                          draggable={false}
+                        />
+                      ) : (
+                        initials(loserProfile.name)
+                      )}
+                    </div>
+                    <div className="mt-2 truncate px-1 py-[2px] text-[7px] font-black leading-[1.45] text-white/38">
+                      {loserProfile.name}
+                    </div>
+                    <div className="mt-1 py-[2px] text-[20px] font-black leading-[1.35] tabular-nums text-white/52">
+                      {loserScore}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="my-4 h-px bg-white/[0.07]" />
+
+              <p className="mb-2 py-[1px] text-[6px] font-black uppercase leading-[1.45] tracking-[.16em] text-white/25">
+                Чистый выигрыш
+              </p>
+
+              <div
+                className={[
+                  'mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5',
+                  isDraw
+                    ? 'border-white/10 bg-white/[0.05] text-white/55'
+                    : didWin
+                      ? 'border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]'
+                      : 'border-[#FF667B]/20 bg-[#FF667B]/10 text-[#FF667B]',
+                ].join(' ')}
+              >
+                <span className="py-[1px] text-[20px] font-black leading-[1.35] tabular-nums">
+                  {didWin ? `+${formatReward(displayedReward)}` : '0'}
                 </span>
-                <strong className="mt-1 block text-[14px] font-black text-white/80">
-                  {wave}
-                </strong>
+                <img
+                  src={coinIcon}
+                  alt="GAME"
+                  className="h-6 w-6 object-contain"
+                  draggable={false}
+                />
               </div>
-              <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
-                <span className="text-[6px] font-black uppercase text-white/25">
-                  Caught
+
+              <div className="mt-3 flex items-center justify-center gap-3 py-[2px] text-[6px] font-black uppercase leading-[1.45] tracking-[.12em] text-white/25">
+                <span>Caught {deaths}</span>
+                <span>·</span>
+                <span>Lost {lostCoins}</span>
+                <span>·</span>
+                <span>Wave {wave}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={match.backToLobbies}
+                className="group mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[0.11] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.045)_100%)] px-2.5 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_36px_rgba(0,0,0,0.30)] transition duration-150 active:translate-y-[1px] active:scale-[0.985]"
+              >
+                <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[0.10] bg-black/20 text-white/72">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-[17px] w-[17px]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M19 12H5" />
+                    <path d="m11 18-6-6 6-6" />
+                  </svg>
                 </span>
-                <strong className="mt-1 block text-[14px] font-black text-[#ff8098]">
-                  {deaths}
-                </strong>
-              </div>
-              <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
-                <span className="text-[6px] font-black uppercase text-white/25">
-                  Lost
+
+                <span className="px-2 pt-[2px] text-center text-[9px] font-black uppercase leading-[1.5] tracking-[.13em] text-white">
+                  К ЛОББИ
                 </span>
-                <strong className="mt-1 block text-[14px] font-black text-[#ff8098]">
-                  -{lostCoins}
-                </strong>
-              </div>
+
+                <span className="grid h-[38px] w-[38px] place-items-center text-white/30">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-[16px] w-[16px]"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </span>
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => resetGame(true)}
-              className="mt-4 w-full bg-[#ffd64a] px-4 py-3 text-[9px] font-black uppercase tracking-[.1em] text-[#210d19] active:scale-[.985]"
-            >
-              НОВАЯ КАРТА
-            </button>
-
-            <button
-              type="button"
-              onClick={() => resetGame(false)}
-              className="mt-2 w-full border border-[#ffd64a]/15 bg-[#ffd64a]/[.045] px-4 py-3 text-[8px] font-black uppercase tracking-[.1em] text-[#ffe58a] active:scale-[.985]"
-            >
-              ЕЩЁ РАЗ
-            </button>
-
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="mt-2 w-full border border-white/10 bg-white/[.03] px-4 py-3 text-[8px] font-black uppercase tracking-[.1em] text-white/45 active:scale-[.985]"
-            >
-              НА ГЛАВНУЮ
-            </button>
           </div>
         </div>
       )}

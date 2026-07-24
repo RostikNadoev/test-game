@@ -70,7 +70,7 @@ const FlappyRaceGame = lazy(() => import("./pages/FlappyRaceGame"));
 const DiscFootballGame = lazy(() => import("./pages/DiscFootballGame"));
 const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
 const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
-const TombDashDuel = lazy(() => import("./pages/TombDashDuel"));
+const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -180,9 +180,9 @@ function AppShell() {
   const isFlappyRaceRoute = location.pathname === "/game/flappy_race/play";
   const isDoodleJumpRoute = location.pathname === "/game/doodle_jump/play";
   const isPrismCubeRoute = location.pathname === "/game/prism_cube/play";
-  const isTombDashRoute = location.pathname === "/game/tomb_dash_duel/play";
+  const isCoinChaseRoute = location.pathname === "/game/coin_chase/play";
   const hasFullScreenArcadeBackground =
-    isFlappyRaceRoute || isDoodleJumpRoute || isPrismCubeRoute || isTombDashRoute;
+    isFlappyRaceRoute || isDoodleJumpRoute || isPrismCubeRoute || isCoinChaseRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
@@ -327,8 +327,8 @@ function AppShell() {
               ? "radial-gradient(circle at 72% 16%, rgba(82,255,229,0.2), transparent 46%), linear-gradient(180deg, #071827 0%, #0b3550 50%, #126765 100%)"
               : isPrismCubeRoute
                 ? "radial-gradient(circle at 70% 15%, rgba(91,231,255,0.22), transparent 44%), radial-gradient(circle at 18% 34%, rgba(255,111,202,0.15), transparent 45%), linear-gradient(180deg, #050817 0%, #11194a 54%, #070a16 100%)"
-                : isTombDashRoute
-                  ? "linear-gradient(180deg, #12070f 0%, #1b0915 46%, #0b050b 100%)"
+                : isCoinChaseRoute
+                  ? "radial-gradient(circle at 50% 0%, rgba(255,214,74,0.08), transparent 42%), linear-gradient(180deg, #12070f 0%, #1b0915 46%, #0b050b 100%)"
                 : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
@@ -414,8 +414,8 @@ function AppShell() {
                 element={<CrossyRoadGame />}
               />
               <Route
-                path="/game/tomb_dash_duel/play"
-                element={<TombDashDuel />}
+                path="/game/coin_chase/play"
+                element={<CoinChaseGame />}
               />
 
               <Route path="/profile" element={<Profile />} />

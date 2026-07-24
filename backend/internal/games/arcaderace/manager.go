@@ -17,15 +17,17 @@ const (
 	FlappyRaceGameCode = "flappy_race"
 	DoodleJumpGameCode = "doodle_jump"
 	CrossyPVPGameCode  = "crossy_pvp"
+	CoinChaseGameCode  = "coin_chase"
 
 	PhaseWaiting   = "waiting"
 	PhaseCountdown = "countdown"
 	PhasePlaying   = "playing"
 	PhaseMatchOver = "match_over"
 
-	CountdownDuration = 3 * time.Second
-	MatchDuration     = 45 * time.Second
-	SessionTTL        = 30 * time.Minute
+	CountdownDuration      = 3 * time.Second
+	MatchDuration          = 45 * time.Second
+	CoinChaseMatchDuration = 60 * time.Second
+	SessionTTL             = 30 * time.Minute
 )
 
 type ClientMessage struct {
@@ -372,6 +374,8 @@ func (s *Session) calculateEventLocked(
 		return s.applyDoodleEventLocked(userID, message, kind, grade, now)
 	case CrossyPVPGameCode:
 		return s.applyCrossyEventLocked(userID, message, kind, grade, now)
+	case CoinChaseGameCode:
+		return s.applyCoinChaseEventLocked(userID, message, kind, now)
 	default:
 		return 0, false, errors.New("unsupported game")
 	}
@@ -585,12 +589,54 @@ func (s *Session) applyCrossyEventLocked(
 	}
 }
 
+func (s *Session) applyCoinChaseEventLocked(
+	userID uint,
+	message ClientMessage,
+	kind string,
+	now time.Time,
+) (int, bool, error) {
+	switch kind {
+	case "coin":
+		if message.ObjectID <= 0 {
+			return 0, false, errors.New("coin object_id is required")
+		}
+		if !s.markObjectLocked(userID, "coin", message.ObjectID) {
+			return 0, false, nil
+		}
+
+		elapsed := now.Sub(s.matchStartsAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+
+		// PLAYER_SPEED on the client is about 5.45 cells/sec.
+		// This leaves network/frame headroom but prevents event flooding.
+		maxAllowedCoins := 5 + int(elapsed.Seconds()*6.4)
+		if s.combos[userID]+1 > maxAllowedCoins {
+			return 0, false, errors.New("coin progress is too fast")
+		}
+
+		s.combos[userID]++
+		s.updateBestComboLocked(userID)
+		s.scores[userID]++
+		return 1, true, nil
+
+	case "caught":
+		previous := s.scores[userID]
+		s.scores[userID] = maxInt(0, previous-6)
+		return s.scores[userID] - previous, true, nil
+
+	default:
+		return 0, false, errors.New("invalid coin chase event")
+	}
+}
+
 func (s *Session) eventIntervalAllowedLocked(userID uint, kind string, now time.Time) bool {
 	minimum := 80 * time.Millisecond
 	switch kind {
 	case "gate", "platform":
 		minimum = 170 * time.Millisecond
-	case "crash", "fall", "death":
+	case "crash", "fall", "death", "caught":
 		minimum = 650 * time.Millisecond
 	case "height", "row":
 		minimum = 70 * time.Millisecond
@@ -664,10 +710,11 @@ func (s *Session) startPlayingLocked() {
 	s.phase = PhasePlaying
 	s.countdownEndsAt = time.Time{}
 	s.matchStartsAt = now
-	s.matchEndsAt = now.Add(MatchDuration)
+	duration := matchDurationForGame(s.gameCode)
+	s.matchEndsAt = now.Add(duration)
 	s.broadcastLocked(s.publicStateLocked())
 
-	s.matchTimer = time.AfterFunc(MatchDuration, func() {
+	s.matchTimer = time.AfterFunc(duration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.finishLocked()
@@ -856,9 +903,16 @@ func (s *Session) Close() {
 	s.clients = make(map[uint]*Client)
 }
 
+func matchDurationForGame(gameCode string) time.Duration {
+	if normalizeGameCode(gameCode) == CoinChaseGameCode {
+		return CoinChaseMatchDuration
+	}
+	return MatchDuration
+}
+
 func IsSupportedGame(gameCode string) bool {
 	switch normalizeGameCode(gameCode) {
-	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode:
+	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode:
 		return true
 	default:
 		return false

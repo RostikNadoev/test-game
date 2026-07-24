@@ -1,4 +1,8 @@
-export type ArcadeRaceGameCode = 'flappy_race' | 'doodle_jump' | 'crossy_pvp';
+export type ArcadeRaceGameCode =
+  | 'flappy_race'
+  | 'doodle_jump'
+  | 'crossy_pvp'
+  | 'coin_chase';
 
 export type ArcadeRaceMatchPhase =
   | 'waiting'
@@ -97,7 +101,8 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
   if (
     rawGame !== 'flappy_race' &&
     rawGame !== 'doodle_jump' &&
-    rawGame !== 'crossy_pvp'
+    rawGame !== 'crossy_pvp' &&
+    rawGame !== 'coin_chase'
   ) {
     return null;
   }
@@ -163,6 +168,8 @@ const pathForGame = (gameCode: ArcadeRaceGameCode) => {
       return '/ws/doodle-jump/';
     case 'crossy_pvp':
       return '/ws/crossy-road/';
+    case 'coin_chase':
+      return '/ws/coin-chase/';
   }
 };
 

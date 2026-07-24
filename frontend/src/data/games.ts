@@ -34,7 +34,7 @@ export type GameCode =
   | 'doodle_jump'
   | 'crossy_pvp'
   | 'prism_cube'
-  | 'tomb_dash_duel';
+  | 'coin_chase';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -206,15 +206,15 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     coverUrl: crossyCover,
   },
   {
-    code: 'tomb_dash_duel',
-    displayName: 'Tomb Dash Duel',
-    icon: '🗿',
-    description: 'Мчись по лабиринту, собирай точки и избегай ловушек',
-    color: 'from-[#FFD64A]/26 via-[#FF4D74]/14 to-transparent',
-    meta: 'Retro Arcade',
+    code: 'coin_chase',
+    displayName: 'Coin Chase',
+    icon: '🟡',
+    description: 'Собирай монеты, избегай монстров и обгони соперника за минуту',
+    color: 'from-[#FFD64A]/26 via-[#9B7CFF]/14 to-transparent',
+    meta: 'Arcade PvP',
     status: 'New',
-    playPath: '/game/tomb_dash_duel/play',
-    launchMode: 'direct',
+    playPath: '/game/coin_chase/play',
+    launchMode: 'lobby',
   },
 ];
 

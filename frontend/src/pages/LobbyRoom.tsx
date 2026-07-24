@@ -228,7 +228,11 @@ export const LobbyRoom = () => {
         onCancel={() => void handleLeave()}
         isCancelling={isLeaving}
         cancelError={error}
-        matchedDurationMs={lobbyGameCode === 'descent_duel' ? 0 : undefined}
+        matchedDurationMs={
+          lobbyGameCode === 'descent_duel' || lobbyGameCode === 'coin_chase'
+            ? 0
+            : undefined
+        }
         opponentName={opponentInfo?.tg_user}
         opponentPhotoUrl={opponentInfo?.photo_url}
       />
