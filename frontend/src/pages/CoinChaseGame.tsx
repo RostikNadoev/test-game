@@ -1434,48 +1434,45 @@ export default function CoinChaseGame() {
       </div>
 
       {showResult && (
-        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/78 px-4 backdrop-blur-[7px]">
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-black/76 px-4 backdrop-blur-[5px]">
           <div
-            className="relative w-full max-w-[350px] overflow-hidden rounded-[30px] border border-white/[0.10] bg-[#0d0910]/[.98] px-5 pb-5 pt-6 text-center shadow-[0_32px_110px_rgba(0,0,0,.76)]"
+            className="relative w-full max-w-[292px] overflow-hidden rounded-[22px] border-2 border-[#5b183b] bg-[#12070f]/[.99] px-3.5 pb-3.5 pt-4 text-center shadow-[0_24px_76px_rgba(0,0,0,.70),inset_0_1px_0_rgba(255,214,74,.05)]"
             style={{ animation: 'cc-result .28s ease-out both' }}
           >
-            <div
-              className={[
-                'pointer-events-none absolute inset-x-0 top-0 h-36 opacity-55 blur-3xl',
-                isDraw
-                  ? 'bg-white/10'
-                  : didWin
-                    ? 'bg-[#49E99A]/20'
-                    : 'bg-[#FF667B]/18',
-              ].join(' ')}
-            />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[74px] bg-[linear-gradient(180deg,rgba(126,37,83,.20),rgba(72,19,47,.05),transparent)]" />
+            <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[64%] -translate-x-1/2 bg-[#ffd64a]/35" />
+            <div className="pointer-events-none absolute -left-8 top-16 h-20 w-20 rounded-full bg-[#7e2553]/10 blur-2xl" />
+            <div className="pointer-events-none absolute -right-8 top-10 h-16 w-16 rounded-full bg-[#ffd64a]/[.055] blur-2xl" />
 
             <div className="relative">
-              <p className="py-[2px] text-[7px] font-black uppercase leading-[1.5] tracking-[.20em] text-white/30">
-                Coin Chase · Match Result
-              </p>
+              <div className="mx-auto mb-1.5 flex w-fit items-center gap-1.5 rounded-full border border-[#7e2553]/45 bg-[#2a0c1d]/80 px-2.5 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ffd64a] shadow-[0_0_8px_rgba(255,214,74,.55)]" />
+                <span className="py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.16em] text-white/38">
+                  Coin Chase
+                </span>
+              </div>
 
               <h2
                 className={[
-                  'mt-1 py-[4px] text-[27px] font-black uppercase leading-[1.35]',
+                  'py-[3px] text-[20px] font-black uppercase leading-[1.38] tracking-[.015em]',
                   isDraw
                     ? 'text-white'
                     : didWin
-                      ? 'text-[#49E99A]'
-                      : 'text-[#FF667B]',
+                      ? 'text-[#ffd64a]'
+                      : 'text-[#ff6686]',
                 ].join(' ')}
               >
                 {isDraw ? 'НИЧЬЯ' : didWin ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}
               </h2>
 
               {isDraw ? (
-                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="mt-2.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                   {[
                     { profile: match.playerProfile, value: score },
                     { profile: match.opponentProfile, value: opponentScore },
                   ].map(({ profile, value }, index) => (
                     <div key={profile.id || index} className="min-w-0">
-                      <div className="mx-auto grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[15px] font-black uppercase leading-[1.35] text-white">
+                      <div className="mx-auto grid h-[48px] w-[48px] place-items-center overflow-hidden rounded-[14px] border-2 border-[#5b183b] bg-[#28101d] text-[10px] font-black uppercase leading-[1.4] text-[#ffd64a]">
                         {profile.photoUrl ? (
                           <img
                             src={profile.photoUrl}
@@ -1487,24 +1484,25 @@ export default function CoinChaseGame() {
                           initials(profile.name)
                         )}
                       </div>
-                      <div className="mt-2 truncate px-1 py-[2px] text-[8px] font-black leading-[1.45] text-white/60">
+                      <div className="mt-1.5 truncate px-1 py-[1px] text-[6px] font-black leading-[1.5] text-white/48">
                         {profile.name}
                       </div>
-                      <div className="mt-1 py-[2px] text-[22px] font-black leading-[1.35] tabular-nums text-white">
+                      <div className="mt-[1px] py-[1px] text-[16px] font-black leading-[1.4] tabular-nums text-[#ffd64a]">
                         {value}
                       </div>
                     </div>
                   ))}
-                  <div className="pb-3 text-[8px] font-black uppercase leading-[1.4] tracking-[0.16em] text-white/24">
+
+                  <div className="pb-2 text-[6px] font-black uppercase leading-[1.4] tracking-[.13em] text-[#7e2553]">
                     VS
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 grid grid-cols-[1.18fr_auto_.9fr] items-end gap-3">
+                <div className="mt-2.5 grid grid-cols-[1.08fr_auto_.9fr] items-end gap-2">
                   <div className="min-w-0">
                     <div className="relative mx-auto w-fit">
-                      <div className="absolute -inset-2 rounded-full bg-[#ffd64a]/12 blur-xl" />
-                      <div className="relative grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-2 border-[#ffd64a]/65 bg-white/[0.07] text-[18px] font-black uppercase leading-[1.35] text-white shadow-[0_15px_45px_rgba(255,214,74,.14)]">
+                      <div className="absolute -inset-1.5 rounded-[18px] bg-[#ffd64a]/10 blur-md" />
+                      <div className="relative grid h-[62px] w-[62px] place-items-center overflow-hidden rounded-[18px] border-2 border-[#ffd64a]/70 bg-[#28101d] text-[12px] font-black uppercase leading-[1.4] text-[#ffd64a] shadow-[0_8px_24px_rgba(255,214,74,.09)]">
                         {winnerProfile.photoUrl ? (
                           <img
                             src={winnerProfile.photoUrl}
@@ -1517,114 +1515,104 @@ export default function CoinChaseGame() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-2 truncate px-1 py-[2px] text-[8px] font-black leading-[1.45] text-[#ffd64a]">
+
+                    <div className="mt-1.5 truncate px-1 py-[1px] text-[6.5px] font-black leading-[1.5] text-[#ffd64a]">
                       {winnerProfile.name}
                     </div>
-                    <div className="mt-1 py-[2px] text-[27px] font-black leading-[1.35] tabular-nums text-white">
+                    <div className="mt-[1px] py-[1px] text-[19px] font-black leading-[1.38] tabular-nums text-white">
                       {winnerScore}
                     </div>
                   </div>
 
-                  <div className="pb-10 text-[8px] font-black uppercase leading-[1.4] tracking-[.16em] text-white/20">
+                  <div className="pb-7 text-[6px] font-black uppercase leading-[1.4] tracking-[.13em] text-[#7e2553]">
                     VS
                   </div>
 
-                  <div className="min-w-0 pb-1">
-                    <div className="mx-auto grid h-[64px] w-[64px] place-items-center overflow-hidden rounded-full border border-white/12 bg-white/[0.045] text-[13px] font-black uppercase leading-[1.35] text-white/65">
+                  <div className="min-w-0 pb-[2px]">
+                    <div className="mx-auto grid h-[46px] w-[46px] place-items-center overflow-hidden rounded-[14px] border border-[#7e2553]/55 bg-[#28101d] text-[9px] font-black uppercase leading-[1.4] text-white/48">
                       {loserProfile.photoUrl ? (
                         <img
                           src={loserProfile.photoUrl}
                           alt={loserProfile.name}
-                          className="h-full w-full object-cover opacity-80"
+                          className="h-full w-full object-cover opacity-75"
                           draggable={false}
                         />
                       ) : (
                         initials(loserProfile.name)
                       )}
                     </div>
-                    <div className="mt-2 truncate px-1 py-[2px] text-[7px] font-black leading-[1.45] text-white/38">
+
+                    <div className="mt-1.5 truncate px-1 py-[1px] text-[5.5px] font-black leading-[1.5] text-white/34">
                       {loserProfile.name}
                     </div>
-                    <div className="mt-1 py-[2px] text-[20px] font-black leading-[1.35] tabular-nums text-white/52">
+                    <div className="mt-[1px] py-[1px] text-[15px] font-black leading-[1.4] tabular-nums text-white/46">
                       {loserScore}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="my-4 h-px bg-white/[0.07]" />
+              <div className="my-2.5 h-px bg-[#5b183b]/60" />
 
-              <p className="mb-2 py-[1px] text-[6px] font-black uppercase leading-[1.45] tracking-[.16em] text-white/25">
-                Чистый выигрыш
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.12em] text-white/26">
+                    Чистый выигрыш
+                  </p>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span
+                      className={[
+                        'py-[1px] text-[17px] font-black leading-[1.4] tabular-nums',
+                        didWin ? 'text-[#ffd64a]' : 'text-white/38',
+                      ].join(' ')}
+                    >
+                      {didWin ? `+${formatReward(displayedReward)}` : '0'}
+                    </span>
+                    <img
+                      src={coinIcon}
+                      alt="GAME"
+                      className="h-[18px] w-[18px] object-contain"
+                      draggable={false}
+                    />
+                  </div>
+                </div>
 
-              <div
-                className={[
-                  'mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5',
-                  isDraw
-                    ? 'border-white/10 bg-white/[0.05] text-white/55'
-                    : didWin
-                      ? 'border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]'
-                      : 'border-[#FF667B]/20 bg-[#FF667B]/10 text-[#FF667B]',
-                ].join(' ')}
-              >
-                <span className="py-[1px] text-[20px] font-black leading-[1.35] tabular-nums">
-                  {didWin ? `+${formatReward(displayedReward)}` : '0'}
-                </span>
-                <img
-                  src={coinIcon}
-                  alt="GAME"
-                  className="h-6 w-6 object-contain"
-                  draggable={false}
-                />
-              </div>
+                <div className="h-8 w-px bg-[#5b183b]/65" />
 
-              <div className="mt-3 flex items-center justify-center gap-3 py-[2px] text-[6px] font-black uppercase leading-[1.45] tracking-[.12em] text-white/25">
-                <span>Caught {deaths}</span>
-                <span>·</span>
-                <span>Lost {lostCoins}</span>
-                <span>·</span>
-                <span>Wave {wave}</span>
+                <div className="shrink-0 text-right">
+                  <div className="py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.09em] text-white/24">
+                    Caught <span className="text-[#ff6686]/80">{deaths}</span>
+                  </div>
+                  <div className="mt-[2px] py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.09em] text-white/24">
+                    Lost <span className="text-[#ff6686]/80">{lostCoins}</span>
+                  </div>
+                  <div className="mt-[2px] py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.09em] text-white/24">
+                    Wave <span className="text-[#ffd64a]/75">{wave}</span>
+                  </div>
+                </div>
               </div>
 
               <button
                 type="button"
                 onClick={match.backToLobbies}
-                className="group mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[0.11] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.045)_100%)] px-2.5 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_36px_rgba(0,0,0,0.30)] transition duration-150 active:translate-y-[1px] active:scale-[0.985]"
+                className="mt-3 flex min-h-[43px] w-full items-center justify-center gap-2 rounded-[14px] border border-[#7e2553]/65 bg-[linear-gradient(180deg,#5b183b_0%,#3d102b_100%)] px-3 py-2 text-[#ffd64a] shadow-[inset_0_1px_0_rgba(255,214,74,.08),0_8px_20px_rgba(0,0,0,.28)] transition duration-150 active:translate-y-[1px] active:scale-[0.985]"
               >
-                <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[0.10] bg-black/20 text-white/72">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-[17px] w-[17px]"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M19 12H5" />
-                    <path d="m11 18-6-6 6-6" />
-                  </svg>
-                </span>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-[14px] w-[14px]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19 12H5" />
+                  <path d="m11 18-6-6 6-6" />
+                </svg>
 
-                <span className="px-2 pt-[2px] text-center text-[9px] font-black uppercase leading-[1.5] tracking-[.13em] text-white">
+                <span className="pt-[1px] text-[7px] font-black uppercase leading-[1.5] tracking-[.12em]">
                   К ЛОББИ
-                </span>
-
-                <span className="grid h-[38px] w-[38px] place-items-center text-white/30">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-[16px] w-[16px]"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
                 </span>
               </button>
             </div>
