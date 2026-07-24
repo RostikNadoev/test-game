@@ -63,14 +63,14 @@ type BoardLayout = {
 const ROWS = 21;
 const COLS = 17;
 const DPR_CAP = 1.5;
-const PLAYER_SPEED = 5.15;
+const PLAYER_SPEED = 5.45;
 const MONSTER_SPEED = 3.75;
 const START_COUNTDOWN = 3;
-const DEATH_PENALTY_SECONDS = 7;
+const MATCH_SECONDS = 90;
+const MONSTER_HIT_COIN_PENALTY = 6;
 const RESPAWN_INVULNERABLE_MS = 1250;
 const RESPAWN_MIN_MONSTER_DISTANCE = 6;
 const HUD_SYNC_MS = 80;
-const MAX_MATCH_SECONDS = 240;
 
 const DIRS: Record<Dir, Cell> = {
   up: { r: -1, c: 0 },
@@ -86,7 +86,7 @@ const OPPOSITE: Record<Dir, Dir> = {
   right: 'left',
 };
 
-const MONSTER_COLORS = ['#ff607f', '#69d9ff', '#f3a84a'];
+const MONSTER_COLORS = ['#ff4f7b', '#55d8ff', '#9b7cff'];
 
 const keyOf = (cell: Cell) => `${cell.r}:${cell.c}`;
 const sameCell = (a: Cell, b: Cell) => a.r === b.r && a.c === b.c;
@@ -531,7 +531,7 @@ export default function TombDashDuel() {
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef(0);
   const lastHudSyncRef = useRef(0);
-  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerRef = useRef<{ x: number; y: number; fired: boolean } | null>(null);
 
   const seedRef = useRef(Math.floor(Math.random() * 2_000_000_000));
   const randomRef = useRef(mulberry32(seedRef.current ^ 0x514f2a));
@@ -544,8 +544,9 @@ export default function TombDashDuel() {
   const particlesRef = useRef<Particle[]>([]);
   const phaseRef = useRef<Phase>('countdown');
   const startedAtRef = useRef(0);
-  const penaltySecondsRef = useRef(0);
-  const finishedTimeRef = useRef(0);
+  const scoreRef = useRef(0);
+  const lostCoinsRef = useRef(0);
+  const wavesRef = useRef(1);
   const deathsRef = useRef(0);
   const invulnerableUntilRef = useRef(0);
   const hitFlashUntilRef = useRef(0);
@@ -553,10 +554,13 @@ export default function TombDashDuel() {
 
   const [phase, setPhase] = useState<Phase>('countdown');
   const [countdown, setCountdown] = useState(START_COUNTDOWN);
-  const [elapsed, setElapsed] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(MATCH_SECONDS);
+  const [score, setScore] = useState(0);
   const [coinsLeft, setCoinsLeft] = useState(mazeRef.current.totalCoins);
   const [deaths, setDeaths] = useState(0);
-  const [penaltySeconds, setPenaltySeconds] = useState(0);
+  const [lostCoins, setLostCoins] = useState(0);
+  const [lastLoss, setLastLoss] = useState(0);
+  const [wave, setWave] = useState(1);
   const [showResult, setShowResult] = useState(false);
   const [mazeSeedLabel, setMazeSeedLabel] = useState(
     String(seedRef.current % 10000).padStart(4, '0'),
@@ -588,17 +592,19 @@ export default function TombDashDuel() {
       const key = keyOf(cell);
       if (!coinsRef.current.delete(key)) return;
 
+      scoreRef.current += 1;
+      setScore(scoreRef.current);
       setCoinsLeft(coinsRef.current.size);
       spawnParticles(cell.c + 0.5, cell.r + 0.5, '#ffd64a', 3);
 
+      // A very fast player should never run out of things to collect during
+      // the fixed 90-second round. Refill the same map after a full clear.
       if (coinsRef.current.size === 0 && phaseRef.current === 'playing') {
-        const now = performance.now();
-        const baseSeconds = (now - startedAtRef.current) / 1000;
-        finishedTimeRef.current = baseSeconds + penaltySecondsRef.current;
-        phaseRef.current = 'finished';
-        setPhase('finished');
-        setElapsed(finishedTimeRef.current);
-        window.setTimeout(() => setShowResult(true), 260);
+        wavesRef.current += 1;
+        setWave(wavesRef.current);
+        coinsRef.current = new Set(mazeRef.current.coins);
+        coinsRef.current.delete(key);
+        setCoinsLeft(coinsRef.current.size);
       }
     },
     [spawnParticles],
@@ -625,14 +631,19 @@ export default function TombDashDuel() {
       }
 
       deathsRef.current += 1;
-      penaltySecondsRef.current += DEATH_PENALTY_SECONDS;
+      const lost = Math.min(MONSTER_HIT_COIN_PENALTY, scoreRef.current);
+      scoreRef.current -= lost;
+      lostCoinsRef.current += lost;
+
       setDeaths(deathsRef.current);
-      setPenaltySeconds(penaltySecondsRef.current);
+      setScore(scoreRef.current);
+      setLostCoins(lostCoinsRef.current);
+      setLastLoss(lost);
 
       spawnParticles(
         playerRef.current.x,
         playerRef.current.y,
-        '#ff607f',
+        '#ff4f7b',
         14,
       );
 
@@ -642,13 +653,12 @@ export default function TombDashDuel() {
         randomRef.current,
       );
       resetPlayerTo(respawn);
-      collectCoin(respawn);
 
       invulnerableUntilRef.current = now + RESPAWN_INVULNERABLE_MS;
       hitFlashUntilRef.current = now + 360;
       respawnLabelUntilRef.current = now + 1150;
     },
-    [collectCoin, resetPlayerTo, spawnParticles],
+    [resetPlayerTo, spawnParticles],
   );
 
   const rebuildStaticCanvas = useCallback(() => {
@@ -753,16 +763,20 @@ export default function TombDashDuel() {
       coinsRef.current = new Set(mazeRef.current.coins);
       particlesRef.current = [];
       deathsRef.current = 0;
-      penaltySecondsRef.current = 0;
-      finishedTimeRef.current = 0;
+      scoreRef.current = 0;
+      lostCoinsRef.current = 0;
+      wavesRef.current = 1;
       invulnerableUntilRef.current = 0;
       hitFlashUntilRef.current = 0;
       respawnLabelUntilRef.current = 0;
 
-      setElapsed(0);
+      setTimeLeft(MATCH_SECONDS);
+      setScore(0);
       setCoinsLeft(mazeRef.current.totalCoins);
       setDeaths(0);
-      setPenaltySeconds(0);
+      setLostCoins(0);
+      setLastLoss(0);
+      setWave(1);
       setShowResult(false);
       setCountdown(START_COUNTDOWN);
       phaseRef.current = 'countdown';
@@ -798,7 +812,29 @@ export default function TombDashDuel() {
 
   const setDirection = useCallback((dir: Dir) => {
     if (phaseRef.current !== 'playing') return;
-    playerRef.current.desiredDir = dir;
+
+    const player = playerRef.current;
+    player.desiredDir = dir;
+
+    // Reversing direction should feel instant instead of waiting for the
+    // next tile centre.
+    if (
+      player.dir &&
+      OPPOSITE[player.dir] === dir &&
+      !sameCell(player.cell, player.next)
+    ) {
+      const oldCell = { ...player.cell };
+      player.cell = { ...player.next };
+      player.next = oldCell;
+      player.progress = 1 - player.progress;
+      player.dir = dir;
+      return;
+    }
+
+    // If standing still, start moving on the same input frame.
+    if (!player.dir && canMove(mazeRef.current, player.cell, dir)) {
+      beginSegment(player, mazeRef.current, dir);
+    }
   }, []);
 
   useEffect(() => {
@@ -920,18 +956,17 @@ export default function TombDashDuel() {
           }
         }
 
-        const baseSeconds = (now - startedAtRef.current) / 1000;
-        const displaySeconds = baseSeconds + penaltySecondsRef.current;
+        const elapsedSeconds = (now - startedAtRef.current) / 1000;
+        const remainingSeconds = Math.max(0, MATCH_SECONDS - elapsedSeconds);
 
         if (
           now - lastHudSyncRef.current >= HUD_SYNC_MS ||
-          displaySeconds >= MAX_MATCH_SECONDS
+          remainingSeconds <= 0
         ) {
           lastHudSyncRef.current = now;
-          setElapsed(displaySeconds);
+          setTimeLeft(remainingSeconds);
 
-          if (displaySeconds >= MAX_MATCH_SECONDS) {
-            finishedTimeRef.current = displaySeconds;
+          if (remainingSeconds <= 0) {
             phaseRef.current = 'finished';
             setPhase('finished');
             setShowResult(true);
@@ -1126,14 +1161,41 @@ export default function TombDashDuel() {
     };
   }, [collectCoin, handleMonsterHit]);
 
+  const directionFromDelta = (dx: number, dy: number): Dir =>
+    Math.abs(dx) > Math.abs(dy)
+      ? dx > 0
+        ? 'right'
+        : 'left'
+      : dy > 0
+        ? 'down'
+        : 'up';
+
   const handlePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
     pointerRef.current = {
       x: event.clientX,
       y: event.clientY,
+      fired: false,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const start = pointerRef.current;
+    if (!start || start.fired || phaseRef.current !== 'playing') return;
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+
+    // Recognize the swipe as soon as the finger clearly commits to a
+    // direction. This removes the old "wait until finger-up" feeling.
+    if (Math.hypot(dx, dy) < 7) return;
+
+    start.fired = true;
+    setDirection(directionFromDelta(dx, dy));
   };
 
   const handlePointerUp = (
@@ -1142,29 +1204,19 @@ export default function TombDashDuel() {
     const start = pointerRef.current;
     pointerRef.current = null;
 
-    if (!start || phaseRef.current !== 'playing') return;
+    if (!start || start.fired || phaseRef.current !== 'playing') return;
 
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
+    if (Math.hypot(dx, dy) < 7) return;
 
-    if (Math.hypot(dx, dy) < 14) return;
-
-    if (Math.abs(dx) > Math.abs(dy)) {
-      setDirection(dx > 0 ? 'right' : 'left');
-    } else {
-      setDirection(dy > 0 ? 'down' : 'up');
-    }
+    setDirection(directionFromDelta(dx, dy));
   };
 
-  const currentTime =
-    phase === 'finished' && finishedTimeRef.current > 0
-      ? finishedTimeRef.current
-      : elapsed;
-
   const totalCoins = mazeRef.current.totalCoins;
-  const collectedCoins = totalCoins - coinsLeft;
+  const boardCollected = totalCoins - coinsLeft;
   const progress =
-    totalCoins > 0 ? clamp((collectedCoins / totalCoins) * 100, 0, 100) : 0;
+    totalCoins > 0 ? clamp((boardCollected / totalCoins) * 100, 0, 100) : 0;
 
   return (
     <div className="relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden bg-[#0b050a] text-white">
@@ -1200,9 +1252,9 @@ export default function TombDashDuel() {
               {user?.tg_user || 'YOU'}
             </p>
             <p className="mt-1 text-[9px] font-black leading-none text-[#ffd64a]">
-              {collectedCoins}
+              {score}
               <span className="ml-1 text-[6px] text-white/30">
-                / {totalCoins}
+                PTS
               </span>
             </p>
           </div>
@@ -1213,7 +1265,7 @@ export default function TombDashDuel() {
             Tomb Chase
           </p>
           <div className="mt-1 min-w-[64px] border-x-2 border-[#5b183b] bg-[#180913] px-2 py-1 text-[13px] font-black text-[#fff0a1]">
-            {formatTime(currentTime)}
+            {formatTime(timeLeft)}
           </div>
         </div>
 
@@ -1222,11 +1274,11 @@ export default function TombDashDuel() {
             <p className="max-w-[88px] truncate text-[9px] font-black uppercase tracking-[.06em] text-white/42">
               RIVAL
             </p>
-            <p className="mt-1 text-[8px] font-black leading-none text-[#ff607f]/70">
-              --:--
+            <p className="mt-1 text-[8px] font-black leading-none text-[#9b7cff]/70">
+              -- PTS
             </p>
           </div>
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border-2 border-[#ff607f]/20 bg-[#291020] text-[8px] font-black text-[#ff607f]/55">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border-2 border-[#9b7cff]/20 bg-[#291020] text-[8px] font-black text-[#9b7cff]/55">
             R
           </div>
         </div>
@@ -1236,6 +1288,7 @@ export default function TombDashDuel() {
         ref={wrapRef}
         className="relative mx-auto min-h-0 w-full max-w-[430px] flex-1 touch-none overflow-hidden bg-[#080509]"
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={() => {
           pointerRef.current = null;
@@ -1255,24 +1308,25 @@ export default function TombDashDuel() {
           </div>
           <div className="mt-1 flex items-center justify-between text-[6px] font-black uppercase tracking-[.12em] text-white/28">
             <span>
-              Coins{' '}
+              Board{' '}
               <b className="text-[#ffd64a]">
-                {collectedCoins}/{totalCoins}
+                {boardCollected}/{totalCoins}
               </b>
             </span>
             <span>
-              Map <b className="text-white/55">#{mazeSeedLabel}</b>
+              Wave <b className="text-white/55">{wave}</b> · Map{' '}
+              <b className="text-white/55">#{mazeSeedLabel}</b>
             </span>
           </div>
         </div>
 
         {phase === 'playing' && (
           <div className="pointer-events-none absolute bottom-3 left-3 z-30 border-l-2 border-[#ff607f]/45 bg-black/35 px-2 py-1 text-[6px] font-black uppercase tracking-[.12em] text-white/38">
-            Deaths{' '}
+            Caught{' '}
             <strong className="text-[#ff8098]">{deaths}</strong>
-            {penaltySeconds > 0 && (
+            {lostCoins > 0 && (
               <span className="ml-2 text-[#ff8098]">
-                +{penaltySeconds}s
+                -{lostCoins} pts
               </span>
             )}
           </div>
@@ -1287,13 +1341,13 @@ export default function TombDashDuel() {
         {phase === 'playing' &&
           performance.now() < respawnLabelUntilRef.current && (
             <div
-              key={`${deaths}-${penaltySeconds}`}
+              key={`${deaths}-${lastLoss}`}
               className="pointer-events-none absolute left-1/2 top-[18%] z-40 border-x-2 border-[#ff607f] bg-[#250b19]/90 px-3 py-2 text-[9px] font-black uppercase tracking-[.13em] text-[#ff8ca3]"
               style={{
                 animation: 'tc-penalty 1.05s ease-out both',
               }}
             >
-              CAUGHT +{DEATH_PENALTY_SECONDS}s
+              CAUGHT -{lastLoss} PTS
             </div>
           )}
 
@@ -1309,7 +1363,7 @@ export default function TombDashDuel() {
               </div>
 
               <p className="mt-4 text-[7px] font-black uppercase tracking-[.24em] text-white/35">
-                Collect everything
+                Collect more in 90 seconds
               </p>
 
               <strong
@@ -1323,7 +1377,7 @@ export default function TombDashDuel() {
               </strong>
 
               <p className="mt-2 text-[7px] font-black uppercase tracking-[.12em] text-white/28">
-                Swipe · Turn · Survive
+                Swipe · Collect · Survive
               </p>
             </div>
           </div>
@@ -1335,7 +1389,7 @@ export default function TombDashDuel() {
           <div className="w-full max-w-[324px] border-2 border-[#5b183b] bg-[#130811] p-5 text-center shadow-[0_28px_80px_rgba(0,0,0,.62)]">
             <div className="mx-auto grid h-14 w-14 place-items-center border-2 border-[#ffd64a] bg-[#5b183b]">
               <span className="text-[19px] font-black text-[#ffd64a]">
-                ✓
+                90
               </span>
             </div>
 
@@ -1343,25 +1397,25 @@ export default function TombDashDuel() {
               Tomb Chase
             </p>
             <h2 className="mt-1 text-[23px] font-black text-white">
-              ЛАБИРИНТ ПРОЙДЕН
+              ВРЕМЯ ВЫШЛО
             </h2>
 
             <div className="mt-4 border-y border-white/[0.06] py-4">
               <span className="text-[6px] font-black uppercase tracking-[.15em] text-white/28">
-                Final time
+                Final score
               </span>
               <strong className="mt-1 block text-[31px] font-black text-[#ffd64a]">
-                {formatTime(currentTime)}
+                {score} PTS
               </strong>
             </div>
 
             <div className="mt-3 grid grid-cols-3 gap-2">
               <div className="border border-white/[0.06] bg-white/[0.025] p-2.5">
                 <span className="text-[6px] font-black uppercase text-white/25">
-                  Coins
+                  Waves
                 </span>
                 <strong className="mt-1 block text-[14px] font-black text-white/80">
-                  {collectedCoins}
+                  {wave}
                 </strong>
               </div>
               <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
@@ -1374,10 +1428,10 @@ export default function TombDashDuel() {
               </div>
               <div className="border border-[#ff607f]/12 bg-[#ff607f]/[0.035] p-2.5">
                 <span className="text-[6px] font-black uppercase text-white/25">
-                  Penalty
+                  Lost
                 </span>
                 <strong className="mt-1 block text-[14px] font-black text-[#ff8098]">
-                  +{penaltySeconds}s
+                  -{lostCoins}
                 </strong>
               </div>
             </div>
