@@ -7,18 +7,15 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  CUBE_FILL_LEVELS,
+  type CubeFillLevel,
+} from '../data/cubeFillLevels';
 
 type Dir = 'up' | 'down' | 'left' | 'right';
 type Cell = { r: number; c: number };
 type Phase = 'playing' | 'level_complete' | 'all_complete';
 
-type Level = {
-  name: string;
-  subtitle: string;
-  map: readonly string[];
-  start: Cell;
-  optimal: number;
-};
 
 type Layout = {
   cell: number;
@@ -49,53 +46,6 @@ type Spark = {
   size: number;
 };
 
-const LEVELS: readonly Level[] = [
-  {
-    name: 'Quartz Court',
-    subtitle: 'Разогрев',
-    map: [
-      '..#....',
-      '.......',
-      '.......',
-      '.......',
-      '.......',
-      '...#...',
-      'S..#..#',
-    ],
-    start: { r: 6, c: 0 },
-    optimal: 15,
-  },
-  {
-    name: 'Crystal Split',
-    subtitle: 'Найди правильный порядок',
-    map: [
-      '......#',
-      '.#.....',
-      '.....##',
-      '.......',
-      '#....#.',
-      '.......',
-      'S.#....',
-    ],
-    start: { r: 6, c: 0 },
-    optimal: 18,
-  },
-  {
-    name: 'White Vault',
-    subtitle: 'Финальная карта',
-    map: [
-      '.......',
-      '#.#....',
-      '#.....#',
-      '.......',
-      '.......',
-      '.......',
-      'S..#...',
-    ],
-    start: { r: 6, c: 0 },
-    optimal: 20,
-  },
-] as const;
 
 const DIRS: Record<Dir, Cell> = {
   up: { r: -1, c: 0 },
@@ -119,7 +69,7 @@ const easeOutQuart = (t: number) => {
   return 1 - Math.pow(1 - x, 4);
 };
 
-function isBlocked(level: Level, r: number, c: number) {
+function isBlocked(level: CubeFillLevel, r: number, c: number) {
   return (
     r < 0 ||
     c < 0 ||
@@ -129,7 +79,7 @@ function isBlocked(level: Level, r: number, c: number) {
   );
 }
 
-function floorCells(level: Level) {
+function floorCells(level: CubeFillLevel) {
   const cells: Cell[] = [];
 
   for (let r = 0; r < level.map.length; r += 1) {
@@ -143,7 +93,7 @@ function floorCells(level: Level) {
   return cells;
 }
 
-function getSlidePath(level: Level, from: Cell, dir: Dir) {
+function getSlidePath(level: CubeFillLevel, from: Cell, dir: Dir) {
   const delta = DIRS[dir];
   const result: Cell[] = [];
   let r = from.r;
@@ -211,8 +161,8 @@ export default function CubeFillGame() {
   const [totalMoves, setTotalMoves] = useState(0);
   const [hintVisible, setHintVisible] = useState(true);
 
-  const level = LEVELS[levelIndex];
-  const levelRef = useRef<Level>(level);
+  const level = CUBE_FILL_LEVELS[levelIndex];
+  const levelRef = useRef<CubeFillLevel>(level);
   const playerRef = useRef<Cell>({ ...level.start });
   const motionRef = useRef<Motion | null>(null);
   const queuedDirRef = useRef<Dir | null>(null);
@@ -516,7 +466,7 @@ export default function CubeFillGame() {
     }
 
     completionTimerRef.current = window.setTimeout(() => {
-      if (levelIndex >= LEVELS.length - 1) {
+      if (levelIndex >= CUBE_FILL_LEVELS.length - 1) {
         setPhase('all_complete');
       } else {
         setPhase('level_complete');
@@ -569,7 +519,7 @@ export default function CubeFillGame() {
 
   const resetLevel = useCallback(
     (index: number) => {
-      const nextLevel = LEVELS[index];
+      const nextLevel = CUBE_FILL_LEVELS[index];
 
       levelRef.current = nextLevel;
       playerRef.current = { ...nextLevel.start };
@@ -991,7 +941,7 @@ export default function CubeFillGame() {
 
   const nextLevel = () => {
     setTotalMoves((value) => value + moves);
-    resetLevel(Math.min(LEVELS.length - 1, levelIndex + 1));
+    resetLevel(Math.min(CUBE_FILL_LEVELS.length - 1, levelIndex + 1));
   };
 
   const restartCurrent = () => resetLevel(levelIndex);
@@ -1039,12 +989,12 @@ export default function CubeFillGame() {
             Cube Fill
           </p>
 
-          <p className="mt-[1px] truncate py-[1px] text-[10px] font-black leading-[1.45] text-white/92">
-            {level.name}
+          <p className="mt-[1px] py-[1px] text-[10px] font-black uppercase leading-[1.45] text-white/92">
+            Level {levelIndex + 1}
           </p>
 
           <p className="py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.1em] text-white/23">
-            Level {levelIndex + 1}/{LEVELS.length}
+            {levelIndex + 1} / {CUBE_FILL_LEVELS.length}
           </p>
         </div>
 
@@ -1126,8 +1076,8 @@ export default function CubeFillGame() {
                 Level complete
               </p>
 
-              <h2 className="mt-1 py-[2px] text-[18px] font-black leading-[1.4] text-white">
-                {level.name}
+              <h2 className="mt-1 py-[2px] text-[18px] font-black uppercase leading-[1.4] text-white">
+                LEVEL {levelIndex + 1} COMPLETE
               </h2>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
