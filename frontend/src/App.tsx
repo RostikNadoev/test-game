@@ -71,6 +71,7 @@ const DiscFootballGame = lazy(() => import("./pages/DiscFootballGame"));
 const DoodleJumpGame = lazy(() => import("./pages/DoodleJumpGame"));
 const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
 const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
+const CubeFillGame = lazy(() => import("./pages/CubeFillGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -181,8 +182,13 @@ function AppShell() {
   const isDoodleJumpRoute = location.pathname === "/game/doodle_jump/play";
   const isPrismCubeRoute = location.pathname === "/game/prism_cube/play";
   const isCoinChaseRoute = location.pathname === "/game/coin_chase/play";
+  const isCubeFillRoute = location.pathname === "/game/cube_fill/play";
   const hasFullScreenArcadeBackground =
-    isFlappyRaceRoute || isDoodleJumpRoute || isPrismCubeRoute || isCoinChaseRoute;
+    isFlappyRaceRoute ||
+    isDoodleJumpRoute ||
+    isPrismCubeRoute ||
+    isCoinChaseRoute ||
+    isCubeFillRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
@@ -329,6 +335,8 @@ function AppShell() {
                 ? "radial-gradient(circle at 70% 15%, rgba(91,231,255,0.22), transparent 44%), radial-gradient(circle at 18% 34%, rgba(255,111,202,0.15), transparent 45%), linear-gradient(180deg, #050817 0%, #11194a 54%, #070a16 100%)"
                 : isCoinChaseRoute
                   ? "radial-gradient(circle at 50% 0%, rgba(255,214,74,0.08), transparent 42%), linear-gradient(180deg, #12070f 0%, #1b0915 46%, #0b050b 100%)"
+                : isCubeFillRoute
+                  ? "radial-gradient(circle at 50% 14%, rgba(105,232,255,0.16), transparent 42%), radial-gradient(circle at 12% 70%, rgba(77,141,255,0.12), transparent 44%), linear-gradient(180deg, #07101c 0%, #09182a 52%, #050b14 100%)"
                 : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
@@ -416,6 +424,10 @@ function AppShell() {
               <Route
                 path="/game/coin_chase/play"
                 element={<CoinChaseGame />}
+              />
+              <Route
+                path="/game/cube_fill/play"
+                element={<CubeFillGame />}
               />
 
               <Route path="/profile" element={<Profile />} />

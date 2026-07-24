@@ -34,7 +34,8 @@ export type GameCode =
   | 'doodle_jump'
   | 'crossy_pvp'
   | 'prism_cube'
-  | 'coin_chase';
+  | 'coin_chase'
+  | 'cube_fill';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -215,6 +216,17 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/coin_chase/play',
     launchMode: 'lobby',
+  },
+  {
+    code: 'cube_fill',
+    displayName: 'Cube Fill',
+    icon: '🧊',
+    description: 'Скользи до упора и закрась всё кварцевое поле',
+    color: 'from-[#69E8FF]/26 via-[#4D8DFF]/14 to-transparent',
+    meta: 'Puzzle Arcade',
+    status: 'New',
+    playPath: '/game/cube_fill/play',
+    launchMode: 'direct',
   },
 ];
 
