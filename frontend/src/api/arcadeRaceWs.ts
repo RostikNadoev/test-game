@@ -2,7 +2,8 @@ export type ArcadeRaceGameCode =
   | 'flappy_race'
   | 'doodle_jump'
   | 'crossy_pvp'
-  | 'coin_chase';
+  | 'coin_chase'
+  | 'cube_fill';
 
 export type ArcadeRaceMatchPhase =
   | 'waiting'
@@ -23,6 +24,13 @@ export type ArcadeRaceStateMessage = {
   combos: Record<string, number>;
   best_combos: Record<string, number>;
   height_scores: Record<string, number>;
+  cube_level_indices: number[];
+  cube_levels: Record<string, number>;
+  cube_level_progress: Record<string, number>;
+  cube_progress_bp: Record<string, number>;
+  cube_moves: Record<string, number>;
+  cube_efficiency: Record<string, number>;
+  cube_finished: Record<string, boolean>;
   bet_coins: number;
   winner_profit: number;
   countdown_ends_ms?: number;
@@ -94,6 +102,14 @@ const normalizeNumberMap = (value: unknown): Record<string, number> => {
   );
 };
 
+const normalizeBooleanMap = (value: unknown): Record<string, boolean> => {
+  if (!isObject(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, item === true]),
+  );
+};
+
 const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
   if (!isObject(value) || value.type !== 'state') return null;
 
@@ -102,7 +118,8 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     rawGame !== 'flappy_race' &&
     rawGame !== 'doodle_jump' &&
     rawGame !== 'crossy_pvp' &&
-    rawGame !== 'coin_chase'
+    rawGame !== 'coin_chase' &&
+    rawGame !== 'cube_fill'
   ) {
     return null;
   }
@@ -133,6 +150,17 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     combos: normalizeNumberMap(value.combos),
     best_combos: normalizeNumberMap(value.best_combos),
     height_scores: normalizeNumberMap(value.height_scores),
+    cube_level_indices: Array.isArray(value.cube_level_indices)
+      ? value.cube_level_indices
+          .map((item) => Math.trunc(toNumber(item)))
+          .filter((item) => item >= 0)
+      : [],
+    cube_levels: normalizeNumberMap(value.cube_levels),
+    cube_level_progress: normalizeNumberMap(value.cube_level_progress),
+    cube_progress_bp: normalizeNumberMap(value.cube_progress_bp),
+    cube_moves: normalizeNumberMap(value.cube_moves),
+    cube_efficiency: normalizeNumberMap(value.cube_efficiency),
+    cube_finished: normalizeBooleanMap(value.cube_finished),
     bet_coins: Math.max(0, toNumber(value.bet_coins)),
     winner_profit: Math.max(0, toNumber(value.winner_profit)),
     countdown_ends_ms: toNumber(value.countdown_ends_ms) || undefined,
@@ -170,6 +198,8 @@ const pathForGame = (gameCode: ArcadeRaceGameCode) => {
       return '/ws/crossy-road/';
     case 'coin_chase':
       return '/ws/coin-chase/';
+    case 'cube_fill':
+      return '/ws/cube-fill/';
   }
 };
 

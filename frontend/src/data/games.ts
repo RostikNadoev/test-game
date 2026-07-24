@@ -221,12 +221,12 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     code: 'cube_fill',
     displayName: 'Cube Fill',
     icon: '🧊',
-    description: 'Скользи до упора и закрась всё кварцевое поле',
-    color: 'from-[#69E8FF]/26 via-[#4D8DFF]/14 to-transparent',
-    meta: 'Puzzle Arcade',
+    description: 'Закрась 4 случайные карты быстрее и эффективнее соперника',
+    color: 'from-[#F5C94F]/24 via-[#7653EE]/16 to-transparent',
+    meta: 'Puzzle PvP',
     status: 'New',
     playPath: '/game/cube_fill/play',
-    launchMode: 'direct',
+    launchMode: 'lobby',
   },
 ];
 

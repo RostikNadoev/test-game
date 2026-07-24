@@ -229,7 +229,9 @@ export const LobbyRoom = () => {
         isCancelling={isLeaving}
         cancelError={error}
         matchedDurationMs={
-          lobbyGameCode === 'descent_duel' || lobbyGameCode === 'coin_chase'
+          lobbyGameCode === 'descent_duel' ||
+          lobbyGameCode === 'coin_chase' ||
+          lobbyGameCode === 'cube_fill'
             ? 0
             : undefined
         }

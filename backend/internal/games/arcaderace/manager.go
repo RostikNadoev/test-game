@@ -18,6 +18,7 @@ const (
 	DoodleJumpGameCode = "doodle_jump"
 	CrossyPVPGameCode  = "crossy_pvp"
 	CoinChaseGameCode  = "coin_chase"
+	CubeFillGameCode   = "cube_fill"
 
 	PhaseWaiting   = "waiting"
 	PhaseCountdown = "countdown"
@@ -27,6 +28,7 @@ const (
 	CountdownDuration      = 3 * time.Second
 	MatchDuration          = 45 * time.Second
 	CoinChaseMatchDuration = 60 * time.Second
+	CubeFillMatchDuration  = 80 * time.Second
 	SessionTTL             = 30 * time.Minute
 )
 
@@ -41,30 +43,37 @@ type ClientMessage struct {
 }
 
 type PublicState struct {
-	Type            string       `json:"type"`
-	Game            string       `json:"game"`
-	LobbyID         string       `json:"lobby_id"`
-	Phase           string       `json:"phase"`
-	Ready           bool         `json:"ready"`
-	ServerMS        int64        `json:"server_ms"`
-	Seed            int64        `json:"seed"`
-	PlayerOrder     []uint       `json:"player_order"`
-	Scores          map[uint]int `json:"scores"`
-	Combos          map[uint]int `json:"combos"`
-	BestCombos      map[uint]int `json:"best_combos"`
-	HeightScores    map[uint]int `json:"height_scores"`
-	BetCoins        float64      `json:"bet_coins"`
-	WinnerProfit    float64      `json:"winner_profit"`
-	CountdownEndsMS int64        `json:"countdown_ends_ms,omitempty"`
-	MatchEndsMS     int64        `json:"match_ends_ms,omitempty"`
-	WinnerUserID    uint         `json:"winner_user_id,omitempty"`
-	Draw            bool         `json:"draw,omitempty"`
-	LastEventUserID uint         `json:"last_event_user_id,omitempty"`
-	LastEventKind   string       `json:"last_event_kind,omitempty"`
-	LastEventGrade  string       `json:"last_event_grade,omitempty"`
-	LastEventPoints int          `json:"last_event_points,omitempty"`
-	LastEventID     uint64       `json:"last_event_id,omitempty"`
-	Message         string       `json:"message,omitempty"`
+	Type              string        `json:"type"`
+	Game              string        `json:"game"`
+	LobbyID           string        `json:"lobby_id"`
+	Phase             string        `json:"phase"`
+	Ready             bool          `json:"ready"`
+	ServerMS          int64         `json:"server_ms"`
+	Seed              int64         `json:"seed"`
+	PlayerOrder       []uint        `json:"player_order"`
+	Scores            map[uint]int  `json:"scores"`
+	Combos            map[uint]int  `json:"combos"`
+	BestCombos        map[uint]int  `json:"best_combos"`
+	HeightScores      map[uint]int  `json:"height_scores"`
+	CubeLevelIndices  []int         `json:"cube_level_indices,omitempty"`
+	CubeLevels        map[uint]int  `json:"cube_levels,omitempty"`
+	CubeLevelProgress map[uint]int  `json:"cube_level_progress,omitempty"`
+	CubeProgressBP    map[uint]int  `json:"cube_progress_bp,omitempty"`
+	CubeMoves         map[uint]int  `json:"cube_moves,omitempty"`
+	CubeEfficiency    map[uint]int  `json:"cube_efficiency,omitempty"`
+	CubeFinished      map[uint]bool `json:"cube_finished,omitempty"`
+	BetCoins          float64       `json:"bet_coins"`
+	WinnerProfit      float64       `json:"winner_profit"`
+	CountdownEndsMS   int64         `json:"countdown_ends_ms,omitempty"`
+	MatchEndsMS       int64         `json:"match_ends_ms,omitempty"`
+	WinnerUserID      uint          `json:"winner_user_id,omitempty"`
+	Draw              bool          `json:"draw,omitempty"`
+	LastEventUserID   uint          `json:"last_event_user_id,omitempty"`
+	LastEventKind     string        `json:"last_event_kind,omitempty"`
+	LastEventGrade    string        `json:"last_event_grade,omitempty"`
+	LastEventPoints   int           `json:"last_event_points,omitempty"`
+	LastEventID       uint64        `json:"last_event_id,omitempty"`
+	Message           string        `json:"message,omitempty"`
 }
 
 type Manager struct {
@@ -158,15 +167,17 @@ type Session struct {
 	clients     map[uint]*Client
 	betCoins    float64
 
-	scores       map[uint]int
-	combos       map[uint]int
-	bestCombos   map[uint]int
-	heightScores map[uint]int
-	heightSteps  map[uint]int
-	lastEventID  map[uint]uint64
-	lastEventAt  map[uint]map[string]time.Time
-	seenObjects  map[uint]map[string]bool
-	lastGateID   map[uint]int64
+	scores           map[uint]int
+	combos           map[uint]int
+	bestCombos       map[uint]int
+	heightScores     map[uint]int
+	heightSteps      map[uint]int
+	lastEventID      map[uint]uint64
+	lastEventAt      map[uint]map[string]time.Time
+	seenObjects      map[uint]map[string]bool
+	lastGateID       map[uint]int64
+	cubeLevelIndices []int
+	cubeStates       map[uint]*CubeFillPlayerState
 
 	phase           string
 	seed            int64
@@ -210,6 +221,7 @@ func NewSession(
 		lastEventAt:  make(map[uint]map[string]time.Time),
 		seenObjects:  make(map[uint]map[string]bool),
 		lastGateID:   make(map[uint]int64),
+		cubeStates:   make(map[uint]*CubeFillPlayerState),
 		phase:        PhaseWaiting,
 		seed:         randomSeed(),
 		lastActivity: time.Now(),
@@ -357,6 +369,12 @@ func (s *Session) applyEventLocked(userID uint, message ClientMessage) {
 	s.lastEventKind = kind
 	s.lastEventGrade = grade
 	s.lastEventPoints = points
+
+	if s.gameCode == CubeFillGameCode && s.cubeFillAllFinishedLocked() {
+		s.finishLocked()
+		return
+	}
+
 	s.broadcastLocked(s.publicStateLocked())
 }
 
@@ -376,6 +394,8 @@ func (s *Session) calculateEventLocked(
 		return s.applyCrossyEventLocked(userID, message, kind, grade, now)
 	case CoinChaseGameCode:
 		return s.applyCoinChaseEventLocked(userID, message, kind, now)
+	case CubeFillGameCode:
+		return s.applyCubeFillEventLocked(userID, message, kind)
 	default:
 		return 0, false, errors.New("unsupported game")
 	}
@@ -644,6 +664,8 @@ func (s *Session) eventIntervalAllowedLocked(userID uint, kind string, now time.
 		minimum = 40 * time.Millisecond
 	case "coin":
 		minimum = 110 * time.Millisecond
+	case "swipe":
+		minimum = 95 * time.Millisecond
 	}
 	previous := s.lastEventAt[userID][kind]
 	return previous.IsZero() || now.Sub(previous) >= minimum
@@ -769,6 +791,13 @@ func (s *Session) resetScoresLocked() {
 		s.lastEventAt[id] = make(map[string]time.Time)
 		s.seenObjects[id] = make(map[string]bool)
 	}
+
+	if s.gameCode == CubeFillGameCode {
+		s.resetCubeFillLocked()
+	} else {
+		s.cubeLevelIndices = nil
+		s.cubeStates = make(map[uint]*CubeFillPlayerState)
+	}
 }
 
 func (s *Session) publicStateLocked() PublicState {
@@ -783,28 +812,66 @@ func (s *Session) publicStateLocked() PublicState {
 		heightScores[id] = s.heightScores[id]
 	}
 
+	var cubeLevelIndices []int
+	var cubeLevels map[uint]int
+	var cubeLevelProgress map[uint]int
+	var cubeProgressBP map[uint]int
+	var cubeMoves map[uint]int
+	var cubeEfficiency map[uint]int
+	var cubeFinished map[uint]bool
+
+	if s.gameCode == CubeFillGameCode {
+		cubeLevelIndices = append([]int(nil), s.cubeLevelIndices...)
+		cubeLevels = make(map[uint]int, len(s.playerOrder))
+		cubeLevelProgress = make(map[uint]int, len(s.playerOrder))
+		cubeProgressBP = make(map[uint]int, len(s.playerOrder))
+		cubeMoves = make(map[uint]int, len(s.playerOrder))
+		cubeEfficiency = make(map[uint]int, len(s.playerOrder))
+		cubeFinished = make(map[uint]bool, len(s.playerOrder))
+
+		for _, id := range s.playerOrder {
+			player := s.cubeStates[id]
+			if player == nil {
+				continue
+			}
+			cubeLevels[id] = player.displayLevel()
+			cubeLevelProgress[id] = s.cubeFillCurrentLevelProgressLocked(player)
+			cubeProgressBP[id] = s.cubeFillProgressBPLocked(player)
+			cubeMoves[id] = player.TotalMoves
+			cubeEfficiency[id] = s.cubeFillEfficiencyLocked(player)
+			cubeFinished[id] = player.Finished
+		}
+	}
+
 	state := PublicState{
-		Type:            "state",
-		Game:            s.gameCode,
-		LobbyID:         s.lobbyID,
-		Phase:           s.phase,
-		Ready:           len(s.clients) == 2,
-		ServerMS:        time.Now().UTC().UnixMilli(),
-		Seed:            s.seed,
-		PlayerOrder:     append([]uint(nil), s.playerOrder...),
-		Scores:          scores,
-		Combos:          combos,
-		BestCombos:      bestCombos,
-		HeightScores:    heightScores,
-		BetCoins:        s.betCoins,
-		WinnerProfit:    s.winnerProfitLocked(),
-		WinnerUserID:    s.winnerUserID,
-		Draw:            s.draw,
-		LastEventUserID: s.lastEventUserID,
-		LastEventKind:   s.lastEventKind,
-		LastEventGrade:  s.lastEventGrade,
-		LastEventPoints: s.lastEventPoints,
-		Message:         s.messageLocked(),
+		Type:              "state",
+		Game:              s.gameCode,
+		LobbyID:           s.lobbyID,
+		Phase:             s.phase,
+		Ready:             len(s.clients) == 2,
+		ServerMS:          time.Now().UTC().UnixMilli(),
+		Seed:              s.seed,
+		PlayerOrder:       append([]uint(nil), s.playerOrder...),
+		Scores:            scores,
+		Combos:            combos,
+		BestCombos:        bestCombos,
+		HeightScores:      heightScores,
+		CubeLevelIndices:  cubeLevelIndices,
+		CubeLevels:        cubeLevels,
+		CubeLevelProgress: cubeLevelProgress,
+		CubeProgressBP:    cubeProgressBP,
+		CubeMoves:         cubeMoves,
+		CubeEfficiency:    cubeEfficiency,
+		CubeFinished:      cubeFinished,
+		BetCoins:          s.betCoins,
+		WinnerProfit:      s.winnerProfitLocked(),
+		WinnerUserID:      s.winnerUserID,
+		Draw:              s.draw,
+		LastEventUserID:   s.lastEventUserID,
+		LastEventKind:     s.lastEventKind,
+		LastEventGrade:    s.lastEventGrade,
+		LastEventPoints:   s.lastEventPoints,
+		Message:           s.messageLocked(),
 	}
 	if !s.countdownEndsAt.IsZero() {
 		state.CountdownEndsMS = s.countdownEndsAt.UTC().UnixMilli()
@@ -904,15 +971,19 @@ func (s *Session) Close() {
 }
 
 func matchDurationForGame(gameCode string) time.Duration {
-	if normalizeGameCode(gameCode) == CoinChaseGameCode {
+	switch normalizeGameCode(gameCode) {
+	case CoinChaseGameCode:
 		return CoinChaseMatchDuration
+	case CubeFillGameCode:
+		return CubeFillMatchDuration
+	default:
+		return MatchDuration
 	}
-	return MatchDuration
 }
 
 func IsSupportedGame(gameCode string) bool {
 	switch normalizeGameCode(gameCode) {
-	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode:
+	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode, CubeFillGameCode:
 		return true
 	default:
 		return false
