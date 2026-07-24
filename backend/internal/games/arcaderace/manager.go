@@ -28,7 +28,7 @@ const (
 	CountdownDuration      = 3 * time.Second
 	MatchDuration          = 45 * time.Second
 	CoinChaseMatchDuration = 60 * time.Second
-	CubeFillMatchDuration  = 80 * time.Second
+	CubeFillMatchDuration  = 60 * time.Second
 	SessionTTL             = 30 * time.Minute
 )
 

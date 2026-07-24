@@ -56,10 +56,14 @@ const DIRS: Record<Dir, Cell> = {
   right: { r: 0, c: 1 },
 };
 
-const DPR_CAP = 1.15;
+const IS_MOBILE_RENDER =
+  typeof window !== 'undefined' &&
+  (window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 640);
+
+const DPR_CAP = IS_MOBILE_RENDER ? 1 : 1.15;
 const SWIPE_THRESHOLD = 5;
-const HUD_SYNC_MS = 120;
-const MAX_SPARKS = 6;
+const HUD_SYNC_MS = IS_MOBILE_RENDER ? 180 : 120;
+const MAX_SPARKS = IS_MOBILE_RENDER ? 0 : 4;
 const ROUND_LEVELS = 4;
 
 const keyOf = (cell: Cell) => `${cell.r}:${cell.c}`;
@@ -235,6 +239,9 @@ export default function CubeFillGame() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const paintCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const paintContextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const renderDprRef = useRef(1);
+  const lastCanvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 });
   const rafRef = useRef<number | null>(null);
 
   const layoutRef = useRef<Layout>({
@@ -320,12 +327,7 @@ export default function CubeFillGame() {
 
   const drawPaintedCellToCache = useCallback(
     (cell: Cell) => {
-      const cache = paintCanvasRef.current;
-      if (!cache) {
-        return;
-      }
-
-      const ctx = cache.getContext('2d');
+      const ctx = paintContextRef.current;
       if (!ctx) {
         return;
       }
@@ -528,6 +530,7 @@ export default function CubeFillGame() {
     paintCanvas.width = Math.max(1, Math.floor(width));
     paintCanvas.height = Math.max(1, Math.floor(height));
     paintCanvasRef.current = paintCanvas;
+    paintContextRef.current = paintCanvas.getContext('2d');
 
     for (const key of paintedRef.current) {
       const [r, c] = key.split(':').map(Number);
@@ -585,7 +588,7 @@ export default function CubeFillGame() {
   }, [level]);
 
   const spawnSpark = useCallback((cell: Cell) => {
-    if (sparksRef.current.length >= MAX_SPARKS) {
+    if (MAX_SPARKS <= 0 || sparksRef.current.length >= MAX_SPARKS) {
       return;
     }
 
@@ -757,9 +760,28 @@ export default function CubeFillGame() {
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
       const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+      const nextWidth = Math.max(1, Math.floor(rect.width * dpr));
+      const nextHeight = Math.max(1, Math.floor(rect.height * dpr));
+      const previous = lastCanvasSizeRef.current;
 
-      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      renderDprRef.current = dpr;
+
+      if (
+        previous.width === nextWidth &&
+        previous.height === nextHeight &&
+        previous.dpr === dpr
+      ) {
+        return;
+      }
+
+      lastCanvasSizeRef.current = {
+        width: nextWidth,
+        height: nextHeight,
+        dpr,
+      };
+
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
 
@@ -795,7 +817,7 @@ export default function CubeFillGame() {
     }
 
     const render = (now: number) => {
-      const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+      const dpr = renderDprRef.current;
       const viewW = canvas.width / dpr;
       const viewH = canvas.height / dpr;
       const motion = motionRef.current;
@@ -1305,10 +1327,10 @@ export default function CubeFillGame() {
         )}
 
         {match.phase === 'countdown' && (
-          <div className="absolute inset-0 z-50 grid place-items-center bg-[#0d0924]/58 backdrop-blur-[2px]">
+          <div className="absolute inset-0 z-50 grid place-items-center bg-[#0d0924]/68">
             <div className="text-center">
               <p className="py-[1px] text-[7px] font-black uppercase leading-[1.5] tracking-[.18em] text-white/36">
-                4 RANDOM LEVELS · 80 SEC
+                4 RANDOM LEVELS · 60 SEC
               </p>
 
               <div
@@ -1333,7 +1355,7 @@ export default function CubeFillGame() {
       </div>
 
       {match.phase === 'match_over' && (
-        <div className="fixed inset-0 z-[140] grid place-items-center bg-[#070515]/86 px-4 backdrop-blur-[6px]">
+        <div className="fixed inset-0 z-[140] grid place-items-center bg-[#070515]/90 px-4">
           <div
             className="relative w-full max-w-[326px] overflow-hidden rounded-[26px] border border-[#8e79d3]/30 bg-[#110d2b]/[.99] px-4 pb-4 pt-4 shadow-[0_34px_110px_rgba(0,0,0,.68)]"
             style={{
@@ -1489,7 +1511,7 @@ export default function CubeFillGame() {
 
               <div
                 className={[
-                  'mt-2.5 flex items-center justify-between rounded-[15px] border border-white/[0.065] bg-black/15 px-3 py-2.5 transition duration-500',
+                  'mt-2.5 flex items-center justify-center rounded-[15px] border border-white/[0.065] bg-black/15 px-3 py-2.5 text-center transition duration-500',
                   resultStage >= 5
                     ? 'translate-y-0 opacity-100'
                     : 'translate-y-1 opacity-0',
@@ -1500,7 +1522,7 @@ export default function CubeFillGame() {
                     Чистый выигрыш
                   </p>
 
-                  <div className="mt-1 flex items-center gap-1.5">
+                  <div className="mt-1 flex items-center justify-center gap-1.5">
                     <span
                       className={[
                         'py-[1px] text-[18px] font-black leading-[1.35] tabular-nums',
@@ -1521,15 +1543,6 @@ export default function CubeFillGame() {
                       draggable={false}
                     />
                   </div>
-                </div>
-
-                <div className="max-w-[118px] text-right">
-                  <p className="py-[1px] text-[5px] font-black uppercase leading-[1.5] tracking-[.08em] text-white/24">
-                    Формула
-                  </p>
-                  <p className="mt-1 py-[1px] text-[5.5px] font-black leading-[1.5] text-white/42">
-                    ПРОГРЕСС + БОНУС ЗА ЭФФЕКТИВНОСТЬ
-                  </p>
                 </div>
               </div>
 

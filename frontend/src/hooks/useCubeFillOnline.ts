@@ -34,6 +34,13 @@ const GENERIC_PLAYERS_STORAGE_KEY = 'twingames_players_info';
 const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
 const PLAYERS_STORAGE_KEY = 'twingames_cube_fill_players_info';
 
+const IS_MOBILE_CLIENT =
+  typeof window !== 'undefined' &&
+  (window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 640);
+
+const CLOCK_TICK_MS = IS_MOBILE_CLIENT ? 300 : 200;
+const STATE_COMMIT_MS = IS_MOBILE_CLIENT ? 190 : 130;
+
 const readStoredPlayersInfo = () => {
   if (typeof window === 'undefined') {
     return [] as LobbyPlayerInfo[];
@@ -151,7 +158,7 @@ export const useCubeFillOnline = () => {
   useEffect(() => {
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
-    }, 200);
+    }, CLOCK_TICK_MS);
 
     return () => window.clearInterval(timer);
   }, []);
@@ -189,7 +196,7 @@ export const useCubeFillOnline = () => {
 
       const elapsed = performance.now() - lastCommitRef.current;
 
-      if (immediate || elapsed >= 130) {
+      if (immediate || elapsed >= STATE_COMMIT_MS) {
         run();
         return;
       }
@@ -197,7 +204,7 @@ export const useCubeFillOnline = () => {
       if (commitTimerRef.current === null) {
         commitTimerRef.current = window.setTimeout(
           run,
-          Math.max(0, 130 - elapsed),
+          Math.max(0, STATE_COMMIT_MS - elapsed),
         );
       }
     };
@@ -339,7 +346,7 @@ export const useCubeFillOnline = () => {
 
   const matchTimeLeft = matchEndsClient
     ? Math.max(0, Math.ceil((matchEndsClient - nowMs) / 1000))
-    : 80;
+    : 60;
 
   const phase = serverState?.phase || 'waiting';
   const myKey = String(myUserId);
