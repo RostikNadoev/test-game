@@ -41,15 +41,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 3
   {
     map: [
-      '..#....',
+      '.#.....',
       '.......',
+      '.......',
+      '#......',
       '......#',
       '.......',
-      '...#...',
-      '.......',
-      '...#..#',
+      '#####.#',
     ],
-    start: { r: 0, c: 5 },
+    start: { r: 2, c: 6 },
     optimal: 16,
   },
   // 4
@@ -83,16 +83,16 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 6
   {
     map: [
+      '.....#.',
       '.......',
-      '..#....',
+      '.......',
       '......#',
+      '#......',
       '.......',
-      '....#..',
-      '.......',
-      '...#...',
+      '....#.#',
     ],
-    start: { r: 6, c: 1 },
-    optimal: 16,
+    start: { r: 6, c: 3 },
+    optimal: 17,
   },
   // 7
   {
@@ -119,7 +119,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '..#....',
     ],
-    start: { r: 6, c: 5 },
+    start: { r: 5, c: 6 },
     optimal: 17,
   },
   // 9
@@ -175,21 +175,21 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '...#...',
       '#..#..#',
     ],
-    start: { r: 2, c: 6 },
+    start: { r: 1, c: 6 },
     optimal: 17,
   },
   // 13
   {
     map: [
-      '......#',
-      '.#.....',
-      '...#.##',
+      '....#..',
       '.......',
-      '...#.#.',
-      '.......',
-      '..#....',
+      '...#...',
+      '...#...',
+      '#.....#',
+      '.....##',
+      '.....##',
     ],
-    start: { r: 6, c: 4 },
+    start: { r: 3, c: 6 },
     optimal: 17,
   },
   // 14
@@ -223,15 +223,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 16
   {
     map: [
-      '..#....',
-      '.#.....',
+      '....#..',
+      '.......',
+      '#......',
+      '.......',
       '......#',
-      '.......',
-      '#...##.',
-      '.......',
-      '..#.##.',
+      '#......',
+      '##...##',
     ],
-    start: { r: 6, c: 0 },
+    start: { r: 3, c: 0 },
     optimal: 18,
   },
   // 17
@@ -307,15 +307,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 22
   {
     map: [
-      '..#....',
+      '...#...',
+      '.......',
+      '#......',
       '.......',
       '......#',
-      '.#.....',
       '.......',
-      '...#...',
-      '...#..#',
+      '..#...#',
     ],
-    start: { r: 6, c: 1 },
+    start: { r: 3, c: 6 },
     optimal: 18,
   },
   // 23
@@ -349,15 +349,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 25
   {
     map: [
-      '..#...#',
+      '.##....',
       '.......',
-      '.......',
+      '....#..',
+      '...##..',
+      '#......',
+      '....#.#',
       '......#',
-      '.......',
-      '...#...',
-      '...#...',
     ],
-    start: { r: 4, c: 0 },
+    start: { r: 6, c: 3 },
     optimal: 18,
   },
   // 26
@@ -405,15 +405,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 29
   {
     map: [
-      '#......',
-      '..#....',
-      '......#',
-      '...#...',
-      '.#.#...',
+      '.....#.',
       '.......',
-      '...#...',
+      '.......',
+      '#......',
+      '...##..',
+      '.......',
+      '....#..',
     ],
-    start: { r: 6, c: 1 },
+    start: { r: 6, c: 3 },
     optimal: 19,
   },
   // 30
@@ -441,7 +441,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '#......',
       '..#....',
     ],
-    start: { r: 0, c: 5 },
+    start: { r: 0, c: 4 },
     optimal: 19,
   },
   // 32
@@ -559,15 +559,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 40
   {
     map: [
+      '.#....#',
       '...#...',
-      '..#....',
-      '#.....#',
-      '.#.....',
-      '.#.....',
       '.......',
+      '..#....',
+      '#......',
+      '....##.',
       '.....#.',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 6, c: 3 },
     optimal: 20,
   },
   // 41
@@ -595,21 +595,21 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '...#...',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 20,
   },
   // 43
   {
     map: [
-      '.......',
+      '#......',
+      '...#...',
+      '......#',
+      '.....#.',
+      '....##.',
       '..#....',
       '#.....#',
-      '.......',
-      '.#.....',
-      '.......',
-      '...#...',
     ],
-    start: { r: 4, c: 6 },
+    start: { r: 0, c: 4 },
     optimal: 20,
   },
   // 44
@@ -657,15 +657,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 47
   {
     map: [
-      '......#',
-      '.#.....',
-      '.....##',
+      '....#..',
+      '.....#.',
+      '#......',
       '.......',
-      '#....#.',
-      '......#',
-      '..#....',
+      '.......',
+      '.#.....',
+      '.#.##..',
     ],
-    start: { r: 6, c: 3 },
+    start: { r: 0, c: 3 },
     optimal: 20,
   },
   // 48
@@ -685,15 +685,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 49
   {
     map: [
+      '..#..#.',
       '.......',
-      '.#.....',
-      '#....##',
       '.......',
-      '#......',
+      '.......',
+      '#.....#',
       '......#',
-      '.#.#...',
+      '...#...',
     ],
-    start: { r: 6, c: 0 },
+    start: { r: 3, c: 0 },
     optimal: 20,
   },
   // 50
@@ -727,15 +727,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 52
   {
     map: [
-      '..#....',
-      '.#.....',
-      '.....##',
-      '.....#.',
-      '#....#.',
+      '...#...',
       '.......',
+      '.....#.',
       '..#....',
+      '...#...',
+      '#...#..',
+      '#...#..',
     ],
-    start: { r: 5, c: 6 },
+    start: { r: 6, c: 3 },
     optimal: 21,
   },
   // 53
@@ -755,15 +755,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 54
   {
     map: [
+      '#..#...',
+      '.#.....',
+      '....##.',
+      '.......',
+      '.......',
+      '......#',
       '..#....',
-      '#......',
-      '.......',
-      '##.....',
-      '.......',
-      '...#...',
-      '...#..#',
     ],
-    start: { r: 6, c: 1 },
+    start: { r: 3, c: 0 },
     optimal: 21,
   },
   // 55
@@ -791,7 +791,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '...#...',
     ],
-    start: { r: 6, c: 1 },
+    start: { r: 6, c: 2 },
     optimal: 21,
   },
   // 57
@@ -819,7 +819,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '...#...',
     ],
-    start: { r: 0, c: 1 },
+    start: { r: 0, c: 3 },
     optimal: 21,
   },
   // 59
@@ -833,8 +833,8 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.#.....',
       '...#...',
     ],
-    start: { r: 0, c: 2 },
-    optimal: 21,
+    start: { r: 0, c: 1 },
+    optimal: 20,
   },
   // 60
   {
@@ -868,15 +868,15 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   {
     map: [
       '..#....',
-      '.#.....',
-      '......#',
+      '...##..',
+      '#......',
       '.......',
-      '#...###',
-      '.....#.',
-      '..#....',
+      '......#',
+      '.#.....',
+      '....##.',
     ],
-    start: { r: 6, c: 0 },
-    optimal: 22,
+    start: { r: 6, c: 3 },
+    optimal: 23,
   },
   // 63
   {
@@ -895,16 +895,16 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 64
   {
     map: [
-      '..#...#',
-      '.#.....',
-      '.....##',
-      '.......',
-      '#....#.',
-      '......#',
       '..#....',
+      '.......',
+      '#.##.#.',
+      '..#....',
+      '......#',
+      '.......',
+      '.#...#.',
     ],
-    start: { r: 2, c: 0 },
-    optimal: 22,
+    start: { r: 3, c: 0 },
+    optimal: 23,
   },
   // 65
   {
@@ -931,7 +931,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '.....#.',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 23,
   },
   // 67
@@ -945,7 +945,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '....#..',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 24,
   },
   // 68
@@ -979,16 +979,16 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
   // 70
   {
     map: [
-      '.....#.',
-      '.##....',
-      '#.....#',
-      '....##.',
+      '....#..',
+      '#......',
+      '...##.#',
+      '.#..#..',
+      '#......',
       '.......',
-      '.....#.',
-      '...#.#.',
+      '..#....',
     ],
-    start: { r: 0, c: 2 },
-    optimal: 25,
+    start: { r: 0, c: 3 },
+    optimal: 26,
   },
   // 71
   {
@@ -1001,7 +1001,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.#.....',
       '...##..',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 25,
   },
   // 72
@@ -1015,7 +1015,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '...#...',
       '..#..#.',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 26,
   },
   // 73
@@ -1043,7 +1043,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '.......',
       '..#..#.',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 3 },
     optimal: 28,
   },
   // 75
@@ -1057,7 +1057,7 @@ export const CUBE_FILL_LEVELS: readonly CubeFillLevel[] = [
       '......#',
       '...#...',
     ],
-    start: { r: 0, c: 2 },
+    start: { r: 0, c: 1 },
     optimal: 29,
   },
 ] as const;
