@@ -1,313 +1,415 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getTelegramWebApp } from "../types/telegram";
-import { useLobbyMatchFinish } from "../hooks/useLobbyMatchFinish";
-import { MatchFinishStatus } from "../components/Match/MatchFinishStatus";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
+import {
+  gridLockWsApi,
+  type GridLockPosition,
+  type GridLockSocketClient,
+  type GridLockStateMessage,
+  type GridLockWall,
+} from '../api/gridLockWs';
+import type { LobbyPlayerInfo } from '../api/types';
+import { useAuth } from '../auth/useAuth';
+import { getTelegramWebApp } from '../types/telegram';
 
-/* =========================================================================
-   GRIDLOCK / QUORIDOR — app-style version
-   - шахматный таймер: каждому игроку по 2 минуты на всю партию
-   - ходы показываются только точками, без дополнительных квадратиков
-   - стены ставятся drag-and-drop из двух нижних кнопок: вертикальная / горизонтальная
-   - если отпустить стену обратно в нижнюю зону кнопок — постановка отменяется
-   ========================================================================= */
-
-type PlayerId = "p1" | "p2";
-type Orientation = "h" | "v";
-type Pos = { r: number; c: number };
-type Wall = { id: string; r: number; c: number; o: Orientation; by: PlayerId };
-type Preview = { r: number; c: number; o: Orientation; valid: boolean };
-type DragWall = { o: Orientation; x: number; y: number; overCancel: boolean };
+type Orientation = 'h' | 'v';
+type Preview = { row: number; col: number; orientation: Orientation; valid: boolean };
+type DragWall = { orientation: Orientation; x: number; y: number; overCancel: boolean };
+type PlayerProfile = { id: number; name: string; photoUrl: string };
+type LocationState = { lobbyId?: string; game?: string; playersInfo?: LobbyPlayerInfo[] };
 
 const N = 9;
-const WALLS = 10;
-const TOTAL_SECONDS = 120;
-
-// SVG board metrics: viewBox 0..100
+const STARTING_WALLS = 10;
 const P = 5;
 const S = 10;
 const CELL_GAP = 0.72;
-const WT = 2.05; // стены визуально крупнее
+const WT = 2.05;
 const WPAD = 0.72;
-const WALL_DRAG_Y_OFFSET_PX = 34; // стена ставится чуть выше пальца, чтобы было видно точное место
+const WALL_DRAG_Y_OFFSET_PX = 34;
 
-const APP = {
-  bgCard: "rgba(18, 18, 24, 0.9)",
-  bgCardSoft: "rgba(255, 255, 255, 0.035)",
-  border: "rgba(255, 255, 255, 0.075)",
-  text: "#ffffff",
-  muted: "#8f8f9c",
-  danger: "#ef4444",
-  blue: "#2f8cff",
-  blueSoft: "#5bb7ff",
-  orange: "#f59e42",
-  orangeSoft: "#ffb45c",
-  gold: "#ffc96a",
+const ACTIVE_LOBBY_STORAGE_KEY = 'twingames_active_lobby_id';
+const ACTIVE_GAME_STORAGE_KEY = 'twingames_active_game';
+const GENERIC_PLAYERS_STORAGE_KEY = 'twingames_players_info';
+const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
+const PLAYERS_STORAGE_KEY = 'twingames_grid_lock_players_info';
+
+const COLORS = {
+  mine: '#2f8cff',
+  mineLight: '#5bb7ff',
+  mineDark: '#145dcc',
+  rival: '#f59e42',
+  rivalLight: '#ffb45c',
+  rivalDark: '#b85c12',
+  danger: '#ef4444',
+  gold: '#f7c85f',
 };
 
-const START: Record<PlayerId, Pos> = {
-  p1: { r: N - 1, c: 4 },
-  p2: { r: 0, c: 4 },
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const same = (a: GridLockPosition, b: GridLockPosition) => a.row === b.row && a.col === b.col;
+const inBoard = (position: GridLockPosition) =>
+  position.row >= 0 && position.row < N && position.col >= 0 && position.col < N;
+const posKey = (position: GridLockPosition) => `${position.row},${position.col}`;
+const edgeKey = (a: GridLockPosition, b: GridLockPosition) => {
+  const first = posKey(a);
+  const second = posKey(b);
+  return first < second ? `${first}|${second}` : `${second}|${first}`;
+};
+const center = (row: number, col: number) => ({ x: P + col * S + S / 2, y: P + row * S + S / 2 });
+
+const getInitials = (name: string) =>
+  name
+    .replace('@', '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || 'TG';
+
+const formatReward = (value: number) =>
+  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(Math.max(0, value));
+
+const readStoredPlayersInfo = () => {
+  if (typeof window === 'undefined') return [] as LobbyPlayerInfo[];
+  const raw =
+    window.sessionStorage.getItem(PLAYERS_STORAGE_KEY) ||
+    window.sessionStorage.getItem(GENERIC_PLAYERS_STORAGE_KEY) ||
+    window.sessionStorage.getItem(LEGACY_PLAYERS_STORAGE_KEY);
+  if (!raw) return [] as LobbyPlayerInfo[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as LobbyPlayerInfo[]) : [];
+  } catch {
+    return [] as LobbyPlayerInfo[];
+  }
 };
 
-const CFG = {
-  p1: {
-    name: "Игрок 1",
-    short: "1",
-    goal: "вверх",
-    arrow: "↑",
-    main: APP.blue,
-    light: APP.blueSoft,
-    dark: "#145dcc",
-    text: "#dbeafe",
-  },
-  p2: {
-    name: "Игрок 2",
-    short: "2",
-    goal: "вниз",
-    arrow: "↓",
-    main: APP.orange,
-    light: APP.orangeSoft,
-    dark: "#b85c12",
-    text: "#ffedd5",
-  },
-} as const;
-
-type PlayerCfg = (typeof CFG)[PlayerId];
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
-const same = (a: Pos, b: Pos) => a.r === b.r && a.c === b.c;
-const inBoard = (p: Pos) => p.r >= 0 && p.r < N && p.c >= 0 && p.c < N;
-const posKey = (p: Pos) => `${p.r},${p.c}`;
-const otherPlayer = (p: PlayerId): PlayerId => (p === "p1" ? "p2" : "p1");
-
-const formatClock = (seconds: number) => {
-  const safe = Math.max(0, seconds);
-  const m = Math.floor(safe / 60);
-  const s = safe % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-};
-
-const edgeKey = (a: Pos, b: Pos) => {
-  const x = posKey(a);
-  const y = posKey(b);
-  return x < y ? `${x}|${y}` : `${y}|${x}`;
-};
-
-const center = (r: number, c: number) => ({
-  x: P + c * S + S / 2,
-  y: P + r * S + S / 2,
-});
-
-const wallRect = (w: { r: number; c: number; o: Orientation }) => {
-  if (w.o === "h") {
+const wallRect = (wall: { row: number; col: number; orientation: Orientation }) => {
+  if (wall.orientation === 'h') {
     return {
-      x: P + w.c * S + WPAD,
-      y: P + (w.r + 1) * S - WT / 2,
-      w: S * 2 - WPAD * 2,
-      h: WT,
+      x: P + wall.col * S + WPAD,
+      y: P + (wall.row + 1) * S - WT / 2,
+      width: S * 2 - WPAD * 2,
+      height: WT,
     };
   }
-
   return {
-    x: P + (w.c + 1) * S - WT / 2,
-    y: P + w.r * S + WPAD,
-    w: WT,
-    h: S * 2 - WPAD * 2,
+    x: P + (wall.col + 1) * S - WT / 2,
+    y: P + wall.row * S + WPAD,
+    width: WT,
+    height: S * 2 - WPAD * 2,
   };
 };
 
-const buildBlocked = (walls: Wall[]) => {
+const buildBlocked = (walls: GridLockWall[]) => {
   const blocked = new Set<string>();
-
-  for (const w of walls) {
-    if (w.o === "h") {
-      blocked.add(edgeKey({ r: w.r, c: w.c }, { r: w.r + 1, c: w.c }));
-      blocked.add(edgeKey({ r: w.r, c: w.c + 1 }, { r: w.r + 1, c: w.c + 1 }));
+  for (const wall of walls) {
+    if (wall.orientation === 'h') {
+      blocked.add(edgeKey({ row: wall.row, col: wall.col }, { row: wall.row + 1, col: wall.col }));
+      blocked.add(edgeKey({ row: wall.row, col: wall.col + 1 }, { row: wall.row + 1, col: wall.col + 1 }));
     } else {
-      blocked.add(edgeKey({ r: w.r, c: w.c }, { r: w.r, c: w.c + 1 }));
-      blocked.add(edgeKey({ r: w.r + 1, c: w.c }, { r: w.r + 1, c: w.c + 1 }));
+      blocked.add(edgeKey({ row: wall.row, col: wall.col }, { row: wall.row, col: wall.col + 1 }));
+      blocked.add(edgeKey({ row: wall.row + 1, col: wall.col }, { row: wall.row + 1, col: wall.col + 1 }));
     }
   }
-
   return blocked;
 };
 
-const blockedEdge = (a: Pos, b: Pos, blocked: Set<string>) => blocked.has(edgeKey(a, b));
+const blockedEdge = (a: GridLockPosition, b: GridLockPosition, blocked: Set<string>) =>
+  blocked.has(edgeKey(a, b));
 
-const hasPath = (start: Pos, goalRow: number, blocked: Set<string>) => {
-  const q: Pos[] = [start];
-  const seen = new Set<string>([posKey(start)]);
-  let qi = 0;
-
-  while (qi < q.length) {
-    const cur = q[qi++]!;
-    if (cur.r === goalRow) return true;
-
-    const next = [
-      { r: cur.r - 1, c: cur.c },
-      { r: cur.r + 1, c: cur.c },
-      { r: cur.r, c: cur.c - 1 },
-      { r: cur.r, c: cur.c + 1 },
-    ];
-
-    for (const n of next) {
-      if (!inBoard(n) || blockedEdge(cur, n, blocked) || seen.has(posKey(n))) continue;
-      seen.add(posKey(n));
-      q.push(n);
-    }
-  }
-
-  return false;
-};
-
-const wallConflict = (n: { r: number; c: number; o: Orientation }, walls: Wall[]) => {
-  for (const w of walls) {
-    if (w.r === n.r && w.c === n.c) return true;
-    if (n.o === "h" && w.o === "h" && w.r === n.r && Math.abs(w.c - n.c) === 1) return true;
-    if (n.o === "v" && w.o === "v" && w.c === n.c && Math.abs(w.r - n.r) === 1) return true;
-  }
-
-  return false;
-};
-
-const wallValid = (
-  n: { r: number; c: number; o: Orientation },
-  walls: Wall[],
-  p1: Pos,
-  p2: Pos
-) => {
-  if (n.r < 0 || n.r > N - 2 || n.c < 0 || n.c > N - 2) return false;
-  if (wallConflict(n, walls)) return false;
-
-  const blocked = buildBlocked([...walls, { ...n, id: "tmp", by: "p1" }]);
-  return hasPath(p1, 0, blocked) && hasPath(p2, N - 1, blocked);
-};
-
-const uniq = (moves: Pos[]) => {
-  const seen = new Set<string>();
-  return moves.filter((p) => {
-    const key = posKey(p);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-};
-
-const legalMovesOf = (from: Pos, other: Pos, blocked: Set<string>) => {
-  const dirs = [
-    { dr: -1, dc: 0 },
-    { dr: 1, dc: 0 },
-    { dr: 0, dc: -1 },
-    { dr: 0, dc: 1 },
+const legalMovesOf = (from: GridLockPosition, other: GridLockPosition, blocked: Set<string>) => {
+  const directions = [
+    { row: -1, col: 0 },
+    { row: 1, col: 0 },
+    { row: 0, col: -1 },
+    { row: 0, col: 1 },
   ];
+  const moves: GridLockPosition[] = [];
 
-  const moves: Pos[] = [];
-
-  for (const d of dirs) {
-    const adj = { r: from.r + d.dr, c: from.c + d.dc };
-    if (!inBoard(adj) || blockedEdge(from, adj, blocked)) continue;
-
-    if (!same(adj, other)) {
-      moves.push(adj);
+  for (const direction of directions) {
+    const adjacent = { row: from.row + direction.row, col: from.col + direction.col };
+    if (!inBoard(adjacent) || blockedEdge(from, adjacent, blocked)) continue;
+    if (!same(adjacent, other)) {
+      moves.push(adjacent);
       continue;
     }
 
-    const beyond = { r: other.r + d.dr, c: other.c + d.dc };
+    const beyond = { row: other.row + direction.row, col: other.col + direction.col };
     if (inBoard(beyond) && !blockedEdge(other, beyond, blocked)) {
       moves.push(beyond);
       continue;
     }
 
     const sides =
-      d.dr !== 0
+      direction.row !== 0
         ? [
-            { dr: 0, dc: -1 },
-            { dr: 0, dc: 1 },
+            { row: 0, col: -1 },
+            { row: 0, col: 1 },
           ]
         : [
-            { dr: -1, dc: 0 },
-            { dr: 1, dc: 0 },
+            { row: -1, col: 0 },
+            { row: 1, col: 0 },
           ];
-
-    for (const s of sides) {
-      const diag = { r: other.r + s.dr, c: other.c + s.dc };
-      if (inBoard(diag) && !blockedEdge(other, diag, blocked)) moves.push(diag);
+    for (const side of sides) {
+      const diagonal = { row: other.row + side.row, col: other.col + side.col };
+      if (inBoard(diagonal) && !blockedEdge(other, diagonal, blocked)) moves.push(diagonal);
     }
   }
 
-  return uniq(moves);
+  const seen = new Set<string>();
+  return moves.filter((move) => {
+    const key = posKey(move);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
-const haptic = (kind: "light" | "medium" | "error" = "light") => {
+const hasPath = (start: GridLockPosition, goalRow: number, blocked: Set<string>) => {
+  const queue = [start];
+  const seen = new Set([posKey(start)]);
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (current.row === goalRow) return true;
+    const neighbors = [
+      { row: current.row - 1, col: current.col },
+      { row: current.row + 1, col: current.col },
+      { row: current.row, col: current.col - 1 },
+      { row: current.row, col: current.col + 1 },
+    ];
+    for (const next of neighbors) {
+      const key = posKey(next);
+      if (!inBoard(next) || seen.has(key) || blockedEdge(current, next, blocked)) continue;
+      seen.add(key);
+      queue.push(next);
+    }
+  }
+  return false;
+};
+
+const wallConflict = (candidate: Preview, walls: GridLockWall[]) =>
+  walls.some((wall) => {
+    if (wall.row === candidate.row && wall.col === candidate.col) return true;
+    if (
+      candidate.orientation === 'h' &&
+      wall.orientation === 'h' &&
+      wall.row === candidate.row &&
+      Math.abs(wall.col - candidate.col) === 1
+    ) {
+      return true;
+    }
+    return (
+      candidate.orientation === 'v' &&
+      wall.orientation === 'v' &&
+      wall.col === candidate.col &&
+      Math.abs(wall.row - candidate.row) === 1
+    );
+  });
+
+const wallValid = (
+  candidate: Preview,
+  walls: GridLockWall[],
+  player: GridLockPosition,
+  opponent: GridLockPosition,
+) => {
+  if (candidate.row < 0 || candidate.row > N - 2 || candidate.col < 0 || candidate.col > N - 2) {
+    return false;
+  }
+  if (wallConflict(candidate, walls)) return false;
+  const withCandidate: GridLockWall[] = [
+    ...walls,
+    {
+      id: 'preview',
+      row: candidate.row,
+      col: candidate.col,
+      orientation: candidate.orientation,
+      user_id: 0,
+    },
+  ];
+  const blocked = buildBlocked(withCandidate);
+  return hasPath(player, 0, blocked) && hasPath(opponent, N - 1, blocked);
+};
+
+const rotatePosition = (position: GridLockPosition) => ({
+  row: N - 1 - position.row,
+  col: N - 1 - position.col,
+});
+
+const rotateWall = (wall: GridLockWall): GridLockWall => ({
+  ...wall,
+  row: N - 2 - wall.row,
+  col: N - 2 - wall.col,
+});
+
+const toServerWallSlot = (preview: Preview, rotated: boolean) =>
+  rotated
+    ? { row: N - 2 - preview.row, col: N - 2 - preview.col, orientation: preview.orientation }
+    : { row: preview.row, col: preview.col, orientation: preview.orientation };
+
+const haptic = (kind: 'light' | 'medium' | 'success' | 'error' = 'light') => {
   try {
     const tg = getTelegramWebApp();
-
-    if (kind === "error") {
-      tg?.HapticFeedback?.notificationOccurred?.("error");
-      if (!tg?.HapticFeedback?.notificationOccurred && navigator.vibrate) navigator.vibrate(30);
+    if (kind === 'success' || kind === 'error') {
+      tg?.HapticFeedback?.notificationOccurred?.(kind);
       return;
     }
-
     tg?.HapticFeedback?.impactOccurred?.(kind);
-    if (!tg?.HapticFeedback?.impactOccurred && navigator.vibrate) navigator.vibrate(kind === "medium" ? 18 : 10);
   } catch {
-    // no-op
+    // Telegram API is optional outside the Mini App.
   }
 };
 
-const Pawn = ({ player, pos, active }: { player: PlayerId; pos: Pos; active: boolean }) => {
-  const c = CFG[player];
-  const { x, y } = center(pos.r, pos.c);
-  const pawnRef = useRef<SVGGElement | null>(null);
+const PlayerAvatar = ({ profile, tone }: { profile: PlayerProfile; tone: 'mine' | 'rival' }) => (
+  <div className={`gl-avatar gl-avatar-${tone}`}>
+    {profile.photoUrl ? (
+      <img src={profile.photoUrl} alt={profile.name} className="h-full w-full object-cover" draggable={false} />
+    ) : (
+      getInitials(profile.name)
+    )}
+  </div>
+);
 
-  useEffect(() => {
-    pawnRef.current?.style.setProperty("transform", `translate(${x}px, ${y}px)`);
-  }, [x, y]);
-
+const Pawn = ({ position, mine, active }: { position: GridLockPosition; mine: boolean; active: boolean }) => {
+  const { x, y } = center(position.row, position.col);
   return (
-    <g ref={pawnRef} className="gl-pawn">
-      {active && <circle r={4.28} fill={c.main} opacity={0.14} className="gl-pulse" />}
+    <g className="gl-pawn" style={{ transform: `translate(${x}px, ${y}px)` }}>
+      {active && <circle r={4.35} fill={mine ? COLORS.mine : COLORS.rival} opacity={0.15} className="gl-pulse" />}
       <ellipse cx={0} cy={2.75} rx={2.9} ry={0.82} fill="rgba(0,0,0,0.34)" />
-      <circle r={3.1} fill={`url(#pawn-${player})`} stroke="rgba(255,255,255,0.56)" strokeWidth={0.32} />
+      <circle r={3.1} fill={`url(#pawn-${mine ? 'mine' : 'rival'})`} stroke="rgba(255,255,255,0.56)" strokeWidth={0.32} />
       <ellipse cx={-0.78} cy={-0.96} rx={1.02} ry={0.62} fill="rgba(255,255,255,0.45)" />
     </g>
   );
 };
 
-export const GridLockGame: React.FC = () => {
-  const boardRef = useRef<HTMLDivElement | null>(null);
-  const dragWallRef = useRef<DragWall | null>(null);
+const PlayerHud = ({
+  profile,
+  walls,
+  active,
+  timeLeft,
+  side,
+}: {
+  profile: PlayerProfile;
+  walls: number;
+  active: boolean;
+  timeLeft: number;
+  side: 'mine' | 'rival';
+}) => (
+  <div className={`gl-player gl-player-${side} ${active ? 'gl-player-active' : ''}`}>
+    {side === 'mine' && <PlayerAvatar profile={profile} tone={side} />}
+    <div className={`min-w-0 ${side === 'rival' ? 'text-right' : ''}`}>
+      <div className="gl-safe truncate text-[9px] font-black text-white/90">{profile.name}</div>
+      <div className={`gl-safe mt-1 text-[19px] font-black tabular-nums ${active ? 'text-white' : 'text-white/55'}`}>
+        {timeLeft}
+      </div>
+      <div className="gl-safe mt-0.5 text-[7px] font-black uppercase tracking-[0.12em] text-white/32">
+        {walls} стен
+      </div>
+    </div>
+    {side === 'rival' && <PlayerAvatar profile={profile} tone={side} />}
+  </div>
+);
 
-  const [p1, setP1] = useState<Pos>(START.p1);
-  const [p2, setP2] = useState<Pos>(START.p2);
-  const [walls, setWalls] = useState<Wall[]>([]);
-  const [turn, setTurn] = useState<PlayerId>("p1");
-  const [left, setLeft] = useState<Record<PlayerId, number>>({ p1: WALLS, p2: WALLS });
-  const [winner, setWinner] = useState<PlayerId | null>(null);
-  const { finishMatch: finishLobbyMatch, pending: matchFinishPending, finishError: matchFinishError, clearPending: clearMatchFinish } = useLobbyMatchFinish("grid_lock");
+const WallButton = ({
+  orientation,
+  disabled,
+  active,
+  onPointerDown,
+}: {
+  orientation: Orientation;
+  disabled: boolean;
+  active: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}) => (
+  <button
+    type="button"
+    disabled={disabled}
+    onPointerDown={onPointerDown}
+    className={`gl-wall-button ${active ? 'gl-wall-button-active' : ''}`}
+    aria-label={orientation === 'h' ? 'Поставить горизонтальную стену' : 'Поставить вертикальную стену'}
+  >
+    <span className={`gl-wall-icon gl-wall-icon-${orientation}`} />
+  </button>
+);
+
+export const GridLockGame: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
+  const routeState = (location.state || {}) as LocationState;
+
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const socketRef = useRef<GridLockSocketClient | null>(null);
+  const dragWallRef = useRef<DragWall | null>(null);
+  const seenActionRef = useRef<number | null>(null);
+  const resultHandledRef = useRef(false);
+
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [serverState, setServerState] = useState<GridLockStateMessage | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [dragWall, setDragWallState] = useState<DragWall | null>(null);
+  const [notice, setNotice] = useState('');
+  const [actionPending, setActionPending] = useState(false);
+
+  const lobbyId = useMemo(() => {
+    const query = new URLSearchParams(location.search);
+    return (
+      routeState.lobbyId ||
+      query.get('lobby_id') ||
+      query.get('lobbyId') ||
+      (typeof window !== 'undefined' ? window.sessionStorage.getItem(ACTIVE_LOBBY_STORAGE_KEY) || '' : '')
+    );
+  }, [location.search, routeState.lobbyId]);
+
+  const playersInfo = useMemo(
+    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    [routeState.playersInfo],
+  );
+
+  const myUserId = Number(user?.id || 0);
+  const profileById = useMemo(() => {
+    const result = new Map<number, PlayerProfile>();
+    for (const player of playersInfo) {
+      const id = Number(player.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      result.set(id, {
+        id,
+        name: player.tg_user || `Player ${id}`,
+        photoUrl: player.photo_url || '',
+      });
+    }
+    if (myUserId > 0) {
+      result.set(myUserId, {
+        id: myUserId,
+        name: user?.tg_user || result.get(myUserId)?.name || 'Player',
+        photoUrl: user?.photo_url || result.get(myUserId)?.photoUrl || '',
+      });
+    }
+    return result;
+  }, [myUserId, playersInfo, user?.photo_url, user?.tg_user]);
 
   useEffect(() => {
-    if (!winner) return;
-    void finishLobbyMatch(winner === "p1" ? "win" : "loss");
-  }, [winner, finishLobbyMatch]);
+    if (typeof window === 'undefined') return;
+    if (lobbyId) {
+      window.sessionStorage.setItem(ACTIVE_LOBBY_STORAGE_KEY, lobbyId);
+      window.sessionStorage.setItem(ACTIVE_GAME_STORAGE_KEY, 'grid_lock');
+    }
+    if (playersInfo.length) {
+      const encoded = JSON.stringify(playersInfo);
+      window.sessionStorage.setItem(PLAYERS_STORAGE_KEY, encoded);
+      window.sessionStorage.setItem(GENERIC_PLAYERS_STORAGE_KEY, encoded);
+    }
+  }, [lobbyId, playersInfo]);
 
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [notice, setNotice] = useState("");
-  const [clocks, setClocks] = useState<Record<PlayerId, number>>({ p1: TOTAL_SECONDS, p2: TOTAL_SECONDS });
-  const [dragWall, setDragWallState] = useState<DragWall | null>(null);
-
-  const cur = turn === "p1" ? p1 : p2;
-  const other = turn === "p1" ? p2 : p1;
-  const cfg = CFG[turn];
-
-  const setDragWall = useCallback((next: DragWall | null) => {
-    dragWallRef.current = next;
-    setDragWallState(next);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-
     try {
       tg?.ready?.();
       tg?.expand?.();
@@ -316,67 +418,19 @@ export const GridLockGame: React.FC = () => {
       // no-op
     }
 
-    const de = document.documentElement;
+    const root = document.documentElement;
     const body = document.body;
-    const scrollY = window.scrollY || window.pageYOffset || 0;
-
-    const prev = {
-      deOverflow: de.style.overflow,
-      deHeight: de.style.height,
-      deOverscroll: de.style.overscrollBehavior,
-      deTouchAction: de.style.touchAction,
-      bodyOverflow: body.style.overflow,
-      bodyHeight: body.style.height,
-      bodyOverscroll: body.style.overscrollBehavior,
-      bodyTouchAction: body.style.touchAction,
-      bodyPosition: body.style.position,
-      bodyTop: body.style.top,
-      bodyLeft: body.style.left,
-      bodyRight: body.style.right,
-      bodyWidth: body.style.width,
-    };
-
-    de.style.overflow = "hidden";
-    de.style.height = "100%";
-    de.style.overscrollBehavior = "none";
-    de.style.touchAction = "none";
-
-    body.style.overflow = "hidden";
-    body.style.height = "100%";
-    body.style.overscrollBehavior = "none";
-    body.style.touchAction = "none";
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.left = "0";
-    body.style.right = "0";
-    body.style.width = "100%";
-
-    const prevent = (event: Event) => event.preventDefault();
-    document.addEventListener("touchmove", prevent, { passive: false });
-    document.addEventListener("wheel", prevent, { passive: false });
-    document.addEventListener("gesturestart", prevent, { passive: false } as AddEventListenerOptions);
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyTouch = body.style.touchAction;
+    root.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.touchAction = 'none';
 
     return () => {
-      de.style.overflow = prev.deOverflow;
-      de.style.height = prev.deHeight;
-      de.style.overscrollBehavior = prev.deOverscroll;
-      de.style.touchAction = prev.deTouchAction;
-
-      body.style.overflow = prev.bodyOverflow;
-      body.style.height = prev.bodyHeight;
-      body.style.overscrollBehavior = prev.bodyOverscroll;
-      body.style.touchAction = prev.bodyTouchAction;
-      body.style.position = prev.bodyPosition;
-      body.style.top = prev.bodyTop;
-      body.style.left = prev.bodyLeft;
-      body.style.right = prev.bodyRight;
-      body.style.width = prev.bodyWidth;
-
-      document.removeEventListener("touchmove", prevent);
-      document.removeEventListener("wheel", prevent);
-      document.removeEventListener("gesturestart", prevent);
-      window.scrollTo(0, scrollY);
-
+      root.style.overflow = previousRootOverflow;
+      body.style.overflow = previousBodyOverflow;
+      body.style.touchAction = previousBodyTouch;
       try {
         tg?.enableVerticalSwipes?.();
       } catch {
@@ -387,771 +441,499 @@ export const GridLockGame: React.FC = () => {
 
   useEffect(() => {
     if (!notice) return;
-    const id = window.setTimeout(() => setNotice(""), 1200);
-    return () => window.clearTimeout(id);
+    const timeout = window.setTimeout(() => setNotice(''), 1700);
+    return () => window.clearTimeout(timeout);
   }, [notice]);
 
   useEffect(() => {
-    if (winner) return;
+    if (!lobbyId || !token || myUserId <= 0) return;
+    let alive = true;
+    setConnectionStatus('connecting');
+    setSocketError(null);
 
-    const id = window.setInterval(() => {
-      setClocks((value) => ({
-        ...value,
-        [turn]: Math.max(0, value[turn] - 1),
-      }));
-    }, 1000);
+    const client = gridLockWsApi.connect({
+      lobbyId,
+      token,
+      handlers: {
+        onOpen: () => {
+          if (!alive) return;
+          setConnectionStatus('open');
+          client.requestState();
+        },
+        onClose: () => {
+          if (!alive) return;
+          setConnectionStatus('closed');
+        },
+        onSocketError: () => {
+          if (!alive) return;
+          setConnectionStatus('error');
+          setSocketError('Не удалось подключиться к матчу');
+        },
+        onServerError: (error) => {
+          if (!alive) return;
+          const message = error.details || error.error;
+          setSocketError(message);
+          setNotice(message);
+          setActionPending(false);
+          haptic('error');
+        },
+        onState: (state) => {
+          if (!alive) return;
+          setServerOffsetMs(Date.now() - state.server_ms);
+          setServerState(state);
+          setSocketError(null);
+          setActionPending(false);
 
-    return () => window.clearInterval(id);
-  }, [turn, winner]);
+          const sequence = state.last_action?.sequence;
+          if (sequence === undefined && seenActionRef.current === null) {
+            seenActionRef.current = 0;
+          } else if (sequence !== undefined) {
+            if (seenActionRef.current === null) {
+              seenActionRef.current = sequence;
+            } else if (sequence > seenActionRef.current) {
+              seenActionRef.current = sequence;
+              if (state.last_action?.kind === 'timeout') {
+                setNotice(state.last_action.user_id === myUserId ? 'Время вышло — ход пропущен' : 'Соперник пропустил ход');
+              }
+            }
+          }
+        },
+      },
+    });
+
+    socketRef.current = client;
+    return () => {
+      alive = false;
+      socketRef.current = null;
+      client.close();
+    };
+  }, [lobbyId, myUserId, token]);
 
   useEffect(() => {
-    if (winner) return;
+    if (serverState?.phase !== 'match_over' || resultHandledRef.current) return;
+    resultHandledRef.current = true;
+    haptic(serverState.winner_user_id === myUserId ? 'success' : 'error');
+    const timeout = window.setTimeout(() => {
+      void Promise.allSettled([refreshBalance(), refreshProfile()]);
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [myUserId, refreshBalance, refreshProfile, serverState?.phase, serverState?.winner_user_id]);
 
-    if (clocks.p1 <= 0) {
-      const frameId = window.requestAnimationFrame(() => {
-        haptic("error");
-        setPreview(null);
-        setDragWall(null);
-        setNotice("У Игрока 1 вышло время");
-        setWinner("p2");
-      });
-      return () => window.cancelAnimationFrame(frameId);
-    }
+  const playerOrder = serverState?.player_order || [];
+  const opponentUserId = playerOrder.find((id) => id !== myUserId) || 0;
+  const rotated = playerOrder[1] === myUserId;
 
-    if (clocks.p2 <= 0) {
-      const frameId = window.requestAnimationFrame(() => {
-        haptic("error");
-        setPreview(null);
-        setDragWall(null);
-        setNotice("У Игрока 2 вышло время");
-        setWinner("p1");
-      });
-      return () => window.cancelAnimationFrame(frameId);
-    }
-  }, [clocks, winner, setDragWall]);
+  const myProfile = profileById.get(myUserId) || {
+    id: myUserId,
+    name: user?.tg_user || 'Player',
+    photoUrl: user?.photo_url || '',
+  };
+  const opponentProfile = profileById.get(opponentUserId) || {
+    id: opponentUserId,
+    name: opponentUserId ? `Player ${opponentUserId}` : 'Opponent',
+    photoUrl: '',
+  };
 
-  const blocked = useMemo(() => buildBlocked(walls), [walls]);
-
-  const moves = useMemo(
-    () => (winner ? [] : legalMovesOf(cur, other, blocked)),
-    [cur, other, blocked, winner]
+  const rawMyPosition = serverState?.positions[String(myUserId)] || { row: N - 1, col: 4 };
+  const rawOpponentPosition = serverState?.positions[String(opponentUserId)] || { row: 0, col: 4 };
+  const myPosition = rotated ? rotatePosition(rawMyPosition) : rawMyPosition;
+  const opponentPosition = rotated ? rotatePosition(rawOpponentPosition) : rawOpponentPosition;
+  const viewWalls = useMemo(
+    () => (rotated ? (serverState?.walls || []).map(rotateWall) : serverState?.walls || []),
+    [rotated, serverState?.walls],
   );
 
-  const moveKeys = useMemo(() => new Set(moves.map(posKey)), [moves]);
+  const phase = serverState?.phase || 'waiting';
+  const canAct = phase === 'playing' && serverState?.turn_user_id === myUserId && !actionPending;
+  const blocked = useMemo(() => buildBlocked(viewWalls), [viewWalls]);
+  const legalMoves = useMemo(
+    () => (canAct ? legalMovesOf(myPosition, opponentPosition, blocked) : []),
+    [blocked, canAct, myPosition, opponentPosition],
+  );
+  const legalMoveKeys = useMemo(() => new Set(legalMoves.map(posKey)), [legalMoves]);
 
   const cells = useMemo(() => {
-    const arr: { r: number; c: number; x: number; y: number }[] = [];
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) arr.push({ r, c, x: P + c * S, y: P + r * S });
+    const result: { row: number; col: number; x: number; y: number }[] = [];
+    for (let row = 0; row < N; row += 1) {
+      for (let col = 0; col < N; col += 1) result.push({ row, col, x: P + col * S, y: P + row * S });
     }
-    return arr;
+    return result;
   }, []);
 
-  const pointToSlot = useCallback(
-    (clientX: number, clientY: number, o: Orientation): Preview | null => {
-      const el = boardRef.current;
-      if (!el) return null;
+  const countdownLeft = serverState?.countdown_ends_ms
+    ? Math.max(0, Math.ceil((serverState.countdown_ends_ms + serverOffsetMs - nowMs) / 1000))
+    : 3;
+  const turnTimeLeft = serverState?.turn_ends_ms
+    ? Math.max(0, Math.ceil((serverState.turn_ends_ms + serverOffsetMs - nowMs) / 1000))
+    : 10;
+  const myWalls = serverState?.walls_left[String(myUserId)] ?? STARTING_WALLS;
+  const opponentWalls = serverState?.walls_left[String(opponentUserId)] ?? STARTING_WALLS;
+  const myTurn = phase === 'playing' && serverState?.turn_user_id === myUserId;
+  const opponentTurn = phase === 'playing' && serverState?.turn_user_id === opponentUserId;
 
-      const rect = el.getBoundingClientRect();
+  const setDragWall = useCallback((value: DragWall | null) => {
+    dragWallRef.current = value;
+    setDragWallState(value);
+  }, []);
+
+  useEffect(() => {
+    if (canAct) return;
+    setDragWall(null);
+    setPreview(null);
+  }, [canAct, setDragWall]);
+
+  const pointToSlot = useCallback(
+    (clientX: number, clientY: number, orientation: Orientation): Preview | null => {
+      const board = boardRef.current;
+      if (!board) return null;
+      const rect = board.getBoundingClientRect();
       const x = ((clientX - rect.left) / rect.width) * 100;
       const y = ((clientY - rect.top) / rect.height) * 100;
       if (x < P - 1 || x > P + N * S + 1 || y < P - 1 || y > P + N * S + 1) return null;
 
-      let r: number;
-      let c: number;
-
-      if (o === "h") {
-        r = clamp(Math.round((y - P) / S) - 1, 0, N - 2);
-        c = clamp(Math.floor((x - P) / S), 0, N - 2);
+      let row: number;
+      let col: number;
+      if (orientation === 'h') {
+        row = clamp(Math.round((y - P) / S) - 1, 0, N - 2);
+        col = clamp(Math.floor((x - P) / S), 0, N - 2);
       } else {
-        r = clamp(Math.floor((y - P) / S), 0, N - 2);
-        c = clamp(Math.round((x - P) / S) - 1, 0, N - 2);
+        row = clamp(Math.floor((y - P) / S), 0, N - 2);
+        col = clamp(Math.round((x - P) / S) - 1, 0, N - 2);
       }
 
-      const candidate = { r, c, o };
-      return { ...candidate, valid: wallValid(candidate, walls, p1, p2) };
+      const candidate = { row, col, orientation, valid: false };
+      return {
+        ...candidate,
+        valid: wallValid(candidate, viewWalls, myPosition, opponentPosition),
+      };
     },
-    [walls, p1, p2]
+    [myPosition, opponentPosition, viewWalls],
   );
 
   const isInCancelZone = useCallback((_clientX: number, clientY: number) => {
     const board = boardRef.current;
-    if (!board) return false;
-
-    const rect = board.getBoundingClientRect();
-
-    // Зона отмены — вообще всё, что ниже игрового поля.
-    return clientY >= rect.bottom;
+    return board ? clientY >= board.getBoundingClientRect().bottom : false;
   }, []);
 
-  const endTurn = useCallback(() => {
-    setTurn((t) => otherPlayer(t));
-  }, []);
-
-  const tryMove = (r: number, c: number) => {
-    if (winner || dragWallRef.current) return;
-
-    const next = { r, c };
-    if (!moveKeys.has(posKey(next))) {
-      if (!same(next, cur)) {
-        haptic("error");
-        setNotice("Можно ходить только на точки");
-      }
-      return;
-    }
-
-    haptic("light");
-
-    if (turn === "p1") {
-      setP1(next);
-      if (next.r === 0) {
-        setWinner("p1");
+  const tryMove = useCallback(
+    (row: number, col: number) => {
+      if (!canAct || dragWallRef.current) return;
+      const viewTarget = { row, col };
+      if (!legalMoveKeys.has(posKey(viewTarget))) {
+        if (!same(viewTarget, myPosition)) {
+          haptic('error');
+          setNotice('Можно ходить только на отмеченные точки');
+        }
         return;
       }
-    } else {
-      setP2(next);
-      if (next.r === N - 1) {
-        setWinner("p2");
-        return;
+      const serverTarget = rotated ? rotatePosition(viewTarget) : viewTarget;
+      if (socketRef.current?.move(serverTarget.row, serverTarget.col)) {
+        setActionPending(true);
+        haptic('light');
       }
-    }
-
-    setPreview(null);
-    endTurn();
-  };
+    },
+    [canAct, legalMoveKeys, myPosition, rotated],
+  );
 
   const placeWall = useCallback(
     (slot: Preview | null) => {
-      if (winner || left[turn] <= 0) return;
-
+      if (!canAct || myWalls <= 0) return;
       if (!slot) {
-        haptic("error");
-        setNotice("Перетащи стену на поле");
+        haptic('error');
+        setNotice('Перетащи стену на поле');
         return;
       }
-
-      setPreview(slot);
-
       if (!slot.valid) {
-        haptic("error");
-        setNotice("Тут нельзя поставить стену");
+        haptic('error');
+        setNotice('Тут нельзя поставить стену');
         return;
       }
-
-      haptic("medium");
-
-      setWalls((w) => [
-        ...w,
-        {
-          id: `${turn}-${slot.r}-${slot.c}-${slot.o}-${Date.now()}`,
-          r: slot.r,
-          c: slot.c,
-          o: slot.o,
-          by: turn,
-        },
-      ]);
-      setLeft((l) => ({ ...l, [turn]: l[turn] - 1 }));
-      setPreview(null);
-      setNotice("");
-      endTurn();
+      const serverSlot = toServerWallSlot(slot, rotated);
+      if (socketRef.current?.placeWall(serverSlot.row, serverSlot.col, serverSlot.orientation)) {
+        setActionPending(true);
+        setPreview(null);
+        haptic('medium');
+      }
     },
-    [winner, left, turn, endTurn]
+    [canAct, myWalls, rotated],
   );
 
-  const startWallDrag = (o: Orientation, e: React.PointerEvent<HTMLButtonElement>) => {
-    if (winner) return;
-
-    if (left[turn] <= 0) {
-      haptic("error");
-      setNotice("Стены закончились");
+  const startWallDrag = (orientation: Orientation, event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!canAct) return;
+    if (myWalls <= 0) {
+      haptic('error');
+      setNotice('Стены закончились');
       return;
     }
-
-    e.preventDefault();
-    e.stopPropagation();
-
+    event.preventDefault();
+    event.stopPropagation();
     try {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
       // no-op
     }
-
-    haptic("light");
+    haptic('light');
     setPreview(null);
-
-    setDragWall({
-      o,
-      x: e.clientX,
-      y: e.clientY,
-      overCancel: true,
-    });
+    setDragWall({ orientation, x: event.clientX, y: event.clientY, overCancel: true });
   };
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
       const drag = dragWallRef.current;
-      if (!drag || winner) return;
-
+      if (!drag || !canAct) return;
       event.preventDefault();
-
       const overCancel = isInCancelZone(event.clientX, event.clientY);
-      const next = {
-        ...drag,
-        x: event.clientX,
-        y: event.clientY,
-        overCancel,
-      };
-
+      const next = { ...drag, x: event.clientX, y: event.clientY, overCancel };
       dragWallRef.current = next;
       setDragWallState(next);
       const slotY = event.clientY - WALL_DRAG_Y_OFFSET_PX;
-      setPreview(overCancel ? null : pointToSlot(event.clientX, slotY, drag.o));
+      setPreview(overCancel ? null : pointToSlot(event.clientX, slotY, drag.orientation));
     };
 
-    const cancelDrag = () => {
-      const drag = dragWallRef.current;
-      if (!drag) return;
-      dragWallRef.current = null;
-      setDragWallState(null);
+    const cancel = () => {
+      if (!dragWallRef.current) return;
+      setDragWall(null);
       setPreview(null);
     };
 
     const onPointerUp = (event: PointerEvent) => {
       const drag = dragWallRef.current;
       if (!drag) return;
-
       event.preventDefault();
-
       const overCancel = isInCancelZone(event.clientX, event.clientY);
       const slotY = event.clientY - WALL_DRAG_Y_OFFSET_PX;
-      const slot = overCancel ? null : pointToSlot(event.clientX, slotY, drag.o);
-
-      dragWallRef.current = null;
-      setDragWallState(null);
+      const slot = overCancel ? null : pointToSlot(event.clientX, slotY, drag.orientation);
+      setDragWall(null);
       setPreview(null);
-
-      if (overCancel) {
-        haptic("light");
-        return;
-      }
-
-      placeWall(slot);
+      if (!overCancel) placeWall(slot);
     };
 
-    window.addEventListener("pointermove", onPointerMove, { passive: false });
-    window.addEventListener("pointerup", onPointerUp, { passive: false });
-    window.addEventListener("pointercancel", cancelDrag);
-
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp, { passive: false });
+    window.addEventListener('pointercancel', cancel);
     return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", cancelDrag);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', cancel);
     };
-  }, [winner, isInCancelZone, pointToSlot, placeWall]);
+  }, [canAct, isInCancelZone, placeWall, pointToSlot, setDragWall]);
 
-  const restart = () => {
-    haptic("medium");
-    setP1(START.p1);
-    setP2(START.p2);
-    setWalls([]);
-    setLeft({ p1: WALLS, p2: WALLS });
-    setTurn("p1");
-    setWinner(null);
-    setPreview(null);
-    setNotice("");
-    setClocks({ p1: TOTAL_SECONDS, p2: TOTAL_SECONDS });
-    setDragWall(null);
-  };
+  const backToLobbies = useCallback(
+    () => navigate('/game/grid_lock/lobbies', { replace: true }),
+    [navigate],
+  );
+
+  if (!lobbyId) {
+    return (
+      <div className="grid h-full min-h-[480px] place-items-center p-5 text-center text-white">
+        <div>
+          <div className="gl-safe text-[20px] font-black uppercase">Матч не найден</div>
+          <button type="button" onClick={backToLobbies} className="gl-safe mt-5 rounded-2xl bg-white px-5 py-3 text-[10px] font-black uppercase text-black">
+            К лобби
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if ((connectionStatus === 'error' || connectionStatus === 'closed') && !serverState) {
+    return (
+      <div className="grid h-full min-h-[480px] place-items-center p-5 text-center text-white">
+        <div>
+          <div className="gl-safe text-[20px] font-black uppercase">Нет соединения</div>
+          <div className="gl-safe mt-2 text-[9px] text-white/45">{socketError || 'WebSocket закрыт'}</div>
+          <button type="button" onClick={backToLobbies} className="gl-safe mt-5 rounded-2xl bg-white px-5 py-3 text-[10px] font-black uppercase text-black">
+            К лобби
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const winnerId = serverState?.winner_user_id || 0;
+  const didWin = winnerId === myUserId;
+  const isDraw = serverState?.draw === true || winnerId === 0;
+  const winnerProfile = didWin ? myProfile : opponentProfile;
+  const loserProfile = didWin ? opponentProfile : myProfile;
 
   return (
-    <div
-      className="gl-root relative flex h-full min-h-0 w-full select-none flex-col overflow-hidden text-white"
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      <MatchFinishStatus pending={matchFinishPending} error={matchFinishError} onDismiss={clearMatchFinish} />
+    <div className="gl-root relative flex h-full min-h-[480px] w-full select-none flex-col overflow-hidden bg-transparent text-white">
       <style>{`
-        .gl-root {
-          background: transparent;
-          touch-action: none;
-          overscroll-behavior: none;
-          -webkit-user-select: none;
-          user-select: none;
-          -webkit-tap-highlight-color: transparent;
-        }
-
-        .gl-board {
-          background: rgba(18, 18, 24, 0.64);
-          border-color: rgba(255, 255, 255, 0.075);
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.055),
-            0 16px 34px rgba(0, 0, 0, 0.25);
-          touch-action: none;
-          contain: layout paint size;
-        }
-
-        .gl-pawn {
-          transition: transform 210ms cubic-bezier(0.22, 0.85, 0.25, 1);
-        }
-
-        .gl-notice {
-          animation: glToast 150ms ease-out both;
-          background: rgba(9, 9, 13, 0.86);
-          border: 1px solid rgba(255, 255, 255, 0.09);
-          color: rgba(255, 255, 255, 0.78);
-          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-        }
-
-        .gl-win-card {
-          background: rgba(18, 18, 24, 0.9);
-          border-color: rgba(255, 255, 255, 0.075);
-          box-shadow:
-            0 20px 60px rgba(0, 0, 0, 0.45),
-            inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        }
-
-        .gl-win-label { color: #8f8f9c; }
-        .gl-win-name-p1 { color: #dbeafe; }
-        .gl-win-name-p2 { color: #ffedd5; }
-        .gl-win-btn-p1 { background: #2f8cff; color: #fff; }
-        .gl-win-btn-p2 { background: #f59e42; color: #fff; }
-
-        .gl-wall-tray {
-          background: rgba(18, 18, 24, 0.72);
-          border-color: rgba(255, 255, 255, 0.075);
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.055),
-            0 12px 28px rgba(0, 0, 0, 0.22);
-        }
-
-        .gl-wall-tray-cancel {
-          background: rgba(239, 68, 68, 0.16);
-          border-color: rgba(239, 68, 68, 0.55);
-          box-shadow:
-            0 0 0 1px rgba(239, 68, 68, 0.12),
-            0 12px 28px rgba(0, 0, 0, 0.22);
-        }
-
-        .gl-cancel-badge {
-          background: rgba(239, 68, 68, 0.92);
-          color: #fff;
-          box-shadow: 0 10px 24px rgba(239, 68, 68, 0.24);
-        }
-
-        .gl-turn-badge-p1 {
-          background: #2f8cff18;
-          border-color: #2f8cff55;
-          color: #dbeafe;
-          box-shadow:
-            0 8px 22px #2f8cff12,
-            inset 0 1px 0 rgba(255, 255, 255, 0.055);
-        }
-
-        .gl-turn-badge-p2 {
-          background: #f59e4218;
-          border-color: #f59e4255;
-          color: #ffedd5;
-          box-shadow:
-            0 8px 22px #f59e4212,
-            inset 0 1px 0 rgba(255, 255, 255, 0.055);
-        }
-
-        .gl-turn-badge-done {
-          background: #ffc96a18;
-          border-color: #ffc96a55;
-          color: #ffc96a;
-          box-shadow: none;
-        }
-
-        .gl-player-row-left { flex-direction: row; }
-        .gl-player-row-right { flex-direction: row-reverse; }
-        .gl-player-align-left { text-align: left; }
-        .gl-player-align-right { text-align: right; }
-
-        .gl-player-mini-p1 {
-          background: rgba(255, 255, 255, 0.035);
-          border-color: rgba(255, 255, 255, 0.075);
-          opacity: 0.62;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-        }
-
-        .gl-player-mini-p1.gl-player-active {
-          background: #2f8cff18;
-          border-color: #2f8cff66;
-          opacity: 1;
-          box-shadow:
-            0 8px 22px #2f8cff13,
-            inset 0 1px 0 rgba(255, 255, 255, 0.055);
-        }
-
-        .gl-player-mini-p2 {
-          background: rgba(255, 255, 255, 0.035);
-          border-color: rgba(255, 255, 255, 0.075);
-          opacity: 0.62;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-        }
-
-        .gl-player-mini-p2.gl-player-active {
-          background: #f59e4218;
-          border-color: #f59e4266;
-          opacity: 1;
-          box-shadow:
-            0 8px 22px #f59e4213,
-            inset 0 1px 0 rgba(255, 255, 255, 0.055);
-        }
-
-        .gl-player-badge-p1 { background: #2f8cff; color: #fff; }
-        .gl-player-badge-p2 { background: #f59e42; color: #fff; }
-        .gl-player-name-p1 { color: #dbeafe; }
-        .gl-player-name-p2 { color: #ffedd5; }
-        .gl-player-clock-active { color: #ffffff; }
-        .gl-player-clock-idle { color: rgba(255, 255, 255, 0.72); }
-        .gl-player-clock-low { color: #fecaca; }
-        .gl-player-meta { color: #8f8f9c; }
-
-        .gl-wall-btn {
-          touch-action: none;
-        }
-
-        .gl-wall-btn-p1 {
-          background: #2f8cff1f;
-          border: 1px solid #2f8cff55;
-        }
-
-        .gl-wall-btn-p2 {
-          background: #f59e421f;
-          border: 1px solid #f59e4255;
-        }
-
-        .gl-wall-btn-faded { opacity: 0.28; }
-
-        .gl-wall-icon {
-          display: block;
-          border-radius: 999px;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-        }
-
-        .gl-wall-icon-p1 {
-          background: #2f8cff;
-          box-shadow:
-            0 0 16px #2f8cff44,
-            inset 0 1px 0 rgba(255, 255, 255, 0.35);
-        }
-
-        .gl-wall-icon-p2 {
-          background: #f59e42;
-          box-shadow:
-            0 0 16px #f59e4244,
-            inset 0 1px 0 rgba(255, 255, 255, 0.35);
-        }
-
-        .gl-wall-icon-h {
-          width: 34px;
-          height: 8px;
-        }
-
-        .gl-wall-icon-v {
-          width: 8px;
-          height: 34px;
-        }
-
-        @keyframes glPulse { 0%,100%{ opacity:.10; transform:scale(1);} 50%{ opacity:.22; transform:scale(1.18);} }
-        @keyframes glPop { 0%{ transform:scale(.82); opacity:0;} 100%{ transform:scale(1); opacity:1;} }
-        @keyframes glToast { 0%{ opacity:0; transform:translateY(8px) scale(.98);} 100%{ opacity:1; transform:none;} }
-        .gl-pulse { animation: glPulse 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-        .gl-pop { animation: glPop 150ms cubic-bezier(.2,.9,.2,1.15) both; transform-box: fill-box; transform-origin: center; }
-        .gl-tap { transition: transform .1s ease, opacity .1s ease, background-color .1s ease, border-color .1s ease; }
-        .gl-tap:active:not(:disabled) { transform: scale(.976); opacity:.92; }
+        .gl-root { font-family:'Supercell','Inter',system-ui,-apple-system,BlinkMacSystemFont,sans-serif; touch-action:none; overscroll-behavior:none; }
+        .gl-safe { line-height:1.45; padding-top:.12em; overflow:visible; }
+        .gl-board { background:rgba(18,18,24,.66); border:1px solid rgba(255,255,255,.075); box-shadow:inset 0 1px 0 rgba(255,255,255,.055),0 16px 34px rgba(0,0,0,.25); touch-action:none; contain:layout paint size; }
+        .gl-player { min-width:0; flex:1; display:flex; align-items:center; gap:8px; border:1px solid rgba(255,255,255,.075); border-radius:20px; padding:8px 9px; background:rgba(255,255,255,.035); opacity:.68; transition:.18s ease; }
+        .gl-player-rival { justify-content:flex-end; }
+        .gl-player-active { opacity:1; transform:translateY(-1px); }
+        .gl-player-mine.gl-player-active { border-color:rgba(47,140,255,.52); background:rgba(47,140,255,.11); box-shadow:0 8px 22px rgba(47,140,255,.08); }
+        .gl-player-rival.gl-player-active { border-color:rgba(245,158,66,.52); background:rgba(245,158,66,.11); box-shadow:0 8px 22px rgba(245,158,66,.08); }
+        .gl-avatar { width:36px; height:36px; flex:0 0 auto; display:grid; place-items:center; overflow:hidden; border-radius:14px; font-size:10px; font-weight:900; color:#fff; }
+        .gl-avatar-mine { background:${COLORS.mine}; border:1px solid rgba(91,183,255,.72); }
+        .gl-avatar-rival { background:${COLORS.rival}; border:1px solid rgba(255,180,92,.72); }
+        .gl-turn { width:42px; height:42px; flex:0 0 auto; display:grid; place-items:center; border-radius:15px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04); }
+        .gl-turn-mine { color:#dbeafe; border-color:rgba(47,140,255,.38); background:rgba(47,140,255,.10); }
+        .gl-turn-rival { color:#ffedd5; border-color:rgba(245,158,66,.38); background:rgba(245,158,66,.10); }
+        .gl-pawn { transition:transform 210ms cubic-bezier(.22,.85,.25,1); transform-box:view-box; }
+        .gl-pulse { animation:glPulse 1.8s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
+        .gl-wall-button { width:74px; height:50px; display:grid; place-items:center; border-radius:17px; border:1px solid rgba(47,140,255,.34); background:rgba(47,140,255,.11); transition:transform .12s ease,opacity .12s ease,border-color .12s ease; touch-action:none; }
+        .gl-wall-button:active:not(:disabled) { transform:scale(.97); }
+        .gl-wall-button:disabled { opacity:.28; }
+        .gl-wall-button-active { border-color:rgba(91,183,255,.72); }
+        .gl-wall-icon { display:block; border-radius:999px; background:${COLORS.mine}; box-shadow:0 0 16px rgba(47,140,255,.3),inset 0 1px 0 rgba(255,255,255,.35); }
+        .gl-wall-icon-h { width:34px; height:8px; }
+        .gl-wall-icon-v { width:8px; height:34px; }
+        .gl-notice { animation:glToast .15s ease-out both; background:rgba(9,9,13,.9); border:1px solid rgba(255,255,255,.09); box-shadow:0 10px 24px rgba(0,0,0,.28); }
+        .gl-result-card { background:rgba(13,17,25,.97); border:1px solid rgba(255,255,255,.1); box-shadow:0 30px 100px rgba(0,0,0,.72); }
+        @keyframes glPulse { 0%,100%{opacity:.10;transform:scale(1)} 50%{opacity:.22;transform:scale(1.18)} }
+        @keyframes glToast { from{opacity:0;transform:translateY(8px) scale(.98)} to{opacity:1;transform:none} }
       `}</style>
 
-      <header className="z-10 px-3 pt-[max(8px,env(safe-area-inset-top))]">
-        <div className="grid grid-cols-[1fr_40px_1fr] items-center gap-2">
-          <PlayerMini
-            cfg={CFG.p1}
-            player="p1"
-            count={left.p1}
-            timeLeft={clocks.p1}
-            active={turn === "p1" && !winner}
-            align="left"
-          />
-
-          <TurnBadge player={turn} done={!!winner} />
-
-          <PlayerMini
-            cfg={CFG.p2}
-            player="p2"
-            count={left.p2}
-            timeLeft={clocks.p2}
-            active={turn === "p2" && !winner}
-            align="right"
-          />
+      <header className="z-20 px-3 pt-[max(8px,env(safe-area-inset-top))]">
+        <div className="mx-auto flex max-w-[480px] items-center gap-2">
+          <PlayerHud profile={myProfile} walls={myWalls} active={myTurn} timeLeft={myTurn ? turnTimeLeft : 10} side="mine" />
+          <div className={`gl-turn ${myTurn ? 'gl-turn-mine' : opponentTurn ? 'gl-turn-rival' : ''}`}>
+            <span className="gl-safe text-[15px] font-black">{phase === 'match_over' ? '✓' : myTurn ? '↑' : opponentTurn ? '↓' : '•'}</span>
+          </div>
+          <PlayerHud profile={opponentProfile} walls={opponentWalls} active={opponentTurn} timeLeft={opponentTurn ? turnTimeLeft : 10} side="rival" />
+        </div>
+        <div className="mx-auto mt-2 flex max-w-[480px] justify-center">
+          <div className="gl-safe rounded-full border border-white/[0.08] bg-black/20 px-3 py-1.5 text-[7px] font-black uppercase tracking-[0.15em] text-white/42 backdrop-blur-md">
+            {phase === 'playing' ? (myTurn ? 'Твой ход' : 'Ход соперника') : serverState?.message || 'Подключение'}
+          </div>
         </div>
       </header>
 
       <main className="relative flex min-h-0 flex-1 items-center justify-center px-3 py-2">
-        <div
-          ref={boardRef}
-          onPointerCancel={() => {
-            setPreview(null);
-          }}
-          className="gl-board relative aspect-square w-full max-w-[min(100%,calc(100vh-168px))] overflow-hidden rounded-[25px] border"
-        >
+        <div ref={boardRef} className="gl-board relative aspect-square w-full max-w-[min(100%,calc(100vh-174px))] overflow-hidden rounded-[25px]">
           <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full touch-none">
             <defs>
-              <linearGradient id="pawn-p1" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor={CFG.p1.light} />
-                <stop offset="100%" stopColor={CFG.p1.dark} />
-              </linearGradient>
-              <linearGradient id="pawn-p2" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor={CFG.p2.light} />
-                <stop offset="100%" stopColor={CFG.p2.dark} />
-              </linearGradient>
-              <linearGradient id="wall-p1" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CFG.p1.light} />
-                <stop offset="100%" stopColor={CFG.p1.main} />
-              </linearGradient>
-              <linearGradient id="wall-p2" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CFG.p2.light} />
-                <stop offset="100%" stopColor={CFG.p2.main} />
-              </linearGradient>
+              <linearGradient id="pawn-mine" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={COLORS.mineLight} /><stop offset="100%" stopColor={COLORS.mineDark} /></linearGradient>
+              <linearGradient id="pawn-rival" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={COLORS.rivalLight} /><stop offset="100%" stopColor={COLORS.rivalDark} /></linearGradient>
+              <linearGradient id="wall-mine" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={COLORS.mineLight} /><stop offset="100%" stopColor={COLORS.mine} /></linearGradient>
+              <linearGradient id="wall-rival" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={COLORS.rivalLight} /><stop offset="100%" stopColor={COLORS.rival} /></linearGradient>
             </defs>
-
-            <rect x="0" y="0" width="100" height="100" fill="rgba(255,255,255,0.008)" />
-            <rect x={P} y={P} width={N * S} height={S} fill={CFG.p1.main} opacity={0.055} />
-            <rect x={P} y={P + S * (N - 1)} width={N * S} height={S} fill={CFG.p2.main} opacity={0.055} />
+            <rect x="0" y="0" width="100" height="100" fill="rgba(255,255,255,.008)" />
+            <rect x={P} y={P} width={N * S} height={S} fill={COLORS.mine} opacity={0.055} />
+            <rect x={P} y={P + S * (N - 1)} width={N * S} height={S} fill={COLORS.rival} opacity={0.055} />
 
             {cells.map((cell) => {
-              const legal = moveKeys.has(`${cell.r},${cell.c}`);
-
+              const legal = legalMoveKeys.has(`${cell.row},${cell.col}`);
               return (
-                <g key={`${cell.r}-${cell.c}`} onClick={() => tryMove(cell.r, cell.c)}>
-                  <rect
-                    x={cell.x + CELL_GAP / 2}
-                    y={cell.y + CELL_GAP / 2}
-                    width={S - CELL_GAP}
-                    height={S - CELL_GAP}
-                    rx={1.65}
-                    fill="rgba(255,255,255,0.036)"
-                    stroke="rgba(255,255,255,0.065)"
-                    strokeWidth={0.22}
-                  />
-
-                  {legal && !winner && !dragWall && (
-                    <g pointerEvents="none">
-                      <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.32} fill={cfg.main} opacity={0.96} />
-                    </g>
-                  )}
+                <g key={`${cell.row}-${cell.col}`} onClick={() => tryMove(cell.row, cell.col)}>
+                  <rect x={cell.x + CELL_GAP / 2} y={cell.y + CELL_GAP / 2} width={S - CELL_GAP} height={S - CELL_GAP} rx={1.65} fill="rgba(255,255,255,.036)" stroke="rgba(255,255,255,.065)" strokeWidth={0.22} />
+                  {legal && !dragWall && <circle cx={cell.x + S / 2} cy={cell.y + S / 2} r={1.32} fill={COLORS.mine} opacity={0.96} pointerEvents="none" />}
                 </g>
               );
             })}
 
-            {walls.map((w) => {
-              const r = wallRect(w);
+            {viewWalls.map((wall) => {
+              const rect = wallRect(wall);
+              const mine = wall.user_id === myUserId;
               return (
-                <g key={w.id} className="gl-pop" pointerEvents="none">
-                  <rect x={r.x} y={r.y + 0.48} width={r.w} height={r.h} rx={0.9} fill="rgba(0,0,0,0.28)" />
-                  <rect
-                    x={r.x}
-                    y={r.y}
-                    width={r.w}
-                    height={r.h}
-                    rx={0.9}
-                    fill={`url(#wall-${w.by})`}
-                    stroke="rgba(255,255,255,0.34)"
-                    strokeWidth={0.16}
-                  />
+                <g key={wall.id} pointerEvents="none">
+                  <rect x={rect.x} y={rect.y + 0.48} width={rect.width} height={rect.height} rx={0.9} fill="rgba(0,0,0,.28)" />
+                  <rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} rx={0.9} fill={`url(#wall-${mine ? 'mine' : 'rival'})`} stroke="rgba(255,255,255,.34)" strokeWidth={0.16} />
                 </g>
               );
             })}
 
             {preview && (() => {
-              const r = wallRect(preview);
+              const rect = wallRect(preview);
               return (
                 <g pointerEvents="none">
-                  <rect
-                    x={r.x - 0.38}
-                    y={r.y - 0.38}
-                    width={r.w + 0.76}
-                    height={r.h + 0.76}
-                    rx={1.1}
-                    fill="none"
-                    stroke={preview.valid ? "rgba(255,255,255,0.82)" : "#ffb4b4"}
-                    strokeWidth={0.42}
-                  />
-                  <rect
-                    x={r.x}
-                    y={r.y}
-                    width={r.w}
-                    height={r.h}
-                    rx={0.9}
-                    fill={preview.valid ? `url(#wall-${turn})` : APP.danger}
-                    opacity={preview.valid ? 0.98 : 0.78}
-                  />
+                  <rect x={rect.x - 0.38} y={rect.y - 0.38} width={rect.width + 0.76} height={rect.height + 0.76} rx={1.1} fill="none" stroke={preview.valid ? 'rgba(255,255,255,.82)' : '#ffb4b4'} strokeWidth={0.42} />
+                  <rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} rx={0.9} fill={preview.valid ? 'url(#wall-mine)' : COLORS.danger} opacity={preview.valid ? 0.98 : 0.78} />
                 </g>
               );
             })()}
 
-            <Pawn player="p1" pos={p1} active={turn === "p1" && !winner} />
-            <Pawn player="p2" pos={p2} active={turn === "p2" && !winner} />
+            <Pawn position={myPosition} mine active={myTurn} />
+            <Pawn position={opponentPosition} mine={false} active={opponentTurn} />
           </svg>
 
           {notice && (
             <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-center">
-              <div className="gl-notice rounded-2xl px-3 py-2 text-center text-[10px] font-black">
-                {notice}
-              </div>
-            </div>
-          )}
-
-          {winner && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/55 p-6">
-              <div className="gl-win-card w-full max-w-[300px] rounded-[26px] border px-5 py-6 text-center">
-                <div className="gl-win-label text-[9px] font-black uppercase tracking-[0.22em]">
-                  победа
-                </div>
-                <div className={`mt-2 text-2xl font-black ${winner === "p1" ? "gl-win-name-p1" : "gl-win-name-p2"}`}>
-                  {CFG[winner].name}
-                </div>
-                <button
-                  onClick={restart}
-                  className={`gl-tap mt-5 h-11 w-full rounded-2xl text-[11px] font-black uppercase tracking-[0.14em] ${winner === "p1" ? "gl-win-btn-p1" : "gl-win-btn-p2"}`}
-                  type="button"
-                >
-                  снова
-                </button>
-              </div>
+              <div className="gl-notice gl-safe rounded-2xl px-3 py-2 text-center text-[9px] font-black text-white/78">{notice}</div>
             </div>
           )}
         </div>
       </main>
 
-      <footer className="z-10 px-3 pb-[max(8px,env(safe-area-inset-bottom))]">
-        <div
-          className={`gl-wall-tray relative mx-auto grid h-[56px] w-[168px] grid-cols-2 gap-2 rounded-[22px] border p-1.5 ${dragWall?.overCancel ? "gl-wall-tray-cancel" : ""}`}
-        >
-          <WallDragButton
-            o="v"
-            player={turn}
-            disabled={!!winner || left[turn] <= 0}
-            faded={!!dragWall}
-            onPointerDown={(e) => startWallDrag("v", e)}
-          />
-
-          <WallDragButton
-            o="h"
-            player={turn}
-            disabled={!!winner || left[turn] <= 0}
-            faded={!!dragWall}
-            onPointerDown={(e) => startWallDrag("h", e)}
-          />
-
-          {dragWall?.overCancel && (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-[22px]">
-              <div className="gl-cancel-badge grid h-10 w-10 place-items-center rounded-full">
-                <TrashIcon />
-              </div>
-            </div>
-          )}
+      <footer className="z-20 px-3 pb-[max(8px,env(safe-area-inset-bottom))]">
+        <div className={`mx-auto flex h-[58px] w-[166px] items-center justify-center gap-2 rounded-[22px] border p-1.5 ${dragWall?.overCancel ? 'border-red-400/55 bg-red-500/15' : 'border-white/[0.075] bg-[#121218]/75'}`}>
+          <WallButton orientation="v" disabled={!canAct || myWalls <= 0} active={dragWall?.orientation === 'v'} onPointerDown={(event) => startWallDrag('v', event)} />
+          <WallButton orientation="h" disabled={!canAct || myWalls <= 0} active={dragWall?.orientation === 'h'} onPointerDown={(event) => startWallDrag('h', event)} />
         </div>
       </footer>
+
+      {phase === 'waiting' && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/35 px-5 text-center backdrop-blur-[3px]">
+          <div>
+            <div className="gl-safe text-[20px] font-black uppercase">Ждём соперника</div>
+            <div className="gl-safe mt-2 text-[8px] font-black uppercase tracking-[0.15em] text-white/40">Игра начнётся после подключения обоих игроков</div>
+          </div>
+        </div>
+      )}
+
+      {phase === 'countdown' && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/25 backdrop-blur-[2px]">
+          <div className="text-center">
+            <div className="gl-safe min-h-[82px] overflow-visible px-4 pt-3 text-[60px] font-black text-white drop-shadow-[0_10px_30px_rgba(47,140,255,.35)]">{countdownLeft || 'GO'}</div>
+            <div className="gl-safe mt-2 text-[9px] font-black uppercase tracking-[0.22em] text-white/48">Grid Lock</div>
+          </div>
+        </div>
+      )}
+
+      {phase === 'match_over' && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-black/72 px-4 backdrop-blur-[6px]">
+          <div className="gl-result-card relative w-full max-w-[342px] overflow-hidden rounded-[30px] px-5 pb-5 pt-6 text-center">
+            <div className={`pointer-events-none absolute inset-x-0 top-0 h-32 opacity-45 blur-2xl ${isDraw ? 'bg-white/10' : didWin ? 'bg-[#39E58C]/20' : 'bg-[#FF5D73]/20'}`} />
+            <div className="relative">
+              <div className="gl-safe text-[8px] font-black uppercase tracking-[0.22em] text-white/35">Grid Lock · Match result</div>
+              <h2 className={`gl-safe mt-2 py-1 text-[27px] font-black uppercase tracking-[-0.04em] ${isDraw ? 'text-white' : didWin ? 'text-[#49E99A]' : 'text-[#FF667B]'}`}>
+                {isDraw ? 'Ничья' : didWin ? 'Победа' : 'Поражение'}
+              </h2>
+
+              {!isDraw && (
+                <div className="mt-5 grid grid-cols-[1.2fr_auto_.9fr] items-end gap-3">
+                  <div className="min-w-0">
+                    <div className="relative mx-auto w-fit">
+                      <div className="absolute -inset-2 rounded-full bg-[#F7C85F]/15 blur-xl" />
+                      <div className="relative grid h-[92px] w-[92px] place-items-center overflow-hidden rounded-full border-2 border-[#F7C85F]/70 bg-white/[.07] text-[20px] font-black uppercase text-white">
+                        {winnerProfile.photoUrl ? <img src={winnerProfile.photoUrl} alt={winnerProfile.name} className="h-full w-full object-cover" draggable={false} /> : getInitials(winnerProfile.name)}
+                      </div>
+                    </div>
+                    <div className="gl-safe mt-2 truncate px-1 text-[9px] font-black text-[#F7C85F]">{winnerProfile.name}</div>
+                    <div className="gl-safe mt-1 text-[9px] font-black uppercase tracking-[.12em] text-white/36">первым дошёл до края</div>
+                  </div>
+                  <div className="gl-safe pb-9 text-[8px] font-black uppercase tracking-[.18em] text-white/22">VS</div>
+                  <div className="min-w-0 pb-1">
+                    <div className="mx-auto grid h-[64px] w-[64px] place-items-center overflow-hidden rounded-full border border-white/12 bg-white/[.045] text-[14px] font-black uppercase text-white/70">
+                      {loserProfile.photoUrl ? <img src={loserProfile.photoUrl} alt={loserProfile.name} className="h-full w-full object-cover opacity-80" draggable={false} /> : getInitials(loserProfile.name)}
+                    </div>
+                    <div className="gl-safe mt-2 truncate px-1 text-[8px] font-black text-white/38">{loserProfile.name}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="my-5 h-px bg-white/[.07]" />
+              <div className={`mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5 ${didWin ? 'border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]' : 'border-white/10 bg-white/[.05] text-white/55'}`}>
+                <span className="gl-safe text-[20px] font-black tabular-nums">{didWin ? `+${formatReward(serverState?.winner_profit || 0)}` : '0'}</span>
+                <img src={coinIcon} alt="GAME" className="h-6 w-6 object-contain" draggable={false} />
+              </div>
+
+              <button type="button" onClick={backToLobbies} className="mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[.11] bg-[linear-gradient(180deg,rgba(255,255,255,.10)_0%,rgba(255,255,255,.045)_100%)] px-2.5 py-2.5 text-white active:scale-[.985]">
+                <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[.10] bg-black/20 text-white/72"><svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><path d="m11 18-6-6 6-6" /></svg></span>
+                <span className="gl-safe px-2 text-[10px] font-black uppercase tracking-[.14em]">К лобби</span>
+                <span className="grid h-[38px] w-[38px] place-items-center text-white/30"><svg viewBox="0 0 24 24" className="h-[16px] w-[16px]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-const TurnBadge = ({ player, done }: { player: PlayerId; done: boolean }) => {
-  const cfg = CFG[player];
-
-  return (
-    <div
-      className={`grid h-10 w-10 place-items-center rounded-[16px] border text-[15px] font-black ${done ? "gl-turn-badge-done" : player === "p1" ? "gl-turn-badge-p1" : "gl-turn-badge-p2"}`}
-      aria-label="Текущий ход"
-    >
-      {done ? "✓" : cfg.arrow}
-    </div>
-  );
-};
-
-const PlayerMini = ({
-  cfg,
-  player,
-  count,
-  timeLeft,
-  active,
-  align,
-}: {
-  cfg: PlayerCfg;
-  player: PlayerId;
-  count: number;
-  timeLeft: number;
-  active: boolean;
-  align: "left" | "right";
-}) => {
-  const lowTime = timeLeft <= 15;
-
-  return (
-    <div
-      className={`flex min-h-[64px] min-w-0 items-center gap-2 rounded-[20px] border px-2.5 py-2.5 gl-player-mini-${player} ${active ? "gl-player-active" : ""} ${align === "right" ? "gl-player-row-right" : "gl-player-row-left"}`}
-    >
-      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-[14px] text-[11px] font-black gl-player-badge-${player}`}>
-        {cfg.short}
-      </span>
-      <span className={`min-w-0 leading-[1.16] ${align === "right" ? "gl-player-align-right" : "gl-player-align-left"}`}>
-        <span className={`block truncate text-[10.5px] font-black gl-player-name-${player}`}>
-          {cfg.name}
-        </span>
-        <span
-          className={`mt-1 block truncate text-[12px] font-black tabular-nums tracking-[0.05em] ${lowTime ? "gl-player-clock-low" : active ? "gl-player-clock-active" : "gl-player-clock-idle"}`}
-        >
-          {formatClock(timeLeft)}
-        </span>
-        <span className="gl-player-meta mt-1 block truncate text-[8px] font-black uppercase tracking-[0.12em] leading-[1.25]">
-          {count} стен
-        </span>
-      </span>
-    </div>
-  );
-};
-
-const WallDragButton = ({
-  o,
-  player,
-  disabled,
-  faded,
-  onPointerDown,
-}: {
-  o: Orientation;
-  player: PlayerId;
-  disabled?: boolean;
-  faded?: boolean;
-  onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
-}) => (
-  <button
-    onPointerDown={onPointerDown}
-    disabled={disabled}
-    className={`gl-tap gl-wall-btn gl-wall-btn-${player} grid place-items-center rounded-[17px] disabled:opacity-35 ${faded ? "gl-wall-btn-faded" : ""}`}
-    type="button"
-    aria-label={o === "h" ? "Поставить горизонтальную стену" : "Поставить вертикальную стену"}
-  >
-    <span className={`gl-wall-icon gl-wall-icon-${player} ${o === "h" ? "gl-wall-icon-h" : "gl-wall-icon-v"}`} />
-  </button>
-);
-
-const TrashIcon = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    aria-hidden="true"
-  >
-    <path
-      d="M9 4.75h6M10 4.75l.55-1.15A1 1 0 0 1 11.45 3h1.1a1 1 0 0 1 .9.6L14 4.75M5.75 7h12.5M8 7.75l.7 11.1A2 2 0 0 0 10.7 20.75h2.6a2 2 0 0 0 2-1.9l.7-11.1M10.25 10.25v7M13.75 10.25v7"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
 
 export const GridLock = GridLockGame;
 export const LegoBoardGame = GridLockGame;
