@@ -136,6 +136,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     meta: 'Race',
     playPath: '/game/street_race/play',
     coverUrl: raceCover,
+    launchMode: 'direct',
   },
   {
     code: 'dunk_shot',
@@ -223,7 +224,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
   },
   {
     code: 'ballz_duel',
-    displayName: 'Ballz Duel',
+    displayName: 'Balls Duel',
     icon: '⚪',
     description: 'Разбей 2 случайных поля точными рикошетами за 90 секунд',
     color: 'from-[#56E3FF]/24 via-[#FFD64A]/14 to-transparent',
