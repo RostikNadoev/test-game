@@ -19,6 +19,7 @@ const (
 	CrossyPVPGameCode  = "crossy_pvp"
 	CoinChaseGameCode  = "coin_chase"
 	CubeFillGameCode   = "cube_fill"
+	DrawDropGameCode   = "draw_drop"
 	BallzDuelGameCode  = "ballz_duel"
 
 	PhaseWaiting   = "waiting"
@@ -30,6 +31,7 @@ const (
 	MatchDuration          = 45 * time.Second
 	CoinChaseMatchDuration = 60 * time.Second
 	CubeFillMatchDuration  = 60 * time.Second
+	DrawDropMatchDuration  = 100 * time.Second
 	BallzDuelMatchDuration = 90 * time.Second
 	SessionTTL             = 30 * time.Minute
 )
@@ -66,6 +68,14 @@ type PublicState struct {
 	CubeMoves           map[uint]int       `json:"cube_moves,omitempty"`
 	CubeEfficiency      map[uint]int       `json:"cube_efficiency,omitempty"`
 	CubeFinished        map[uint]bool      `json:"cube_finished,omitempty"`
+	DrawLevelIndices    []int              `json:"draw_level_indices,omitempty"`
+	DrawCompleted       map[uint][]bool    `json:"draw_completed,omitempty"`
+	DrawInk             map[uint][]int     `json:"draw_ink,omitempty"`
+	DrawCompletedCount  map[uint]int       `json:"draw_completed_count,omitempty"`
+	DrawTotalInk        map[uint]int       `json:"draw_total_ink,omitempty"`
+	DrawInkRatioBP      map[uint]int       `json:"draw_ink_ratio_bp,omitempty"`
+	DrawEfficiencyBP    map[uint]int       `json:"draw_efficiency_bp,omitempty"`
+	DrawFinished        map[uint]bool      `json:"draw_finished,omitempty"`
 	BallzStages         []BallzStageLayout `json:"ballz_stages,omitempty"`
 	BallzStage          map[uint]int       `json:"ballz_stage,omitempty"`
 	BallzBrickHP        map[uint][]int     `json:"ballz_brick_hp,omitempty"`
@@ -183,19 +193,21 @@ type Session struct {
 	clients     map[uint]*Client
 	betCoins    float64
 
-	scores           map[uint]int
-	combos           map[uint]int
-	bestCombos       map[uint]int
-	heightScores     map[uint]int
-	heightSteps      map[uint]int
-	lastEventID      map[uint]uint64
-	lastEventAt      map[uint]map[string]time.Time
-	seenObjects      map[uint]map[string]bool
-	lastGateID       map[uint]int64
-	cubeLevelIndices []int
-	cubeStates       map[uint]*CubeFillPlayerState
-	ballzStages      []BallzStageLayout
-	ballzStates      map[uint]*BallzPlayerState
+	scores               map[uint]int
+	combos               map[uint]int
+	bestCombos           map[uint]int
+	heightScores         map[uint]int
+	heightSteps          map[uint]int
+	lastEventID          map[uint]uint64
+	lastEventAt          map[uint]map[string]time.Time
+	seenObjects          map[uint]map[string]bool
+	lastGateID           map[uint]int64
+	cubeLevelIndices     []int
+	cubeStates           map[uint]*CubeFillPlayerState
+	drawDropLevelIndices []int
+	drawDropStates       map[uint]*DrawDropPlayerState
+	ballzStages          []BallzStageLayout
+	ballzStates          map[uint]*BallzPlayerState
 
 	phase           string
 	seed            int64
@@ -226,26 +238,27 @@ func NewSession(
 	onMatchOver func(lobbyID string, winnerUserID *uint),
 ) *Session {
 	s := &Session{
-		gameCode:     normalizeGameCode(gameCode),
-		lobbyID:      lobbyID,
-		playerOrder:  append([]uint(nil), playerIDs...),
-		clients:      make(map[uint]*Client),
-		betCoins:     maxFloat64(0, betCoins),
-		scores:       make(map[uint]int),
-		combos:       make(map[uint]int),
-		bestCombos:   make(map[uint]int),
-		heightScores: make(map[uint]int),
-		heightSteps:  make(map[uint]int),
-		lastEventID:  make(map[uint]uint64),
-		lastEventAt:  make(map[uint]map[string]time.Time),
-		seenObjects:  make(map[uint]map[string]bool),
-		lastGateID:   make(map[uint]int64),
-		cubeStates:   make(map[uint]*CubeFillPlayerState),
-		ballzStates:  make(map[uint]*BallzPlayerState),
-		phase:        PhaseWaiting,
-		seed:         randomSeed(),
-		lastActivity: time.Now(),
-		onMatchOver:  onMatchOver,
+		gameCode:       normalizeGameCode(gameCode),
+		lobbyID:        lobbyID,
+		playerOrder:    append([]uint(nil), playerIDs...),
+		clients:        make(map[uint]*Client),
+		betCoins:       maxFloat64(0, betCoins),
+		scores:         make(map[uint]int),
+		combos:         make(map[uint]int),
+		bestCombos:     make(map[uint]int),
+		heightScores:   make(map[uint]int),
+		heightSteps:    make(map[uint]int),
+		lastEventID:    make(map[uint]uint64),
+		lastEventAt:    make(map[uint]map[string]time.Time),
+		seenObjects:    make(map[uint]map[string]bool),
+		lastGateID:     make(map[uint]int64),
+		cubeStates:     make(map[uint]*CubeFillPlayerState),
+		drawDropStates: make(map[uint]*DrawDropPlayerState),
+		ballzStates:    make(map[uint]*BallzPlayerState),
+		phase:          PhaseWaiting,
+		seed:           randomSeed(),
+		lastActivity:   time.Now(),
+		onMatchOver:    onMatchOver,
 	}
 
 	for _, id := range playerIDs {
@@ -394,6 +407,10 @@ func (s *Session) applyEventLocked(userID uint, message ClientMessage) {
 		s.finishLocked()
 		return
 	}
+	if s.gameCode == DrawDropGameCode && s.drawDropAllFinishedLocked() {
+		s.finishLocked()
+		return
+	}
 	if s.gameCode == BallzDuelGameCode && s.ballzAllFinishedLocked() {
 		s.broadcastLocked(s.publicStateLocked())
 		delay := s.ballzFinishDelayLocked(now)
@@ -436,6 +453,8 @@ func (s *Session) calculateEventLocked(
 		return s.applyCoinChaseEventLocked(userID, message, kind, now)
 	case CubeFillGameCode:
 		return s.applyCubeFillEventLocked(userID, message, kind)
+	case DrawDropGameCode:
+		return s.applyDrawDropEventLocked(userID, message, kind)
 	case BallzDuelGameCode:
 		return s.applyBallzEventLocked(userID, message, kind, now)
 	default:
@@ -708,6 +727,8 @@ func (s *Session) eventIntervalAllowedLocked(userID uint, kind string, now time.
 		minimum = 110 * time.Millisecond
 	case "swipe":
 		minimum = 95 * time.Millisecond
+	case "complete":
+		minimum = 450 * time.Millisecond
 	case "shot":
 		minimum = 300 * time.Millisecond
 	}
@@ -809,6 +830,10 @@ func (s *Session) finishLocked() {
 		winner, draw := s.ballzWinnerLocked()
 		s.winnerUserID = winner
 		s.draw = draw
+	} else if s.gameCode == DrawDropGameCode {
+		winner, draw := s.drawDropWinnerLocked()
+		s.winnerUserID = winner
+		s.draw = draw
 	} else {
 		s.draw = s.scores[first] == s.scores[second]
 		if !s.draw {
@@ -858,6 +883,13 @@ func (s *Session) resetScoresLocked() {
 		s.cubeStates = make(map[uint]*CubeFillPlayerState)
 	}
 
+	if s.gameCode == DrawDropGameCode {
+		s.resetDrawDropLocked()
+	} else {
+		s.drawDropLevelIndices = nil
+		s.drawDropStates = make(map[uint]*DrawDropPlayerState)
+	}
+
 	if s.gameCode == BallzDuelGameCode {
 		s.resetBallzLocked()
 	} else {
@@ -885,6 +917,15 @@ func (s *Session) publicStateLocked() PublicState {
 	var cubeMoves map[uint]int
 	var cubeEfficiency map[uint]int
 	var cubeFinished map[uint]bool
+
+	var drawLevelIndices []int
+	var drawCompleted map[uint][]bool
+	var drawInk map[uint][]int
+	var drawCompletedCount map[uint]int
+	var drawTotalInk map[uint]int
+	var drawInkRatioBP map[uint]int
+	var drawEfficiencyBP map[uint]int
+	var drawFinished map[uint]bool
 
 	var ballzStages []BallzStageLayout
 	var ballzStage map[uint]int
@@ -918,6 +959,37 @@ func (s *Session) publicStateLocked() PublicState {
 			cubeMoves[id] = player.TotalMoves
 			cubeEfficiency[id] = s.cubeFillEfficiencyLocked(player)
 			cubeFinished[id] = player.Finished
+		}
+	}
+
+	if s.gameCode == DrawDropGameCode {
+		drawLevelIndices = append([]int(nil), s.drawDropLevelIndices...)
+		drawCompleted = make(map[uint][]bool, len(s.playerOrder))
+		drawInk = make(map[uint][]int, len(s.playerOrder))
+		drawCompletedCount = make(map[uint]int, len(s.playerOrder))
+		drawTotalInk = make(map[uint]int, len(s.playerOrder))
+		drawInkRatioBP = make(map[uint]int, len(s.playerOrder))
+		drawEfficiencyBP = make(map[uint]int, len(s.playerOrder))
+		drawFinished = make(map[uint]bool, len(s.playerOrder))
+
+		for _, id := range s.playerOrder {
+			player := s.drawDropStates[id]
+			if player == nil {
+				continue
+			}
+			completed := make([]bool, drawDropRoundLevelCount)
+			ink := make([]int, drawDropRoundLevelCount)
+			for slot := 0; slot < drawDropRoundLevelCount; slot++ {
+				completed[slot] = player.Completed[slot]
+				ink[slot] = player.InkUsed[slot]
+			}
+			drawCompleted[id] = completed
+			drawInk[id] = ink
+			drawCompletedCount[id] = player.completedCount()
+			drawTotalInk[id] = player.totalInk()
+			drawInkRatioBP[id] = s.drawDropInkRatioBPLocked(player)
+			drawEfficiencyBP[id] = s.drawDropEfficiencyBPLocked(player)
+			drawFinished[id] = player.Finished
 		}
 	}
 
@@ -985,6 +1057,14 @@ func (s *Session) publicStateLocked() PublicState {
 		CubeMoves:           cubeMoves,
 		CubeEfficiency:      cubeEfficiency,
 		CubeFinished:        cubeFinished,
+		DrawLevelIndices:    drawLevelIndices,
+		DrawCompleted:       drawCompleted,
+		DrawInk:             drawInk,
+		DrawCompletedCount:  drawCompletedCount,
+		DrawTotalInk:        drawTotalInk,
+		DrawInkRatioBP:      drawInkRatioBP,
+		DrawEfficiencyBP:    drawEfficiencyBP,
+		DrawFinished:        drawFinished,
 		BallzStages:         ballzStages,
 		BallzStage:          ballzStage,
 		BallzBrickHP:        ballzBrickHP,
@@ -1113,6 +1193,8 @@ func matchDurationForGame(gameCode string) time.Duration {
 		return CoinChaseMatchDuration
 	case CubeFillGameCode:
 		return CubeFillMatchDuration
+	case DrawDropGameCode:
+		return DrawDropMatchDuration
 	case BallzDuelGameCode:
 		return BallzDuelMatchDuration
 	default:
@@ -1122,7 +1204,7 @@ func matchDurationForGame(gameCode string) time.Duration {
 
 func IsSupportedGame(gameCode string) bool {
 	switch normalizeGameCode(gameCode) {
-	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode, CubeFillGameCode, BallzDuelGameCode:
+	case FlappyRaceGameCode, DoodleJumpGameCode, CrossyPVPGameCode, CoinChaseGameCode, CubeFillGameCode, DrawDropGameCode, BallzDuelGameCode:
 		return true
 	default:
 		return false

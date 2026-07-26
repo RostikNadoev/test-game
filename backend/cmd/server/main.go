@@ -8,7 +8,6 @@ import (
 	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/games/discfootball"
 	"tg-lobbies-base/internal/games/dunkshot"
-	"tg-lobbies-base/internal/games/gridlock"
 	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
 	"tg-lobbies-base/internal/games/physicsduel"
@@ -78,12 +77,6 @@ func main() {
 	neonMatrixManager := neonmatrix.NewManager()
 	go neonMatrixManager.CleanupLoop()
 	neonMatrixManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
-	})
-
-	gridLockManager := gridlock.NewManager()
-	go gridLockManager.CleanupLoop()
-	gridLockManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
@@ -187,6 +180,13 @@ func main() {
 		GameCode:   arcaderace.CubeFillGameCode,
 	}
 
+	drawDropWSHandler := handlers.ArcadeRaceWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    arcadeRaceManager,
+		GameCode:   arcaderace.DrawDropGameCode,
+	}
+
 	ballzDuelWSHandler := handlers.ArcadeRaceWSHandler{
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
@@ -198,12 +198,6 @@ func main() {
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
 		Manager:    neonMatrixManager,
-	}
-
-	gridLockWSHandler := handlers.GridLockWSHandler{
-		Cfg:        cfg,
-		LobbyStore: lobbyStore,
-		Manager:    gridLockManager,
 	}
 
 	paperWSHandler := handlers.PaperIoWSHandler{
@@ -248,9 +242,9 @@ func main() {
 	router.GET("/ws/crossy-road/:lobby_id", crossyPVPWSHandler.Connect)
 	router.GET("/ws/coin-chase/:lobby_id", coinChaseWSHandler.Connect)
 	router.GET("/ws/cube-fill/:lobby_id", cubeFillWSHandler.Connect)
+	router.GET("/ws/draw-drop/:lobby_id", drawDropWSHandler.Connect)
 	router.GET("/ws/ballz-duel/:lobby_id", ballzDuelWSHandler.Connect)
 	router.GET("/ws/neon-matrix/:lobby_id", neonMatrixWSHandler.Connect)
-	router.GET("/ws/grid-lock/:lobby_id", gridLockWSHandler.Connect)
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/descent-duel/:lobby_id", physicsDuelWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)

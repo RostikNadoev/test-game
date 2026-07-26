@@ -4,6 +4,7 @@ export type ArcadeRaceGameCode =
   | 'crossy_pvp'
   | 'coin_chase'
   | 'cube_fill'
+  | 'draw_drop'
   | 'ballz_duel';
 
 export type ArcadeRaceMatchPhase =
@@ -50,6 +51,14 @@ export type ArcadeRaceStateMessage = {
   cube_moves: Record<string, number>;
   cube_efficiency: Record<string, number>;
   cube_finished: Record<string, boolean>;
+  draw_level_indices: number[];
+  draw_completed: Record<string, boolean[]>;
+  draw_ink: Record<string, number[]>;
+  draw_completed_count: Record<string, number>;
+  draw_total_ink: Record<string, number>;
+  draw_ink_ratio_bp: Record<string, number>;
+  draw_efficiency_bp: Record<string, number>;
+  draw_finished: Record<string, boolean>;
   ballz_stages: BallzStageLayout[];
   ballz_stage: Record<string, number>;
   ballz_brick_hp: Record<string, number[]>;
@@ -220,6 +229,7 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     rawGame !== 'crossy_pvp' &&
     rawGame !== 'coin_chase' &&
     rawGame !== 'cube_fill' &&
+    rawGame !== 'draw_drop' &&
     rawGame !== 'ballz_duel'
   ) {
     return null;
@@ -262,6 +272,18 @@ const normalizeState = (value: unknown): ArcadeRaceStateMessage | null => {
     cube_moves: normalizeNumberMap(value.cube_moves),
     cube_efficiency: normalizeNumberMap(value.cube_efficiency),
     cube_finished: normalizeBooleanMap(value.cube_finished),
+    draw_level_indices: Array.isArray(value.draw_level_indices)
+      ? value.draw_level_indices
+          .map((item) => Math.trunc(toNumber(item)))
+          .filter((item) => item >= 0)
+      : [],
+    draw_completed: normalizeBooleanArrayMap(value.draw_completed),
+    draw_ink: normalizeNumberArrayMap(value.draw_ink),
+    draw_completed_count: normalizeNumberMap(value.draw_completed_count),
+    draw_total_ink: normalizeNumberMap(value.draw_total_ink),
+    draw_ink_ratio_bp: normalizeNumberMap(value.draw_ink_ratio_bp),
+    draw_efficiency_bp: normalizeNumberMap(value.draw_efficiency_bp),
+    draw_finished: normalizeBooleanMap(value.draw_finished),
     ballz_stages: normalizeBallzStages(value.ballz_stages),
     ballz_stage: normalizeNumberMap(value.ballz_stage),
     ballz_brick_hp: normalizeNumberArrayMap(value.ballz_brick_hp),
@@ -313,6 +335,8 @@ const pathForGame = (gameCode: ArcadeRaceGameCode) => {
       return '/ws/coin-chase/';
     case 'cube_fill':
       return '/ws/cube-fill/';
+    case 'draw_drop':
+      return '/ws/draw-drop/';
     case 'ballz_duel':
       return '/ws/ballz-duel/';
   }

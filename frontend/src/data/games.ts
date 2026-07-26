@@ -36,7 +36,8 @@ export type GameCode =
   | 'prism_cube'
   | 'coin_chase'
   | 'cube_fill'
-  | 'ballz_duel';
+  | 'ballz_duel'
+  | 'draw_drop';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -221,6 +222,17 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/cube_fill/play',
     launchMode: 'lobby',
     coverUrl: cubeCover,
+  },
+  {
+    code: 'draw_drop',
+    displayName: 'Draw & Drop',
+    icon: '✏️',
+    description: 'Нарисуй путь, пройди 5 физических карт и потрать меньше чернил',
+    color: 'from-[#62D9FF]/24 via-[#62FFB0]/14 to-transparent',
+    meta: 'Physics PvP',
+    status: 'New',
+    playPath: '/game/draw_drop/play',
+    launchMode: 'lobby',
   },
   {
     code: 'ballz_duel',

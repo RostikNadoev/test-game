@@ -72,6 +72,7 @@ const CrossyRoadGame = lazy(() => import("./pages/CrossyRoadGame"));
 const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
 const CubeFillGame = lazy(() => import("./pages/CubeFillGame"));
 const BallzDuelGame = lazy(() => import("./pages/BallzDuelGame"));
+const DrawDropGame = lazy(() => import("./pages/DrawDropGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -184,6 +185,7 @@ function AppShell() {
   const isCoinChaseRoute = location.pathname === "/game/coin_chase/play";
   const isCubeFillRoute = location.pathname === "/game/cube_fill/play";
   const isBallzDuelRoute = location.pathname === "/game/ballz_duel/play";
+  const isDrawDropRoute = location.pathname === "/game/draw_drop/play";
   const hasFullScreenArcadeBackground =
     isFlappyRaceRoute ||
     isDoodleJumpRoute ||
@@ -275,8 +277,10 @@ function AppShell() {
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-    const themeColor = isFruitCascadeRoute
-      ? "#10081f"
+    const themeColor = isDrawDropRoute
+      ? "#ffffff"
+      : isFruitCascadeRoute
+        ? "#10081f"
       : isCubeFillRoute
         ? "#171137"
         : isBallzDuelRoute
@@ -288,6 +292,7 @@ function AppShell() {
     tg?.setHeaderColor?.(themeColor);
     tg?.setBackgroundColor?.(themeColor);
   }, [
+    isDrawDropRoute,
     isBallzDuelRoute,
     isCubeFillRoute,
     isFruitCascadeRoute,
@@ -331,7 +336,11 @@ function AppShell() {
       className={[
         "app-shell",
         isSoloRoute ? "solo-app-shell bg-[#060b14]" : "",
-        hasFullScreenArcadeBackground ? "bg-transparent" : "bg-[#09090d]",
+        isDrawDropRoute
+          ? "bg-white"
+          : hasFullScreenArcadeBackground
+            ? "bg-transparent"
+            : "bg-[#09090d]",
         isFruitCascadeRoute ? "fruit-cascade-app-shell" : "",
       ].join(" ")}
     >
@@ -445,6 +454,7 @@ function AppShell() {
                 path="/game/ballz_duel/play"
                 element={<BallzDuelGame />}
               />
+              <Route path="/game/draw_drop/play" element={<DrawDropGame />} />
 
               <Route path="/profile" element={<Profile />} />
               <Route path="/rating" element={<Rating />} />

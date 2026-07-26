@@ -23,6 +23,7 @@ var PvpGames = []PvpGame{
 	{Code: "crossy_pvp", DisplayName: "Crossy PVP"},
 	{Code: "coin_chase", DisplayName: "Coin Chase"},
 	{Code: "cube_fill", DisplayName: "Cube Fill"},
+	{Code: "draw_drop", DisplayName: "Draw & Drop"},
 	{Code: "ballz_duel", DisplayName: "Ballz Duel"},
 }
 
