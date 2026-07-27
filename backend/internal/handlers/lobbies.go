@@ -25,8 +25,6 @@ type lobbyIDRequest struct {
 
 func wsURLForGame(game string, lobbyID string) string {
 	switch realtime.NormalizeGameCode(game) {
-	case "blackjack_duel":
-		return "/ws/blackjack/" + lobbyID
 	case "disc_football":
 		return "/ws/disc-football/" + lobbyID
 	case "dunk_shot":
@@ -45,8 +43,6 @@ func wsURLForGame(game string, lobbyID string) string {
 		return "/ws/plinko/" + lobbyID
 	case "paper_io":
 		return "/ws/paper-io/" + lobbyID
-	case "street_race":
-		return "/ws/street-race/" + lobbyID
 	case "tower_stack":
 		return "/ws/tower-stack/" + lobbyID
 	default:

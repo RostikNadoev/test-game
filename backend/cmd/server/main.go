@@ -5,14 +5,12 @@ import (
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
 	"tg-lobbies-base/internal/games/arcaderace"
-	"tg-lobbies-base/internal/games/blackjack"
 	"tg-lobbies-base/internal/games/discfootball"
 	"tg-lobbies-base/internal/games/dunkshot"
 	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
 	"tg-lobbies-base/internal/games/physicsduel"
 	"tg-lobbies-base/internal/games/plinko"
-	"tg-lobbies-base/internal/games/pvp"
 	"tg-lobbies-base/internal/games/towerstack"
 	"tg-lobbies-base/internal/handlers"
 	"tg-lobbies-base/internal/middleware"
@@ -47,13 +45,6 @@ func main() {
 
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
-
-	blackjackManager := blackjack.NewManager()
-	go blackjackManager.CleanupLoop()
-	blackjackManager.SetOnMatchOver(func(lobbyID string, winnerUserID uint) {
-		winner := winnerUserID
-		settleLobbyMatch(lobbyStore, lobbyID, &winner)
-	})
 
 	discFootballManager := discfootball.NewManager()
 	go discFootballManager.CleanupLoop()
@@ -104,11 +95,6 @@ func main() {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
-	pvpManager := pvp.NewManager()
-	pvpManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
-	})
-
 	authHandler := handlers.AuthHandler{Cfg: cfg}
 	userHandler := handlers.UserHandler{}
 	walletHandler := handlers.WalletHandler{}
@@ -126,12 +112,6 @@ func main() {
 			}
 		}
 	}()
-
-	blackjackWSHandler := handlers.BlackjackWSHandler{
-		Cfg:        cfg,
-		LobbyStore: lobbyStore,
-		Manager:    blackjackManager,
-	}
 
 	discFootballWSHandler := handlers.DiscFootballWSHandler{
 		Cfg:        cfg,
@@ -224,17 +204,9 @@ func main() {
 		Manager:    physicsDuelManager,
 	}
 
-	raceWSHandler := handlers.PvpWSHandler{
-		Cfg:        cfg,
-		LobbyStore: lobbyStore,
-		Manager:    pvpManager,
-		GameCode:   "street_race",
-	}
-
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
 
-	router.GET("/ws/blackjack/:lobby_id", blackjackWSHandler.Connect)
 	router.GET("/ws/disc-football/:lobby_id", discFootballWSHandler.Connect)
 	router.GET("/ws/dunk-shot/:lobby_id", dunkShotWSHandler.Connect)
 	router.GET("/ws/flappy-race/:lobby_id", flappyRaceWSHandler.Connect)
@@ -248,7 +220,6 @@ func main() {
 	router.GET("/ws/plinko/:lobby_id", plinkoWSHandler.Connect)
 	router.GET("/ws/descent-duel/:lobby_id", physicsDuelWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
-	router.GET("/ws/street-race/:lobby_id", raceWSHandler.Connect)
 	router.GET("/ws/tower-stack/:lobby_id", towerWSHandler.Connect)
 
 	router.GET("/health", func(c *gin.Context) {

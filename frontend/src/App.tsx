@@ -56,8 +56,6 @@ const NeonScratchSoloGame = lazy(() =>
     default: module.NeonScratchSoloGame,
   })),
 );
-const RaceGame = lazy(() => import("./pages/RaceGame"));
-const BlackjackDuelGame = lazy(() => import("./pages/BlackjackDuelGame"));
 const GridLockGame = lazy(() => import("./pages/GridLockGame"));
 const NeonMatrixGame = lazy(() => import("./pages/NeonMatrixGame"));
 const PaperIoGame = lazy(() => import("./pages/PaperIoGame"));
@@ -417,14 +415,9 @@ function AppShell() {
               />
               <Route path="/game/grid_lock/play" element={<GridLockGame />} />
               <Route
-                path="/game/blackjack_duel/play"
-                element={<BlackjackDuelGame />}
-              />
-              <Route
                 path="/game/neon_matrix/play"
                 element={<NeonMatrixGame />}
               />
-              <Route path="/game/street_race/play" element={<RaceGame />} />
               <Route path="/game/dunk_shot/play" element={<DunkShotGame />} />
               <Route
                 path="/game/flappy_race/play"

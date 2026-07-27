@@ -1,9 +1,7 @@
 import plinkoCover from '../assets/home/plinko.webp';
 import descentCover from '../assets/home/descent.webp';
-import blCover from '../assets/home/21.webp';
 import paperCover from '../assets/home/paper.webp';
 import towerCover from '../assets/home/tower.webp';
-import raceCover from '../assets/home/race.webp';
 import gridCover from '../assets/home/grid.webp';
 import rouletteCover from '../assets/home/roulette.webp';
 import dunkCover from '../assets/home/dunk.webp';
@@ -25,9 +23,7 @@ export type GameCode =
   | 'virus_market'
   | 'rps_duel'
   | 'grid_lock'
-  | 'blackjack_duel'
   | 'neon_matrix'
-  | 'street_race'
   | 'penalty_pvp'
   | 'air_hockey'
   | 'dunk_shot'
@@ -110,16 +106,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     coverUrl: gridCover,
   },
   {
-    code: 'blackjack_duel',
-    displayName: 'Blackjack Duel',
-    icon: '🂡',
-    description: '21 на 1v1',
-    color: 'from-[#54F2A8]/22 via-[#52FFE5]/10 to-transparent',
-    meta: 'Cards',
-    playPath: '/game/blackjack_duel/play',
-    coverUrl: blCover,
-  },
-  {
     code: 'neon_matrix',
     displayName: 'Neon Matrix',
     icon: '🔢',
@@ -129,17 +115,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'Top',
     playPath: '/game/neon_matrix/play',
     coverUrl: rouletteCover,
-  },
-  {
-    code: 'street_race',
-    displayName: 'Street Race',
-    icon: '🏎️',
-    description: 'Гонки на скорость',
-    color: 'from-[#52FFE5]/18 via-[#9D7CFF]/10 to-transparent',
-    meta: 'Race',
-    playPath: '/game/street_race/play',
-    coverUrl: raceCover,
-    launchMode: 'direct',
   },
   {
     code: 'dunk_shot',

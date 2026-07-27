@@ -484,14 +484,10 @@ func NormalizeGameCode(value string) string {
 		return "rps_duel"
 	case "grid-lock":
 		return "grid_lock"
-	case "blackjack-duel":
-		return "blackjack_duel"
 	case "dice-duel":
 		return "dice_duel"
 	case "neon-matrix":
 		return "neon_matrix"
-	case "street-race", "strett_race", "strett-race":
-		return "street_race"
 	case "air_hockey":
 		return "air_hockey"
 	case "disc_football":
