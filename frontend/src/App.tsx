@@ -30,7 +30,6 @@ import {
   getTelegramWebApp,
 } from "./types/telegram";
 import appLoaderGif from "./assets/app-loader.gif";
-import slingBackground from "./assets/games/sling/background_meadow.webp";
 
 const FruitCascadeSoloGame = lazy(() =>
   import("./pages/solo/FruitCascadeSoloGame").then((module) => ({
@@ -72,7 +71,6 @@ const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
 const CubeFillGame = lazy(() => import("./pages/CubeFillGame"));
 const BallzDuelGame = lazy(() => import("./pages/BallzDuelGame"));
 const DrawDropGame = lazy(() => import("./pages/DrawDropGame"));
-const SlingSiegeGame = lazy(() => import("./pages/SlingSiegeGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -186,15 +184,13 @@ function AppShell() {
   const isCubeFillRoute = location.pathname === "/game/cube_fill/play";
   const isBallzDuelRoute = location.pathname === "/game/ballz_duel/play";
   const isDrawDropRoute = location.pathname === "/game/draw_drop/play";
-  const isSlingSiegeRoute = location.pathname === "/game/sling_siege/play";
   const hasFullScreenArcadeBackground =
     isFlappyRaceRoute ||
     isDoodleJumpRoute ||
     isPrismCubeRoute ||
     isCoinChaseRoute ||
     isCubeFillRoute ||
-    isBallzDuelRoute ||
-    isSlingSiegeRoute;
+    isBallzDuelRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
@@ -281,8 +277,6 @@ function AppShell() {
     const tg = getTelegramWebApp();
     const themeColor = isDrawDropRoute
       ? "#ffffff"
-      : isSlingSiegeRoute
-        ? "#79bfe0"
       : isFruitCascadeRoute
         ? "#10081f"
       : isCubeFillRoute
@@ -297,7 +291,6 @@ function AppShell() {
     tg?.setBackgroundColor?.(themeColor);
   }, [
     isDrawDropRoute,
-    isSlingSiegeRoute,
     isBallzDuelRoute,
     isCubeFillRoute,
     isFruitCascadeRoute,
@@ -364,8 +357,6 @@ function AppShell() {
                   ? "radial-gradient(circle at 50% 0%, rgba(111,82,224,0.26), transparent 38%), radial-gradient(circle at 10% 78%, rgba(80,55,184,0.18), transparent 38%), linear-gradient(180deg, #20164a 0%, #151033 48%, #0c0a20 100%)"
                 : isBallzDuelRoute
                   ? "radial-gradient(circle at 70% 8%, rgba(86,227,255,0.15), transparent 42%), radial-gradient(circle at 16% 78%, rgba(255,214,74,0.08), transparent 36%), linear-gradient(180deg, #071425 0%, #07101b 100%)"
-                : isSlingSiegeRoute
-                  ? `linear-gradient(180deg, rgba(14,31,44,.08), rgba(10,18,21,.3)), url(${slingBackground}) center / cover no-repeat`
                 : "radial-gradient(circle at 18% 12%, rgba(157,124,255,0.26), transparent 48%), linear-gradient(180deg, #080b2d 0%, #252879 52%, #7959a6 100%)",
           }}
         />
@@ -457,7 +448,6 @@ function AppShell() {
                 element={<BallzDuelGame />}
               />
               <Route path="/game/draw_drop/play" element={<DrawDropGame />} />
-              <Route path="/game/sling_siege/play" element={<SlingSiegeGame />} />
 
               <Route path="/profile" element={<Profile />} />
               <Route path="/rating" element={<Rating />} />

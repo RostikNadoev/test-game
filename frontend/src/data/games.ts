@@ -214,17 +214,6 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     coverUrl: drawCover,
   },
   {
-    code: 'sling_siege',
-    displayName: 'Sling Siege',
-    icon: '💥',
-    description: 'Запускай существ, ломай крепости и уничтожай всех целей',
-    color: 'from-[#FFB45A]/26 via-[#77D9FF]/14 to-transparent',
-    meta: 'Physics Arcade',
-    status: 'New',
-    playPath: '/game/sling_siege/play',
-    launchMode: 'direct',
-  },
-  {
     code: 'ballz_duel',
     displayName: 'Balls Duel',
     icon: '⚪',
