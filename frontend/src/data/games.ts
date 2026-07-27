@@ -13,6 +13,8 @@ import flappyCover from '../assets/home/flappy.webp';
 import crossyCover from '../assets/home/crossy.webp';
 import coinCover from '../assets/home/coinchase.webp';
 import cubeCover from '../assets/home/cubefill.webp';
+import drawCover from '../assets/home/draw.webp';
+import ballsCover from '../assets/home/balls.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -225,7 +227,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
   },
   {
     code: 'draw_drop',
-    displayName: 'Draw & Drop',
+    displayName: 'Draw n Drop',
     icon: '✏️',
     description: 'Нарисуй путь, пройди 5 физических карт и потрать меньше чернил',
     color: 'from-[#62D9FF]/24 via-[#62FFB0]/14 to-transparent',
@@ -233,6 +235,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/draw_drop/play',
     launchMode: 'lobby',
+    coverUrl: drawCover,
   },
   {
     code: 'ballz_duel',
@@ -244,6 +247,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/ballz_duel/play',
     launchMode: 'lobby',
+    coverUrl: ballsCover,
   },
 ];
 
