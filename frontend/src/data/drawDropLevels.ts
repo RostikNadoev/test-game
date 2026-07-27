@@ -36,7 +36,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 150,
     ball: { x: 92, y: 70, r: 15 },
     cup: { x: 292, y: 520, width: 112, height: 76 },
-    obstacles: [],
+    obstacles: [
+      { x: 168, y: 292, w: 68, h: 14, angle: 0.055 },
+      { x: 258, y: 404, w: 60, h: 14, angle: -0.050 },
+    ],
   },
   {
     id: 2,
@@ -44,7 +47,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 158,
     ball: { x: 110, y: 74, r: 15 },
     cup: { x: 280, y: 520, width: 112, height: 76, angle: 0.035 },
-    obstacles: [],
+    obstacles: [
+      { x: 171, y: 300, w: 68, h: 14, angle: 0.061 },
+      { x: 255, y: 399, w: 60, h: 14, angle: -0.055 },
+    ],
   },
   {
     id: 3,
@@ -52,7 +58,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 166,
     ball: { x: 78, y: 70, r: 15 },
     cup: { x: 308, y: 520, width: 112, height: 76, angle: -0.035 },
-    obstacles: [],
+    obstacles: [
+      { x: 174, y: 308, w: 68, h: 14, angle: 0.067 },
+      { x: 252, y: 394, w: 60, h: 14, angle: -0.060 },
+    ],
   },
   {
     id: 4,
@@ -60,7 +69,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 174,
     ball: { x: 102, y: 74, r: 15 },
     cup: { x: 302, y: 516, width: 112, height: 76, angle: 0.055 },
-    obstacles: [],
+    obstacles: [
+      { x: 177, y: 316, w: 68, h: 14, angle: 0.073 },
+      { x: 249, y: 389, w: 60, h: 14, angle: -0.065 },
+    ],
   },
   {
     id: 5,
@@ -68,7 +80,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 182,
     ball: { x: 84, y: 70, r: 15 },
     cup: { x: 276, y: 516, width: 112, height: 76, angle: -0.055 },
-    obstacles: [],
+    obstacles: [
+      { x: 180, y: 324, w: 68, h: 14, angle: 0.079 },
+      { x: 246, y: 384, w: 60, h: 14, angle: -0.070 },
+    ],
   },
   {
     id: 6,
@@ -76,7 +91,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 150,
     ball: { x: 298, y: 70, r: 15 },
     cup: { x: 98, y: 520, width: 112, height: 76 },
-    obstacles: [],
+    obstacles: [
+      { x: 222, y: 292, w: 68, h: 14, angle: -0.055 },
+      { x: 132, y: 404, w: 60, h: 14, angle: 0.050 },
+    ],
   },
   {
     id: 7,
@@ -84,7 +102,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 158,
     ball: { x: 316, y: 74, r: 15 },
     cup: { x: 86, y: 520, width: 112, height: 76, angle: 0.035 },
-    obstacles: [],
+    obstacles: [
+      { x: 219, y: 300, w: 68, h: 14, angle: -0.061 },
+      { x: 135, y: 399, w: 60, h: 14, angle: 0.055 },
+    ],
   },
   {
     id: 8,
@@ -92,7 +113,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 166,
     ball: { x: 284, y: 70, r: 15 },
     cup: { x: 114, y: 520, width: 112, height: 76, angle: -0.035 },
-    obstacles: [],
+    obstacles: [
+      { x: 216, y: 308, w: 68, h: 14, angle: -0.067 },
+      { x: 138, y: 394, w: 60, h: 14, angle: 0.060 },
+    ],
   },
   {
     id: 9,
@@ -100,7 +124,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 174,
     ball: { x: 308, y: 74, r: 15 },
     cup: { x: 108, y: 516, width: 112, height: 76, angle: 0.055 },
-    obstacles: [],
+    obstacles: [
+      { x: 213, y: 316, w: 68, h: 14, angle: -0.073 },
+      { x: 141, y: 389, w: 60, h: 14, angle: 0.065 },
+    ],
   },
   {
     id: 10,
@@ -108,7 +135,10 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     parInk: 182,
     ball: { x: 290, y: 70, r: 15 },
     cup: { x: 82, y: 516, width: 112, height: 76, angle: -0.055 },
-    obstacles: [],
+    obstacles: [
+      { x: 210, y: 324, w: 68, h: 14, angle: -0.079 },
+      { x: 144, y: 384, w: 60, h: 14, angle: 0.070 },
+    ],
   },
   {
     id: 11,
@@ -118,6 +148,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 292, y: 520, width: 112, height: 76 },
     obstacles: [
       { x: 186, y: 420, w: 92, h: 16, angle: 0.03 },
+      { x: 116, y: 278, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -128,6 +159,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 280, y: 520, width: 112, height: 76, angle: 0.035 },
     obstacles: [
       { x: 190, y: 428, w: 92, h: 16, angle: 0.03 },
+      { x: 123, y: 285, w: 61, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -138,6 +170,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 308, y: 520, width: 112, height: 76, angle: -0.035 },
     obstacles: [
       { x: 194, y: 412, w: 92, h: 16, angle: 0.03 },
+      { x: 130, y: 292, w: 64, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -148,6 +181,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 302, y: 516, width: 112, height: 76, angle: 0.055 },
     obstacles: [
       { x: 198, y: 424, w: 92, h: 16, angle: 0.03 },
+      { x: 137, y: 299, w: 67, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -158,6 +192,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 276, y: 516, width: 112, height: 76, angle: -0.055 },
     obstacles: [
       { x: 202, y: 416, w: 92, h: 16, angle: 0.03 },
+      { x: 144, y: 306, w: 70, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -168,6 +203,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 100, y: 520, width: 112, height: 76 },
     obstacles: [
       { x: 210, y: 352, w: 102, h: 16, angle: -0.05 },
+      { x: 274, y: 278, w: 58, h: 14, angle: -0.090 },
     ],
   },
   {
@@ -178,6 +214,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 88, y: 520, width: 112, height: 76, angle: 0.035 },
     obstacles: [
       { x: 214, y: 360, w: 102, h: 16, angle: -0.05 },
+      { x: 267, y: 285, w: 61, h: 14, angle: -0.090 },
     ],
   },
   {
@@ -188,6 +225,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 116, y: 520, width: 112, height: 76, angle: -0.035 },
     obstacles: [
       { x: 218, y: 344, w: 102, h: 16, angle: -0.05 },
+      { x: 260, y: 292, w: 64, h: 14, angle: -0.090 },
     ],
   },
   {
@@ -198,6 +236,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 110, y: 516, width: 112, height: 76, angle: 0.055 },
     obstacles: [
       { x: 222, y: 356, w: 102, h: 16, angle: -0.05 },
+      { x: 253, y: 299, w: 67, h: 14, angle: -0.090 },
     ],
   },
   {
@@ -208,6 +247,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 84, y: 516, width: 112, height: 76, angle: -0.055 },
     obstacles: [
       { x: 226, y: 348, w: 102, h: 16, angle: -0.05 },
+      { x: 246, y: 306, w: 70, h: 14, angle: -0.090 },
     ],
   },
   {
@@ -218,6 +258,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 292, y: 520, width: 112, height: 76 },
     obstacles: [
       { x: 190, y: 418, w: 28, h: 88 },
+      { x: 126, y: 302, w: 62, h: 14, angle: -0.075 },
     ],
   },
   {
@@ -228,6 +269,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 280, y: 520, width: 112, height: 76, angle: 0.035 },
     obstacles: [
       { x: 194, y: 426, w: 28, h: 88 },
+      { x: 132, y: 308, w: 62, h: 14, angle: -0.075 },
     ],
   },
   {
@@ -238,6 +280,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 308, y: 520, width: 112, height: 76, angle: -0.035 },
     obstacles: [
       { x: 198, y: 410, w: 28, h: 88 },
+      { x: 138, y: 314, w: 62, h: 14, angle: -0.075 },
     ],
   },
   {
@@ -248,6 +291,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 302, y: 516, width: 112, height: 76, angle: 0.055 },
     obstacles: [
       { x: 202, y: 422, w: 28, h: 88 },
+      { x: 144, y: 320, w: 62, h: 14, angle: -0.075 },
     ],
   },
   {
@@ -258,6 +302,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 276, y: 516, width: 112, height: 76, angle: -0.055 },
     obstacles: [
       { x: 206, y: 414, w: 28, h: 88 },
+      { x: 150, y: 326, w: 62, h: 14, angle: -0.075 },
     ],
   },
   {
@@ -268,6 +313,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 98, y: 520, width: 112, height: 76 },
     obstacles: [
       { x: 257, y: 330, w: 108, h: 16, angle: -0.04 },
+      { x: 264, y: 302, w: 62, h: 14, angle: 0.075 },
     ],
   },
   {
@@ -278,6 +324,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 86, y: 520, width: 112, height: 76, angle: 0.035 },
     obstacles: [
       { x: 261, y: 338, w: 108, h: 16, angle: -0.04 },
+      { x: 258, y: 308, w: 62, h: 14, angle: 0.075 },
     ],
   },
   {
@@ -288,6 +335,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 114, y: 520, width: 112, height: 76, angle: -0.035 },
     obstacles: [
       { x: 265, y: 322, w: 108, h: 16, angle: -0.04 },
+      { x: 252, y: 314, w: 62, h: 14, angle: 0.075 },
     ],
   },
   {
@@ -298,6 +346,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 108, y: 516, width: 112, height: 76, angle: 0.055 },
     obstacles: [
       { x: 269, y: 334, w: 108, h: 16, angle: -0.04 },
+      { x: 246, y: 320, w: 62, h: 14, angle: 0.075 },
     ],
   },
   {
@@ -308,6 +357,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 82, y: 516, width: 112, height: 76, angle: -0.055 },
     obstacles: [
       { x: 273, y: 326, w: 108, h: 16, angle: -0.04 },
+      { x: 240, y: 326, w: 62, h: 14, angle: 0.075 },
     ],
   },
   {
@@ -373,6 +423,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 106, y: 520, width: 108, height: 76 },
     obstacles: [
       { x: 202, y: 397, w: 24, h: 104 },
+      { x: 112, y: 350, w: 68, h: 14, angle: 0.065 },
     ],
   },
   {
@@ -383,6 +434,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 94, y: 520, width: 108, height: 76, angle: 0.035 },
     obstacles: [
       { x: 206, y: 405, w: 24, h: 104 },
+      { x: 117, y: 357, w: 68, h: 14, angle: 0.065 },
     ],
   },
   {
@@ -393,6 +445,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 122, y: 520, width: 108, height: 76, angle: -0.035 },
     obstacles: [
       { x: 210, y: 389, w: 24, h: 104 },
+      { x: 122, y: 364, w: 68, h: 14, angle: 0.065 },
     ],
   },
   {
@@ -403,6 +456,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 116, y: 516, width: 108, height: 76, angle: 0.055 },
     obstacles: [
       { x: 214, y: 401, w: 24, h: 104 },
+      { x: 127, y: 371, w: 68, h: 14, angle: 0.065 },
     ],
   },
   {
@@ -413,6 +467,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 90, y: 516, width: 108, height: 76, angle: -0.055 },
     obstacles: [
       { x: 218, y: 393, w: 24, h: 104 },
+      { x: 132, y: 378, w: 68, h: 14, angle: 0.065 },
     ],
   },
   {
@@ -533,6 +588,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 270, y: 520, width: 126, height: 76 },
     obstacles: [
       { x: 182, y: 372, w: 82, h: 16, angle: 0.04 },
+      { x: 132, y: 292, w: 72, h: 14, angle: 0.085 },
     ],
   },
   {
@@ -543,6 +599,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 258, y: 520, width: 126, height: 76, angle: 0.035 },
     obstacles: [
       { x: 186, y: 380, w: 82, h: 16, angle: 0.04 },
+      { x: 138, y: 300, w: 72, h: 14, angle: 0.085 },
     ],
   },
   {
@@ -553,6 +610,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 286, y: 520, width: 126, height: 76, angle: -0.035 },
     obstacles: [
       { x: 190, y: 364, w: 82, h: 16, angle: 0.04 },
+      { x: 144, y: 308, w: 72, h: 14, angle: 0.085 },
     ],
   },
   {
@@ -563,6 +621,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 280, y: 516, width: 126, height: 76, angle: 0.055 },
     obstacles: [
       { x: 194, y: 376, w: 82, h: 16, angle: 0.04 },
+      { x: 150, y: 316, w: 72, h: 14, angle: 0.085 },
     ],
   },
   {
@@ -573,6 +632,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 254, y: 516, width: 126, height: 76, angle: -0.055 },
     obstacles: [
       { x: 198, y: 368, w: 82, h: 16, angle: 0.04 },
+      { x: 156, y: 324, w: 72, h: 14, angle: 0.085 },
     ],
   },
   {
@@ -583,6 +643,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 102, y: 516, width: 108, height: 76, angle: 0.07 },
     obstacles: [
       { x: 220, y: 390, w: 84, h: 16, angle: -0.04 },
+      { x: 258, y: 292, w: 72, h: 14, angle: -0.085 },
     ],
   },
   {
@@ -593,6 +654,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 90, y: 520, width: 108, height: 76, angle: -0.025 },
     obstacles: [
       { x: 224, y: 398, w: 84, h: 16, angle: -0.04 },
+      { x: 252, y: 300, w: 72, h: 14, angle: -0.085 },
     ],
   },
   {
@@ -603,6 +665,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 118, y: 516, width: 108, height: 76, angle: 0.055 },
     obstacles: [
       { x: 228, y: 382, w: 84, h: 16, angle: -0.04 },
+      { x: 246, y: 308, w: 72, h: 14, angle: -0.085 },
     ],
   },
   {
@@ -613,6 +676,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 112, y: 520, width: 108, height: 76, angle: -0.025 },
     obstacles: [
       { x: 232, y: 394, w: 84, h: 16, angle: -0.04 },
+      { x: 240, y: 316, w: 72, h: 14, angle: -0.085 },
     ],
   },
   {
@@ -623,6 +687,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 86, y: 520, width: 108, height: 76, angle: -0.005 },
     obstacles: [
       { x: 236, y: 386, w: 84, h: 16, angle: -0.04 },
+      { x: 234, y: 324, w: 72, h: 14, angle: -0.085 },
     ],
   },
   {
@@ -688,6 +753,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 98, y: 520, width: 108, height: 76 },
     obstacles: [
       { x: 187, y: 430, w: 80, h: 46 },
+      { x: 264, y: 315, w: 68, h: 14, angle: -0.070 },
     ],
   },
   {
@@ -698,6 +764,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 86, y: 520, width: 108, height: 76, angle: 0.035 },
     obstacles: [
       { x: 191, y: 438, w: 80, h: 46 },
+      { x: 257, y: 321, w: 68, h: 14, angle: -0.070 },
     ],
   },
   {
@@ -708,6 +775,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 114, y: 520, width: 108, height: 76, angle: -0.035 },
     obstacles: [
       { x: 195, y: 422, w: 80, h: 46 },
+      { x: 250, y: 327, w: 68, h: 14, angle: -0.070 },
     ],
   },
   {
@@ -718,6 +786,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 108, y: 516, width: 108, height: 76, angle: 0.055 },
     obstacles: [
       { x: 199, y: 434, w: 80, h: 46 },
+      { x: 243, y: 333, w: 68, h: 14, angle: -0.070 },
     ],
   },
   {
@@ -728,6 +797,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     cup: { x: 82, y: 516, width: 108, height: 76, angle: -0.055 },
     obstacles: [
       { x: 203, y: 426, w: 80, h: 46 },
+      { x: 236, y: 339, w: 68, h: 14, angle: -0.070 },
     ],
   },
   {
@@ -794,6 +864,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 142, y: 330, w: 30, h: 30 },
       { x: 236, y: 412, w: 30, h: 30 },
+      { x: 174, y: 270, w: 24, h: 24 },
     ],
   },
   {
@@ -805,6 +876,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 146, y: 338, w: 30, h: 30 },
       { x: 240, y: 420, w: 30, h: 30 },
+      { x: 182, y: 276, w: 24, h: 24 },
     ],
   },
   {
@@ -816,6 +888,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 150, y: 322, w: 30, h: 30 },
       { x: 244, y: 404, w: 30, h: 30 },
+      { x: 190, y: 282, w: 24, h: 24 },
     ],
   },
   {
@@ -827,6 +900,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 154, y: 334, w: 30, h: 30 },
       { x: 248, y: 416, w: 30, h: 30 },
+      { x: 198, y: 288, w: 24, h: 24 },
     ],
   },
   {
@@ -838,6 +912,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 158, y: 326, w: 30, h: 30 },
       { x: 252, y: 408, w: 30, h: 30 },
+      { x: 206, y: 294, w: 24, h: 24 },
     ],
   },
   {
@@ -849,6 +924,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 142, y: 390, w: 94, h: 14, angle: 0.12 },
       { x: 234, y: 390, w: 94, h: 14, angle: -0.12 },
+      { x: 186, y: 300, w: 26, h: 46 },
     ],
   },
   {
@@ -860,6 +936,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 146, y: 398, w: 94, h: 14, angle: 0.12 },
       { x: 238, y: 398, w: 94, h: 14, angle: -0.12 },
+      { x: 190, y: 305, w: 26, h: 46 },
     ],
   },
   {
@@ -871,6 +948,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 150, y: 382, w: 94, h: 14, angle: 0.12 },
       { x: 242, y: 382, w: 94, h: 14, angle: -0.12 },
+      { x: 194, y: 310, w: 26, h: 46 },
     ],
   },
   {
@@ -882,6 +960,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 154, y: 394, w: 94, h: 14, angle: 0.12 },
       { x: 246, y: 394, w: 94, h: 14, angle: -0.12 },
+      { x: 198, y: 315, w: 26, h: 46 },
     ],
   },
   {
@@ -893,6 +972,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 158, y: 386, w: 94, h: 14, angle: 0.12 },
       { x: 250, y: 386, w: 94, h: 14, angle: -0.12 },
+      { x: 202, y: 320, w: 26, h: 46 },
     ],
   },
   {
@@ -904,6 +984,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 84, y: 355, w: 120, h: 16 },
       { x: 290, y: 355, w: 120, h: 16 },
+      { x: 185, y: 432, w: 48, h: 14, angle: -0.045 },
     ],
   },
   {
@@ -915,6 +996,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 88, y: 363, w: 120, h: 16 },
       { x: 294, y: 363, w: 120, h: 16 },
+      { x: 190, y: 428, w: 48, h: 14, angle: -0.045 },
     ],
   },
   {
@@ -926,6 +1008,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 92, y: 347, w: 120, h: 16 },
       { x: 298, y: 347, w: 120, h: 16 },
+      { x: 195, y: 424, w: 48, h: 14, angle: -0.045 },
     ],
   },
   {
@@ -937,6 +1020,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 96, y: 359, w: 120, h: 16 },
       { x: 302, y: 359, w: 120, h: 16 },
+      { x: 200, y: 420, w: 48, h: 14, angle: -0.045 },
     ],
   },
   {
@@ -948,6 +1032,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 100, y: 351, w: 120, h: 16 },
       { x: 306, y: 351, w: 120, h: 16 },
+      { x: 205, y: 416, w: 48, h: 14, angle: -0.045 },
     ],
   },
   {
@@ -959,6 +1044,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 187, y: 370, w: 100, h: 14 },
       { x: 187, y: 370, w: 20, h: 84 },
+      { x: 108, y: 290, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -970,6 +1056,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 191, y: 378, w: 100, h: 14 },
       { x: 191, y: 378, w: 20, h: 84 },
+      { x: 113, y: 297, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -981,6 +1068,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 195, y: 362, w: 100, h: 14 },
       { x: 195, y: 362, w: 20, h: 84 },
+      { x: 118, y: 304, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -992,6 +1080,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 199, y: 374, w: 100, h: 14 },
       { x: 199, y: 374, w: 20, h: 84 },
+      { x: 123, y: 311, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {
@@ -1003,6 +1092,7 @@ export const DRAW_DROP_LEVELS: DrawDropLevelSpec[] = [
     obstacles: [
       { x: 203, y: 366, w: 100, h: 14 },
       { x: 203, y: 366, w: 20, h: 84 },
+      { x: 128, y: 318, w: 58, h: 14, angle: 0.090 },
     ],
   },
   {

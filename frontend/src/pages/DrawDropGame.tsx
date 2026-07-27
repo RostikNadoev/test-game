@@ -689,6 +689,50 @@ function PlayerAvatar({
   );
 }
 
+function ResultCountUp({
+  target,
+  active,
+  duration = 760,
+  decimals = 0,
+  suffix = '',
+}: {
+  target: number;
+  active: boolean;
+  duration?: number;
+  decimals?: number;
+  suffix?: string;
+}) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setValue(0);
+      return;
+    }
+
+    let frame = 0;
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const progress = clamp((now - startedAt) / duration, 0, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(target * eased);
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(tick);
+      } else {
+        setValue(target);
+      }
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, duration, target]);
+
+  const shown = decimals > 0 ? value.toFixed(decimals) : Math.round(value).toString();
+  return <>{shown}{suffix}</>;
+}
+
 const DrawDropGame = () => {
   const navigate = useNavigate();
   const match = useDrawDropOnline();
@@ -732,7 +776,7 @@ const DrawDropGame = () => {
     false,
   ]);
   const [optimisticInk, setOptimisticInk] = useState<number[]>([0, 0, 0, 0, 0]);
-  const [resultStage, setResultStage] = useState(0);
+  const [resultStage, setResultStage] = useState(-1);
 
   matchPhaseRef.current = match.phase;
 
@@ -877,13 +921,22 @@ const DrawDropGame = () => {
 
   useEffect(() => {
     if (match.phase !== 'match_over') {
-      setResultStage(0);
+      setResultStage(-1);
       return;
     }
-    setResultStage(0);
-    const timers = [160, 380, 620, 880].map((delay, index) =>
-      window.setTimeout(() => setResultStage(index + 1), delay),
+
+    setResultStage(-1);
+    const sequence = [
+      { delay: 70, stage: 0 },
+      { delay: 430, stage: 1 },
+      { delay: 1500, stage: 2 },
+      { delay: 2820, stage: 3 },
+      { delay: 4240, stage: 4 },
+    ];
+    const timers = sequence.map(({ delay, stage }) =>
+      window.setTimeout(() => setResultStage(stage), delay),
     );
+
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [match.phase, match.matchInstanceKey]);
 
@@ -1486,26 +1539,51 @@ const DrawDropGame = () => {
 
       {match.phase === 'match_over' && (
         <div className="fixed inset-0 z-[140] grid place-items-center bg-white/95 px-4">
-          <div className="relative w-full max-w-[336px] border-[3px] border-[#111111] bg-white p-4">
+          <div
+            className={[
+              'relative w-full max-w-[336px] border-[3px] border-[#111111] bg-white p-4 transition-all duration-500 ease-out',
+              resultStage >= 0
+                ? 'translate-y-0 scale-100 opacity-100'
+                : 'translate-y-2 scale-[.97] opacity-0',
+            ].join(' ')}
+          >
             <div className="text-center">
               <p className="text-[7px] font-black uppercase tracking-[.16em] text-black/40">
                 DRAW & DROP · RESULTS
               </p>
-              <h2 className="mt-1 text-[24px] font-black uppercase leading-[1.25]">
-                {resultStage < 4
-                  ? 'ПОДСЧЁТ...'
-                  : match.draw
-                    ? 'НИЧЬЯ'
-                    : didWin
-                      ? 'ПОБЕДА'
-                      : 'ПОРАЖЕНИЕ'}
-              </h2>
-              {resultStage >= 4 && didWin && profit > 0 && (
-                <div className="mx-auto mt-2 flex w-fit items-center gap-1.5 border-2 border-[#111111] bg-[#111111] px-3 py-1.5 text-white">
-                  <img src={coinIcon} alt="" className="h-4 w-4 grayscale invert" draggable={false} />
-                  <span className="text-[10px] font-black">+{formatReward(profit)}</span>
-                </div>
-              )}
+              <div className="relative mt-1 min-h-[35px] overflow-hidden">
+                <h2
+                  className={[
+                    'absolute inset-x-0 text-[24px] font-black uppercase leading-[1.25] transition-all duration-500 ease-out',
+                    resultStage < 4
+                      ? 'translate-y-0 opacity-100'
+                      : '-translate-y-3 opacity-0',
+                  ].join(' ')}
+                >
+                  ПОДСЧЁТ...
+                </h2>
+                <h2
+                  className={[
+                    'text-[24px] font-black uppercase leading-[1.25] transition-all duration-500 ease-out',
+                    resultStage >= 4
+                      ? 'translate-y-0 opacity-100'
+                      : 'translate-y-3 opacity-0',
+                  ].join(' ')}
+                >
+                  {match.draw ? 'НИЧЬЯ' : didWin ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}
+                </h2>
+              </div>
+              <div
+                className={[
+                  'mx-auto mt-2 flex w-fit items-center gap-1.5 border-2 border-[#111111] bg-[#111111] px-3 py-1.5 text-white transition-all duration-500 ease-out',
+                  resultStage >= 4 && didWin && profit > 0
+                    ? 'translate-y-0 opacity-100'
+                    : 'pointer-events-none -translate-y-1 opacity-0',
+                ].join(' ')}
+              >
+                <img src={coinIcon} alt="" className="h-4 w-4 grayscale invert" draggable={false} />
+                <span className="text-[10px] font-black">+{formatReward(profit)}</span>
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1530,8 +1608,10 @@ const DrawDropGame = () => {
                   <div
                     key={item.profile.id || index}
                     className={[
-                      'border-[2px] border-[#111111] p-2.5 text-center',
-                      finalWinner ? 'bg-[#111111] text-white' : 'bg-white text-[#111111]',
+                      'border-[2px] border-[#111111] p-2.5 text-center transition-all duration-500 ease-out',
+                      finalWinner
+                        ? 'scale-[1.015] bg-[#111111] text-white'
+                        : 'scale-100 bg-white text-[#111111]',
                     ].join(' ')}
                   >
                     <div className="mx-auto w-fit">
@@ -1539,24 +1619,58 @@ const DrawDropGame = () => {
                     </div>
                     <p className="mt-1.5 truncate text-[7px] font-black">{item.profile.name}</p>
 
-                    <div className="mt-2 border-t-2 border-current pt-2">
+                    <div
+                      className={[
+                        'mt-2 border-t-2 border-current pt-2 transition-all duration-500 ease-out',
+                        resultStage >= 1 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-25',
+                      ].join(' ')}
+                    >
                       <p className="text-[6px] font-black uppercase tracking-[.1em] opacity-50">LEVELS</p>
                       <p className="mt-1 text-[20px] font-black tabular-nums">
-                        {resultStage >= index + 1 ? item.completed : 0}/5
+                        <ResultCountUp
+                          target={item.completed}
+                          active={resultStage >= 1}
+                          duration={720}
+                        />
+                        /5
                       </p>
                     </div>
 
-                    <div className="mt-2">
+                    <div
+                      className={[
+                        'mt-2 transition-all duration-500 ease-out',
+                        resultStage >= 2 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-20',
+                      ].join(' ')}
+                    >
                       <p className="text-[6px] font-black uppercase tracking-[.1em] opacity-50">INK INDEX</p>
                       <p className="mt-1 text-[14px] font-black tabular-nums">
-                        {resultStage >= 3 && item.completed > 0 ? `${item.ratio.toFixed(2)}x` : '—'}
+                        {item.completed > 0 ? (
+                          <ResultCountUp
+                            target={item.ratio}
+                            active={resultStage >= 2}
+                            duration={920}
+                            decimals={2}
+                            suffix="x"
+                          />
+                        ) : (
+                          '—'
+                        )}
                       </p>
                     </div>
 
-                    <div className="mt-2">
+                    <div
+                      className={[
+                        'mt-2 transition-all duration-500 ease-out',
+                        resultStage >= 3 ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-20',
+                      ].join(' ')}
+                    >
                       <p className="text-[6px] font-black uppercase tracking-[.1em] opacity-50">USED</p>
                       <p className="mt-1 text-[14px] font-black tabular-nums">
-                        {resultStage >= 3 ? item.totalInk : 0}
+                        <ResultCountUp
+                          target={item.totalInk}
+                          active={resultStage >= 3}
+                          duration={980}
+                        />
                       </p>
                     </div>
                   </div>
@@ -1568,7 +1682,14 @@ const DrawDropGame = () => {
               MORE LEVELS WINS · THEN LOWER INK INDEX
             </p>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div
+              className={[
+                'mt-4 grid grid-cols-2 gap-2 transition-all duration-500 ease-out',
+                resultStage >= 4
+                  ? 'translate-y-0 opacity-100'
+                  : 'pointer-events-none translate-y-2 opacity-0',
+              ].join(' ')}
+            >
               <button
                 type="button"
                 onClick={match.backToLobbies}
