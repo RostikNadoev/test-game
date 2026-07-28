@@ -207,6 +207,10 @@ func main() {
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
 
+	registerTiltMaze(router, cfg, lobbyStore, func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
 	router.GET("/ws/disc-football/:lobby_id", discFootballWSHandler.Connect)
 	router.GET("/ws/dunk-shot/:lobby_id", dunkShotWSHandler.Connect)
 	router.GET("/ws/flappy-race/:lobby_id", flappyRaceWSHandler.Connect)

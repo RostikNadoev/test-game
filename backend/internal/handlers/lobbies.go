@@ -45,6 +45,8 @@ func wsURLForGame(game string, lobbyID string) string {
 		return "/ws/paper-io/" + lobbyID
 	case "tower_stack":
 		return "/ws/tower-stack/" + lobbyID
+	case "tilt_maze":
+		return "/ws/tilt-maze/" + lobbyID
 	default:
 		return ""
 	}
