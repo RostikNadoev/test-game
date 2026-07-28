@@ -13,6 +13,7 @@ import coinCover from '../assets/home/coinchase.webp';
 import cubeCover from '../assets/home/cubefill.webp';
 import drawCover from '../assets/home/draw.webp';
 import ballsCover from '../assets/home/balls.webp';
+import tiltCover from '../assets/home/tilt.webp';
 
 export type GameCode =
   | 'plinko_pvp'
@@ -223,7 +224,7 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     status: 'New',
     playPath: '/game/tilt_maze/play',
     launchMode: 'lobby',
-    coverUrl: gridCover,
+    coverUrl: tiltCover,
   },
   {
     code: 'ballz_duel',
