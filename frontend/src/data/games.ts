@@ -36,7 +36,7 @@ export type GameCode =
   | 'cube_fill'
   | 'ballz_duel'
   | 'draw_drop'
-  | 'sling_siege';
+  | 'tilt_maze';
 
 export type GameCatalogItem = {
   code: GameCode;
@@ -212,6 +212,18 @@ export const GAME_CATALOG: GameCatalogItem[] = [
     playPath: '/game/draw_drop/play',
     launchMode: 'lobby',
     coverUrl: drawCover,
+  },
+  {
+    code: 'tilt_maze',
+    displayName: 'Tilt Maze',
+    icon: '⚙️',
+    description: 'Найди выход и проведи металлический шар, вращая весь лабиринт',
+    color: 'from-[#D8D0C1]/28 via-[#8F9A82]/14 to-transparent',
+    meta: 'Physics PvP',
+    status: 'New',
+    playPath: '/game/tilt_maze/play',
+    launchMode: 'lobby',
+    coverUrl: gridCover,
   },
   {
     code: 'ballz_duel',

@@ -23,6 +23,7 @@ var PvpGames = []PvpGame{
 	{Code: "cube_fill", DisplayName: "Cube Fill"},
 	{Code: "draw_drop", DisplayName: "Draw & Drop"},
 	{Code: "ballz_duel", DisplayName: "Ballz Duel"},
+	{Code: "tilt_maze", DisplayName: "Tilt Maze"},
 }
 
 func IsKnownPvpGame(code string) bool {
@@ -31,6 +32,5 @@ func IsKnownPvpGame(code string) bool {
 			return true
 		}
 	}
-
 	return false
 }

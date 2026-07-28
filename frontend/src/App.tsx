@@ -71,6 +71,7 @@ const CoinChaseGame = lazy(() => import("./pages/CoinChaseGame"));
 const CubeFillGame = lazy(() => import("./pages/CubeFillGame"));
 const BallzDuelGame = lazy(() => import("./pages/BallzDuelGame"));
 const DrawDropGame = lazy(() => import("./pages/DrawDropGame"));
+const TiltMazeGame = lazy(() => import("./pages/TiltMazeGame"));
 
 const FOOTER_ROUTES = ["/", "/solo", "/profile", "/rating"];
 const SOLO_ROUTE_PREFIX = "/solo";
@@ -184,6 +185,7 @@ function AppShell() {
   const isCubeFillRoute = location.pathname === "/game/cube_fill/play";
   const isBallzDuelRoute = location.pathname === "/game/ballz_duel/play";
   const isDrawDropRoute = location.pathname === "/game/draw_drop/play";
+  const isTiltMazeRoute = location.pathname === "/game/tilt_maze/play";
   const hasFullScreenArcadeBackground =
     isFlappyRaceRoute ||
     isDoodleJumpRoute ||
@@ -275,7 +277,9 @@ function AppShell() {
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-    const themeColor = isDrawDropRoute
+    const themeColor = isTiltMazeRoute
+      ? "#e7e3da"
+      : isDrawDropRoute
       ? "#ffffff"
       : isFruitCascadeRoute
         ? "#10081f"
@@ -291,6 +295,7 @@ function AppShell() {
     tg?.setBackgroundColor?.(themeColor);
   }, [
     isDrawDropRoute,
+    isTiltMazeRoute,
     isBallzDuelRoute,
     isCubeFillRoute,
     isFruitCascadeRoute,
@@ -334,7 +339,9 @@ function AppShell() {
       className={[
         "app-shell",
         isSoloRoute ? "solo-app-shell bg-[#060b14]" : "",
-        isDrawDropRoute
+        isTiltMazeRoute
+          ? "bg-[#e7e3da]"
+          : isDrawDropRoute
           ? "bg-white"
           : hasFullScreenArcadeBackground
             ? "bg-transparent"
@@ -448,6 +455,7 @@ function AppShell() {
                 element={<BallzDuelGame />}
               />
               <Route path="/game/draw_drop/play" element={<DrawDropGame />} />
+              <Route path="/game/tilt_maze/play" element={<TiltMazeGame />} />
 
               <Route path="/profile" element={<Profile />} />
               <Route path="/rating" element={<Rating />} />
