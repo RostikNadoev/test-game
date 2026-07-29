@@ -7,12 +7,33 @@ import {
   type NeonMatrixStateMessage,
 } from '../api/neonMatrixWs';
 import { useAuth } from '../auth/useAuth';
+import type { LobbyPlayerInfo } from '../api';
 
 type Player = 'cyan' | 'magenta';
 type Phase = 'pickCyan' | 'pickMagenta' | 'spinning' | 'landing' | 'impact' | 'result' | 'gameover';
 
 type PickState = Record<Player, number | null>;
 type HealthState = Record<Player, number>;
+
+type PlayerProfile = {
+  id: number;
+  name: string;
+  photoUrl: string;
+  initials: string;
+};
+
+type ArrowMotionState = {
+  mode: 'idle' | 'spinning' | 'landing';
+  angle: number;
+  velocity: number;
+  lastFrameAt: number;
+  landingStartAt: number;
+  landingDuration: number;
+  landingStartAngle: number;
+  landingStartVelocity: number;
+  landingDistance: number;
+  landingTarget: number;
+};
 
 type Particle = {
   id: number;
@@ -49,9 +70,10 @@ type TelegramWebApp = {
 const START_HP = 100;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
-const BLIND_SPIN_MS = 3200;
 const LANDING_MS = 1800;
-const SPIN_MS = BLIND_SPIN_MS + LANDING_MS;
+const SPIN_CRUISE_SPEED = 0.94;
+const SPIN_ACCELERATION_MS = 340;
+const MIN_LANDING_DURATION_MS = 420;
 const PARTICLE_LIMIT = 32;
 const WHEEL_MARKS = Array.from({ length: 60 }, (_, index) => ({
   index,
@@ -90,12 +112,54 @@ const PLAYERS: Record<
   },
 };
 
+const PLAYERS_STORAGE_KEY = 'twingames_players_info';
+const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
+
 let lastSelectionHapticAt = 0;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const formatHp = (value: number) => Math.max(0, value).toString();
 
 const cssVars = (vars: Record<string, string | number>) => vars as React.CSSProperties;
+
+const getInitials = (value: string) => {
+  const clean = value.replace('@', '').trim();
+  const result = clean
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+  return result || 'TG';
+};
+
+const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
+  if (typeof window === 'undefined') return [];
+
+  const raw =
+    window.sessionStorage.getItem(PLAYERS_STORAGE_KEY) ||
+    window.sessionStorage.getItem(LEGACY_PLAYERS_STORAGE_KEY);
+
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+      .map((item) => ({
+        id: Number(item.id),
+        tg_user: typeof item.tg_user === 'string' ? item.tg_user : '',
+        photo_url: typeof item.photo_url === 'string' ? item.photo_url : '',
+      }))
+      .filter((item) => Number.isFinite(item.id) && item.id > 0);
+  } catch {
+    return [];
+  }
+};
 
 const getTg = () => {
   return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
@@ -159,20 +223,6 @@ const normalizeAngle = (value: number) => ((value % 360) + 360) % 360;
 const circularAngleDistance = (a: number, b: number) => {
   const delta = Math.abs(normalizeAngle(a) - normalizeAngle(b));
   return Math.min(delta, 360 - delta);
-};
-
-const readRenderedAngle = (element: HTMLElement | null, fallback: number) => {
-  if (!element) return normalizeAngle(fallback);
-
-  const transform = window.getComputedStyle(element).transform;
-  if (!transform || transform === 'none') return normalizeAngle(fallback);
-
-  try {
-    const matrix = new DOMMatrixReadOnly(transform);
-    return normalizeAngle((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
-  } catch {
-    return normalizeAngle(fallback);
-  }
 };
 
 const HealthBar = ({
@@ -259,6 +309,19 @@ const TopHud = ({
   );
 };
 
+const WheelAvatar = ({
+  profile,
+  player,
+}: {
+  profile: PlayerProfile;
+  player: Player;
+}) => (
+  <i className={`rd-wheel-avatar rd-wheel-avatar-${player}`} aria-hidden="true">
+    <u>{profile.initials}</u>
+    {profile.photoUrl && <img src={profile.photoUrl} alt="" draggable={false} />}
+  </i>
+);
+
 const Wheel = ({
   angle,
   displayNumber,
@@ -267,7 +330,7 @@ const Wheel = ({
   picks,
   outcome,
   showPicks,
-  spinMs,
+  profiles,
   arrowRef,
 }: {
   angle: number;
@@ -277,7 +340,7 @@ const Wheel = ({
   picks: PickState;
   outcome: RoundOutcome | null;
   showPicks: boolean;
-  spinMs: number;
+  profiles: Record<Player, PlayerProfile>;
   arrowRef: React.RefObject<HTMLDivElement | null>;
 }) => {
   const showDistances = phase === 'impact' || phase === 'result' || phase === 'gameover';
@@ -317,7 +380,7 @@ const Wheel = ({
       {showPicks && picks.cyan !== null && (
         <div className="rd-bet rd-bet-cyan" style={cssVars({ '--a': `${numberToAngle(picks.cyan)}deg` })}>
           <span>
-            <b>P1</b>
+            <WheelAvatar profile={profiles.cyan} player="cyan" />
             {showDistances && outcome && <em>Δ{outcome.cyanDistance}</em>}
           </span>
         </div>
@@ -326,7 +389,7 @@ const Wheel = ({
       {showPicks && picks.magenta !== null && (
         <div className="rd-bet rd-bet-magenta" style={cssVars({ '--a': `${numberToAngle(picks.magenta)}deg` })}>
           <span>
-            <b>P2</b>
+            <WheelAvatar profile={profiles.magenta} player="magenta" />
             {showDistances && outcome && <em>Δ{outcome.magentaDistance}</em>}
           </span>
         </div>
@@ -362,7 +425,6 @@ const Wheel = ({
         className="rd-arrow"
         style={cssVars({
           '--angle': `${angle}deg`,
-          '--spin-ms': `${spinMs}ms`,
         })}
       >
         <div className="rd-arrow-line" />
@@ -528,13 +590,25 @@ export const NeonMatrixGame: React.FC = () => {
 
   const socketRef = useRef<NeonMatrixSocketClient | null>(null);
   const arrowRef = useRef<HTMLDivElement | null>(null);
-  const arrowAnimationRef = useRef<Animation | null>(null);
+  const arrowRafRef = useRef<number | null>(null);
   const arrowAngleRef = useRef(numberToAngle(50));
+  const arrowMotionRef = useRef<ArrowMotionState>({
+    mode: 'idle',
+    angle: numberToAngle(50),
+    velocity: 0,
+    lastFrameAt: 0,
+    landingStartAt: 0,
+    landingDuration: 0,
+    landingStartAngle: 0,
+    landingStartVelocity: 0,
+    landingDistance: 0,
+    landingTarget: numberToAngle(50),
+  });
+  const landingCallbacksRef = useRef<Array<() => void>>([]);
   const animationStageRef = useRef('');
   const serverOffsetRef = useRef<number | null>(null);
-  const timersRef = useRef<number[]>([]);
   const lastRoundRef = useRef(0);
-  const lastServerPhaseRef = useRef<string>('');
+  const latestServerPhaseRef = useRef<string>('');
   const verifiedRevealRef = useRef<string>('');
 
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
@@ -548,7 +622,6 @@ export const NeonMatrixGame: React.FC = () => {
   const [target, setTarget] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [arrowAngle, setArrowAngle] = useState(numberToAngle(50));
-  const [wheelSpinMs, setWheelSpinMs] = useState(SPIN_MS);
   const [message, setMessage] = useState('Подключение к матчу...');
   const [particles, setParticles] = useState<Particle[]>([]);
   const [submissionPending, setSubmissionPending] = useState(false);
@@ -556,6 +629,7 @@ export const NeonMatrixGame: React.FC = () => {
   const routeState = (location.state || {}) as {
     lobbyId?: string;
     game?: string;
+    playersInfo?: LobbyPlayerInfo[];
   };
 
   const gameId = useMemo(() => {
@@ -578,81 +652,227 @@ export const NeonMatrixGame: React.FC = () => {
     );
   }, [location.search, routeState.lobbyId]);
 
-  const playerOrder = serverState?.player_order || [];
-  const myUserId = Number(user?.id || 0);
-  const opponentUserId = playerOrder.find((id) => id !== myUserId) || 0;
-  const activePlayer: Player = 'cyan';
-
-  const clearTimers = useCallback(() => {
-    timersRef.current.forEach((id) => window.clearTimeout(id));
-    timersRef.current = [];
-  }, []);
-
-  const schedule = useCallback((callback: () => void, delay: number) => {
-    const id = window.setTimeout(() => {
-      timersRef.current = timersRef.current.filter((timerId) => timerId !== id);
-      callback();
-    }, delay);
-
-    timersRef.current.push(id);
-    return id;
-  }, []);
-
-  const cancelArrowAnimation = useCallback(() => {
-    arrowAnimationRef.current?.cancel();
-    arrowAnimationRef.current = null;
-  }, []);
-
-  const setStaticArrow = useCallback(
-    (angle: number) => {
-      cancelArrowAnimation();
-      const normalized = normalizeAngle(angle);
-      arrowAngleRef.current = normalized;
-      setArrowAngle(normalized);
-    },
-    [cancelArrowAnimation],
+  const playersInfo = useMemo(
+    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    [routeState.playersInfo],
   );
 
-  const animateArrow = useCallback(
-    (endAngle: number, durationMs: number, easing: string, finalAngle?: number) => {
-      const element = arrowRef.current;
-      const currentAngle = readRenderedAngle(element, arrowAngleRef.current);
-      cancelArrowAnimation();
+  const playerOrder = serverState?.player_order || [];
+  const myUserId = Number(user?.id || 0);
+  const opponentUserId =
+    playerOrder.find((id) => id !== myUserId) ||
+    playersInfo.find((player) => Number(player.id) !== myUserId)?.id ||
+    0;
+  const activePlayer: Player = 'cyan';
 
-      if (!element || durationMs <= 16 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        const normalized = normalizeAngle(finalAngle ?? endAngle);
-        arrowAngleRef.current = normalized;
-        setArrowAngle(normalized);
+  const profileById = useMemo(() => {
+    const profiles = new Map<number, PlayerProfile>();
+
+    for (const player of playersInfo) {
+      const id = Number(player.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const name = player.tg_user || `Player ${id}`;
+      profiles.set(id, {
+        id,
+        name,
+        photoUrl: player.photo_url || '',
+        initials: getInitials(name),
+      });
+    }
+
+    if (myUserId > 0) {
+      const stored = profiles.get(myUserId);
+      const name = user?.tg_user || stored?.name || 'Ты';
+      profiles.set(myUserId, {
+        id: myUserId,
+        name,
+        photoUrl: user?.photo_url || stored?.photoUrl || '',
+        initials: getInitials(name),
+      });
+    }
+
+    return profiles;
+  }, [myUserId, playersInfo, user?.photo_url, user?.tg_user]);
+
+  const wheelProfiles = useMemo<Record<Player, PlayerProfile>>(() => {
+    const own = profileById.get(myUserId) || {
+      id: myUserId,
+      name: user?.tg_user || 'Ты',
+      photoUrl: user?.photo_url || '',
+      initials: getInitials(user?.tg_user || 'Ты'),
+    };
+    const rival = profileById.get(opponentUserId) || {
+      id: opponentUserId,
+      name: 'Соперник',
+      photoUrl: '',
+      initials: 'VS',
+    };
+
+    return { cyan: own, magenta: rival };
+  }, [myUserId, opponentUserId, profileById, user?.photo_url, user?.tg_user]);
+
+  const renderArrowAngle = useCallback((angle: number) => {
+    arrowAngleRef.current = angle;
+    arrowMotionRef.current.angle = angle;
+
+    if (arrowRef.current) {
+      arrowRef.current.style.transform = `rotate(${angle}deg)`;
+    }
+  }, []);
+
+  const stopArrowMotion = useCallback((clearCallbacks = true) => {
+    if (arrowRafRef.current !== null) {
+      window.cancelAnimationFrame(arrowRafRef.current);
+      arrowRafRef.current = null;
+    }
+
+    arrowMotionRef.current.mode = 'idle';
+    arrowMotionRef.current.velocity = 0;
+    arrowMotionRef.current.lastFrameAt = 0;
+
+    if (clearCallbacks) {
+      landingCallbacksRef.current = [];
+    }
+  }, []);
+
+  const startArrowLoop = useCallback(() => {
+    if (arrowRafRef.current !== null) return;
+
+    const frame = (now: number) => {
+      const motion = arrowMotionRef.current;
+
+      if (motion.mode === 'idle') {
+        arrowRafRef.current = null;
         return;
       }
 
-      const animation = element.animate(
-        [
-          { transform: `rotate(${currentAngle}deg)` },
-          { transform: `rotate(${endAngle}deg)` },
-        ],
-        {
-          duration: Math.max(16, durationMs),
-          easing,
-          fill: 'forwards',
-        },
-      );
+      if (motion.mode === 'spinning') {
+        const previous = motion.lastFrameAt || now;
+        const dt = clamp(now - previous, 0, 40);
+        const acceleration = 1 - Math.exp(-dt / SPIN_ACCELERATION_MS);
 
-      arrowAnimationRef.current = animation;
-      animation.onfinish = () => {
-        if (arrowAnimationRef.current !== animation) return;
-        const normalized = normalizeAngle(finalAngle ?? endAngle);
-        arrowAngleRef.current = normalized;
-        setArrowAngle(normalized);
-        window.requestAnimationFrame(() => {
-          if (arrowAnimationRef.current === animation) {
-            animation.cancel();
-            arrowAnimationRef.current = null;
-          }
-        });
-      };
+        motion.velocity += (SPIN_CRUISE_SPEED - motion.velocity) * acceleration;
+        motion.angle += motion.velocity * dt;
+        motion.lastFrameAt = now;
+        renderArrowAngle(motion.angle);
+      } else {
+        const duration = Math.max(1, motion.landingDuration);
+        const u = clamp((now - motion.landingStartAt) / duration, 0, 1);
+        const u2 = u * u;
+        const u3 = u2 * u;
+        const u4 = u3 * u;
+        const u5 = u4 * u;
+
+        const velocityEase = 1 - 3 * u2 + 2 * u3;
+        const velocityIntegral = u - u3 + 0.5 * u4;
+        const extraEase = 10 * u3 - 15 * u4 + 6 * u5;
+        const extraVelocity = 30 * u2 * (1 - u) * (1 - u);
+        const naturalDistance = motion.landingStartVelocity * duration * 0.5;
+        const extraDistance = Math.max(0, motion.landingDistance - naturalDistance);
+
+        motion.angle =
+          motion.landingStartAngle +
+          motion.landingStartVelocity * duration * velocityIntegral +
+          extraDistance * extraEase;
+        motion.velocity =
+          motion.landingStartVelocity * velocityEase +
+          (extraDistance / duration) * extraVelocity;
+        renderArrowAngle(motion.angle);
+
+        if (u >= 1) {
+          const finalAngle = normalizeAngle(motion.landingTarget);
+          motion.mode = 'idle';
+          motion.velocity = 0;
+          motion.angle = finalAngle;
+          motion.lastFrameAt = 0;
+          renderArrowAngle(finalAngle);
+          setArrowAngle(finalAngle);
+          arrowRafRef.current = null;
+
+          const callbacks = landingCallbacksRef.current;
+          landingCallbacksRef.current = [];
+          callbacks.forEach((callback) => callback());
+          return;
+        }
+      }
+
+      arrowRafRef.current = window.requestAnimationFrame(frame);
+    };
+
+    arrowRafRef.current = window.requestAnimationFrame(frame);
+  }, [renderArrowAngle]);
+
+  const setStaticArrow = useCallback(
+    (angle: number) => {
+      stopArrowMotion();
+      const normalized = normalizeAngle(angle);
+      renderArrowAngle(normalized);
+      setArrowAngle(normalized);
     },
-    [cancelArrowAnimation],
+    [renderArrowAngle, stopArrowMotion],
+  );
+
+  const startFreeSpin = useCallback(() => {
+    const motion = arrowMotionRef.current;
+    if (motion.mode === 'spinning') return;
+
+    landingCallbacksRef.current = [];
+    motion.mode = 'spinning';
+    motion.angle = arrowAngleRef.current;
+    motion.velocity = Math.max(0.16, Math.min(motion.velocity, SPIN_CRUISE_SPEED));
+    motion.lastFrameAt = performance.now();
+    startArrowLoop();
+  }, [startArrowLoop]);
+
+  const startLanding = useCallback(
+    (targetAngle: number, durationMs: number, onComplete?: () => void, minimumTurns = 2) => {
+      const normalizedTarget = normalizeAngle(targetAngle);
+
+      if (onComplete) {
+        landingCallbacksRef.current.push(onComplete);
+      }
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const callbacks = landingCallbacksRef.current;
+        landingCallbacksRef.current = [];
+        stopArrowMotion(false);
+        renderArrowAngle(normalizedTarget);
+        setArrowAngle(normalizedTarget);
+        callbacks.forEach((callback) => callback());
+        return;
+      }
+
+      const motion = arrowMotionRef.current;
+      if (motion.mode === 'landing' && circularAngleDistance(motion.landingTarget, normalizedTarget) < 0.01) {
+        return;
+      }
+
+      const startAngle = arrowAngleRef.current;
+      const startVelocity = Math.max(0, motion.velocity);
+      const duration = Math.max(MIN_LANDING_DURATION_MS, durationMs);
+      const targetDelta = (normalizedTarget - normalizeAngle(startAngle) + 360) % 360;
+      const naturalDistance = startVelocity * duration * 0.5;
+      let turns = Math.max(minimumTurns, Math.ceil((naturalDistance - targetDelta) / 360));
+      let distance = targetDelta + Math.max(0, turns) * 360;
+
+      while (distance + 0.001 < naturalDistance) {
+        turns += 1;
+        distance = targetDelta + turns * 360;
+      }
+
+      motion.mode = 'landing';
+      motion.angle = startAngle;
+      motion.velocity = startVelocity;
+      motion.lastFrameAt = 0;
+      motion.landingStartAt = performance.now();
+      motion.landingDuration = duration;
+      motion.landingStartAngle = startAngle;
+      motion.landingStartVelocity = startVelocity;
+      motion.landingDistance = distance;
+      motion.landingTarget = normalizedTarget;
+      startArrowLoop();
+    },
+    [renderArrowAngle, startArrowLoop, stopArrowMotion],
   );
 
   const getEstimatedServerNow = useCallback(() => {
@@ -661,10 +881,9 @@ export const NeonMatrixGame: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      clearTimers();
-      cancelArrowAnimation();
+      stopArrowMotion();
     };
-  }, [cancelArrowAnimation, clearTimers]);
+  }, [stopArrowMotion]);
 
   const burst = useCallback((tone: Particle['tone'], x: string, y: string, amount = 18) => {
     const count = Math.max(4, Math.min(amount, 10));
@@ -822,24 +1041,21 @@ export const NeonMatrixGame: React.FC = () => {
       magenta: getMappedPick(serverState, opponentUserId),
     };
     const mappedOutcome = mapOutcome(serverState.outcome);
-    const previousPhase = lastServerPhaseRef.current;
     const isNewRound = lastRoundRef.current !== serverState.round;
 
-    lastServerPhaseRef.current = serverState.phase;
     lastRoundRef.current = serverState.round;
+    latestServerPhaseRef.current = serverState.phase;
     setRound(serverState.round);
     setPicks(mappedPicks);
     setMessage(serverState.message || '');
     setSubmissionPending(false);
 
     if (serverState.phase === 'picking') {
-      clearTimers();
       animationStageRef.current = '';
       setPhase('pickCyan');
       setHealth({ cyan: myHealth, magenta: opponentHealth });
       setTarget(null);
       setOutcome(null);
-      setWheelSpinMs(SPIN_MS);
 
       if (isNewRound) {
         setDraftValue(50);
@@ -855,24 +1071,14 @@ export const NeonMatrixGame: React.FC = () => {
     }
 
     if (serverState.phase === 'spinning') {
-      clearTimers();
       setTarget(null);
       setOutcome(null);
       setPhase('spinning');
 
-      const serverNow = getEstimatedServerNow();
-      const remaining = Math.max(
-        120,
-        (serverState.reveal_at_ms ?? serverNow + BLIND_SPIN_MS) - serverNow,
-      );
-      setWheelSpinMs(remaining);
-
       const stageKey = `${serverState.round}:spinning`;
       if (animationStageRef.current !== stageKey) {
         animationStageRef.current = stageKey;
-        const currentAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
-        const turns = Math.max(5, Math.ceil(remaining / 520));
-        animateArrow(currentAngle + turns * 360 + 197, remaining, 'linear');
+        startFreeSpin();
         burst('gold', '50%', '43%', 10);
         hapticImpact('medium');
       }
@@ -880,7 +1086,6 @@ export const NeonMatrixGame: React.FC = () => {
     }
 
     if (serverState.phase === 'landing') {
-      clearTimers();
       if (serverState.target === undefined) return;
 
       void verifyCommitment(serverState);
@@ -893,21 +1098,11 @@ export const NeonMatrixGame: React.FC = () => {
         80,
         (serverState.stop_at_ms ?? serverNow + LANDING_MS) - serverNow,
       );
-      setWheelSpinMs(remaining);
 
       const stageKey = `${serverState.round}:landing`;
       if (animationStageRef.current !== stageKey) {
         animationStageRef.current = stageKey;
-        const currentAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
-        const targetAngle = numberToAngle(serverState.target);
-        const delta = (targetAngle - currentAngle + 360) % 360;
-        const turns = Math.max(1, Math.ceil(remaining / 900));
-        animateArrow(
-          currentAngle + turns * 360 + delta,
-          remaining,
-          'cubic-bezier(.08,.72,.12,1)',
-          targetAngle,
-        );
+        startLanding(numberToAngle(serverState.target), remaining);
       }
       return;
     }
@@ -919,10 +1114,15 @@ export const NeonMatrixGame: React.FC = () => {
     if (serverState.phase === 'impact') {
       if (serverState.target === undefined || !mappedOutcome) return;
 
-      setTarget(serverState.target);
-      setOutcome(mappedOutcome);
+      const stageKey = `${serverState.round}:impact`;
+      if (animationStageRef.current === stageKey) return;
+      animationStageRef.current = stageKey;
 
       const applyImpact = () => {
+        if (latestServerPhaseRef.current !== 'impact') return;
+
+        setTarget(serverState.target ?? null);
+        setOutcome(mappedOutcome);
         setHealth({ cyan: myHealth, magenta: opponentHealth });
         setPhase('impact');
         setMessage(serverState.message || 'Финальное число раскрыто.');
@@ -940,20 +1140,15 @@ export const NeonMatrixGame: React.FC = () => {
       };
 
       const targetAngle = numberToAngle(serverState.target);
-      const renderedAngle = readRenderedAngle(arrowRef.current, arrowAngleRef.current);
-      const remainingError = circularAngleDistance(renderedAngle, targetAngle);
+      const motion = arrowMotionRef.current;
+      const isSettled =
+        motion.mode === 'idle' &&
+        circularAngleDistance(arrowAngleRef.current, targetAngle) <= 0.35;
 
-      if (previousPhase === 'landing' && remainingError > 0.8) {
-        const delta = (targetAngle - renderedAngle + 360) % 360;
-        const correctionMs = Math.min(180, Math.max(70, remainingError * 2.2));
-        setWheelSpinMs(correctionMs);
-        animateArrow(
-          renderedAngle + delta,
-          correctionMs,
-          'cubic-bezier(.2,.8,.2,1)',
-          targetAngle,
-        );
-        schedule(applyImpact, correctionMs + 16);
+      if (motion.mode === 'landing') {
+        landingCallbacksRef.current.push(applyImpact);
+      } else if (!isSettled) {
+        startLanding(targetAngle, 520, applyImpact, 0);
       } else {
         setStaticArrow(targetAngle);
         applyImpact();
@@ -971,24 +1166,22 @@ export const NeonMatrixGame: React.FC = () => {
     }
 
     if (serverState.phase === 'match_over') {
-      clearTimers();
       setPhase('gameover');
       setStaticArrow(numberToAngle(serverState.target ?? draftValue));
       hapticNotify(serverState.winner_user_id === myUserId ? 'success' : 'error');
     }
   }, [
-    animateArrow,
     burst,
-    clearTimers,
     draftValue,
     getEstimatedServerNow,
     getMappedPick,
     mapOutcome,
     myUserId,
     opponentUserId,
-    schedule,
     serverState,
     setStaticArrow,
+    startFreeSpin,
+    startLanding,
     verifyCommitment,
   ]);
 
@@ -1464,34 +1657,86 @@ export const NeonMatrixGame: React.FC = () => {
           position: absolute;
           left: 50%;
           top: 7.5%;
-          min-width: 28px;
-          min-height: 28px;
+          min-width: 32px;
+          min-height: 32px;
           display: grid;
           place-items: center;
           gap: 1px;
           transform: translate(-50%, -50%) rotate(calc(-1 * var(--a)));
           border-radius: 999px;
-          padding: 3px 6px;
+          padding: 2px;
           font-size: 8px;
           line-height: 1.15;
           font-weight: 900;
           letter-spacing: -.02em;
         }
 
-        .rd-bet span b { font-size: 8px; line-height: 1.15; }
-        .rd-bet span em { font-size: 6.8px; line-height: 1.15; font-style: normal; opacity: .82; }
+        .rd-bet span em {
+          position: absolute;
+          top: 31px;
+          left: 50%;
+          transform: translateX(-50%);
+          min-width: 25px;
+          border-radius: 999px;
+          padding: 2px 4px;
+          color: white;
+          background: rgba(5,5,8,.88);
+          border: 1px solid rgba(255,255,255,.12);
+          font-size: 6.8px;
+          line-height: 1.15;
+          font-style: normal;
+          opacity: .92;
+          box-shadow: 0 4px 10px rgba(0,0,0,.32);
+        }
 
         .rd-bet-cyan span {
+          left: calc(50% - 8px);
           background: linear-gradient(180deg, #A7D8FF, #2F8CFF);
           color: #031426;
           box-shadow: 0 0 0 3px rgba(47,140,255,.14), 0 0 16px rgba(47,140,255,.55);
         }
 
         .rd-bet-magenta span {
+          left: calc(50% + 8px);
           background: linear-gradient(180deg, #FFCC8A, #FF8F2D);
           color: #321804;
           box-shadow: 0 0 0 3px rgba(255,143,45,.14), 0 0 16px rgba(255,143,45,.5);
         }
+
+        .rd-wheel-avatar {
+          position: relative;
+          width: 28px;
+          height: 28px;
+          display: grid;
+          place-items: center;
+          overflow: hidden;
+          border-radius: 50%;
+          background: #11131a;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+          text-decoration: none;
+          font-style: normal;
+        }
+
+        .rd-wheel-avatar u {
+          color: white;
+          font-size: 7px;
+          line-height: 1;
+          font-weight: 900;
+          text-decoration: none;
+          text-shadow: 0 1px 4px rgba(0,0,0,.6);
+        }
+
+        .rd-wheel-avatar img {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          display: block;
+          object-fit: cover;
+        }
+
+        .rd-wheel-avatar-cyan { box-shadow: inset 0 0 0 1px rgba(167,216,255,.5); }
+        .rd-wheel-avatar-magenta { box-shadow: inset 0 0 0 1px rgba(255,204,138,.5); }
 
         .rd-bet-target span {
           min-width: 34px;
@@ -2101,7 +2346,7 @@ export const NeonMatrixGame: React.FC = () => {
           picks={picks}
           outcome={outcome}
           showPicks={showWheelPicks}
-          spinMs={wheelSpinMs}
+          profiles={wheelProfiles}
           arrowRef={arrowRef}
         />
 
