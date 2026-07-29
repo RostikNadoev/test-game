@@ -51,6 +51,7 @@ type ArrowMotion = {
   landingStartVelocity: number;
   landingDistance: number;
   landingTarget: number;
+  landingRound: number;
 };
 
 type TelegramWebApp = {
@@ -173,38 +174,45 @@ const Avatar = memo(
 );
 
 const AnimatedHp = memo(({ value }: { value: number }) => {
-  const [display, setDisplay] = useState(value);
-  const displayRef = useRef(value);
+  const valueRef = useRef<HTMLSpanElement | null>(null);
+  const displayedRef = useRef(value);
+  const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const from = displayRef.current;
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+
+    const from = displayedRef.current;
     const to = value;
-    if (from === to) return;
+    if (from === to) {
+      if (valueRef.current) valueRef.current.textContent = String(to);
+      return;
+    }
 
     const startedAt = performance.now();
-    const duration = 650;
-    let frame = 0;
-    let lastPaint = 0;
+    const duration = 720;
 
-    const animate = (now: number) => {
+    const frame = (now: number) => {
       const progress = clamp((now - startedAt) / duration, 0, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
+      const eased = 1 - Math.pow(1 - progress, 4);
       const next = Math.round(from + (to - from) * eased);
+      displayedRef.current = next;
+      if (valueRef.current) valueRef.current.textContent = String(next);
 
-      if (now - lastPaint >= 28 || progress >= 1) {
-        lastPaint = now;
-        displayRef.current = next;
-        setDisplay(next);
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(frame);
+      } else {
+        displayedRef.current = to;
+        frameRef.current = null;
       }
-
-      if (progress < 1) frame = requestAnimationFrame(animate);
     };
 
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
+    frameRef.current = requestAnimationFrame(frame);
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    };
   }, [value]);
 
-  return <>{display}</>;
+  return <span ref={valueRef}>{value}</span>;
 });
 
 const PlayerHud = memo(
@@ -214,19 +222,22 @@ const PlayerHud = memo(
     hp,
     hit,
     round,
+    hudRef,
   }: {
     side: Side;
     profile: PlayerProfile;
     hp: number;
     hit: boolean;
     round: number;
+    hudRef: React.RefObject<HTMLDivElement | null>;
   }) => {
     const percent = clamp((hp / START_HP) * 100, 0, 100);
 
     return (
       <div
-        key={`${side}-${hit ? round : 'idle'}`}
+        ref={hudRef}
         className={`nm-player-hud nm-player-hud-${side} ${hit ? 'nm-player-hit' : ''}`}
+        data-round={round}
       >
         {side === 'me' && <Avatar profile={profile} />}
 
@@ -239,7 +250,7 @@ const PlayerHud = memo(
             <span>HP</span>
           </div>
           <div className="nm-hp-track">
-            <i style={{ width: `${percent}%` }} />
+            <i style={{ transform: `scaleX(${percent / 100})` }} />
           </div>
         </div>
 
@@ -249,28 +260,107 @@ const PlayerHud = memo(
   },
 );
 
-const TimerBadge = memo(
+const LiveTimer = memo(
   ({
-    seconds,
-    progress,
+    deadline,
+    duration,
+    serverOffset,
     round,
     active,
   }: {
-    seconds: number | null;
-    progress: number;
+    deadline?: number;
+    duration: number;
+    serverOffset: number;
     round: number;
     active: boolean;
-  }) => (
-    <div
-      className={`nm-timer ${active ? 'nm-timer-active' : ''}`}
-      style={cssVars({ '--timer-progress': `${clamp(progress, 0, 1) * 360}deg` })}
-    >
-      <div>
-        <strong>{seconds ?? '—'}</strong>
-        <span>ROUND {round}</span>
+  }) => {
+    const [snapshot, setSnapshot] = useState(() => {
+      const remaining = deadline
+        ? Math.max(0, deadline - (Date.now() - serverOffset))
+        : 0;
+      return {
+        seconds: deadline ? Math.max(0, Math.ceil(remaining / 1000)) : null,
+        progress: deadline ? clamp(remaining / duration, 0, 1) : 0,
+      };
+    });
+
+    useEffect(() => {
+      const update = () => {
+        const remaining = deadline
+          ? Math.max(0, deadline - (Date.now() - serverOffset))
+          : 0;
+        setSnapshot({
+          seconds: deadline ? Math.max(0, Math.ceil(remaining / 1000)) : null,
+          progress: deadline ? clamp(remaining / duration, 0, 1) : 0,
+        });
+      };
+
+      update();
+      if (!deadline) return;
+      const timer = window.setInterval(update, 100);
+      return () => window.clearInterval(timer);
+    }, [deadline, duration, serverOffset]);
+
+    return (
+      <div
+        className={`nm-timer ${active ? 'nm-timer-active' : ''}`}
+        style={cssVars({
+          '--timer-progress': `${snapshot.progress * 360}deg`,
+        })}
+      >
+        <div>
+          <strong>{snapshot.seconds ?? '—'}</strong>
+          <span>ROUND {round}</span>
+        </div>
       </div>
-    </div>
-  ),
+    );
+  },
+);
+
+const CountdownOverlay = memo(
+  ({
+    deadline,
+    serverOffset,
+    waiting = false,
+  }: {
+    deadline?: number;
+    serverOffset: number;
+    waiting?: boolean;
+  }) => {
+    const [seconds, setSeconds] = useState(3);
+
+    useEffect(() => {
+      if (waiting || !deadline) return;
+      const update = () => {
+        const remaining = Math.max(
+          0,
+          deadline - (Date.now() - serverOffset),
+        );
+        setSeconds(Math.max(1, Math.ceil(remaining / 1000)));
+      };
+      update();
+      const timer = window.setInterval(update, 80);
+      return () => window.clearInterval(timer);
+    }, [deadline, serverOffset, waiting]);
+
+    return (
+      <div className="nm-overlay">
+        <div className="nm-overlay-center">
+          <div className="nm-countdown-ring">
+            <strong>{waiting ? 'VS' : seconds}</strong>
+          </div>
+        </div>
+        <div className="nm-overlay-copy">
+          <h3>{waiting ? 'ЖДЁМ СОПЕРНИКА' : 'ПРИГОТОВЬСЯ'}</h3>
+          <p>
+            {waiting
+              ? 'МАТЧ НАЧНЁТСЯ, КОГДА ПОДКЛЮЧАТСЯ ОБА ИГРОКА'
+              : 'В КАЖДОМ РАУНДЕ НА ВЫБОР ЕСТЬ 5 СЕКУНД'}
+          </p>
+        </div>
+      </div>
+    );
+  },
 );
 
 const WheelMarker = memo(
@@ -301,44 +391,251 @@ const WheelMarker = memo(
   ),
 );
 
-const ImpactAnimation = memo(
+const smoothstep = (value: number) => {
+  const t = clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const easeOutBack = (value: number) => {
+  const t = clamp(value, 0, 1);
+  const c1 = 1.35;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+};
+
+const ResolutionAnimation = memo(
   ({
+    pageRef,
+    wheelRef,
+    meHudRef,
+    opponentHudRef,
     outcome,
-    damageApplied,
-    elapsedMs,
     profiles,
+    impactStartedAt,
+    damageAt,
+    serverOffset,
+    round,
   }: {
+    pageRef: React.RefObject<HTMLElement | null>;
+    wheelRef: React.RefObject<HTMLDivElement | null>;
+    meHudRef: React.RefObject<HTMLDivElement | null>;
+    opponentHudRef: React.RefObject<HTMLDivElement | null>;
     outcome: LocalOutcome;
-    damageApplied: boolean;
-    elapsedMs: number;
     profiles: Record<Side, PlayerProfile>;
+    impactStartedAt: number;
+    damageAt: number;
+    serverOffset: number;
+    round: number;
   }) => {
-    const delay = `-${clamp(elapsedMs, 0, 1550)}ms`;
+    const meDistanceRef = useRef<HTMLDivElement | null>(null);
+    const opponentDistanceRef = useRef<HTMLDivElement | null>(null);
+    const projectileRef = useRef<HTMLDivElement | null>(null);
+    const burstRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+      const page = pageRef.current;
+      const wheel = wheelRef.current;
+      const meDistance = meDistanceRef.current;
+      const opponentDistance = opponentDistanceRef.current;
+      const projectile = projectileRef.current;
+      const burst = burstRef.current;
+      if (!page || !wheel || !meDistance || !opponentDistance) return;
+
+      let frameId = 0;
+      let pageRect = page.getBoundingClientRect();
+      let wheelRect = wheel.getBoundingClientRect();
+
+      const readRects = () => {
+        pageRect = page.getBoundingClientRect();
+        wheelRect = wheel.getBoundingClientRect();
+      };
+
+      const place = (
+        node: HTMLElement,
+        x: number,
+        y: number,
+        scale: number,
+        opacity: number,
+      ) => {
+        node.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(${scale})`;
+        node.style.opacity = String(clamp(opacity, 0, 1));
+      };
+
+      const render = () => {
+        const now = Date.now() - serverOffset;
+        const elapsed = Math.max(0, now - impactStartedAt);
+        const damageMoment = Math.max(1300, damageAt - impactStartedAt);
+
+        const wheelCenterX =
+          wheelRect.left - pageRect.left + wheelRect.width / 2;
+        const wheelCenterY =
+          wheelRect.top - pageRect.top + wheelRect.height / 2;
+
+        const leftStartX =
+          wheelRect.left - pageRect.left + wheelRect.width * 0.22;
+        const rightStartX =
+          wheelRect.left - pageRect.left + wheelRect.width * 0.78;
+        const leftMeetX = wheelCenterX - 48;
+        const rightMeetX = wheelCenterX + 48;
+
+        const appearEnd = Math.min(300, damageMoment * 0.2);
+        const moveStart = appearEnd * 0.72;
+        const meetEnd = Math.min(900, damageMoment * 0.61);
+        const mergeEnd = Math.min(1080, damageMoment * 0.73);
+        const flightStart = mergeEnd - 40;
+        const flightEnd = damageMoment;
+
+        const appear = easeOutBack(elapsed / Math.max(1, appearEnd));
+        const meet = smoothstep(
+          (elapsed - moveStart) / Math.max(1, meetEnd - moveStart),
+        );
+        const merge = smoothstep(
+          (elapsed - meetEnd) / Math.max(1, mergeEnd - meetEnd),
+        );
+
+        const distanceOpacity =
+          elapsed < meetEnd
+            ? clamp(elapsed / Math.max(1, appearEnd * 0.45), 0, 1)
+            : 1 - merge;
+        const distanceScale = 0.76 + appear * 0.24 - merge * 0.13;
+        const leftX =
+          leftStartX + (leftMeetX - leftStartX) * meet + 21 * merge;
+        const rightX =
+          rightStartX + (rightMeetX - rightStartX) * meet - 21 * merge;
+        const distanceY =
+          wheelCenterY + 8 - Math.sin(Math.min(1, meet) * Math.PI) * 8;
+
+        place(
+          meDistance,
+          leftX,
+          distanceY,
+          distanceScale,
+          distanceOpacity,
+        );
+        place(
+          opponentDistance,
+          rightX,
+          distanceY,
+          distanceScale,
+          distanceOpacity,
+        );
+
+        if (outcome.draw) {
+          if (burst) {
+            const burstIn = easeOutBack(
+              (elapsed - meetEnd + 30) / Math.max(1, mergeEnd - meetEnd),
+            );
+            const burstOut = smoothstep(
+              (elapsed - mergeEnd) /
+                Math.max(1, damageMoment - mergeEnd),
+            );
+            place(
+              burst,
+              wheelCenterX,
+              wheelCenterY,
+              0.65 + burstIn * 0.4 - burstOut * 0.12,
+              burstIn * (1 - burstOut),
+            );
+          }
+        } else if (projectile) {
+          const reveal = easeOutBack(
+            (elapsed - meetEnd + 20) / Math.max(1, flightStart - meetEnd + 20),
+          );
+          const flight = smoothstep(
+            (elapsed - flightStart) /
+              Math.max(1, flightEnd - flightStart),
+          );
+          const targetHud =
+            outcome.defender === 'me'
+              ? meHudRef.current
+              : opponentHudRef.current;
+          const targetRect = targetHud?.getBoundingClientRect();
+          const targetX = targetRect
+            ? targetRect.left - pageRect.left + targetRect.width / 2
+            : outcome.defender === 'me'
+              ? pageRect.width * 0.22
+              : pageRect.width * 0.78;
+          const targetY = targetRect
+            ? targetRect.top - pageRect.top + targetRect.height * 0.62
+            : 42;
+
+          const controlX = wheelCenterX + (targetX - wheelCenterX) * 0.48;
+          const controlY = Math.min(wheelCenterY - 68, targetY + 34);
+          const inv = 1 - flight;
+          const x =
+            inv * inv * wheelCenterX +
+            2 * inv * flight * controlX +
+            flight * flight * targetX;
+          const y =
+            inv * inv * wheelCenterY +
+            2 * inv * flight * controlY +
+            flight * flight * targetY;
+          const arrivalFade = clamp((1 - flight) / 0.08, 0, 1);
+          const scale =
+            0.62 +
+            reveal * 0.43 -
+            flight * 0.12 +
+            Math.sin(flight * Math.PI) * 0.06;
+
+          place(projectile, x, y, scale, reveal * arrivalFade);
+        }
+
+        if (elapsed < damageMoment + 80) {
+          frameId = requestAnimationFrame(render);
+        }
+      };
+
+      readRects();
+      window.addEventListener('resize', readRects);
+      frameId = requestAnimationFrame(render);
+
+      return () => {
+        cancelAnimationFrame(frameId);
+        window.removeEventListener('resize', readRects);
+      };
+    }, [
+      damageAt,
+      impactStartedAt,
+      meHudRef,
+      opponentHudRef,
+      outcome.defender,
+      outcome.draw,
+      pageRef,
+      round,
+      serverOffset,
+      wheelRef,
+    ]);
+
     const meText = outcome.mePicked ? String(outcome.meDistance) : 'MISS';
     const opponentText = outcome.opponentPicked
       ? String(outcome.opponentDistance)
       : 'MISS';
 
     return (
-      <div
-        className={`nm-impact nm-impact-to-${outcome.defender ?? 'none'} ${
-          damageApplied ? 'nm-impact-done' : ''
-        }`}
-        style={cssVars({ '--impact-delay': delay })}
-      >
-        <div className="nm-distance nm-distance-me">
+      <div className="nm-resolution-layer" aria-hidden="true">
+        <div ref={meDistanceRef} className="nm-distance nm-distance-me">
           <Avatar profile={profiles.me} className="nm-impact-avatar" />
           <span>{meText}</span>
         </div>
-        <div className="nm-distance nm-distance-opponent">
-          <Avatar profile={profiles.opponent} className="nm-impact-avatar" />
+        <div
+          ref={opponentDistanceRef}
+          className="nm-distance nm-distance-opponent"
+        >
+          <Avatar
+            profile={profiles.opponent}
+            className="nm-impact-avatar"
+          />
           <span>{opponentText}</span>
         </div>
 
         {outcome.draw ? (
-          <div className="nm-draw-burst">0</div>
+          <div ref={burstRef} className="nm-draw-burst">
+            0
+          </div>
         ) : (
-          <div className="nm-damage-projectile">-{outcome.damage}</div>
+          <div ref={projectileRef} className="nm-damage-projectile">
+            -{outcome.damage}
+          </div>
         )}
       </div>
     );
@@ -347,29 +644,27 @@ const ImpactAnimation = memo(
 
 const Wheel = memo(
   ({
+    wheelRef,
     arrowRef,
     phase,
     draft,
     target,
+    targetVisible,
     mePick,
     opponentPick,
     myLocked,
     profiles,
-    outcome,
-    damageApplied,
-    impactElapsedMs,
   }: {
+    wheelRef: React.RefObject<HTMLDivElement | null>;
     arrowRef: React.RefObject<HTMLDivElement | null>;
     phase: NeonMatrixStateMessage['phase'];
     draft: number;
     target: number | null;
+    targetVisible: boolean;
     mePick: number | null;
     opponentPick: number | null;
     myLocked: boolean;
     profiles: Record<Side, PlayerProfile>;
-    outcome: LocalOutcome | null;
-    damageApplied: boolean;
-    impactElapsedMs: number;
   }) => {
     const showRevealedPicks =
       phase === 'spinning' ||
@@ -382,9 +677,10 @@ const Wheel = memo(
       mePick !== null &&
       opponentPick !== null &&
       mePick === opponentPick;
+    const spinningOrLanding = phase === 'spinning' || phase === 'landing';
 
     return (
-      <div className={`nm-wheel nm-wheel-${phase}`}>
+      <div ref={wheelRef} className={`nm-wheel nm-wheel-${phase}`}>
         <div className="nm-wheel-face" />
         <div className="nm-wheel-ticks" />
 
@@ -423,7 +719,7 @@ const Wheel = memo(
           />
         )}
 
-        {target !== null && phase !== 'spinning' && (
+        {target !== null && targetVisible && (
           <div
             className="nm-target"
             style={cssVars({ '--target-angle': `${numberToAngle(target)}deg` })}
@@ -442,28 +738,23 @@ const Wheel = memo(
             {phase === 'spinning'
               ? 'SPIN'
               : phase === 'landing'
-                ? 'FINAL'
+                ? 'STOPPING'
                 : phase === 'impact'
-                  ? 'DISTANCE'
+                  ? 'RESULT'
                   : phase === 'picking'
                     ? 'YOUR PICK'
                     : 'NEON'}
           </span>
           <strong>
-            {phase === 'spinning'
+            {spinningOrLanding
               ? '•••'
-              : target ?? (phase === 'picking' ? draft : '—')}
+              : targetVisible && target !== null
+                ? target
+                : phase === 'picking'
+                  ? draft
+                  : '—'}
           </strong>
         </div>
-
-        {phase === 'impact' && outcome && (
-          <ImpactAnimation
-            outcome={outcome}
-            damageApplied={damageApplied}
-            elapsedMs={impactElapsedMs}
-            profiles={profiles}
-          />
-        )}
       </div>
     );
   },
@@ -529,6 +820,10 @@ export const NeonMatrixGame: React.FC = () => {
   const { token, user } = useAuth();
 
   const socketRef = useRef<NeonMatrixSocketClient | null>(null);
+  const pageRef = useRef<HTMLElement | null>(null);
+  const wheelRef = useRef<HTMLDivElement | null>(null);
+  const meHudRef = useRef<HTMLDivElement | null>(null);
+  const opponentHudRef = useRef<HTMLDivElement | null>(null);
   const arrowRef = useRef<HTMLDivElement | null>(null);
   const arrowFrameRef = useRef<number | null>(null);
   const arrowAngleRef = useRef(numberToAngle(DEFAULT_NUMBER));
@@ -543,6 +838,7 @@ export const NeonMatrixGame: React.FC = () => {
     landingStartVelocity: 0,
     landingDistance: 0,
     landingTarget: numberToAngle(DEFAULT_NUMBER),
+    landingRound: 0,
   });
   const stageRef = useRef('');
   const verifiedRoundRef = useRef('');
@@ -555,7 +851,7 @@ export const NeonMatrixGame: React.FC = () => {
   const [serverState, setServerState] =
     useState<NeonMatrixStateMessage | null>(null);
   const [serverOffset, setServerOffset] = useState(0);
-  const [clock, setClock] = useState(0);
+  const [arrowSettledRound, setArrowSettledRound] = useState(0);
   const [draft, setDraft] = useState(DEFAULT_NUMBER);
   const [submitting, setSubmitting] = useState(false);
 
@@ -703,6 +999,7 @@ export const NeonMatrixGame: React.FC = () => {
           motion.velocity = 0;
           motion.angle = normalizeAngle(motion.landingTarget);
           renderArrow(motion.angle);
+          setArrowSettledRound(motion.landingRound);
           arrowFrameRef.current = null;
           return;
         }
@@ -733,7 +1030,7 @@ export const NeonMatrixGame: React.FC = () => {
   }, [startArrowLoop]);
 
   const startLanding = useCallback(
-    (targetAngle: number, durationMs: number) => {
+    (targetAngle: number, durationMs: number, round: number) => {
       const normalizedTarget = normalizeAngle(targetAngle);
       const motion = arrowMotionRef.current;
       if (
@@ -745,6 +1042,7 @@ export const NeonMatrixGame: React.FC = () => {
 
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         setStaticArrow(normalizedTarget);
+        setArrowSettledRound(round);
         return;
       }
 
@@ -771,6 +1069,8 @@ export const NeonMatrixGame: React.FC = () => {
       motion.landingStartVelocity = startVelocity;
       motion.landingDistance = distance;
       motion.landingTarget = normalizedTarget;
+      motion.landingRound = round;
+      setArrowSettledRound(0);
       startArrowLoop();
     },
     [setStaticArrow, startArrowLoop],
@@ -854,7 +1154,6 @@ export const NeonMatrixGame: React.FC = () => {
     };
   }, [gameId, lobbyId, token]);
 
-  const serverNow = clock > 0 ? clock - serverOffset : serverState?.server_ms ?? 0;
   const phase = serverState?.phase ?? 'waiting';
   const activeDeadline =
     phase === 'countdown'
@@ -862,24 +1161,10 @@ export const NeonMatrixGame: React.FC = () => {
       : phase === 'picking'
         ? serverState?.pick_ends_ms
         : undefined;
-
-  useEffect(() => {
-    if (!activeDeadline) return;
-    setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 100);
-    return () => window.clearInterval(timer);
-  }, [activeDeadline]);
-
   const deadlineRemaining = activeDeadline
-    ? Math.max(0, activeDeadline - serverNow)
+    ? Math.max(0, activeDeadline - (serverState?.server_ms ?? 0))
     : 0;
-  const timerSeconds = activeDeadline
-    ? Math.max(0, Math.ceil(deadlineRemaining / 1000))
-    : null;
   const timerDuration = phase === 'countdown' ? 3000 : 5000;
-  const timerProgress = activeDeadline
-    ? clamp(deadlineRemaining / timerDuration, 0, 1)
-    : 0;
 
   const myHealth = serverState?.health[String(myUserId)] ?? START_HP;
   const opponentHealth =
@@ -944,12 +1229,14 @@ export const NeonMatrixGame: React.FC = () => {
 
     if (serverState.phase === 'countdown' || serverState.phase === 'waiting') {
       if (newRound) setDraft(DEFAULT_NUMBER);
+      setArrowSettledRound(0);
       setStaticArrow(numberToAngle(DEFAULT_NUMBER));
       stageRef.current = `${serverState.round}:${serverState.phase}`;
       return;
     }
 
     if (serverState.phase === 'picking') {
+      setArrowSettledRound(0);
       if (newRound) {
         setDraft(DEFAULT_NUMBER);
         setStaticArrow(numberToAngle(DEFAULT_NUMBER));
@@ -963,6 +1250,7 @@ export const NeonMatrixGame: React.FC = () => {
     }
 
     if (serverState.phase === 'spinning') {
+      setArrowSettledRound(0);
       const key = `${serverState.round}:spinning`;
       if (stageRef.current !== key) {
         stageRef.current = key;
@@ -981,7 +1269,7 @@ export const NeonMatrixGame: React.FC = () => {
           MIN_LANDING_MS,
           (serverState.stop_at_ms ?? estimatedServerNow + 2200) - estimatedServerNow,
         );
-        startLanding(numberToAngle(serverState.target), remaining);
+        startLanding(numberToAngle(serverState.target), remaining, serverState.round);
       }
       return;
     }
@@ -989,16 +1277,26 @@ export const NeonMatrixGame: React.FC = () => {
     if (serverState.phase === 'impact' && serverState.target !== undefined) {
       void verifyCommitment(serverState);
       const targetAngle = numberToAngle(serverState.target);
-      if (
-        arrowMotionRef.current.mode !== 'idle' ||
-        circularAngleDistance(arrowAngleRef.current, targetAngle) > 0.25
-      ) {
+      const motion = arrowMotionRef.current;
+      const distanceToTarget = circularAngleDistance(
+        arrowAngleRef.current,
+        targetAngle,
+      );
+
+      if (motion.mode === 'spinning') {
         const remaining = Math.max(
-          MIN_LANDING_MS,
-          (serverState.stop_at_ms ?? estimatedServerNow) - estimatedServerNow,
+          420,
+          (serverState.stop_at_ms ?? estimatedServerNow + 420) -
+            estimatedServerNow,
         );
-        if (remaining > MIN_LANDING_MS) startLanding(targetAngle, remaining);
-        else setStaticArrow(targetAngle);
+        startLanding(targetAngle, remaining, serverState.round);
+      } else if (motion.mode === 'idle') {
+        if (distanceToTarget > 0.25) {
+          startLanding(targetAngle, 420, serverState.round);
+        } else {
+          renderArrow(normalizeAngle(targetAngle));
+          setArrowSettledRound(serverState.round);
+        }
       }
 
       const key = `${serverState.round}:impact`;
@@ -1022,6 +1320,7 @@ export const NeonMatrixGame: React.FC = () => {
       stopArrow();
       if (serverState.target !== undefined) {
         renderArrow(numberToAngle(serverState.target));
+        setArrowSettledRound(serverState.round);
       }
       const key = `${serverState.round}:match_over`;
       if (stageRef.current !== key) {
@@ -1044,14 +1343,6 @@ export const NeonMatrixGame: React.FC = () => {
     verifyCommitment,
   ]);
 
-  const impactElapsedMs =
-    phase === 'impact'
-      ? Math.max(
-          0,
-          (serverState?.server_ms ?? serverNow) -
-            (serverState?.stop_at_ms ?? serverState?.server_ms ?? serverNow),
-        )
-      : 0;
 
   const canPick =
     connectionStatus === 'open' &&
@@ -1089,6 +1380,10 @@ export const NeonMatrixGame: React.FC = () => {
   const loserProfile = didWin ? profiles.opponent : profiles.me;
   const winnerHp = didWin ? myHealth : opponentHealth;
   const loserHp = didWin ? opponentHealth : myHealth;
+  const currentRound = serverState?.round ?? 1;
+  const targetVisible =
+    phase === 'match_over' ||
+    (phase === 'impact' && arrowSettledRound === currentRound);
 
   if (!lobbyId) {
     return (
@@ -1102,7 +1397,7 @@ export const NeonMatrixGame: React.FC = () => {
   }
 
   return (
-    <section className="nm-page">
+    <section ref={pageRef} className="nm-page">
       <style>{`
         .nm-page {
           --me: #5bb7ff;
@@ -1184,19 +1479,23 @@ export const NeonMatrixGame: React.FC = () => {
           white-space: nowrap;
           color: rgba(255,255,255,.82);
           font-size: 8px;
-          line-height: 1.45;
-          padding-top: 1px;
+          line-height: 1.6;
+          padding: 2px 0 1px;
         }
-        .nm-hp-row { display: flex; align-items: baseline; gap: 4px; margin-top: 2px; }
+        .nm-hp-row { display: flex; align-items: baseline; gap: 4px; margin-top: 1px; }
         .nm-player-hud-opponent .nm-hp-row { justify-content: flex-end; }
-        .nm-hp-row strong { font-size: 16px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+        .nm-hp-row strong { display: inline-block; padding-top: .08em; font-size: 16px; line-height: 1.5; font-variant-numeric: tabular-nums; }
         .nm-player-hud-me .nm-hp-row strong { color: var(--me); }
         .nm-player-hud-opponent .nm-hp-row strong { color: var(--opponent); }
-        .nm-hp-row span { color: rgba(255,255,255,.28); font-size: 6px; }
-        .nm-hp-track { height: 5px; margin-top: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.075); }
-        .nm-hp-track i { display: block; height: 100%; border-radius: inherit; transition: width 650ms cubic-bezier(.18,.78,.24,1); }
-        .nm-player-hud-me .nm-hp-track i { margin-right: auto; background: var(--me); }
-        .nm-player-hud-opponent .nm-hp-track i { margin-left: auto; background: var(--opponent); }
+        .nm-hp-row span { display: inline-block; padding-top: .2em; color: rgba(255,255,255,.28); font-size: 6px; line-height: 1.5; }
+        .nm-hp-track { height: 5px; margin-top: 2px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.075); }
+        .nm-hp-track i {
+          display: block; width: 100%; height: 100%; border-radius: inherit;
+          will-change: transform;
+          transition: transform 720ms cubic-bezier(.16,.78,.22,1);
+        }
+        .nm-player-hud-me .nm-hp-track i { transform-origin: 0 50%; background: var(--me); }
+        .nm-player-hud-opponent .nm-hp-track i { transform-origin: 100% 50%; background: var(--opponent); }
         .nm-player-hit { animation: nmHudHit 520ms ease-out; }
 
         .nm-timer {
@@ -1211,8 +1510,8 @@ export const NeonMatrixGame: React.FC = () => {
           display: grid; place-items: center; align-content: center;
           background: #12141d; border: 1px solid rgba(255,255,255,.06);
         }
-        .nm-timer strong { font-size: 18px; line-height: 1.15; font-variant-numeric: tabular-nums; }
-        .nm-timer span { margin-top: 2px; color: rgba(255,255,255,.28); font-size: 5px; line-height: 1.2; }
+        .nm-timer strong { display: block; padding-top: .12em; font-size: 18px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+        .nm-timer span { display: block; margin-top: -1px; color: rgba(255,255,255,.28); font-size: 5px; line-height: 1.5; }
         .nm-timer-active strong { color: var(--gold); }
 
         .nm-main {
@@ -1224,9 +1523,9 @@ export const NeonMatrixGame: React.FC = () => {
           position: relative;
         }
 
-        .nm-round-caption { text-align: center; min-height: 30px; }
-        .nm-round-caption strong { display: block; color: #fff; font-size: 14px; line-height: 1.35; }
-        .nm-round-caption span { display: block; margin-top: 2px; color: rgba(255,255,255,.34); font-size: 7px; line-height: 1.4; }
+        .nm-round-caption { text-align: center; min-height: 34px; }
+        .nm-round-caption strong { display: block; padding: .12em 0 .04em; color: #fff; font-size: 14px; line-height: 1.5; }
+        .nm-round-caption span { display: block; margin-top: 0; color: rgba(255,255,255,.34); font-size: 7px; line-height: 1.55; }
 
         .nm-wheel {
           position: relative;
@@ -1257,7 +1556,8 @@ export const NeonMatrixGame: React.FC = () => {
           transform: translate(-50%, -50%);
           color: rgba(255,255,255,.38);
           font-size: 7px;
-          line-height: 1;
+          line-height: 1.45;
+          padding-top: .08em;
           pointer-events: none;
         }
         .nm-arrow {
@@ -1288,8 +1588,8 @@ export const NeonMatrixGame: React.FC = () => {
           background: #0c0f16;
           box-shadow: inset 0 0 0 5px rgba(255,255,255,.025);
         }
-        .nm-wheel-center span { color: rgba(255,255,255,.3); font-size: 6px; line-height: 1.2; }
-        .nm-wheel-center strong { margin-top: 3px; color: #fff; font-size: clamp(25px, 8vw, 38px); line-height: 1.15; font-variant-numeric: tabular-nums; }
+        .nm-wheel-center span { display: block; padding-top: .12em; color: rgba(255,255,255,.3); font-size: 6px; line-height: 1.5; }
+        .nm-wheel-center strong { display: block; margin-top: 0; padding-top: .08em; color: #fff; font-size: clamp(25px, 8vw, 38px); line-height: 1.4; font-variant-numeric: tabular-nums; }
 
         .nm-marker, .nm-target {
           position: absolute; inset: 0; z-index: 15;
@@ -1307,48 +1607,77 @@ export const NeonMatrixGame: React.FC = () => {
         .nm-target { --marker-angle: var(--target-angle); transform: rotate(var(--target-angle)); z-index: 13; }
         .nm-target span {
           position: absolute; left: 50%; top: 6.7%;
-          min-width: 28px; height: 22px; padding: 0 6px;
+          min-width: 28px; min-height: 24px; padding: 2px 6px 1px;
           display: grid; place-items: center;
           transform: translate(-50%, -50%) rotate(calc(-1 * var(--target-angle)));
           border-radius: 8px; background: var(--gold); color: #15100a;
-          font-size: 8px; line-height: 1;
+          font-size: 8px; line-height: 1.45;
         }
 
-        .nm-impact { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
-        .nm-distance {
-          position: absolute; left: 50%; top: 50%;
-          display: flex; align-items: center; gap: 6px;
-          min-width: 82px; padding: 7px 9px;
-          border-radius: 14px; border: 1px solid rgba(255,255,255,.12);
-          background: #121621;
-          animation-duration: 900ms;
-          animation-timing-function: cubic-bezier(.18,.82,.22,1);
-          animation-fill-mode: both;
-          animation-delay: var(--impact-delay);
+        .nm-resolution-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 35;
+          pointer-events: none;
+          overflow: visible;
         }
-        .nm-distance-me { animation-name: nmDistanceMe; }
-        .nm-distance-opponent { animation-name: nmDistanceOpponent; flex-direction: row-reverse; }
-        .nm-impact-avatar { width: 25px; height: 25px; font-size: 7px; }
+        .nm-distance {
+          position: absolute;
+          left: 0;
+          top: 0;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          min-width: 88px;
+          padding: 7px 10px;
+          border: 1px solid rgba(255,255,255,.13);
+          border-radius: 14px;
+          background: #121621;
+          box-shadow: 0 10px 28px rgba(0,0,0,.34);
+          opacity: 0;
+          will-change: transform, opacity;
+          backface-visibility: hidden;
+        }
+        .nm-distance-opponent { flex-direction: row-reverse; }
+        .nm-impact-avatar { width: 27px; height: 27px; font-size: 7px; }
         .nm-distance-me .nm-impact-avatar { border-color: var(--me); }
         .nm-distance-opponent .nm-impact-avatar { border-color: var(--opponent); }
-        .nm-distance span { font-size: 13px; font-variant-numeric: tabular-nums; }
-        .nm-damage-projectile, .nm-draw-burst {
-          position: absolute; left: 50%; top: 50%;
-          display: grid; place-items: center;
-          min-width: 54px; height: 40px; padding: 0 10px;
-          border-radius: 14px; border: 1px solid rgba(255,99,120,.4);
-          background: #2a1119; color: #ff7589;
-          font-size: 18px; font-variant-numeric: tabular-nums;
-          animation-duration: 1550ms;
-          animation-timing-function: cubic-bezier(.16,.8,.22,1);
-          animation-fill-mode: both;
-          animation-delay: var(--impact-delay);
-          will-change: transform, opacity;
+        .nm-distance span {
+          display: inline-block;
+          padding-top: .08em;
+          font-size: 14px;
+          line-height: 1.45;
+          font-variant-numeric: tabular-nums;
         }
-        .nm-impact-to-me .nm-damage-projectile { animation-name: nmDamageToMe; }
-        .nm-impact-to-opponent .nm-damage-projectile { animation-name: nmDamageToOpponent; }
-        .nm-draw-burst { border-color: rgba(255,201,106,.4); background: #28200f; color: var(--gold); animation-name: nmDraw; }
-        .nm-impact-done .nm-damage-projectile { opacity: 0; }
+        .nm-distance-me span { color: var(--me); }
+        .nm-distance-opponent span { color: var(--opponent); }
+        .nm-damage-projectile, .nm-draw-burst {
+          position: absolute;
+          left: 0;
+          top: 0;
+          display: grid;
+          place-items: center;
+          min-width: 58px;
+          min-height: 42px;
+          padding: 3px 11px 1px;
+          border: 1px solid rgba(255,99,120,.42);
+          border-radius: 14px;
+          background: #2a1119;
+          color: #ff7589;
+          box-shadow: 0 10px 30px rgba(255,70,100,.18);
+          font-size: 18px;
+          line-height: 1.45;
+          font-variant-numeric: tabular-nums;
+          opacity: 0;
+          will-change: transform, opacity;
+          backface-visibility: hidden;
+        }
+        .nm-draw-burst {
+          border-color: rgba(255,201,106,.4);
+          background: #28200f;
+          color: var(--gold);
+          box-shadow: 0 10px 30px rgba(255,201,106,.16);
+        }
 
         .nm-bottom {
           position: relative; z-index: 10;
@@ -1366,8 +1695,8 @@ export const NeonMatrixGame: React.FC = () => {
           background: #11141d;
         }
         .nm-picker-value { text-align: center; }
-        .nm-picker-value span { display: block; color: rgba(255,255,255,.32); font-size: 6px; }
-        .nm-picker-value strong { display: block; margin-top: 3px; color: var(--me); font-size: 23px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .nm-picker-value span { display: block; padding-top: .1em; color: rgba(255,255,255,.32); font-size: 6px; line-height: 1.5; }
+        .nm-picker-value strong { display: block; margin-top: 0; padding-top: .08em; color: var(--me); font-size: 23px; line-height: 1.45; font-variant-numeric: tabular-nums; }
         .nm-range { width: 100%; height: 32px; margin: 0; accent-color: var(--me); touch-action: none; }
         .nm-action {
           min-height: 50px;
@@ -1377,8 +1706,8 @@ export const NeonMatrixGame: React.FC = () => {
           color: white;
           font: inherit;
           font-size: 10px;
-          line-height: 1.4;
-          padding-top: 3px;
+          line-height: 1.55;
+          padding: 9px 8px 7px;
           transition: transform 120ms ease, opacity 120ms ease;
         }
         .nm-action:active:not(:disabled) { transform: scale(.985); }
@@ -1394,10 +1723,24 @@ export const NeonMatrixGame: React.FC = () => {
         .nm-error { color: #ff7187; }
 
         .nm-overlay {
-          position: absolute; inset: 0; z-index: 40;
-          display: grid; place-items: center; padding: 20px;
-          background: rgba(6,7,11,.88);
+          position: absolute;
+          inset: 0;
+          z-index: 40;
+          background: rgba(6,7,11,.9);
           text-align: center;
+        }
+        .nm-overlay-center {
+          position: absolute;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          pointer-events: none;
+        }
+        .nm-overlay-copy {
+          position: absolute;
+          left: 20px;
+          right: 20px;
+          top: calc(50% + 96px);
         }
         .nm-countdown-ring {
           width: 154px; height: 154px; border-radius: 50%;
@@ -1406,9 +1749,17 @@ export const NeonMatrixGame: React.FC = () => {
           background: radial-gradient(circle, #171925 0 57%, rgba(255,201,106,.12) 58% 61%, #0b0d13 62%);
           animation: nmCountdownPulse 900ms ease-in-out infinite alternate;
         }
-        .nm-countdown-ring strong { color: var(--gold); font-size: 64px; line-height: 1.15; }
-        .nm-overlay h3 { margin: 14px 0 0; font-size: 13px; line-height: 1.4; }
-        .nm-overlay p { margin: 7px 0 0; color: rgba(255,255,255,.36); font-size: 8px; line-height: 1.5; }
+        .nm-countdown-ring strong {
+          display: block;
+          min-width: 1.2em;
+          padding: .16em 0 .06em;
+          color: var(--gold);
+          font-size: 64px;
+          line-height: 1.45;
+          font-variant-numeric: tabular-nums;
+        }
+        .nm-overlay h3 { margin: 0; padding: .12em 0 .04em; font-size: 13px; line-height: 1.55; }
+        .nm-overlay p { margin: 5px 0 0; color: rgba(255,255,255,.36); font-size: 8px; line-height: 1.6; }
 
         .nm-modal-layer {
           position: absolute; inset: 0; z-index: 60;
@@ -1427,14 +1778,14 @@ export const NeonMatrixGame: React.FC = () => {
           animation: nmModalIn 260ms ease-out both;
         }
         .nm-result-kicker { color: rgba(255,255,255,.3); font-size: 7px; line-height: 1.5; letter-spacing: .12em; }
-        .nm-result-modal h2 { margin: 7px 0 0; font-size: 27px; line-height: 1.3; }
+        .nm-result-modal h2 { margin: 7px 0 0; padding: .12em 0 .04em; font-size: 27px; line-height: 1.5; }
         .nm-result-win h2 { color: #58e6a1; }
         .nm-result-loss h2 { color: #ff6d82; }
         .nm-result-players { margin-top: 20px; display: grid; grid-template-columns: 1.15fr auto .9fr; align-items: end; gap: 12px; }
         .nm-result-players > span { padding-bottom: 31px; color: rgba(255,255,255,.2); font-size: 8px; }
         .nm-result-player { min-width: 0; }
         .nm-result-player > div:nth-child(2) { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; line-height: 1.5; }
-        .nm-result-player strong { display: block; margin-top: 3px; font-size: 18px; line-height: 1.3; }
+        .nm-result-player strong { display: block; margin-top: 2px; padding-top: .08em; font-size: 18px; line-height: 1.5; }
         .nm-result-winner > div:nth-child(2) { color: var(--gold); }
         .nm-result-loser { opacity: .58; }
         .nm-result-avatar-big { width: 88px; height: 88px; margin: auto; border: 2px solid var(--gold); font-size: 19px; }
@@ -1442,7 +1793,7 @@ export const NeonMatrixGame: React.FC = () => {
         .nm-result-divider { height: 1px; margin: 18px 0; background: rgba(255,255,255,.07); }
         .nm-reward { width: fit-content; margin: auto; display: flex; align-items: center; gap: 8px; padding: 9px 15px; border: 1px solid rgba(88,230,161,.18); border-radius: 99px; background: rgba(88,230,161,.08); color: #58e6a1; }
         .nm-result-loss .nm-reward { border-color: rgba(255,109,130,.18); background: rgba(255,109,130,.08); color: #ff6d82; }
-        .nm-reward strong { font-size: 19px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .nm-reward strong { display: inline-block; padding-top: .08em; font-size: 19px; line-height: 1.45; font-variant-numeric: tabular-nums; }
         .nm-reward img { width: 24px; height: 24px; object-fit: contain; }
         .nm-result-modal button {
           width: 100%; min-height: 56px; margin-top: 18px; padding: 8px 10px;
@@ -1451,7 +1802,7 @@ export const NeonMatrixGame: React.FC = () => {
           background: #171b25; color: #fff; font: inherit;
         }
         .nm-result-modal button span { color: rgba(255,255,255,.45); font-size: 20px; }
-        .nm-result-modal button b { font-size: 9px; line-height: 1.5; letter-spacing: .08em; }
+        .nm-result-modal button b { padding-top: .1em; font-size: 9px; line-height: 1.6; letter-spacing: .08em; }
         .nm-back-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 12px; background: rgba(0,0,0,.2); }
 
         .nm-empty { height: 100%; min-height: 480px; display: grid; place-items: center; align-content: center; gap: 16px; background: #09090d; color: #fff; text-align: center; }
@@ -1463,35 +1814,6 @@ export const NeonMatrixGame: React.FC = () => {
           40% { transform: translateX(3px); }
           60% { transform: translateX(-2px); }
           80% { transform: translateX(1px); }
-        }
-        @keyframes nmDistanceMe {
-          0% { opacity: 0; transform: translate(-190%, -50%) scale(.8); }
-          18% { opacity: 1; }
-          72% { opacity: 1; transform: translate(-106%, -50%) scale(1); }
-          100% { opacity: 0; transform: translate(-67%, -50%) scale(.86); }
-        }
-        @keyframes nmDistanceOpponent {
-          0% { opacity: 0; transform: translate(90%, -50%) scale(.8); }
-          18% { opacity: 1; }
-          72% { opacity: 1; transform: translate(6%, -50%) scale(1); }
-          100% { opacity: 0; transform: translate(-33%, -50%) scale(.86); }
-        }
-        @keyframes nmDamageToMe {
-          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
-          48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
-          58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-          100% { opacity: 0; transform: translate(calc(-50% - 42vw), calc(-50% - 38vh)) scale(.55); }
-        }
-        @keyframes nmDamageToOpponent {
-          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
-          48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
-          58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-          100% { opacity: 0; transform: translate(calc(-50% + 42vw), calc(-50% - 38vh)) scale(.55); }
-        }
-        @keyframes nmDraw {
-          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
-          52%,78% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
-          100% { opacity: 0; transform: translate(-50%, -50%) scale(.85); }
         }
         @keyframes nmCountdownPulse { from { transform: scale(.98); } to { transform: scale(1.02); } }
         @keyframes nmModalIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -1537,13 +1859,15 @@ export const NeonMatrixGame: React.FC = () => {
             Boolean(serverState?.damage_applied) &&
             outcome?.defender === 'me'
           }
-          round={serverState?.round ?? 1}
+          round={currentRound}
+          hudRef={meHudRef}
         />
 
-        <TimerBadge
-          seconds={timerSeconds}
-          progress={timerProgress}
-          round={serverState?.round ?? 1}
+        <LiveTimer
+          deadline={activeDeadline}
+          duration={timerDuration}
+          serverOffset={serverOffset}
+          round={currentRound}
           active={phase === 'picking' || phase === 'countdown'}
         />
 
@@ -1556,7 +1880,8 @@ export const NeonMatrixGame: React.FC = () => {
             Boolean(serverState?.damage_applied) &&
             outcome?.defender === 'opponent'
           }
-          round={serverState?.round ?? 1}
+          round={currentRound}
+          hudRef={opponentHudRef}
         />
       </header>
 
@@ -1570,7 +1895,7 @@ export const NeonMatrixGame: React.FC = () => {
               : phase === 'spinning'
                 ? 'КОЛЕСО КРУТИТСЯ'
                 : phase === 'landing'
-                  ? 'ФИНАЛЬНОЕ ЧИСЛО'
+                  ? 'КОЛЕСО ЗАМЕДЛЯЕТСЯ'
                   : phase === 'impact'
                     ? 'РАЗНИЦА РАССТОЯНИЙ'
                     : phase === 'match_over'
@@ -1581,17 +1906,16 @@ export const NeonMatrixGame: React.FC = () => {
         </div>
 
         <Wheel
+          wheelRef={wheelRef}
           arrowRef={arrowRef}
           phase={phase}
           draft={draft}
           target={serverState?.target ?? null}
+          targetVisible={targetVisible}
           mePick={myPick}
           opponentPick={opponentPick}
           myLocked={myLocked}
           profiles={profiles}
-          outcome={outcome}
-          damageApplied={Boolean(serverState?.damage_applied)}
-          impactElapsedMs={impactElapsedMs}
         />
       </main>
 
@@ -1639,28 +1963,34 @@ export const NeonMatrixGame: React.FC = () => {
         )}
       </footer>
 
+      {phase === 'impact' &&
+        targetVisible &&
+        outcome &&
+        serverState?.stop_at_ms &&
+        serverState?.damage_at_ms && (
+          <ResolutionAnimation
+            pageRef={pageRef}
+            wheelRef={wheelRef}
+            meHudRef={meHudRef}
+            opponentHudRef={opponentHudRef}
+            outcome={outcome}
+            profiles={profiles}
+            impactStartedAt={serverState.stop_at_ms}
+            damageAt={serverState.damage_at_ms}
+            serverOffset={serverOffset}
+            round={currentRound}
+          />
+        )}
+
       {phase === 'waiting' && (
-        <div className="nm-overlay">
-          <div>
-            <div className="nm-countdown-ring">
-              <strong>VS</strong>
-            </div>
-            <h3>ЖДЁМ СОПЕРНИКА</h3>
-            <p>МАТЧ НАЧНЁТСЯ, КОГДА ПОДКЛЮЧАТСЯ ОБА ИГРОКА</p>
-          </div>
-        </div>
+        <CountdownOverlay waiting serverOffset={serverOffset} />
       )}
 
       {phase === 'countdown' && (
-        <div className="nm-overlay">
-          <div>
-            <div className="nm-countdown-ring">
-              <strong>{Math.max(1, timerSeconds ?? 3)}</strong>
-            </div>
-            <h3>ПРИГОТОВЬСЯ</h3>
-            <p>В КАЖДОМ РАУНДЕ НА ВЫБОР ЕСТЬ 5 СЕКУНД</p>
-          </div>
-        </div>
+        <CountdownOverlay
+          deadline={serverState?.countdown_ends_ms}
+          serverOffset={serverOffset}
+        />
       )}
 
       {matchOver && (
