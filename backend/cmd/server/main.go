@@ -7,6 +7,7 @@ import (
 	"tg-lobbies-base/internal/games/arcaderace"
 	"tg-lobbies-base/internal/games/discfootball"
 	"tg-lobbies-base/internal/games/dunkshot"
+	"tg-lobbies-base/internal/games/gridlock"
 	"tg-lobbies-base/internal/games/neonmatrix"
 	"tg-lobbies-base/internal/games/paperio"
 	"tg-lobbies-base/internal/games/physicsduel"
@@ -56,6 +57,12 @@ func main() {
 	dunkShotManager := dunkshot.NewManager()
 	go dunkShotManager.CleanupLoop()
 	dunkShotManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	})
+
+	gridLockManager := gridlock.NewManager()
+	go gridLockManager.CleanupLoop()
+	gridLockManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
 		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
 	})
 
@@ -123,6 +130,12 @@ func main() {
 		Cfg:        cfg,
 		LobbyStore: lobbyStore,
 		Manager:    dunkShotManager,
+	}
+
+	gridLockWSHandler := handlers.GridLockWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    gridLockManager,
 	}
 
 	flappyRaceWSHandler := handlers.ArcadeRaceWSHandler{
@@ -213,6 +226,7 @@ func main() {
 
 	router.GET("/ws/disc-football/:lobby_id", discFootballWSHandler.Connect)
 	router.GET("/ws/dunk-shot/:lobby_id", dunkShotWSHandler.Connect)
+	router.GET("/ws/grid-lock/:lobby_id", gridLockWSHandler.Connect)
 	router.GET("/ws/flappy-race/:lobby_id", flappyRaceWSHandler.Connect)
 	router.GET("/ws/doodle-jump/:lobby_id", doodleJumpWSHandler.Connect)
 	router.GET("/ws/crossy-road/:lobby_id", crossyPVPWSHandler.Connect)

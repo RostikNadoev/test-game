@@ -234,6 +234,7 @@ export const LobbyRoom = () => {
           lobbyGameCode === 'cube_fill' ||
           lobbyGameCode === 'draw_drop' ||
           lobbyGameCode === 'ballz_duel' ||
+          lobbyGameCode === 'grid_lock' ||
           lobbyGameCode === 'tilt_maze'
             ? 0
             : undefined
