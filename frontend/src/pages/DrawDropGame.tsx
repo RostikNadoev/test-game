@@ -25,12 +25,17 @@ type RectObstacle = {
   tone?: 'stone' | 'glass' | 'accent';
 };
 
+type CupMount = 'floor' | 'left-wall' | 'right-wall' | 'shelf';
+
 type CupSpec = {
   x: number;
   y: number;
   angle?: number;
   width?: number;
   height?: number;
+  mount?: CupMount;
+  captureHold?: number;
+  captureSpeed?: number;
 };
 
 type BallSpec = {
@@ -561,6 +566,29 @@ const drawObstacle = (ctx: CanvasRenderingContext2D, rect: RectObstacle) => {
   ctx.strokeStyle = '#111111';
   ctx.lineWidth = 1;
   ctx.stroke();
+  ctx.restore();
+};
+
+const drawCupMount = (ctx: CanvasRenderingContext2D, cup: CupSpec) => {
+  if (!cup.mount) return;
+
+  const width = cup.width ?? 70;
+  const height = cup.height ?? 70;
+  const angle = cup.angle ?? 0;
+  const bottom = rotate({ x: 0, y: height / 2 + 3 }, angle);
+
+  ctx.save();
+  ctx.translate(cup.x + bottom.x, cup.y + bottom.y);
+  ctx.rotate(angle);
+
+  if (cup.mount === 'floor' || cup.mount === 'shelf') {
+    roundedRectPath(ctx, -width * 0.25, -5, width * 0.5, 10, 4);
+  } else {
+    roundedRectPath(ctx, -width * 0.22, -5, width * 0.44, 10, 4);
+  }
+
+  ctx.fillStyle = '#111111';
+  ctx.fill();
   ctx.restore();
 };
 
@@ -1098,16 +1126,21 @@ const DrawDropGame = () => {
       const local = cupLocalPoint(spec.cup, { x: ball.x, y: ball.y });
       const cupW = spec.cup.width ?? 70;
       const cupH = spec.cup.height ?? 70;
+      const captureSpeed = spec.cup.captureSpeed ?? 300;
+      const captureHold = spec.cup.captureHold ?? SUCCESS_HOLD;
       const inside =
         Math.abs(local.x) < cupW * 0.39 - ball.r * 0.1 &&
         local.y > -cupH * 0.36 &&
-        local.y < cupH * 0.49 &&
-        Math.hypot(ball.vx, ball.vy) < 300;
+        local.y < cupH * 0.5 &&
+        Math.hypot(ball.vx, ball.vy) < captureSpeed;
 
-      if (inside) cupHoldRef.current += dt;
-      else cupHoldRef.current = Math.max(0, cupHoldRef.current - dt * 1.7);
+      if (inside) {
+        cupHoldRef.current += dt;
+      } else {
+        cupHoldRef.current = Math.max(0, cupHoldRef.current - dt * 1.7);
+      }
 
-      if (cupHoldRef.current >= SUCCESS_HOLD) {
+      if (cupHoldRef.current >= captureHold) {
         const slot = levelSlotRef.current;
         const solvedInk = Math.max(
           0,
@@ -1189,6 +1222,7 @@ const DrawDropGame = () => {
 
       drawWorldBounds(ctx);
       for (const obstacle of spec.obstacles) drawObstacle(ctx, obstacle);
+      drawCupMount(ctx, spec.cup);
       drawCup(ctx, spec.cup, currentPhase === 'success');
 
       if (currentPhase === 'draw' || currentPhase === 'failed' || currentPhase === 'success') {
