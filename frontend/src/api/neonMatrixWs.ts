@@ -1,6 +1,13 @@
 import { API_BASE_URL } from './client';
 
-export type NeonMatrixPhase = 'picking' | 'spinning' | 'landing' | 'impact' | 'result' | 'match_over';
+export type NeonMatrixPhase =
+  | 'waiting'
+  | 'countdown'
+  | 'picking'
+  | 'spinning'
+  | 'landing'
+  | 'impact'
+  | 'match_over';
 
 export type NeonMatrixRoundOutcome = {
   target: number;
@@ -8,6 +15,8 @@ export type NeonMatrixRoundOutcome = {
   player2_user_id: number;
   player1_pick: number;
   player2_pick: number;
+  player1_picked: boolean;
+  player2_picked: boolean;
   player1_distance: number;
   player2_distance: number;
   damage: number;
@@ -28,14 +37,20 @@ export type NeonMatrixStateMessage = {
   health: Record<string, number>;
   picked: Record<string, boolean>;
   picks: Record<string, number | null>;
-  ready: Record<string, boolean>;
   commitment?: string;
+  countdown_ends_ms?: number;
+  pick_ends_ms?: number;
   reveal_at_ms?: number;
   stop_at_ms?: number;
+  damage_at_ms?: number;
+  next_round_at_ms?: number;
+  damage_applied: boolean;
   target?: number;
   reveal_nonce?: string;
   outcome?: NeonMatrixRoundOutcome;
   winner_user_id?: number;
+  bet_coins: number;
+  winner_profit: number;
   message?: string;
 };
 
@@ -57,7 +72,6 @@ export type NeonMatrixSocketClient = {
   socket: WebSocket;
   requestState: () => boolean;
   pick: (value: number) => boolean;
-  ready: () => boolean;
   close: () => void;
 };
 
@@ -68,6 +82,9 @@ const numberValue = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+const optionalNumber = (value: unknown) =>
+  value === undefined || value === null ? undefined : numberValue(value);
 
 const normalizeNumberMap = (value: unknown): Record<string, number> => {
   if (!isObject(value)) return {};
@@ -102,29 +119,33 @@ const normalizeOutcome = (value: unknown): NeonMatrixRoundOutcome | undefined =>
     player2_user_id: numberValue(value.player2_user_id),
     player1_pick: numberValue(value.player1_pick),
     player2_pick: numberValue(value.player2_pick),
+    player1_picked: Boolean(value.player1_picked),
+    player2_picked: Boolean(value.player2_picked),
     player1_distance: numberValue(value.player1_distance),
     player2_distance: numberValue(value.player2_distance),
     damage: numberValue(value.damage),
-    attacker_user_id:
-      value.attacker_user_id === undefined ? undefined : numberValue(value.attacker_user_id),
-    defender_user_id:
-      value.defender_user_id === undefined ? undefined : numberValue(value.defender_user_id),
-    winner_user_id:
-      value.winner_user_id === undefined ? undefined : numberValue(value.winner_user_id),
+    attacker_user_id: optionalNumber(value.attacker_user_id),
+    defender_user_id: optionalNumber(value.defender_user_id),
+    winner_user_id: optionalNumber(value.winner_user_id),
     is_draw: Boolean(value.is_draw),
   };
 };
 
+const PHASES = new Set<NeonMatrixPhase>([
+  'waiting',
+  'countdown',
+  'picking',
+  'spinning',
+  'landing',
+  'impact',
+  'match_over',
+]);
+
 const normalizeState = (raw: Record<string, unknown>): NeonMatrixStateMessage => {
-  const phaseRaw = typeof raw.phase === 'string' ? raw.phase : 'picking';
-  const phase: NeonMatrixPhase =
-    phaseRaw === 'spinning' ||
-    phaseRaw === 'landing' ||
-    phaseRaw === 'impact' ||
-    phaseRaw === 'result' ||
-    phaseRaw === 'match_over'
-      ? phaseRaw
-      : 'picking';
+  const phaseRaw = typeof raw.phase === 'string' ? raw.phase : 'waiting';
+  const phase = PHASES.has(phaseRaw as NeonMatrixPhase)
+    ? (phaseRaw as NeonMatrixPhase)
+    : 'waiting';
 
   return {
     type: 'state',
@@ -139,18 +160,21 @@ const normalizeState = (raw: Record<string, unknown>): NeonMatrixStateMessage =>
     health: normalizeNumberMap(raw.health),
     picked: normalizeBooleanMap(raw.picked),
     picks: normalizePickMap(raw.picks),
-    ready: normalizeBooleanMap(raw.ready),
     commitment: typeof raw.commitment === 'string' ? raw.commitment : undefined,
-    reveal_at_ms:
-      raw.reveal_at_ms === undefined ? undefined : numberValue(raw.reveal_at_ms),
-    stop_at_ms:
-      raw.stop_at_ms === undefined ? undefined : numberValue(raw.stop_at_ms),
-    target: raw.target === undefined ? undefined : numberValue(raw.target),
+    countdown_ends_ms: optionalNumber(raw.countdown_ends_ms),
+    pick_ends_ms: optionalNumber(raw.pick_ends_ms),
+    reveal_at_ms: optionalNumber(raw.reveal_at_ms),
+    stop_at_ms: optionalNumber(raw.stop_at_ms),
+    damage_at_ms: optionalNumber(raw.damage_at_ms),
+    next_round_at_ms: optionalNumber(raw.next_round_at_ms),
+    damage_applied: Boolean(raw.damage_applied),
+    target: optionalNumber(raw.target),
     reveal_nonce:
       typeof raw.reveal_nonce === 'string' ? raw.reveal_nonce : undefined,
     outcome: normalizeOutcome(raw.outcome),
-    winner_user_id:
-      raw.winner_user_id === undefined ? undefined : numberValue(raw.winner_user_id),
+    winner_user_id: optionalNumber(raw.winner_user_id),
+    bet_coins: numberValue(raw.bet_coins),
+    winner_profit: numberValue(raw.winner_profit),
     message: typeof raw.message === 'string' ? raw.message : undefined,
   };
 };
@@ -225,7 +249,6 @@ export const neonMatrixWsApi = {
       socket,
       requestState: () => send({ type: 'state' }),
       pick: (value) => send({ type: 'pick', value }),
-      ready: () => send({ type: 'ready' }),
       close: () => socket.close(),
     };
   },

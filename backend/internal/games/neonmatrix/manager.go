@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,20 +18,24 @@ import (
 const (
 	GameCode = "neon_matrix"
 
-	StartHP   = 100
-	MinNumber = 1
-	MaxNumber = 100
+	StartHP        = 100
+	MinNumber      = 1
+	MaxNumber      = 100
+	NoPickDistance = 51
 
-	BlindSpinDuration = 3200 * time.Millisecond
-	LandingDuration   = 1800 * time.Millisecond
-	ImpactDuration    = 3900 * time.Millisecond
-	AutoNextRoundWait = 12 * time.Second
+	CountdownDuration    = 3 * time.Second
+	PickDuration         = 5 * time.Second
+	BlindSpinDuration    = 1800 * time.Millisecond
+	LandingDuration      = 2200 * time.Millisecond
+	DamageFlightDuration = 1550 * time.Millisecond
+	PostDamageDuration   = 1050 * time.Millisecond
 
+	PhaseWaiting   = "waiting"
+	PhaseCountdown = "countdown"
 	PhasePicking   = "picking"
 	PhaseSpinning  = "spinning"
 	PhaseLanding   = "landing"
 	PhaseImpact    = "impact"
-	PhaseResult    = "result"
 	PhaseMatchOver = "match_over"
 )
 
@@ -42,8 +48,10 @@ type RoundOutcome struct {
 	Target          int  `json:"target"`
 	Player1UserID   uint `json:"player1_user_id"`
 	Player2UserID   uint `json:"player2_user_id"`
-	Player1Pick     int  `json:"player1_pick"`
-	Player2Pick     int  `json:"player2_pick"`
+	Player1Pick     int  `json:"player1_pick,omitempty"`
+	Player2Pick     int  `json:"player2_pick,omitempty"`
+	Player1Picked   bool `json:"player1_picked"`
+	Player2Picked   bool `json:"player2_picked"`
 	Player1Distance int  `json:"player1_distance"`
 	Player2Distance int  `json:"player2_distance"`
 	Damage          int  `json:"damage"`
@@ -54,25 +62,31 @@ type RoundOutcome struct {
 }
 
 type PublicState struct {
-	Type         string        `json:"type"`
-	Game         string        `json:"game"`
-	LobbyID      string        `json:"lobby_id"`
-	Phase        string        `json:"phase"`
-	Round        int           `json:"round"`
-	ServerMS     int64         `json:"server_ms"`
-	PlayerOrder  []uint        `json:"player_order"`
-	Health       map[uint]int  `json:"health"`
-	Picked       map[uint]bool `json:"picked"`
-	Picks        map[uint]*int `json:"picks"`
-	Ready        map[uint]bool `json:"ready"`
-	Commitment   string        `json:"commitment,omitempty"`
-	RevealAtMS   int64         `json:"reveal_at_ms,omitempty"`
-	StopAtMS     int64         `json:"stop_at_ms,omitempty"`
-	Target       *int          `json:"target,omitempty"`
-	RevealNonce  string        `json:"reveal_nonce,omitempty"`
-	Outcome      *RoundOutcome `json:"outcome,omitempty"`
-	WinnerUserID uint          `json:"winner_user_id,omitempty"`
-	Message      string        `json:"message,omitempty"`
+	Type            string        `json:"type"`
+	Game            string        `json:"game"`
+	LobbyID         string        `json:"lobby_id"`
+	Phase           string        `json:"phase"`
+	Round           int           `json:"round"`
+	ServerMS        int64         `json:"server_ms"`
+	PlayerOrder     []uint        `json:"player_order"`
+	Health          map[uint]int  `json:"health"`
+	Picked          map[uint]bool `json:"picked"`
+	Picks           map[uint]*int `json:"picks"`
+	Commitment      string        `json:"commitment,omitempty"`
+	CountdownEndsMS int64         `json:"countdown_ends_ms,omitempty"`
+	PickEndsMS      int64         `json:"pick_ends_ms,omitempty"`
+	RevealAtMS      int64         `json:"reveal_at_ms,omitempty"`
+	StopAtMS        int64         `json:"stop_at_ms,omitempty"`
+	DamageAtMS      int64         `json:"damage_at_ms,omitempty"`
+	NextRoundAtMS   int64         `json:"next_round_at_ms,omitempty"`
+	DamageApplied   bool          `json:"damage_applied"`
+	Target          *int          `json:"target,omitempty"`
+	RevealNonce     string        `json:"reveal_nonce,omitempty"`
+	Outcome         *RoundOutcome `json:"outcome,omitempty"`
+	WinnerUserID    uint          `json:"winner_user_id,omitempty"`
+	BetCoins        float64       `json:"bet_coins"`
+	WinnerProfit    float64       `json:"winner_profit"`
+	Message         string        `json:"message,omitempty"`
 }
 
 type Client struct {
@@ -104,8 +118,14 @@ func (m *Manager) SetOnMatchOver(fn func(lobbyID string, winnerUserID *uint)) {
 	m.onMatchOver = fn
 }
 
-func (m *Manager) Connect(lobbyID string, playerIDs []uint, userID uint, conn *websocket.Conn) error {
-	if lobbyID == "" {
+func (m *Manager) Connect(
+	lobbyID string,
+	playerIDs []uint,
+	userID uint,
+	betCoins float64,
+	conn *websocket.Conn,
+) error {
+	if strings.TrimSpace(lobbyID) == "" {
 		return errors.New("lobby_id is required")
 	}
 	if len(playerIDs) != 2 {
@@ -115,10 +135,13 @@ func (m *Manager) Connect(lobbyID string, playerIDs []uint, userID uint, conn *w
 		return errors.New("user is not a player of this lobby")
 	}
 
+	ids := append([]uint(nil), playerIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
 	m.mu.Lock()
-	session, ok := m.sessions[lobbyID]
-	if !ok {
-		session = NewSession(lobbyID, playerIDs, m.onMatchOver)
+	session := m.sessions[lobbyID]
+	if session == nil {
+		session = NewSession(lobbyID, ids, betCoins, m.onMatchOver)
 		m.sessions[lobbyID] = session
 	}
 	m.mu.Unlock()
@@ -129,6 +152,9 @@ func (m *Manager) Connect(lobbyID string, playerIDs []uint, userID uint, conn *w
 func (m *Manager) RemoveSession(lobbyID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if session := m.sessions[lobbyID]; session != nil {
+		session.Close()
+	}
 	delete(m.sessions, lobbyID)
 }
 
@@ -136,15 +162,16 @@ func (m *Manager) CleanupLoop() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cutoff := time.Now().Add(-45 * time.Minute)
+	for now := range ticker.C {
+		cutoff := now.Add(-45 * time.Minute)
 		m.mu.Lock()
 		for id, session := range m.sessions {
 			session.mu.Lock()
 			stale := session.lastActive.Before(cutoff)
-			closed := session.matchClosed && time.Since(session.lastActive) > 5*time.Minute
+			closed := session.matchClosed && now.Sub(session.lastActive) > 5*time.Minute
 			session.mu.Unlock()
 			if stale || closed {
+				session.Close()
 				delete(m.sessions, id)
 			}
 		}
@@ -158,33 +185,45 @@ type Session struct {
 	lobbyID     string
 	clients     map[uint]*Client
 	playerOrder []uint
+	betCoins    float64
 
 	phase  string
 	round  int
 	health map[uint]int
 	picks  map[uint]int
 	picked map[uint]bool
-	ready  map[uint]bool
 
-	target       int
-	nonce        string
-	commitment   string
-	revealAt     time.Time
-	stopAt       time.Time
-	outcome      *RoundOutcome
-	winnerUserID uint
+	target        int
+	nonce         string
+	commitment    string
+	countdownEnd  time.Time
+	pickEnd       time.Time
+	revealAt      time.Time
+	stopAt        time.Time
+	damageAt      time.Time
+	nextRoundAt   time.Time
+	outcome       *RoundOutcome
+	damageApplied bool
+	winnerUserID  uint
 
-	revealTimer   *time.Timer
-	landingTimer  *time.Timer
-	resultTimer   *time.Timer
-	autoNextTimer *time.Timer
+	countdownTimer *time.Timer
+	pickTimer      *time.Timer
+	revealTimer    *time.Timer
+	landingTimer   *time.Timer
+	damageTimer    *time.Timer
+	resultTimer    *time.Timer
 
 	onMatchOver func(lobbyID string, winnerUserID *uint)
 	matchClosed bool
 	lastActive  time.Time
 }
 
-func NewSession(lobbyID string, playerIDs []uint, onMatchOver func(lobbyID string, winnerUserID *uint)) *Session {
+func NewSession(
+	lobbyID string,
+	playerIDs []uint,
+	betCoins float64,
+	onMatchOver func(lobbyID string, winnerUserID *uint),
+) *Session {
 	ids := append([]uint(nil), playerIDs...)
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
@@ -197,12 +236,12 @@ func NewSession(lobbyID string, playerIDs []uint, onMatchOver func(lobbyID strin
 		lobbyID:     lobbyID,
 		clients:     make(map[uint]*Client),
 		playerOrder: ids,
-		phase:       PhasePicking,
+		betCoins:    math.Max(0, betCoins),
+		phase:       PhaseWaiting,
 		round:       1,
 		health:      health,
 		picks:       make(map[uint]int),
 		picked:      make(map[uint]bool),
-		ready:       make(map[uint]bool),
 		onMatchOver: onMatchOver,
 		lastActive:  time.Now(),
 	}
@@ -217,10 +256,13 @@ func (s *Session) Attach(userID uint, conn *websocket.Conn) error {
 	}
 	s.clients[userID] = client
 	s.lastActive = time.Now()
-	state := s.publicStateForLocked(userID, "state")
-	s.mu.Unlock()
 
-	_ = client.Send(state)
+	if s.phase == PhaseWaiting && len(s.clients) == len(s.playerOrder) {
+		s.startCountdownLocked()
+	} else {
+		_ = client.Send(s.publicStateForLocked(userID, "state"))
+	}
+	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
@@ -278,20 +320,83 @@ func (s *Session) Handle(userID uint, message ClientMessage) {
 	s.lastActive = time.Now()
 
 	switch message.Type {
-	case "state":
+	case "state", "ready":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
 	case "pick":
 		s.pickLocked(userID, message.Value)
-	case "ready":
-		s.readyLocked(userID)
 	default:
 		s.sendErrorLocked(userID, "unknown command")
 	}
 }
 
+func (s *Session) startCountdownLocked() {
+	if s.phase != PhaseWaiting || s.matchClosed {
+		return
+	}
+
+	s.phase = PhaseCountdown
+	s.countdownEnd = time.Now().UTC().Add(CountdownDuration)
+	s.broadcastLocked("state")
+
+	stopTimer(&s.countdownTimer)
+	s.countdownTimer = time.AfterFunc(CountdownDuration, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.phase == PhaseCountdown {
+			s.startPickingLocked(false)
+		}
+	})
+}
+
+func (s *Session) startPickingLocked(nextRound bool) {
+	if s.matchClosed {
+		return
+	}
+
+	if nextRound {
+		s.round++
+	}
+
+	stopTimer(&s.countdownTimer)
+	stopTimer(&s.pickTimer)
+	stopTimer(&s.revealTimer)
+	stopTimer(&s.landingTimer)
+	stopTimer(&s.damageTimer)
+	stopTimer(&s.resultTimer)
+
+	s.phase = PhasePicking
+	s.picks = make(map[uint]int)
+	s.picked = make(map[uint]bool)
+	s.target = 0
+	s.nonce = ""
+	s.commitment = ""
+	s.countdownEnd = time.Time{}
+	s.revealAt = time.Time{}
+	s.stopAt = time.Time{}
+	s.damageAt = time.Time{}
+	s.nextRoundAt = time.Time{}
+	s.outcome = nil
+	s.damageApplied = false
+	s.pickEnd = time.Now().UTC().Add(PickDuration)
+	s.broadcastLocked("state")
+
+	s.pickTimer = time.AfterFunc(PickDuration, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.phase == PhasePicking {
+			_ = s.beginSpinLocked()
+		}
+	})
+}
+
 func (s *Session) pickLocked(userID uint, value int) {
 	if s.phase != PhasePicking {
 		s.sendErrorLocked(userID, "round is not accepting picks")
+		return
+	}
+	if !s.pickEnd.IsZero() && !time.Now().Before(s.pickEnd) {
+		_ = s.beginSpinLocked()
+		s.sendErrorLocked(userID, "pick time is over")
 		return
 	}
 	if !containsPlayer(s.playerOrder, userID) {
@@ -310,20 +415,23 @@ func (s *Session) pickLocked(userID uint, value int) {
 	s.picks[userID] = value
 	s.picked[userID] = true
 
-	if !s.allPickedLocked() {
-		s.broadcastLocked("state")
-		return
-	}
-
-	if err := s.beginSpinLocked(); err != nil {
-		for _, id := range s.playerOrder {
-			s.sendErrorLocked(id, "failed to start round")
+	if s.allPickedLocked() {
+		if err := s.beginSpinLocked(); err != nil {
+			for _, id := range s.playerOrder {
+				s.sendErrorLocked(id, "failed to start round")
+			}
 		}
 		return
 	}
+
+	s.broadcastLocked("state")
 }
 
 func (s *Session) beginSpinLocked() error {
+	if s.phase != PhasePicking {
+		return nil
+	}
+
 	target, err := secureRandomInt(MinNumber, MaxNumber)
 	if err != nil {
 		return err
@@ -333,21 +441,21 @@ func (s *Session) beginSpinLocked() error {
 		return err
 	}
 
+	stopTimer(&s.pickTimer)
+
 	now := time.Now().UTC()
 	s.target = target
 	s.nonce = hex.EncodeToString(nonceBytes)
 	s.commitment = roundCommitment(s.lobbyID, s.round, s.target, s.nonce)
+	s.pickEnd = time.Time{}
 	s.revealAt = now.Add(BlindSpinDuration)
 	s.stopAt = s.revealAt.Add(LandingDuration)
 	s.phase = PhaseSpinning
 	s.outcome = nil
-	s.ready = make(map[uint]bool)
-
+	s.damageApplied = false
 	s.broadcastLocked("state")
 
-	if s.revealTimer != nil {
-		s.revealTimer.Stop()
-	}
+	stopTimer(&s.revealTimer)
 	s.revealTimer = time.AfterFunc(BlindSpinDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -358,16 +466,14 @@ func (s *Session) beginSpinLocked() error {
 }
 
 func (s *Session) beginLandingLocked() {
-	if s.phase != PhaseSpinning || !s.allPickedLocked() {
+	if s.phase != PhaseSpinning {
 		return
 	}
 
 	s.phase = PhaseLanding
 	s.broadcastLocked("state")
 
-	if s.landingTimer != nil {
-		s.landingTimer.Stop()
-	}
+	stopTimer(&s.landingTimer)
 	s.landingTimer = time.AfterFunc(LandingDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -376,28 +482,56 @@ func (s *Session) beginLandingLocked() {
 }
 
 func (s *Session) finishLandingLocked() {
-	if s.phase != PhaseLanding || !s.allPickedLocked() {
+	if s.phase != PhaseLanding {
 		return
 	}
 
-	outcome := calculateOutcome(s.playerOrder[0], s.picks[s.playerOrder[0]], s.playerOrder[1], s.picks[s.playerOrder[1]], s.target)
-	s.outcome = &outcome
+	player1 := s.playerOrder[0]
+	player2 := s.playerOrder[1]
+	outcome := calculateOutcome(
+		player1,
+		s.picks[player1],
+		s.picked[player1],
+		player2,
+		s.picks[player2],
+		s.picked[player2],
+		s.target,
+	)
 
-	if outcome.DefenderUserID != 0 && outcome.Damage > 0 {
-		next := s.health[outcome.DefenderUserID] - outcome.Damage
+	now := time.Now().UTC()
+	s.outcome = &outcome
+	s.phase = PhaseImpact
+	s.damageApplied = false
+	s.damageAt = now.Add(DamageFlightDuration)
+	s.nextRoundAt = s.damageAt.Add(PostDamageDuration)
+	s.broadcastLocked("state")
+
+	stopTimer(&s.damageTimer)
+	s.damageTimer = time.AfterFunc(DamageFlightDuration, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.applyDamageLocked()
+	})
+}
+
+func (s *Session) applyDamageLocked() {
+	if s.phase != PhaseImpact || s.damageApplied || s.outcome == nil {
+		return
+	}
+
+	if s.outcome.DefenderUserID != 0 && s.outcome.Damage > 0 {
+		next := s.health[s.outcome.DefenderUserID] - s.outcome.Damage
 		if next < 0 {
 			next = 0
 		}
-		s.health[outcome.DefenderUserID] = next
+		s.health[s.outcome.DefenderUserID] = next
 	}
 
-	s.phase = PhaseImpact
+	s.damageApplied = true
 	s.broadcastLocked("state")
 
-	if s.resultTimer != nil {
-		s.resultTimer.Stop()
-	}
-	s.resultTimer = time.AfterFunc(ImpactDuration, func() {
+	stopTimer(&s.resultTimer)
+	s.resultTimer = time.AfterFunc(PostDamageDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		s.finishImpactLocked()
@@ -405,7 +539,7 @@ func (s *Session) finishLandingLocked() {
 }
 
 func (s *Session) finishImpactLocked() {
-	if s.phase != PhaseImpact {
+	if s.phase != PhaseImpact || !s.damageApplied {
 		return
 	}
 
@@ -416,58 +550,7 @@ func (s *Session) finishImpactLocked() {
 		}
 	}
 
-	s.phase = PhaseResult
-	s.ready = make(map[uint]bool)
-	s.broadcastLocked("state")
-
-	if s.autoNextTimer != nil {
-		s.autoNextTimer.Stop()
-	}
-	s.autoNextTimer = time.AfterFunc(AutoNextRoundWait, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.phase == PhaseResult {
-			s.startNextRoundLocked()
-		}
-	})
-}
-
-func (s *Session) readyLocked(userID uint) {
-	if s.phase != PhaseResult {
-		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
-		return
-	}
-	if !containsPlayer(s.playerOrder, userID) {
-		s.sendErrorLocked(userID, "user is not in match")
-		return
-	}
-
-	s.ready[userID] = true
-	if s.allReadyLocked() {
-		s.startNextRoundLocked()
-		return
-	}
-	s.broadcastLocked("state")
-}
-
-func (s *Session) startNextRoundLocked() {
-	if s.autoNextTimer != nil {
-		s.autoNextTimer.Stop()
-		s.autoNextTimer = nil
-	}
-
-	s.round++
-	s.phase = PhasePicking
-	s.picks = make(map[uint]int)
-	s.picked = make(map[uint]bool)
-	s.ready = make(map[uint]bool)
-	s.target = 0
-	s.nonce = ""
-	s.commitment = ""
-	s.revealAt = time.Time{}
-	s.stopAt = time.Time{}
-	s.outcome = nil
-	s.broadcastLocked("state")
+	s.startPickingLocked(true)
 }
 
 func (s *Session) finishMatchLocked(winnerUserID uint) {
@@ -479,6 +562,7 @@ func (s *Session) finishMatchLocked(winnerUserID uint) {
 	s.phase = PhaseMatchOver
 	s.winnerUserID = winnerUserID
 	s.matchClosed = true
+	s.nextRoundAt = time.Time{}
 	s.broadcastLocked("state")
 
 	if s.onMatchOver != nil {
@@ -496,13 +580,11 @@ func (s *Session) publicStateForLocked(userID uint, messageType string) PublicSt
 	}
 
 	picked := make(map[uint]bool, len(s.playerOrder))
-	ready := make(map[uint]bool, len(s.playerOrder))
 	picks := make(map[uint]*int, len(s.playerOrder))
+	showAllPicks := s.phase != PhaseWaiting && s.phase != PhaseCountdown && s.phase != PhasePicking
 
-	showAllPicks := s.phase != PhasePicking
 	for _, id := range s.playerOrder {
 		picked[id] = s.picked[id]
-		ready[id] = s.ready[id]
 		if !s.picked[id] {
 			picks[id] = nil
 			continue
@@ -516,62 +598,88 @@ func (s *Session) publicStateForLocked(userID uint, messageType string) PublicSt
 	}
 
 	state := PublicState{
-		Type:         messageType,
-		Game:         GameCode,
-		LobbyID:      s.lobbyID,
-		Phase:        s.phase,
-		Round:        s.round,
-		ServerMS:     time.Now().UTC().UnixMilli(),
-		PlayerOrder:  append([]uint(nil), s.playerOrder...),
-		Health:       health,
-		Picked:       picked,
-		Picks:        picks,
-		Ready:        ready,
-		WinnerUserID: s.winnerUserID,
-		Outcome:      cloneOutcome(s.outcome),
+		Type:          messageType,
+		Game:          GameCode,
+		LobbyID:       s.lobbyID,
+		Phase:         s.phase,
+		Round:         s.round,
+		ServerMS:      time.Now().UTC().UnixMilli(),
+		PlayerOrder:   append([]uint(nil), s.playerOrder...),
+		Health:        health,
+		Picked:        picked,
+		Picks:         picks,
+		WinnerUserID:  s.winnerUserID,
+		Outcome:       cloneOutcome(s.outcome),
+		DamageApplied: s.damageApplied,
+		BetCoins:      s.betCoins,
+		WinnerProfit:  s.winnerProfitLocked(),
+		Message:       s.messageLocked(userID),
+	}
+
+	if !s.countdownEnd.IsZero() {
+		state.CountdownEndsMS = s.countdownEnd.UnixMilli()
+	}
+	if !s.pickEnd.IsZero() {
+		state.PickEndsMS = s.pickEnd.UnixMilli()
+	}
+	if !s.revealAt.IsZero() {
+		state.RevealAtMS = s.revealAt.UnixMilli()
+	}
+	if !s.stopAt.IsZero() {
+		state.StopAtMS = s.stopAt.UnixMilli()
+	}
+	if !s.damageAt.IsZero() {
+		state.DamageAtMS = s.damageAt.UnixMilli()
+	}
+	if !s.nextRoundAt.IsZero() {
+		state.NextRoundAtMS = s.nextRoundAt.UnixMilli()
 	}
 
 	switch s.phase {
-	case PhasePicking:
-		if s.picked[userID] {
-			state.Message = "Выбор сохранён. Ожидаем соперника."
-		} else {
-			state.Message = "Выберите число от 1 до 100."
-		}
 	case PhaseSpinning:
 		state.Commitment = s.commitment
-		state.RevealAtMS = s.revealAt.UnixMilli()
-		state.StopAtMS = s.stopAt.UnixMilli()
-		state.Message = "Оба выбора сохранены. Рулетка крутится."
-	case PhaseLanding:
+	case PhaseLanding, PhaseImpact, PhaseMatchOver:
 		state.Commitment = s.commitment
-		state.RevealAtMS = s.revealAt.UnixMilli()
-		state.StopAtMS = s.stopAt.UnixMilli()
 		target := s.target
 		state.Target = &target
 		state.RevealNonce = s.nonce
-		state.Message = "Рулетка замедляется."
-	case PhaseImpact, PhaseResult, PhaseMatchOver:
-		state.Commitment = s.commitment
-		state.RevealAtMS = s.revealAt.UnixMilli()
-		state.StopAtMS = s.stopAt.UnixMilli()
-		target := s.target
-		state.Target = &target
-		state.RevealNonce = s.nonce
-		if s.phase == PhaseImpact {
-			state.Message = "Финальное число раскрыто."
-		} else if s.phase == PhaseResult {
-			if s.ready[userID] {
-				state.Message = "Готово. Ожидаем соперника."
-			} else {
-				state.Message = "Раунд завершён."
-			}
-		} else {
-			state.Message = "Матч завершён."
-		}
 	}
 
 	return state
+}
+
+func (s *Session) messageLocked(userID uint) string {
+	switch s.phase {
+	case PhaseWaiting:
+		return "Ждём второго игрока"
+	case PhaseCountdown:
+		return "Матч начинается"
+	case PhasePicking:
+		if s.picked[userID] {
+			return "Выбор сохранён"
+		}
+		return "Выберите число"
+	case PhaseSpinning:
+		return "Колесо набирает скорость"
+	case PhaseLanding:
+		return "Колесо останавливается"
+	case PhaseImpact:
+		if s.damageApplied {
+			return "Урон применён"
+		}
+		return "Сравниваем расстояния"
+	case PhaseMatchOver:
+		return "Матч завершён"
+	default:
+		return ""
+	}
+}
+
+func (s *Session) winnerProfitLocked() float64 {
+	if s.phase != PhaseMatchOver || s.winnerUserID == 0 {
+		return 0
+	}
+	return roundToTwo(s.betCoins * 0.90)
 }
 
 func (s *Session) broadcastLocked(messageType string) {
@@ -602,38 +710,42 @@ func (s *Session) allPickedLocked() bool {
 	return true
 }
 
-func (s *Session) allReadyLocked() bool {
-	for _, id := range s.playerOrder {
-		if !s.ready[id] {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Session) stopTimersLocked() {
-	if s.revealTimer != nil {
-		s.revealTimer.Stop()
-		s.revealTimer = nil
-	}
-	if s.landingTimer != nil {
-		s.landingTimer.Stop()
-		s.landingTimer = nil
-	}
-	if s.resultTimer != nil {
-		s.resultTimer.Stop()
-		s.resultTimer = nil
-	}
-	if s.autoNextTimer != nil {
-		s.autoNextTimer.Stop()
-		s.autoNextTimer = nil
-	}
+	stopTimer(&s.countdownTimer)
+	stopTimer(&s.pickTimer)
+	stopTimer(&s.revealTimer)
+	stopTimer(&s.landingTimer)
+	stopTimer(&s.damageTimer)
+	stopTimer(&s.resultTimer)
 }
 
-func calculateOutcome(player1ID uint, player1Pick int, player2ID uint, player2Pick int, target int) RoundOutcome {
-	distance1 := circularDistance(player1Pick, target)
-	distance2 := circularDistance(player2Pick, target)
-	damage := abs(distance1 - distance2)
+func (s *Session) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopTimersLocked()
+	for _, client := range s.clients {
+		_ = client.conn.Close()
+	}
+	s.clients = make(map[uint]*Client)
+}
+
+func calculateOutcome(
+	player1ID uint,
+	player1Pick int,
+	player1Picked bool,
+	player2ID uint,
+	player2Pick int,
+	player2Picked bool,
+	target int,
+) RoundOutcome {
+	distance1 := NoPickDistance
+	distance2 := NoPickDistance
+	if player1Picked {
+		distance1 = circularDistance(player1Pick, target)
+	}
+	if player2Picked {
+		distance2 = circularDistance(player2Pick, target)
+	}
 
 	outcome := RoundOutcome{
 		Target:          target,
@@ -641,13 +753,20 @@ func calculateOutcome(player1ID uint, player1Pick int, player2ID uint, player2Pi
 		Player2UserID:   player2ID,
 		Player1Pick:     player1Pick,
 		Player2Pick:     player2Pick,
+		Player1Picked:   player1Picked,
+		Player2Picked:   player2Picked,
 		Player1Distance: distance1,
 		Player2Distance: distance2,
-		Damage:          damage,
-		IsDraw:          damage == 0,
+		Damage:          abs(distance1 - distance2),
 	}
 
-	if damage == 0 {
+	if !player1Picked && !player2Picked {
+		outcome.Damage = 0
+		outcome.IsDraw = true
+		return outcome
+	}
+	if outcome.Damage == 0 {
+		outcome.IsDraw = true
 		return outcome
 	}
 	if distance1 < distance2 {
@@ -729,4 +848,15 @@ func cloneOutcome(value *RoundOutcome) *RoundOutcome {
 	}
 	copyValue := *value
 	return &copyValue
+}
+
+func stopTimer(timer **time.Timer) {
+	if *timer != nil {
+		(*timer).Stop()
+		*timer = nil
+	}
+}
+
+func roundToTwo(value float64) float64 {
+	return math.Round(value*100) / 100
 }

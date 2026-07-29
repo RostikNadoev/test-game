@@ -1,19 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   neonMatrixWsApi,
-  type NeonMatrixRoundOutcome,
   type NeonMatrixSocketClient,
   type NeonMatrixStateMessage,
 } from '../api/neonMatrixWs';
-import { useAuth } from '../auth/useAuth';
 import type { LobbyPlayerInfo } from '../api';
+import { useAuth } from '../auth/useAuth';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
-type Player = 'cyan' | 'magenta';
-type Phase = 'pickCyan' | 'pickMagenta' | 'spinning' | 'landing' | 'impact' | 'result' | 'gameover';
-
-type PickState = Record<Player, number | null>;
-type HealthState = Record<Player, number>;
+type Side = 'me' | 'opponent';
+type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
 
 type PlayerProfile = {
   id: number;
@@ -22,12 +26,26 @@ type PlayerProfile = {
   initials: string;
 };
 
-type ArrowMotionState = {
+type LocalOutcome = {
+  target: number;
+  mePick: number | null;
+  opponentPick: number | null;
+  mePicked: boolean;
+  opponentPicked: boolean;
+  meDistance: number;
+  opponentDistance: number;
+  damage: number;
+  attacker: Side | null;
+  defender: Side | null;
+  draw: boolean;
+};
+
+type ArrowMotion = {
   mode: 'idle' | 'spinning' | 'landing';
   angle: number;
   velocity: number;
-  lastFrameAt: number;
-  landingStartAt: number;
+  lastAt: number;
+  landingStartedAt: number;
   landingDuration: number;
   landingStartAngle: number;
   landingStartVelocity: number;
@@ -35,103 +53,59 @@ type ArrowMotionState = {
   landingTarget: number;
 };
 
-type Particle = {
-  id: number;
-  x: string;
-  y: string;
-  angle: number;
-  distance: number;
-  size: number;
-  tone: 'cyan' | 'magenta' | 'gold' | 'green' | 'red';
-  delay: number;
-};
-
-type RoundOutcome = {
-  target: number;
-  cyanPick: number;
-  magentaPick: number;
-  cyanDistance: number;
-  magentaDistance: number;
-  damage: number;
-  attacker: Player | null;
-  defender: Player | null;
-};
-
-type HapticFeedback = {
-  impactOccurred?: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
-  notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
-  selectionChanged?: () => void;
-};
-
 type TelegramWebApp = {
-  HapticFeedback?: HapticFeedback;
+  HapticFeedback?: {
+    impactOccurred?: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
+    notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
+    selectionChanged?: () => void;
+  };
 };
 
 const START_HP = 100;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
-const LANDING_MS = 1800;
-const SPIN_CRUISE_SPEED = 0.94;
-const SPIN_ACCELERATION_MS = 340;
-const MIN_LANDING_DURATION_MS = 420;
-const PARTICLE_LIMIT = 32;
-const WHEEL_MARKS = Array.from({ length: 60 }, (_, index) => ({
-  index,
-  angle: index * 6,
-  className: index % 6 === 0 ? 'rd-mark-major' : index % 3 === 0 ? 'rd-mark-mid' : '',
-}));
-const WHEEL_LABELS = [1, 25, 50, 75, 100] as const;
-
-/* P1 = mint, P2 = rose. Target / action accent = gold. Internal keys stay 'cyan'/'magenta'. */
-const PLAYERS: Record<
-  Player,
-  {
-    name: string;
-    label: string;
-    short: string;
-    main: string;
-    soft: string;
-    glow: string;
-  }
-> = {
-  cyan: {
-    name: 'Blue',
-    label: 'Игрок 1',
-    short: 'P1',
-    main: '#2F8CFF',
-    soft: 'rgba(47, 140, 255, .15)',
-    glow: 'rgba(91, 183, 255, .58)',
-  },
-  magenta: {
-    name: 'Orange',
-    label: 'Игрок 2',
-    short: 'P2',
-    main: '#FF8F2D',
-    soft: 'rgba(255, 143, 45, .15)',
-    glow: 'rgba(255, 143, 45, .55)',
-  },
-};
-
+const DEFAULT_NUMBER = 50;
+const MIN_LANDING_MS = 480;
+const SPIN_SPEED = 0.86;
+const SPIN_ACCELERATION_MS = 280;
 const PLAYERS_STORAGE_KEY = 'twingames_players_info';
 const LEGACY_PLAYERS_STORAGE_KEY = 'twingames_blackjack_players_info';
+const LABELS = [1, 25, 50, 75, 100] as const;
 
-let lastSelectionHapticAt = 0;
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const formatHp = (value: number) => Math.max(0, value).toString();
+const normalizeAngle = (value: number) => ((value % 360) + 360) % 360;
 
-const cssVars = (vars: Record<string, string | number>) => vars as React.CSSProperties;
+const numberToAngle = (value: number) =>
+  ((clamp(value, MIN_NUMBER, MAX_NUMBER) - MIN_NUMBER) /
+    (MAX_NUMBER - MIN_NUMBER)) *
+  360;
+
+const circularAngleDistance = (a: number, b: number) => {
+  const delta = Math.abs(normalizeAngle(a) - normalizeAngle(b));
+  return Math.min(delta, 360 - delta);
+};
+
+const cssVars = (values: Record<string, string | number>) =>
+  values as React.CSSProperties;
 
 const getInitials = (value: string) => {
-  const clean = value.replace('@', '').trim();
-  const result = clean
+  const initials = value
+    .replace('@', '')
+    .trim()
     .split(/[\s._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
-  return result || 'TG';
+  return initials || 'TG';
 };
+
+const formatReward = (value: number) =>
+  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(
+    Math.max(0, value),
+  );
 
 const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
   if (typeof window === 'undefined') return [];
@@ -139,7 +113,6 @@ const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
   const raw =
     window.sessionStorage.getItem(PLAYERS_STORAGE_KEY) ||
     window.sessionStorage.getItem(LEGACY_PLAYERS_STORAGE_KEY);
-
   if (!raw) return [];
 
   try {
@@ -147,8 +120,9 @@ const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
     if (!Array.isArray(parsed)) return [];
 
     return parsed
-      .filter((item): item is Record<string, unknown> =>
-        Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
       )
       .map((item) => ({
         id: Number(item.id),
@@ -161,427 +135,393 @@ const readStoredPlayersInfo = (): LobbyPlayerInfo[] => {
   }
 };
 
-const getTg = () => {
-  return (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+const getTelegram = () =>
+  (window as Window & { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+
+const vibrate = (pattern: number | number[]) => {
+  if ('vibrate' in navigator) navigator.vibrate(pattern);
 };
 
-const fallbackVibrate = (pattern: number | number[]) => {
-  if ('vibrate' in navigator) {
-    navigator.vibrate(pattern);
-  }
+const hapticSelect = () => {
+  getTelegram()?.HapticFeedback?.selectionChanged?.();
 };
 
-const hapticSelect = (force = false) => {
-  const now = Date.now();
-
-  if (!force && now - lastSelectionHapticAt < 75) return;
-
-  lastSelectionHapticAt = now;
-
-  getTg()?.HapticFeedback?.selectionChanged?.();
-  fallbackVibrate(5);
-};
-
-const hapticImpact = (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' = 'light') => {
-  getTg()?.HapticFeedback?.impactOccurred?.(style);
-
-  if (style === 'heavy') {
-    fallbackVibrate([30, 24, 38]);
-    return;
-  }
-
-  if (style === 'medium') {
-    fallbackVibrate(18);
-    return;
-  }
-
-  fallbackVibrate(8);
+const hapticImpact = (style: 'light' | 'medium' | 'heavy' = 'light') => {
+  getTelegram()?.HapticFeedback?.impactOccurred?.(style);
+  if (style === 'heavy') vibrate([25, 18, 32]);
+  else if (style === 'medium') vibrate(14);
+  else vibrate(6);
 };
 
 const hapticNotify = (type: 'error' | 'success' | 'warning') => {
-  getTg()?.HapticFeedback?.notificationOccurred?.(type);
-
-  if (type === 'error') {
-    fallbackVibrate([34, 28, 44]);
-    return;
-  }
-
-  if (type === 'warning') {
-    fallbackVibrate([18, 22, 18]);
-    return;
-  }
-
-  fallbackVibrate([12, 18, 12]);
+  getTelegram()?.HapticFeedback?.notificationOccurred?.(type);
+  if (type === 'error') vibrate([28, 22, 38]);
+  else if (type === 'warning') vibrate([14, 16, 14]);
+  else vibrate([10, 14, 10]);
 };
 
-const numberToAngle = (value: number) => {
-  return ((value - MIN_NUMBER) / (MAX_NUMBER - MIN_NUMBER)) * 360;
-};
-
-const normalizeAngle = (value: number) => ((value % 360) + 360) % 360;
-
-const circularAngleDistance = (a: number, b: number) => {
-  const delta = Math.abs(normalizeAngle(a) - normalizeAngle(b));
-  return Math.min(delta, 360 - delta);
-};
-
-const HealthBar = ({
-  player,
-  hp,
-  active,
-  damaged,
-  damage,
-}: {
-  player: Player;
-  hp: number;
-  active: boolean;
-  damaged: boolean;
-  damage: number;
-}) => {
-  const meta = PLAYERS[player];
-  const percent = clamp((hp / START_HP) * 100, 0, 100);
-
-  return (
-    <div
-      className={`rd-health rd-health-${player} ${active ? 'rd-health-active' : ''} ${
-        damaged ? 'rd-health-damaged' : ''
-      }`}
-      style={cssVars({
-        '--player': meta.main,
-        '--player-soft': meta.soft,
-        '--player-glow': meta.glow,
-        '--hp': `${percent}%`,
-      })}
-    >
-      <div className="rd-health-head">
-        <span>{meta.short}</span>
-        <b>{formatHp(hp)}</b>
-      </div>
-
-      <div className="rd-health-track">
-        <i />
-      </div>
-
-      {damaged && damage > 0 && <em>-{damage}</em>}
+const Avatar = memo(
+  ({ profile, className = '' }: { profile: PlayerProfile; className?: string }) => (
+    <div className={`nm-avatar ${className}`}>
+      {profile.photoUrl ? (
+        <img src={profile.photoUrl} alt={profile.name} draggable={false} />
+      ) : (
+        profile.initials
+      )}
     </div>
-  );
-};
-
-const TopHud = ({
-  health,
-  round,
-  activePlayer,
-  phase,
-  outcome,
-}: {
-  health: HealthState;
-  round: number;
-  activePlayer: Player;
-  phase: Phase;
-  outcome: RoundOutcome | null;
-}) => {
-  const damagedPlayer = phase === 'impact' || phase === 'result' ? outcome?.defender ?? null : null;
-  const canPick = phase === 'pickCyan' || phase === 'pickMagenta';
-
-  return (
-    <div className="rd-top">
-      <HealthBar
-        player="cyan"
-        hp={health.cyan}
-        active={activePlayer === 'cyan' && canPick}
-        damaged={damagedPlayer === 'cyan'}
-        damage={outcome?.damage ?? 0}
-      />
-
-      <div className="rd-round">
-        <span>Round</span>
-        <b>{round}</b>
-      </div>
-
-      <HealthBar
-        player="magenta"
-        hp={health.magenta}
-        active={activePlayer === 'magenta' && canPick}
-        damaged={damagedPlayer === 'magenta'}
-        damage={outcome?.damage ?? 0}
-      />
-    </div>
-  );
-};
-
-const WheelAvatar = ({
-  profile,
-  player,
-}: {
-  profile: PlayerProfile;
-  player: Player;
-}) => (
-  <i className={`rd-wheel-avatar rd-wheel-avatar-${player}`} aria-hidden="true">
-    <u>{profile.initials}</u>
-    {profile.photoUrl && <img src={profile.photoUrl} alt="" draggable={false} />}
-  </i>
+  ),
 );
 
-const Wheel = ({
-  angle,
-  displayNumber,
-  phase,
-  target,
-  picks,
-  outcome,
-  showPicks,
-  profiles,
-  arrowRef,
-}: {
-  angle: number;
-  displayNumber: number;
-  phase: Phase;
-  target: number | null;
-  picks: PickState;
-  outcome: RoundOutcome | null;
-  showPicks: boolean;
-  profiles: Record<Player, PlayerProfile>;
-  arrowRef: React.RefObject<HTMLDivElement | null>;
-}) => {
-  const showDistances = phase === 'impact' || phase === 'result' || phase === 'gameover';
+const AnimatedHp = memo(({ value }: { value: number }) => {
+  const [display, setDisplay] = useState(value);
+  const displayRef = useRef(value);
 
-  return (
-    <div className={`rd-wheel rd-wheel-${phase}`}>
-      <div className="rd-wheel-orb" />
-      <div className="rd-wheel-aura" />
-      <div className="rd-wheel-surface" />
-      <div className="rd-wheel-glass" />
+  useEffect(() => {
+    const from = displayRef.current;
+    const to = value;
+    if (from === to) return;
 
-      <div className="rd-marks">
-        {WHEEL_MARKS.map((mark) => (
-          <i
-            key={mark.index}
-            className={mark.className}
-            style={cssVars({ '--a': `${mark.angle}deg` })}
-          />
-        ))}
+    const startedAt = performance.now();
+    const duration = 650;
+    let frame = 0;
+    let lastPaint = 0;
+
+    const animate = (now: number) => {
+      const progress = clamp((now - startedAt) / duration, 0, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = Math.round(from + (to - from) * eased);
+
+      if (now - lastPaint >= 28 || progress >= 1) {
+        lastPaint = now;
+        displayRef.current = next;
+        setDisplay(next);
+      }
+
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    };
+
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+
+  return <>{display}</>;
+});
+
+const PlayerHud = memo(
+  ({
+    side,
+    profile,
+    hp,
+    hit,
+    round,
+  }: {
+    side: Side;
+    profile: PlayerProfile;
+    hp: number;
+    hit: boolean;
+    round: number;
+  }) => {
+    const percent = clamp((hp / START_HP) * 100, 0, 100);
+
+    return (
+      <div
+        key={`${side}-${hit ? round : 'idle'}`}
+        className={`nm-player-hud nm-player-hud-${side} ${hit ? 'nm-player-hit' : ''}`}
+      >
+        {side === 'me' && <Avatar profile={profile} />}
+
+        <div className="nm-player-copy">
+          <div className="nm-player-name">{profile.name}</div>
+          <div className="nm-hp-row">
+            <strong>
+              <AnimatedHp value={hp} />
+            </strong>
+            <span>HP</span>
+          </div>
+          <div className="nm-hp-track">
+            <i style={{ width: `${percent}%` }} />
+          </div>
+        </div>
+
+        {side === 'opponent' && <Avatar profile={profile} />}
       </div>
+    );
+  },
+);
 
-      <div className="rd-labels">
-        {WHEEL_LABELS.map((label) => {
-          const angleDeg = numberToAngle(label);
-          const rad = (angleDeg - 90) * (Math.PI / 180);
-          const x = 50 + Math.cos(rad) * 36;
-          const y = 50 + Math.sin(rad) * 36;
+const TimerBadge = memo(
+  ({
+    seconds,
+    progress,
+    round,
+    active,
+  }: {
+    seconds: number | null;
+    progress: number;
+    round: number;
+    active: boolean;
+  }) => (
+    <div
+      className={`nm-timer ${active ? 'nm-timer-active' : ''}`}
+      style={cssVars({ '--timer-progress': `${clamp(progress, 0, 1) * 360}deg` })}
+    >
+      <div>
+        <strong>{seconds ?? '—'}</strong>
+        <span>ROUND {round}</span>
+      </div>
+    </div>
+  ),
+);
 
+const WheelMarker = memo(
+  ({
+    value,
+    profile,
+    side,
+    faded = false,
+    shift = 0,
+  }: {
+    value: number;
+    profile: PlayerProfile;
+    side: Side;
+    faded?: boolean;
+    shift?: number;
+  }) => (
+    <div
+      className={`nm-marker nm-marker-${side} ${faded ? 'nm-marker-faded' : ''}`}
+      style={cssVars({
+        '--marker-angle': `${numberToAngle(value)}deg`,
+        '--marker-shift': `${shift}px`,
+      })}
+    >
+      <div>
+        <Avatar profile={profile} className="nm-wheel-avatar" />
+      </div>
+    </div>
+  ),
+);
+
+const ImpactAnimation = memo(
+  ({
+    outcome,
+    damageApplied,
+    elapsedMs,
+    profiles,
+  }: {
+    outcome: LocalOutcome;
+    damageApplied: boolean;
+    elapsedMs: number;
+    profiles: Record<Side, PlayerProfile>;
+  }) => {
+    const delay = `-${clamp(elapsedMs, 0, 1550)}ms`;
+    const meText = outcome.mePicked ? String(outcome.meDistance) : 'MISS';
+    const opponentText = outcome.opponentPicked
+      ? String(outcome.opponentDistance)
+      : 'MISS';
+
+    return (
+      <div
+        className={`nm-impact nm-impact-to-${outcome.defender ?? 'none'} ${
+          damageApplied ? 'nm-impact-done' : ''
+        }`}
+        style={cssVars({ '--impact-delay': delay })}
+      >
+        <div className="nm-distance nm-distance-me">
+          <Avatar profile={profiles.me} className="nm-impact-avatar" />
+          <span>{meText}</span>
+        </div>
+        <div className="nm-distance nm-distance-opponent">
+          <Avatar profile={profiles.opponent} className="nm-impact-avatar" />
+          <span>{opponentText}</span>
+        </div>
+
+        {outcome.draw ? (
+          <div className="nm-draw-burst">0</div>
+        ) : (
+          <div className="nm-damage-projectile">-{outcome.damage}</div>
+        )}
+      </div>
+    );
+  },
+);
+
+const Wheel = memo(
+  ({
+    arrowRef,
+    phase,
+    draft,
+    target,
+    mePick,
+    opponentPick,
+    myLocked,
+    profiles,
+    outcome,
+    damageApplied,
+    impactElapsedMs,
+  }: {
+    arrowRef: React.RefObject<HTMLDivElement | null>;
+    phase: NeonMatrixStateMessage['phase'];
+    draft: number;
+    target: number | null;
+    mePick: number | null;
+    opponentPick: number | null;
+    myLocked: boolean;
+    profiles: Record<Side, PlayerProfile>;
+    outcome: LocalOutcome | null;
+    damageApplied: boolean;
+    impactElapsedMs: number;
+  }) => {
+    const showRevealedPicks =
+      phase === 'spinning' ||
+      phase === 'landing' ||
+      phase === 'impact' ||
+      phase === 'match_over';
+    const shownMePick = phase === 'picking' && !myLocked ? draft : mePick;
+    const samePick =
+      showRevealedPicks &&
+      mePick !== null &&
+      opponentPick !== null &&
+      mePick === opponentPick;
+
+    return (
+      <div className={`nm-wheel nm-wheel-${phase}`}>
+        <div className="nm-wheel-face" />
+        <div className="nm-wheel-ticks" />
+
+        {LABELS.map((label) => {
+          const angle = numberToAngle(label);
+          const radians = ((angle - 90) * Math.PI) / 180;
+          const x = 50 + Math.cos(radians) * 38;
+          const y = 50 + Math.sin(radians) * 38;
           return (
-            <span key={label} style={{ left: `${x}%`, top: `${y}%` }}>
+            <span
+              key={label}
+              className="nm-wheel-label"
+              style={{ left: `${x}%`, top: `${y}%` }}
+            >
               {label}
             </span>
           );
         })}
-      </div>
 
-      {showPicks && picks.cyan !== null && (
-        <div className="rd-bet rd-bet-cyan" style={cssVars({ '--a': `${numberToAngle(picks.cyan)}deg` })}>
+        {shownMePick !== null && (
+          <WheelMarker
+            value={shownMePick}
+            profile={profiles.me}
+            side="me"
+            faded={phase === 'picking' && !myLocked}
+            shift={samePick ? -10 : 0}
+          />
+        )}
+
+        {showRevealedPicks && opponentPick !== null && (
+          <WheelMarker
+            value={opponentPick}
+            profile={profiles.opponent}
+            side="opponent"
+            shift={samePick ? 10 : 0}
+          />
+        )}
+
+        {target !== null && phase !== 'spinning' && (
+          <div
+            className="nm-target"
+            style={cssVars({ '--target-angle': `${numberToAngle(target)}deg` })}
+          >
+            <span>{target}</span>
+          </div>
+        )}
+
+        <div ref={arrowRef} className="nm-arrow">
+          <i />
+          <b />
+        </div>
+
+        <div className="nm-wheel-center">
           <span>
-            <WheelAvatar profile={profiles.cyan} player="cyan" />
-            {showDistances && outcome && <em>Δ{outcome.cyanDistance}</em>}
+            {phase === 'spinning'
+              ? 'SPIN'
+              : phase === 'landing'
+                ? 'FINAL'
+                : phase === 'impact'
+                  ? 'DISTANCE'
+                  : phase === 'picking'
+                    ? 'YOUR PICK'
+                    : 'NEON'}
           </span>
+          <strong>
+            {phase === 'spinning'
+              ? '•••'
+              : target ?? (phase === 'picking' ? draft : '—')}
+          </strong>
         </div>
-      )}
 
-      {showPicks && picks.magenta !== null && (
-        <div className="rd-bet rd-bet-magenta" style={cssVars({ '--a': `${numberToAngle(picks.magenta)}deg` })}>
-          <span>
-            <WheelAvatar profile={profiles.magenta} player="magenta" />
-            {showDistances && outcome && <em>Δ{outcome.magentaDistance}</em>}
-          </span>
-        </div>
-      )}
-
-      {target !== null && (
-        <div className="rd-bet rd-bet-target" style={cssVars({ '--a': `${numberToAngle(target)}deg` })}>
-          <span>{target}</span>
-        </div>
-      )}
-
-      {phase === 'impact' && outcome && (
-        <div className={`rd-clash ${outcome.defender ? `rd-clash-to-${outcome.defender}` : ''}`}>
-          <div className="rd-clash-value rd-clash-cyan">
-            <small>P1</small>
-            <span>{outcome.cyanDistance}</span>
-          </div>
-
-          <div className="rd-clash-core">
-            <small>hit</small>
-            <b>{outcome.damage}</b>
-          </div>
-
-          <div className="rd-clash-value rd-clash-magenta">
-            <small>P2</small>
-            <span>{outcome.magentaDistance}</span>
-          </div>
-        </div>
-      )}
-
-      <div
-        ref={arrowRef}
-        className="rd-arrow"
-        style={cssVars({
-          '--angle': `${angle}deg`,
-        })}
-      >
-        <div className="rd-arrow-line" />
-        <div className="rd-arrow-head" />
+        {phase === 'impact' && outcome && (
+          <ImpactAnimation
+            outcome={outcome}
+            damageApplied={damageApplied}
+            elapsedMs={impactElapsedMs}
+            profiles={profiles}
+          />
+        )}
       </div>
+    );
+  },
+);
 
-      <div className="rd-center">
-        <small>{phase === 'spinning' || phase === 'landing' ? 'rolling' : target !== null ? 'final' : 'pick'}</small>
-        <strong>{phase === 'spinning' || phase === 'landing' ? '•••' : target ?? displayNumber}</strong>
+const ResultModal = memo(
+  ({
+    didWin,
+    winner,
+    loser,
+    winnerHp,
+    loserHp,
+    reward,
+    onBack,
+  }: {
+    didWin: boolean;
+    winner: PlayerProfile;
+    loser: PlayerProfile;
+    winnerHp: number;
+    loserHp: number;
+    reward: number;
+    onBack: () => void;
+  }) => (
+    <div className="nm-modal-layer">
+      <div className={`nm-result-modal ${didWin ? 'nm-result-win' : 'nm-result-loss'}`}>
+        <div className="nm-result-kicker">NEON MATRIX · MATCH RESULT</div>
+        <h2>{didWin ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ'}</h2>
+
+        <div className="nm-result-players">
+          <div className="nm-result-player nm-result-winner">
+            <Avatar profile={winner} className="nm-result-avatar-big" />
+            <div>{winner.name}</div>
+            <strong>{winnerHp} HP</strong>
+          </div>
+          <span>VS</span>
+          <div className="nm-result-player nm-result-loser">
+            <Avatar profile={loser} className="nm-result-avatar-small" />
+            <div>{loser.name}</div>
+            <strong>{loserHp} HP</strong>
+          </div>
+        </div>
+
+        <div className="nm-result-divider" />
+
+        <div className="nm-reward">
+          <strong>{didWin ? `+${formatReward(reward)}` : '0'}</strong>
+          <img src={coinIcon} alt="GAME" draggable={false} />
+        </div>
+
+        <button type="button" onClick={onBack}>
+          <span className="nm-back-icon">←</span>
+          <b>К ЛОББИ</b>
+          <span>›</span>
+        </button>
       </div>
     </div>
-  );
-};
-
-const PickPreview = ({
-  picks,
-  target,
-  hiddenCyan,
-  hiddenMagenta,
-  outcome,
-  phase,
-}: {
-  picks: PickState;
-  target: number | null;
-  hiddenCyan: boolean;
-  hiddenMagenta: boolean;
-  outcome: RoundOutcome | null;
-  phase: Phase;
-}) => {
-  const showDistances = phase === 'impact' || phase === 'result' || phase === 'gameover';
-
-  return (
-    <div className="rd-picks">
-      <div className="rd-pick rd-pick-cyan">
-        <span>P1</span>
-        <b>{hiddenCyan ? '••' : picks.cyan ?? '—'}</b>
-        {showDistances && outcome && <small>Δ{outcome.cyanDistance}</small>}
-      </div>
-
-      <div className="rd-pick rd-pick-final">
-        <span>Final</span>
-        <b>{target ?? '—'}</b>
-      </div>
-
-      <div className="rd-pick rd-pick-magenta">
-        <span>P2</span>
-        <b>{hiddenMagenta ? '••' : picks.magenta ?? '—'}</b>
-        {showDistances && outcome && <small>Δ{outcome.magentaDistance}</small>}
-      </div>
-    </div>
-  );
-};
-
-const NumberPicker = ({
-  value,
-  activePlayer,
-  onChange,
-}: {
-  value: number;
-  activePlayer: Player;
-  onChange: (value: number) => void;
-}) => {
-  const meta = PLAYERS[activePlayer];
-  const percent = ((value - MIN_NUMBER) / (MAX_NUMBER - MIN_NUMBER)) * 100;
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
-
-  const updateFromClientX = (clientX: number) => {
-    const track = trackRef.current;
-    if (!track) return;
-
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-
-    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
-    const nextValue = MIN_NUMBER + Math.round(ratio * (MAX_NUMBER - MIN_NUMBER));
-
-    onChange(nextValue);
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    draggingRef.current = true;
-    updateFromClientX(event.clientX);
-  };
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-    event.preventDefault();
-    updateFromClientX(event.clientX);
-  };
-
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-
-    draggingRef.current = false;
-
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // ignore
-    }
-  };
-
-  return (
-    <div
-      className="rd-picker"
-      style={cssVars({
-        '--player': meta.main,
-        '--player-soft': meta.soft,
-        '--player-glow': meta.glow,
-        '--value': `${percent}%`,
-      })}
-    >
-      <div className="rd-picker-value">
-        <span>{meta.short}</span>
-        <b>{value}</b>
-      </div>
-
-      <div className="rd-slider-row">
-        <div ref={trackRef} className="rd-slider-track">
-          <div className="rd-slider-fill" />
-          <div className="rd-slider-thumb">
-            <i>{value}</i>
-          </div>
-        </div>
-
-        <div
-          className="rd-slider-hit"
-          role="slider"
-          tabIndex={0}
-          aria-valuemin={MIN_NUMBER}
-          aria-valuemax={MAX_NUMBER}
-          aria-valuenow={value}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onLostPointerCapture={handlePointerUp}
-        />
-
-        <input
-          type="range"
-          min={MIN_NUMBER}
-          max={MAX_NUMBER}
-          step={1}
-          value={value}
-          onChange={(event) => onChange(Number(event.target.value))}
-          className="rd-slider"
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-      </div>
-    </div>
-  );
-};
+  ),
+);
 
 export const NeonMatrixGame: React.FC = () => {
   const location = useLocation();
@@ -590,41 +530,34 @@ export const NeonMatrixGame: React.FC = () => {
 
   const socketRef = useRef<NeonMatrixSocketClient | null>(null);
   const arrowRef = useRef<HTMLDivElement | null>(null);
-  const arrowRafRef = useRef<number | null>(null);
-  const arrowAngleRef = useRef(numberToAngle(50));
-  const arrowMotionRef = useRef<ArrowMotionState>({
+  const arrowFrameRef = useRef<number | null>(null);
+  const arrowAngleRef = useRef(numberToAngle(DEFAULT_NUMBER));
+  const arrowMotionRef = useRef<ArrowMotion>({
     mode: 'idle',
-    angle: numberToAngle(50),
+    angle: numberToAngle(DEFAULT_NUMBER),
     velocity: 0,
-    lastFrameAt: 0,
-    landingStartAt: 0,
+    lastAt: 0,
+    landingStartedAt: 0,
     landingDuration: 0,
     landingStartAngle: 0,
     landingStartVelocity: 0,
     landingDistance: 0,
-    landingTarget: numberToAngle(50),
+    landingTarget: numberToAngle(DEFAULT_NUMBER),
   });
-  const landingCallbacksRef = useRef<Array<() => void>>([]);
-  const animationStageRef = useRef('');
-  const serverOffsetRef = useRef<number | null>(null);
-  const lastRoundRef = useRef(0);
-  const latestServerPhaseRef = useRef<string>('');
-  const verifiedRevealRef = useRef<string>('');
+  const stageRef = useRef('');
+  const verifiedRoundRef = useRef('');
+  const previousRoundRef = useRef(0);
+  const previousDamageAppliedRef = useRef(false);
 
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>('connecting');
   const [socketError, setSocketError] = useState<string | null>(null);
-  const [serverState, setServerState] = useState<NeonMatrixStateMessage | null>(null);
-  const [phase, setPhase] = useState<Phase>('pickCyan');
-  const [health, setHealth] = useState<HealthState>({ cyan: START_HP, magenta: START_HP });
-  const [round, setRound] = useState(1);
-  const [draftValue, setDraftValue] = useState(50);
-  const [picks, setPicks] = useState<PickState>({ cyan: null, magenta: null });
-  const [target, setTarget] = useState<number | null>(null);
-  const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
-  const [arrowAngle, setArrowAngle] = useState(numberToAngle(50));
-  const [message, setMessage] = useState('Подключение к матчу...');
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const [submissionPending, setSubmissionPending] = useState(false);
+  const [serverState, setServerState] =
+    useState<NeonMatrixStateMessage | null>(null);
+  const [serverOffset, setServerOffset] = useState(0);
+  const [clock, setClock] = useState(0);
+  const [draft, setDraft] = useState(DEFAULT_NUMBER);
+  const [submitting, setSubmitting] = useState(false);
 
   const routeState = (location.state || {}) as {
     lobbyId?: string;
@@ -653,122 +586,108 @@ export const NeonMatrixGame: React.FC = () => {
   }, [location.search, routeState.lobbyId]);
 
   const playersInfo = useMemo(
-    () => (routeState.playersInfo?.length ? routeState.playersInfo : readStoredPlayersInfo()),
+    () =>
+      routeState.playersInfo?.length
+        ? routeState.playersInfo
+        : readStoredPlayersInfo(),
     [routeState.playersInfo],
   );
 
-  const playerOrder = serverState?.player_order || [];
   const myUserId = Number(user?.id || 0);
+  const playerOrder = serverState?.player_order ?? [];
   const opponentUserId =
     playerOrder.find((id) => id !== myUserId) ||
-    playersInfo.find((player) => Number(player.id) !== myUserId)?.id ||
-    0;
-  const activePlayer: Player = 'cyan';
+    Number(playersInfo.find((item) => Number(item.id) !== myUserId)?.id || 0);
 
-  const profileById = useMemo(() => {
-    const profiles = new Map<number, PlayerProfile>();
-
-    for (const player of playersInfo) {
-      const id = Number(player.id);
+  const profiles = useMemo<Record<Side, PlayerProfile>>(() => {
+    const map = new Map<number, PlayerProfile>();
+    for (const item of playersInfo) {
+      const id = Number(item.id);
       if (!Number.isFinite(id) || id <= 0) continue;
-      const name = player.tg_user || `Player ${id}`;
-      profiles.set(id, {
+      const name = item.tg_user || `Player ${id}`;
+      map.set(id, {
         id,
         name,
-        photoUrl: player.photo_url || '',
+        photoUrl: item.photo_url || '',
         initials: getInitials(name),
       });
     }
 
-    if (myUserId > 0) {
-      const stored = profiles.get(myUserId);
-      const name = user?.tg_user || stored?.name || 'Ты';
-      profiles.set(myUserId, {
-        id: myUserId,
-        name,
-        photoUrl: user?.photo_url || stored?.photoUrl || '',
-        initials: getInitials(name),
-      });
-    }
-
-    return profiles;
-  }, [myUserId, playersInfo, user?.photo_url, user?.tg_user]);
-
-  const wheelProfiles = useMemo<Record<Player, PlayerProfile>>(() => {
-    const own = profileById.get(myUserId) || {
+    const storedMe = map.get(myUserId);
+    const meName = user?.tg_user || storedMe?.name || 'Ты';
+    const me: PlayerProfile = {
       id: myUserId,
-      name: user?.tg_user || 'Ты',
-      photoUrl: user?.photo_url || '',
-      initials: getInitials(user?.tg_user || 'Ты'),
+      name: meName,
+      photoUrl: user?.photo_url || storedMe?.photoUrl || '',
+      initials: getInitials(meName),
     };
-    const rival = profileById.get(opponentUserId) || {
+
+    const storedOpponent = map.get(opponentUserId);
+    const opponentName = storedOpponent?.name || 'Соперник';
+    const opponent: PlayerProfile = {
       id: opponentUserId,
-      name: 'Соперник',
-      photoUrl: '',
-      initials: 'VS',
+      name: opponentName,
+      photoUrl: storedOpponent?.photoUrl || '',
+      initials: getInitials(opponentName),
     };
 
-    return { cyan: own, magenta: rival };
-  }, [myUserId, opponentUserId, profileById, user?.photo_url, user?.tg_user]);
+    return { me, opponent };
+  }, [myUserId, opponentUserId, playersInfo, user?.photo_url, user?.tg_user]);
 
-  const renderArrowAngle = useCallback((angle: number) => {
+  const renderArrow = useCallback((angle: number) => {
     arrowAngleRef.current = angle;
     arrowMotionRef.current.angle = angle;
-
     if (arrowRef.current) {
-      arrowRef.current.style.transform = `rotate(${angle}deg)`;
+      arrowRef.current.style.transform = `rotate(${angle}deg) translateZ(0)`;
     }
   }, []);
 
-  const stopArrowMotion = useCallback((clearCallbacks = true) => {
-    if (arrowRafRef.current !== null) {
-      window.cancelAnimationFrame(arrowRafRef.current);
-      arrowRafRef.current = null;
+  const stopArrow = useCallback(() => {
+    if (arrowFrameRef.current !== null) {
+      cancelAnimationFrame(arrowFrameRef.current);
+      arrowFrameRef.current = null;
     }
-
     arrowMotionRef.current.mode = 'idle';
     arrowMotionRef.current.velocity = 0;
-    arrowMotionRef.current.lastFrameAt = 0;
-
-    if (clearCallbacks) {
-      landingCallbacksRef.current = [];
-    }
+    arrowMotionRef.current.lastAt = 0;
   }, []);
 
   const startArrowLoop = useCallback(() => {
-    if (arrowRafRef.current !== null) return;
+    if (arrowFrameRef.current !== null) return;
 
     const frame = (now: number) => {
       const motion = arrowMotionRef.current;
-
       if (motion.mode === 'idle') {
-        arrowRafRef.current = null;
+        arrowFrameRef.current = null;
         return;
       }
 
       if (motion.mode === 'spinning') {
-        const previous = motion.lastFrameAt || now;
-        const dt = clamp(now - previous, 0, 40);
-        const acceleration = 1 - Math.exp(-dt / SPIN_ACCELERATION_MS);
-
-        motion.velocity += (SPIN_CRUISE_SPEED - motion.velocity) * acceleration;
+        const previous = motion.lastAt || now;
+        const dt = clamp(now - previous, 0, 34);
+        const response = 1 - Math.exp(-dt / SPIN_ACCELERATION_MS);
+        motion.velocity += (SPIN_SPEED - motion.velocity) * response;
         motion.angle += motion.velocity * dt;
-        motion.lastFrameAt = now;
-        renderArrowAngle(motion.angle);
+        motion.lastAt = now;
+        renderArrow(motion.angle);
       } else {
         const duration = Math.max(1, motion.landingDuration);
-        const u = clamp((now - motion.landingStartAt) / duration, 0, 1);
-        const u2 = u * u;
-        const u3 = u2 * u;
-        const u4 = u3 * u;
-        const u5 = u4 * u;
+        const t = clamp((now - motion.landingStartedAt) / duration, 0, 1);
+        const t2 = t * t;
+        const t3 = t2 * t;
+        const t4 = t3 * t;
+        const t5 = t4 * t;
 
-        const velocityEase = 1 - 3 * u2 + 2 * u3;
-        const velocityIntegral = u - u3 + 0.5 * u4;
-        const extraEase = 10 * u3 - 15 * u4 + 6 * u5;
-        const extraVelocity = 30 * u2 * (1 - u) * (1 - u);
-        const naturalDistance = motion.landingStartVelocity * duration * 0.5;
-        const extraDistance = Math.max(0, motion.landingDistance - naturalDistance);
+        const velocityEase = 1 - 3 * t2 + 2 * t3;
+        const velocityIntegral = t - t3 + 0.5 * t4;
+        const extraEase = 10 * t3 - 15 * t4 + 6 * t5;
+        const extraVelocity = 30 * t2 * (1 - t) * (1 - t);
+        const naturalDistance =
+          motion.landingStartVelocity * duration * 0.5;
+        const extraDistance = Math.max(
+          0,
+          motion.landingDistance - naturalDistance,
+        );
 
         motion.angle =
           motion.landingStartAngle +
@@ -777,84 +696,66 @@ export const NeonMatrixGame: React.FC = () => {
         motion.velocity =
           motion.landingStartVelocity * velocityEase +
           (extraDistance / duration) * extraVelocity;
-        renderArrowAngle(motion.angle);
+        renderArrow(motion.angle);
 
-        if (u >= 1) {
-          const finalAngle = normalizeAngle(motion.landingTarget);
+        if (t >= 1) {
           motion.mode = 'idle';
           motion.velocity = 0;
-          motion.angle = finalAngle;
-          motion.lastFrameAt = 0;
-          renderArrowAngle(finalAngle);
-          setArrowAngle(finalAngle);
-          arrowRafRef.current = null;
-
-          const callbacks = landingCallbacksRef.current;
-          landingCallbacksRef.current = [];
-          callbacks.forEach((callback) => callback());
+          motion.angle = normalizeAngle(motion.landingTarget);
+          renderArrow(motion.angle);
+          arrowFrameRef.current = null;
           return;
         }
       }
 
-      arrowRafRef.current = window.requestAnimationFrame(frame);
+      arrowFrameRef.current = requestAnimationFrame(frame);
     };
 
-    arrowRafRef.current = window.requestAnimationFrame(frame);
-  }, [renderArrowAngle]);
+    arrowFrameRef.current = requestAnimationFrame(frame);
+  }, [renderArrow]);
 
   const setStaticArrow = useCallback(
     (angle: number) => {
-      stopArrowMotion();
-      const normalized = normalizeAngle(angle);
-      renderArrowAngle(normalized);
-      setArrowAngle(normalized);
+      stopArrow();
+      renderArrow(normalizeAngle(angle));
     },
-    [renderArrowAngle, stopArrowMotion],
+    [renderArrow, stopArrow],
   );
 
   const startFreeSpin = useCallback(() => {
     const motion = arrowMotionRef.current;
     if (motion.mode === 'spinning') return;
-
-    landingCallbacksRef.current = [];
     motion.mode = 'spinning';
     motion.angle = arrowAngleRef.current;
-    motion.velocity = Math.max(0.16, Math.min(motion.velocity, SPIN_CRUISE_SPEED));
-    motion.lastFrameAt = performance.now();
+    motion.velocity = Math.max(0.14, Math.min(motion.velocity, SPIN_SPEED));
+    motion.lastAt = performance.now();
     startArrowLoop();
   }, [startArrowLoop]);
 
   const startLanding = useCallback(
-    (targetAngle: number, durationMs: number, onComplete?: () => void, minimumTurns = 2) => {
+    (targetAngle: number, durationMs: number) => {
       const normalizedTarget = normalizeAngle(targetAngle);
-
-      if (onComplete) {
-        landingCallbacksRef.current.push(onComplete);
-      }
-
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        const callbacks = landingCallbacksRef.current;
-        landingCallbacksRef.current = [];
-        stopArrowMotion(false);
-        renderArrowAngle(normalizedTarget);
-        setArrowAngle(normalizedTarget);
-        callbacks.forEach((callback) => callback());
+      const motion = arrowMotionRef.current;
+      if (
+        motion.mode === 'landing' &&
+        circularAngleDistance(motion.landingTarget, normalizedTarget) < 0.01
+      ) {
         return;
       }
 
-      const motion = arrowMotionRef.current;
-      if (motion.mode === 'landing' && circularAngleDistance(motion.landingTarget, normalizedTarget) < 0.01) {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setStaticArrow(normalizedTarget);
         return;
       }
 
       const startAngle = arrowAngleRef.current;
       const startVelocity = Math.max(0, motion.velocity);
-      const duration = Math.max(MIN_LANDING_DURATION_MS, durationMs);
-      const targetDelta = (normalizedTarget - normalizeAngle(startAngle) + 360) % 360;
+      const duration = Math.max(MIN_LANDING_MS, durationMs);
+      const targetDelta =
+        (normalizedTarget - normalizeAngle(startAngle) + 360) % 360;
       const naturalDistance = startVelocity * duration * 0.5;
-      let turns = Math.max(minimumTurns, Math.ceil((naturalDistance - targetDelta) / 360));
-      let distance = targetDelta + Math.max(0, turns) * 360;
-
+      let turns = Math.max(2, Math.ceil((naturalDistance - targetDelta) / 360));
+      let distance = targetDelta + turns * 360;
       while (distance + 0.001 < naturalDistance) {
         turns += 1;
         distance = targetDelta + turns * 360;
@@ -863,8 +764,8 @@ export const NeonMatrixGame: React.FC = () => {
       motion.mode = 'landing';
       motion.angle = startAngle;
       motion.velocity = startVelocity;
-      motion.lastFrameAt = 0;
-      motion.landingStartAt = performance.now();
+      motion.lastAt = 0;
+      motion.landingStartedAt = performance.now();
       motion.landingDuration = duration;
       motion.landingStartAngle = startAngle;
       motion.landingStartVelocity = startVelocity;
@@ -872,88 +773,16 @@ export const NeonMatrixGame: React.FC = () => {
       motion.landingTarget = normalizedTarget;
       startArrowLoop();
     },
-    [renderArrowAngle, startArrowLoop, stopArrowMotion],
+    [setStaticArrow, startArrowLoop],
   );
 
-  const getEstimatedServerNow = useCallback(() => {
-    return Date.now() - (serverOffsetRef.current ?? 0);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      stopArrowMotion();
-    };
-  }, [stopArrowMotion]);
-
-  const burst = useCallback((tone: Particle['tone'], x: string, y: string, amount = 18) => {
-    const count = Math.max(4, Math.min(amount, 10));
-    const items = Array.from({ length: count }, (_, index) => ({
-      id: Date.now() + Math.random() + index,
-      x,
-      y,
-      angle: (360 / count) * index + Math.random() * 18,
-      distance: 34 + Math.random() * 68,
-      size: 2 + Math.random() * 4,
-      tone,
-      delay: Math.random() * 60,
-    }));
-    const ids = new Set(items.map((item) => item.id));
-
-    setParticles((prev) => [...prev, ...items].slice(-PARTICLE_LIMIT));
-    window.setTimeout(() => {
-      setParticles((prev) => prev.filter((item) => !ids.has(item.id)));
-    }, 850);
-  }, []);
-
-  const getMappedPick = useCallback(
-    (state: NeonMatrixStateMessage, userId: number) => {
-      const value = state.picks[String(userId)];
-      return typeof value === 'number' ? value : null;
-    },
-    [],
-  );
-
-  const mapOutcome = useCallback(
-    (raw: NeonMatrixRoundOutcome | undefined): RoundOutcome | null => {
-      if (!raw || !myUserId || !opponentUserId) return null;
-
-      const myIsPlayer1 = raw.player1_user_id === myUserId;
-      const cyanPick = myIsPlayer1 ? raw.player1_pick : raw.player2_pick;
-      const magentaPick = myIsPlayer1 ? raw.player2_pick : raw.player1_pick;
-      const cyanDistance = myIsPlayer1 ? raw.player1_distance : raw.player2_distance;
-      const magentaDistance = myIsPlayer1 ? raw.player2_distance : raw.player1_distance;
-
-      return {
-        target: raw.target,
-        cyanPick,
-        magentaPick,
-        cyanDistance,
-        magentaDistance,
-        damage: raw.damage,
-        attacker:
-          raw.attacker_user_id === myUserId
-            ? 'cyan'
-            : raw.attacker_user_id === opponentUserId
-              ? 'magenta'
-              : null,
-        defender:
-          raw.defender_user_id === myUserId
-            ? 'cyan'
-            : raw.defender_user_id === opponentUserId
-              ? 'magenta'
-              : null,
-      };
-    },
-    [myUserId, opponentUserId],
-  );
+  useEffect(() => () => stopArrow(), [stopArrow]);
 
   const verifyCommitment = useCallback(async (state: NeonMatrixStateMessage) => {
     if (!state.commitment || state.target === undefined || !state.reveal_nonce) return;
-
-    const verificationKey = `${state.round}:${state.commitment}`;
-    if (verifiedRevealRef.current === verificationKey) return;
-    verifiedRevealRef.current = verificationKey;
-
+    const key = `${state.round}:${state.commitment}`;
+    if (verifiedRoundRef.current === key) return;
+    verifiedRoundRef.current = key;
     if (!window.crypto?.subtle) return;
 
     const payload = `${state.lobby_id}:${state.round}:${state.target}:${state.reveal_nonce}`;
@@ -964,7 +793,6 @@ export const NeonMatrixGame: React.FC = () => {
     const actual = Array.from(new Uint8Array(digest))
       .map((byte) => byte.toString(16).padStart(2, '0'))
       .join('');
-
     if (actual !== state.commitment) {
       setSocketError('Проверка честности раунда не пройдена');
     }
@@ -973,10 +801,8 @@ export const NeonMatrixGame: React.FC = () => {
   useEffect(() => {
     if (!lobbyId || !token) return;
 
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem('twingames_active_lobby_id', lobbyId);
-      window.sessionStorage.setItem('twingames_active_game', gameId);
-    }
+    window.sessionStorage.setItem('twingames_active_lobby_id', lobbyId);
+    window.sessionStorage.setItem('twingames_active_game', gameId);
 
     let alive = true;
     setConnectionStatus('connecting');
@@ -1002,28 +828,25 @@ export const NeonMatrixGame: React.FC = () => {
         },
         onServerError: (error) => {
           if (!alive) return;
+          setSubmitting(false);
           setSocketError(error.details || error.error);
-          setSubmissionPending(false);
         },
         onState: (state) => {
           if (!alive) return;
-
           if (state.server_ms > 0) {
             const sample = Date.now() - state.server_ms;
-            serverOffsetRef.current =
-              serverOffsetRef.current === null
-                ? sample
-                : serverOffsetRef.current * 0.8 + sample * 0.2;
+            setServerOffset((previous) =>
+              previous === 0 ? sample : previous * 0.8 + sample * 0.2,
+            );
           }
-
-          setServerState(state);
+          setSubmitting(false);
           setSocketError(null);
+          setServerState(state);
         },
       },
     });
 
     socketRef.current = client;
-
     return () => {
       alive = false;
       socketRef.current = null;
@@ -1031,1387 +854,827 @@ export const NeonMatrixGame: React.FC = () => {
     };
   }, [gameId, lobbyId, token]);
 
+  const serverNow = clock > 0 ? clock - serverOffset : serverState?.server_ms ?? 0;
+  const phase = serverState?.phase ?? 'waiting';
+  const activeDeadline =
+    phase === 'countdown'
+      ? serverState?.countdown_ends_ms
+      : phase === 'picking'
+        ? serverState?.pick_ends_ms
+        : undefined;
+
   useEffect(() => {
-    if (!serverState || !myUserId || !opponentUserId) return;
+    if (!activeDeadline) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 100);
+    return () => window.clearInterval(timer);
+  }, [activeDeadline]);
 
-    const myHealth = serverState.health[String(myUserId)] ?? START_HP;
-    const opponentHealth = serverState.health[String(opponentUserId)] ?? START_HP;
-    const mappedPicks: PickState = {
-      cyan: getMappedPick(serverState, myUserId),
-      magenta: getMappedPick(serverState, opponentUserId),
+  const deadlineRemaining = activeDeadline
+    ? Math.max(0, activeDeadline - serverNow)
+    : 0;
+  const timerSeconds = activeDeadline
+    ? Math.max(0, Math.ceil(deadlineRemaining / 1000))
+    : null;
+  const timerDuration = phase === 'countdown' ? 3000 : 5000;
+  const timerProgress = activeDeadline
+    ? clamp(deadlineRemaining / timerDuration, 0, 1)
+    : 0;
+
+  const myHealth = serverState?.health[String(myUserId)] ?? START_HP;
+  const opponentHealth =
+    serverState?.health[String(opponentUserId)] ?? START_HP;
+  const myPick = serverState?.picks[String(myUserId)] ?? null;
+  const opponentPick = serverState?.picks[String(opponentUserId)] ?? null;
+  const myLocked = Boolean(serverState?.picked[String(myUserId)]);
+
+  const outcome = useMemo<LocalOutcome | null>(() => {
+    const raw = serverState?.outcome;
+    if (!raw || !myUserId || !opponentUserId) return null;
+    const meIsPlayer1 = raw.player1_user_id === myUserId;
+
+    return {
+      target: raw.target,
+      mePick: meIsPlayer1
+        ? raw.player1_picked
+          ? raw.player1_pick
+          : null
+        : raw.player2_picked
+          ? raw.player2_pick
+          : null,
+      opponentPick: meIsPlayer1
+        ? raw.player2_picked
+          ? raw.player2_pick
+          : null
+        : raw.player1_picked
+          ? raw.player1_pick
+          : null,
+      mePicked: meIsPlayer1 ? raw.player1_picked : raw.player2_picked,
+      opponentPicked: meIsPlayer1
+        ? raw.player2_picked
+        : raw.player1_picked,
+      meDistance: meIsPlayer1
+        ? raw.player1_distance
+        : raw.player2_distance,
+      opponentDistance: meIsPlayer1
+        ? raw.player2_distance
+        : raw.player1_distance,
+      damage: raw.damage,
+      attacker:
+        raw.attacker_user_id === myUserId
+          ? 'me'
+          : raw.attacker_user_id === opponentUserId
+            ? 'opponent'
+            : null,
+      defender:
+        raw.defender_user_id === myUserId
+          ? 'me'
+          : raw.defender_user_id === opponentUserId
+            ? 'opponent'
+            : null,
+      draw: raw.is_draw,
     };
-    const mappedOutcome = mapOutcome(serverState.outcome);
-    const isNewRound = lastRoundRef.current !== serverState.round;
+  }, [myUserId, opponentUserId, serverState?.outcome]);
 
-    lastRoundRef.current = serverState.round;
-    latestServerPhaseRef.current = serverState.phase;
-    setRound(serverState.round);
-    setPicks(mappedPicks);
-    setMessage(serverState.message || '');
-    setSubmissionPending(false);
+  useEffect(() => {
+    if (!serverState) return;
+    const estimatedServerNow = Date.now() - serverOffset;
+    const newRound = previousRoundRef.current !== serverState.round;
+    previousRoundRef.current = serverState.round;
+
+    if (serverState.phase === 'countdown' || serverState.phase === 'waiting') {
+      if (newRound) setDraft(DEFAULT_NUMBER);
+      setStaticArrow(numberToAngle(DEFAULT_NUMBER));
+      stageRef.current = `${serverState.round}:${serverState.phase}`;
+      return;
+    }
 
     if (serverState.phase === 'picking') {
-      animationStageRef.current = '';
-      setPhase('pickCyan');
-      setHealth({ cyan: myHealth, magenta: opponentHealth });
-      setTarget(null);
-      setOutcome(null);
-
-      if (isNewRound) {
-        setDraftValue(50);
-        setStaticArrow(numberToAngle(50));
-        setParticles([]);
+      if (newRound) {
+        setDraft(DEFAULT_NUMBER);
+        setStaticArrow(numberToAngle(DEFAULT_NUMBER));
+      } else if (myPick !== null) {
+        setDraft(myPick);
+        setStaticArrow(numberToAngle(myPick));
       }
-
-      if (mappedPicks.cyan !== null) {
-        setDraftValue(mappedPicks.cyan);
-        setStaticArrow(numberToAngle(mappedPicks.cyan));
-      }
+      stageRef.current = `${serverState.round}:picking`;
+      previousDamageAppliedRef.current = false;
       return;
     }
 
     if (serverState.phase === 'spinning') {
-      setTarget(null);
-      setOutcome(null);
-      setPhase('spinning');
-
-      const stageKey = `${serverState.round}:spinning`;
-      if (animationStageRef.current !== stageKey) {
-        animationStageRef.current = stageKey;
+      const key = `${serverState.round}:spinning`;
+      if (stageRef.current !== key) {
+        stageRef.current = key;
         startFreeSpin();
-        burst('gold', '50%', '43%', 10);
         hapticImpact('medium');
       }
       return;
     }
 
-    if (serverState.phase === 'landing') {
-      if (serverState.target === undefined) return;
-
+    if (serverState.phase === 'landing' && serverState.target !== undefined) {
       void verifyCommitment(serverState);
-      setTarget(null);
-      setOutcome(null);
-      setPhase('landing');
-
-      const serverNow = getEstimatedServerNow();
-      const remaining = Math.max(
-        80,
-        (serverState.stop_at_ms ?? serverNow + LANDING_MS) - serverNow,
-      );
-
-      const stageKey = `${serverState.round}:landing`;
-      if (animationStageRef.current !== stageKey) {
-        animationStageRef.current = stageKey;
+      const key = `${serverState.round}:landing`;
+      if (stageRef.current !== key) {
+        stageRef.current = key;
+        const remaining = Math.max(
+          MIN_LANDING_MS,
+          (serverState.stop_at_ms ?? estimatedServerNow + 2200) - estimatedServerNow,
+        );
         startLanding(numberToAngle(serverState.target), remaining);
       }
       return;
     }
 
-    if (serverState.target !== undefined) {
+    if (serverState.phase === 'impact' && serverState.target !== undefined) {
       void verifyCommitment(serverState);
-    }
-
-    if (serverState.phase === 'impact') {
-      if (serverState.target === undefined || !mappedOutcome) return;
-
-      const stageKey = `${serverState.round}:impact`;
-      if (animationStageRef.current === stageKey) return;
-      animationStageRef.current = stageKey;
-
-      const applyImpact = () => {
-        if (latestServerPhaseRef.current !== 'impact') return;
-
-        setTarget(serverState.target ?? null);
-        setOutcome(mappedOutcome);
-        setHealth({ cyan: myHealth, magenta: opponentHealth });
-        setPhase('impact');
-        setMessage(serverState.message || 'Финальное число раскрыто.');
-        hapticImpact('heavy');
-
-        if (mappedOutcome.damage === 0) {
-          burst('green', '50%', '43%', 18);
-          hapticNotify('success');
-        } else {
-          const defenderX = mappedOutcome.defender === 'cyan' ? '22%' : '78%';
-          burst(mappedOutcome.defender === 'cyan' ? 'magenta' : 'cyan', defenderX, '14%', 16);
-          burst('red', defenderX, '14%', 14);
-          hapticNotify(myHealth <= 0 || opponentHealth <= 0 ? 'error' : 'warning');
-        }
-      };
-
       const targetAngle = numberToAngle(serverState.target);
-      const motion = arrowMotionRef.current;
-      const isSettled =
-        motion.mode === 'idle' &&
-        circularAngleDistance(arrowAngleRef.current, targetAngle) <= 0.35;
-
-      if (motion.mode === 'landing') {
-        landingCallbacksRef.current.push(applyImpact);
-      } else if (!isSettled) {
-        startLanding(targetAngle, 520, applyImpact, 0);
-      } else {
-        setStaticArrow(targetAngle);
-        applyImpact();
+      if (
+        arrowMotionRef.current.mode !== 'idle' ||
+        circularAngleDistance(arrowAngleRef.current, targetAngle) > 0.25
+      ) {
+        const remaining = Math.max(
+          MIN_LANDING_MS,
+          (serverState.stop_at_ms ?? estimatedServerNow) - estimatedServerNow,
+        );
+        if (remaining > MIN_LANDING_MS) startLanding(targetAngle, remaining);
+        else setStaticArrow(targetAngle);
       }
-      return;
-    }
 
-    setHealth({ cyan: myHealth, magenta: opponentHealth });
-    setTarget(serverState.target ?? null);
-    setOutcome(mappedOutcome);
+      const key = `${serverState.round}:impact`;
+      if (stageRef.current !== key) {
+        stageRef.current = key;
+        hapticImpact('heavy');
+      }
 
-    if (serverState.phase === 'result') {
-      setPhase('result');
+      if (
+        serverState.damage_applied &&
+        !previousDamageAppliedRef.current
+      ) {
+        previousDamageAppliedRef.current = true;
+        if (outcome?.draw) hapticNotify('success');
+        else hapticNotify(outcome?.defender === 'me' ? 'error' : 'warning');
+      }
       return;
     }
 
     if (serverState.phase === 'match_over') {
-      setPhase('gameover');
-      setStaticArrow(numberToAngle(serverState.target ?? draftValue));
-      hapticNotify(serverState.winner_user_id === myUserId ? 'success' : 'error');
+      stopArrow();
+      if (serverState.target !== undefined) {
+        renderArrow(numberToAngle(serverState.target));
+      }
+      const key = `${serverState.round}:match_over`;
+      if (stageRef.current !== key) {
+        stageRef.current = key;
+        hapticNotify(serverState.winner_user_id === myUserId ? 'success' : 'error');
+      }
     }
   }, [
-    burst,
-    draftValue,
-    getEstimatedServerNow,
-    getMappedPick,
-    mapOutcome,
+    myPick,
     myUserId,
-    opponentUserId,
+    outcome?.defender,
+    outcome?.draw,
+    renderArrow,
+    serverOffset,
     serverState,
     setStaticArrow,
     startFreeSpin,
     startLanding,
+    stopArrow,
     verifyCommitment,
   ]);
 
-  useEffect(() => {
-    if (serverState?.phase !== 'match_over') return;
+  const impactElapsedMs =
+    phase === 'impact'
+      ? Math.max(
+          0,
+          (serverState?.server_ms ?? serverNow) -
+            (serverState?.stop_at_ms ?? serverState?.server_ms ?? serverNow),
+        )
+      : 0;
 
-    const timer = window.setTimeout(() => {
-      navigate(`/game/${gameId}/lobbies`, { replace: true });
-    }, 3400);
-
-    return () => window.clearTimeout(timer);
-  }, [gameId, navigate, serverState?.phase]);
-
-  const myPicked = Boolean(serverState?.picked[String(myUserId)]);
-  const myReady = Boolean(serverState?.ready[String(myUserId)]);
   const canPick =
     connectionStatus === 'open' &&
-    serverState?.phase === 'picking' &&
-    !myPicked &&
-    !submissionPending;
+    phase === 'picking' &&
+    !myLocked &&
+    !submitting &&
+    deadlineRemaining > 0;
 
-  const matchWinner: Player | null =
-    serverState?.winner_user_id === myUserId
-      ? 'cyan'
-      : serverState?.winner_user_id === opponentUserId
-        ? 'magenta'
-        : null;
-
-  const showWheelPicks =
-    phase === 'spinning' || phase === 'landing' || phase === 'impact' || phase === 'result' || phase === 'gameover';
-
-  const resultText = useMemo(() => {
-    if (!outcome) return '';
-    if (outcome.damage === 0) {
-      return `Одинаково близко: Δ${outcome.cyanDistance}. Урона нет.`;
-    }
-
-    const attacker = PLAYERS[outcome.attacker!].short;
-    const defender = PLAYERS[outcome.defender!].short;
-    return `${attacker} ближе. ${defender} получает -${outcome.damage} HP.`;
-  }, [outcome]);
-
-  const changeDraft = (value: number) => {
+  const handleDraft = (value: number) => {
     if (!canPick) return;
-    const nextValue = clamp(Math.round(value), MIN_NUMBER, MAX_NUMBER);
-    setDraftValue(nextValue);
-    setStaticArrow(numberToAngle(nextValue));
+    const next = clamp(Math.round(value), MIN_NUMBER, MAX_NUMBER);
+    setDraft(next);
+    setStaticArrow(numberToAngle(next));
     hapticSelect();
   };
 
-  const handlePrimary = () => {
+  const submitPick = () => {
+    if (!canPick) return;
     setSocketError(null);
-
-    if (serverState?.phase === 'picking' && canPick) {
-      const sent = socketRef.current?.pick(draftValue);
-      if (!sent) {
-        setSocketError('Нет подключения к игре');
-        return;
-      }
-      setSubmissionPending(true);
-      burst('cyan', '34%', '43%', 12);
-      hapticImpact('medium');
+    const sent = socketRef.current?.pick(draft);
+    if (!sent) {
+      setSocketError('Нет подключения к игре');
       return;
     }
-
-    if (serverState?.phase === 'result' && !myReady) {
-      const sent = socketRef.current?.ready();
-      if (!sent) setSocketError('Нет подключения к игре');
-    }
+    setSubmitting(true);
+    hapticImpact('medium');
   };
 
-  const hiddenCyan = false;
-  const hiddenMagenta = picks.magenta === null;
+  const backToLobbies = () =>
+    navigate(`/game/${gameId}/lobbies`, { replace: true });
 
-  const title =
-    phase === 'gameover' && matchWinner
-      ? `${matchWinner === 'cyan' ? 'P1' : 'P2'} win`
-      : phase === 'impact'
-        ? 'Impact'
-        : phase === 'result'
-          ? 'Damage'
-          : 'Duel';
+  const didWin = serverState?.winner_user_id === myUserId;
+  const matchOver = phase === 'match_over' && Boolean(serverState?.winner_user_id);
+  const winnerProfile = didWin ? profiles.me : profiles.opponent;
+  const loserProfile = didWin ? profiles.opponent : profiles.me;
+  const winnerHp = didWin ? myHealth : opponentHealth;
+  const loserHp = didWin ? opponentHealth : myHealth;
 
-  const primaryLabel =
-    socketError
-      ? 'Ошибка'
-      : connectionStatus !== 'open'
-        ? 'Подключение'
-        : serverState?.phase === 'picking'
-          ? canPick
-            ? 'Выбрать'
-            : 'Ждём соперника'
-          : serverState?.phase === 'spinning'
-            ? 'Крутится'
-            : serverState?.phase === 'impact'
-              ? 'Удар'
-              : serverState?.phase === 'result'
-                ? myReady
-                  ? 'Ждём соперника'
-                  : 'Дальше'
-                : 'Завершено';
-
-  const buttonDisabled =
-    connectionStatus !== 'open' ||
-    Boolean(socketError) ||
-    serverState?.phase === 'spinning' ||
-    serverState?.phase === 'landing' ||
-    serverState?.phase === 'impact' ||
-    serverState?.phase === 'match_over' ||
-    (serverState?.phase === 'picking' && !canPick) ||
-    (serverState?.phase === 'result' && myReady);
+  if (!lobbyId) {
+    return (
+      <div className="nm-empty">
+        <strong>ЛОББИ НЕ НАЙДЕНО</strong>
+        <button type="button" onClick={backToLobbies}>
+          К ЛОББИ
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className={`rd-page rd-${phase}`}>
+    <section className="nm-page">
       <style>{`
-        .rd-page {
-          --mint: #5BB7FF;
-          --rose: #FF8F2D;
-          --gold: #FFC96A;
-          --danger: #FF6B6B;
-          --bg-primary: #09090d;
-          --bg-deep: #050507;
-          --line: rgba(255,255,255,.07);
-          --line-soft: rgba(255,255,255,.05);
-
+        .nm-page {
+          --me: #5bb7ff;
+          --opponent: #ff8f2d;
+          --gold: #ffc96a;
+          --danger: #ff6378;
           position: relative;
           width: 100%;
           height: 100%;
-          min-height: 0;
+          min-height: 480px;
           overflow: hidden;
           display: grid;
           grid-template-rows: auto minmax(0, 1fr) auto;
-          gap: 4px;
-          padding: 8px 8px max(8px, env(safe-area-inset-bottom));
-          color: white;
-          font-family: 'Supercell','Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-          font-size: 12px;
-          line-height: 1.36;
-          -webkit-font-smoothing: antialiased;
-          user-select: none;
+          padding: 9px 9px max(9px, env(safe-area-inset-bottom));
+          gap: 7px;
+          color: #fff;
+          background: #09090d;
+          font-family: 'Supercell','Inter',ui-sans-serif,system-ui,sans-serif;
           isolation: isolate;
-          background:
-            radial-gradient(circle at 16% -10%, rgba(47,140,255,.13), transparent 34%),
-            radial-gradient(circle at 88% -12%, rgba(255,143,45,.12), transparent 32%),
-            radial-gradient(circle at 50% 122%, rgba(255,201,106,.06), transparent 52%),
-            linear-gradient(180deg, #0d0d12 0%, var(--bg-primary) 54%, var(--bg-deep) 100%);
+          -webkit-tap-highlight-color: transparent;
         }
 
-        .rd-page * { box-sizing: border-box; }
-
-        .rd-top, .rd-main, .rd-bottom, .rd-wheel { contain: layout paint; }
-
-        .rd-page::after {
-          content: "";
+        .nm-page::before {
+          content: '';
           position: absolute;
           inset: 0;
           z-index: -1;
           pointer-events: none;
           background:
-            radial-gradient(circle at 50% 48%, transparent 0 46%, rgba(0,0,0,.46) 100%),
-            linear-gradient(180deg, rgba(0,0,0,.06), transparent 38%, rgba(0,0,0,.26));
+            radial-gradient(circle at 18% 14%, rgba(47,140,255,.11), transparent 32%),
+            radial-gradient(circle at 82% 18%, rgba(255,143,45,.09), transparent 30%),
+            linear-gradient(180deg, #10111a 0%, #09090d 55%, #060608 100%);
         }
 
-        /* ---------------------------------------------------------- HUD */
-
-        .rd-top {
-          position: relative;
-          z-index: 25;
+        .nm-top {
           display: grid;
-          grid-template-columns: 1fr 48px 1fr;
+          grid-template-columns: minmax(0, 1fr) 60px minmax(0, 1fr);
           align-items: center;
-          gap: 6px;
-          min-height: 40px;
-        }
-
-        .rd-health {
-          position: relative;
-          min-width: 0;
-          overflow: hidden;
-          border-radius: 16px;
-          border: 1px solid var(--line);
-          background:
-            radial-gradient(circle at 50% 0%, var(--player-soft), transparent 74%),
-            rgba(255,255,255,.025);
-          padding: 6px 9px;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.28);
-        }
-
-        .rd-health-active {
-          border-color: var(--player-glow);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 22px var(--player-soft);
-        }
-
-        .rd-health-head {
-          position: relative;
-          z-index: 2;
-          display: flex;
-          align-items: baseline;
-          justify-content: space-between;
-          gap: 8px;
-          margin-bottom: 4px;
-        }
-
-        .rd-health-head span {
-          color: var(--player);
-          font-size: 8px;
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: .2em;
-          text-transform: uppercase;
-          opacity: .85;
-        }
-
-        .rd-health-head b {
-          color: white;
-          font-size: 13px;
-          line-height: 1.18;
-          font-weight: 900;
-          letter-spacing: -.05em;
-        }
-
-        .rd-health-track {
-          position: relative;
-          height: 6px;
-          overflow: hidden;
-          border-radius: 999px;
-          background: rgba(0,0,0,.4);
-          box-shadow: inset 0 1px 2px rgba(0,0,0,.6);
-        }
-
-        .rd-health-track i {
-          position: absolute;
-          inset: 0 auto 0 0;
-          width: var(--hp);
-          border-radius: inherit;
-          background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 62%), var(--player);
-          box-shadow: 0 0 14px var(--player-glow);
-          transition: width 1.85s cubic-bezier(.16, 1, .22, 1);
-        }
-
-        .rd-health-magenta .rd-health-track i {
-          left: auto;
-          right: 0;
-        }
-
-        .rd-health em {
-          position: absolute;
-          z-index: 4;
-          right: 9px;
-          top: 6px;
-          color: var(--danger);
-          font-size: 12px;
-          line-height: 1.18;
-          font-style: normal;
-          font-weight: 900;
-          text-shadow: 0 0 16px rgba(255,107,107,.7);
-          animation: rdDamagePop 1.55s ease both;
-        }
-
-        .rd-health-cyan em { right: auto; left: 9px; }
-        .rd-health-damaged { animation: rdHealthHit 1.15s ease both; }
-
-        .rd-round {
-          height: 39px;
-          display: grid;
-          place-items: center;
-          align-content: center;
-          gap: 2px;
-          border-radius: 14px;
-          border: 1px solid var(--line);
-          background: rgba(255,255,255,.03);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 8px 22px rgba(0,0,0,.28);
-        }
-
-        .rd-round span {
-          color: rgba(255,255,255,.4);
-          font-size: 6.5px;
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: .16em;
-          text-transform: uppercase;
-        }
-
-        .rd-round b {
-          color: var(--gold);
-          font-size: 14px;
-          line-height: 1.18;
-          font-weight: 900;
-          letter-spacing: -.04em;
-          text-shadow: 0 0 16px rgba(255,201,106,.3);
-        }
-
-        /* ---------------------------------------------------------- stage */
-
-        .rd-main {
+          gap: 7px;
+          min-height: 58px;
           position: relative;
           z-index: 10;
-          min-height: 0;
-          display: grid;
-          grid-template-rows: auto minmax(0, 1fr) auto;
+        }
+
+        .nm-player-hud {
+          min-width: 0;
+          display: flex;
           align-items: center;
-          justify-items: center;
-          gap: 2px;
+          gap: 7px;
+          padding: 7px;
+          border: 1px solid rgba(255,255,255,.075);
+          border-radius: 17px;
+          background: #11131c;
+          contain: layout paint;
         }
 
-        .rd-title { text-align: center; }
-
-        .rd-title small {
-          display: block;
-          color: rgba(255,255,255,.42);
-          font-size: 7px;
-          line-height: 1.32;
-          font-weight: 900;
-          letter-spacing: .26em;
-          text-transform: uppercase;
-          padding-top: 1px;
-          padding-bottom: 2px;
-        }
-
-        .rd-title h1 {
-          margin: 2px 0 0;
-          font-size: clamp(18px, 4.6vw, 28px);
-          line-height: 1.24;
-          font-weight: 900;
-          letter-spacing: -.07em;
-          padding: 1px 0 3px;
-          background: linear-gradient(100deg, #EAF4FF, #ffffff 42%, #ffe9b8);
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-        }
-
-        .rd-impact .rd-title h1 { background: linear-gradient(100deg, #fff, #FFE1C2); -webkit-background-clip: text; background-clip: text; }
-        .rd-gameover .rd-title h1 { background: linear-gradient(100deg, #fff, #ffe9b8); -webkit-background-clip: text; background-clip: text; }
-
-        .rd-wheel {
-          position: relative;
-          width: min(86vw, 440px);
-          height: min(86vw, 440px);
-          max-width: min(56vh, 440px);
-          max-height: min(56vh, 440px);
-          min-width: 282px;
-          min-height: 282px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          box-shadow:
-            0 24px 52px rgba(0,0,0,.52),
-            0 0 0 1px rgba(255,255,255,.05),
-            0 0 36px rgba(255,201,106,.12);
-          transform: translateZ(0);
-          will-change: transform;
-        }
-
-        .rd-pickCyan .rd-wheel,
-        .rd-pickMagenta .rd-wheel {
-          width: min(83vw, 412px);
-          height: min(83vw, 412px);
-          max-width: min(49vh, 412px);
-          max-height: min(49vh, 412px);
-        }
-
-        .rd-wheel-orb {
-          position: absolute;
-          inset: 5%;
-          border-radius: inherit;
-          background: radial-gradient(circle at 50% 28%, rgba(255,255,255,.05), transparent 52%);
-        }
-
-        .rd-wheel-aura {
-          position: absolute;
-          inset: -3px;
-          border-radius: inherit;
-          border: 2px solid rgba(255,201,106,.42);
-          box-shadow:
-            0 0 30px rgba(255,201,106,.18),
-            0 0 24px rgba(47,140,255,.10),
-            inset 0 0 0 1px rgba(255,255,255,.06);
-        }
-
-        .rd-wheel-surface {
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          border: 1px solid rgba(255,255,255,.15);
-          background:
-            radial-gradient(circle at 50% 28%, rgba(255,255,255,.14), transparent 40%),
-            radial-gradient(circle at 50% 50%, rgba(255,201,106,.10) 0%, transparent 24%),
-            repeating-conic-gradient(from -3deg, rgba(255,255,255,.035) 0deg 3deg, rgba(0,0,0,.08) 3deg 6deg),
-            radial-gradient(circle at 50% 50%, #1b1c29 0%, #0d0e18 58%, #040407 100%);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.16),
-            inset 0 -34px 58px rgba(0,0,0,.66),
-            inset 0 0 0 8px rgba(255,201,106,.055),
-            inset 0 0 0 16px rgba(255,255,255,.025);
-        }
-
-        .rd-wheel-glass {
-          position: absolute;
-          inset: 14%;
-          border-radius: inherit;
-          pointer-events: none;
-          border: 1px solid rgba(255,255,255,.05);
-          background:
-            radial-gradient(circle at 50% 26%, rgba(255,255,255,.05), transparent 42%),
-            radial-gradient(circle at 50% 82%, rgba(0,0,0,.22), transparent 48%);
-        }
-
-        .rd-spinning .rd-wheel-surface,
-        .rd-landing .rd-wheel-surface {
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.16),
-            inset 0 -34px 58px rgba(0,0,0,.66),
-            inset 0 0 0 8px rgba(255,201,106,.07),
-            0 0 28px rgba(47,140,255,.18);
-        }
-        .rd-impact .rd-wheel-surface {
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.16),
-            inset 0 -34px 58px rgba(0,0,0,.66),
-            inset 0 0 0 8px rgba(255,201,106,.07),
-            0 0 34px rgba(255,143,45,.24);
-        }
-
-        .rd-marks { position: absolute; inset: 0; border-radius: inherit; }
-
-        /* 60 ticks instead of 100 keeps the wheel lighter in Telegram WebView. */
-        .rd-marks i {
-          position: absolute;
-          left: 50%;
-          top: 0;
-          width: 2px;
-          height: 48%;
-          transform-origin: 50% 100%;
-          transform: translateX(-50%) rotate(var(--a));
-          background: linear-gradient(to bottom, rgba(255,255,255,.24) 0 8px, transparent 8px);
-          filter: drop-shadow(0 0 3px rgba(255,255,255,.16));
-        }
-
-        .rd-marks .rd-mark-mid {
-          width: 2.5px;
-          background: linear-gradient(to bottom, rgba(255,255,255,.42) 0 12px, transparent 12px);
-        }
-
-        .rd-marks .rd-mark-major {
-          width: 3px;
-          background: linear-gradient(to bottom, rgba(255,201,106,.92) 0 17px, transparent 17px);
-          filter: drop-shadow(0 0 6px rgba(255,201,106,.36));
-        }
-
-        .rd-labels { position: absolute; inset: 0; pointer-events: none; }
-
-        .rd-labels span {
-          position: absolute;
-          transform: translate(-50%, -50%);
-          color: rgba(255,255,255,.76);
-          font-size: 9px;
-          line-height: 1.28;
-          font-weight: 900;
-          letter-spacing: -.02em;
-          text-shadow: 0 1px 4px rgba(0,0,0,.72), 0 0 12px rgba(255,201,106,.20);
-        }
-
-        .rd-bet {
-          position: absolute;
-          inset: 0;
-          z-index: 6;
-          transform: rotate(var(--a));
-          pointer-events: none;
-        }
-
-        .rd-bet span {
-          position: absolute;
-          left: 50%;
-          top: 7.5%;
-          min-width: 32px;
-          min-height: 32px;
-          display: grid;
-          place-items: center;
-          gap: 1px;
-          transform: translate(-50%, -50%) rotate(calc(-1 * var(--a)));
-          border-radius: 999px;
-          padding: 2px;
-          font-size: 8px;
-          line-height: 1.15;
-          font-weight: 900;
-          letter-spacing: -.02em;
-        }
-
-        .rd-bet span em {
-          position: absolute;
-          top: 31px;
-          left: 50%;
-          transform: translateX(-50%);
-          min-width: 25px;
-          border-radius: 999px;
-          padding: 2px 4px;
-          color: white;
-          background: rgba(5,5,8,.88);
-          border: 1px solid rgba(255,255,255,.12);
-          font-size: 6.8px;
-          line-height: 1.15;
-          font-style: normal;
-          opacity: .92;
-          box-shadow: 0 4px 10px rgba(0,0,0,.32);
-        }
-
-        .rd-bet-cyan span {
-          left: calc(50% - 8px);
-          background: linear-gradient(180deg, #A7D8FF, #2F8CFF);
-          color: #031426;
-          box-shadow: 0 0 0 3px rgba(47,140,255,.14), 0 0 16px rgba(47,140,255,.55);
-        }
-
-        .rd-bet-magenta span {
-          left: calc(50% + 8px);
-          background: linear-gradient(180deg, #FFCC8A, #FF8F2D);
-          color: #321804;
-          box-shadow: 0 0 0 3px rgba(255,143,45,.14), 0 0 16px rgba(255,143,45,.5);
-        }
-
-        .rd-wheel-avatar {
-          position: relative;
-          width: 28px;
-          height: 28px;
+        .nm-player-hud-opponent { justify-content: flex-end; text-align: right; }
+        .nm-avatar {
+          width: 38px;
+          height: 38px;
+          flex: 0 0 auto;
           display: grid;
           place-items: center;
           overflow: hidden;
           border-radius: 50%;
-          background: #11131a;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
-          text-decoration: none;
-          font-style: normal;
-        }
-
-        .rd-wheel-avatar u {
-          color: white;
-          font-size: 7px;
-          line-height: 1;
+          border: 1.5px solid rgba(255,255,255,.18);
+          background: #202431;
+          color: #fff;
+          font-size: 10px;
           font-weight: 900;
-          text-decoration: none;
-          text-shadow: 0 1px 4px rgba(0,0,0,.6);
         }
-
-        .rd-wheel-avatar img {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          display: block;
-          object-fit: cover;
-        }
-
-        .rd-wheel-avatar-cyan { box-shadow: inset 0 0 0 1px rgba(167,216,255,.5); }
-        .rd-wheel-avatar-magenta { box-shadow: inset 0 0 0 1px rgba(255,204,138,.5); }
-
-        .rd-bet-target span {
-          min-width: 34px;
-          height: 34px;
-          background: linear-gradient(180deg, #ffe9ad, #FFC96A);
-          color: #3a2a06;
-          box-shadow: 0 0 0 4px rgba(255,201,106,.16), 0 0 22px rgba(255,201,106,.7);
-          animation: rdTargetPulse .9s ease-in-out infinite alternate;
-        }
-
-        .rd-arrow {
-          position: absolute;
-          inset: 9%;
-          z-index: 8;
-          transform: rotate(var(--angle));
-          transform-origin: center;
-          transition: transform .18s ease-out;
-          pointer-events: none;
-        }
-
-        .rd-spinning .rd-arrow, .rd-landing .rd-arrow { transition: none; }
-
-        .rd-arrow-line {
-          position: absolute;
-          left: 50%;
-          top: 8%;
-          width: 4px;
-          height: 41%;
-          transform: translateX(-50%);
-          border-radius: 999px;
-          background: linear-gradient(180deg, #ffffff, #FFC96A 48%, rgba(255,201,106,.12));
-          box-shadow: 0 0 16px rgba(255,201,106,.5);
-        }
-
-        .rd-arrow-head {
-          position: absolute;
-          left: 50%;
-          top: 3.2%;
-          width: 0;
-          height: 0;
-          transform: translateX(-50%);
-          border-left: 10px solid transparent;
-          border-right: 10px solid transparent;
-          border-bottom: 22px solid #FFC96A;
-          filter: none;
-        }
-
-        .rd-center {
-          position: relative;
-          z-index: 9;
-          width: 40%;
-          aspect-ratio: 1;
-          display: grid;
-          place-items: center;
-          align-content: center;
-          border-radius: 50%;
-          border: 1px solid rgba(255,255,255,.1);
-          background:
-            radial-gradient(circle at 50% 20%, rgba(255,255,255,.08), transparent 40%),
-            linear-gradient(180deg, rgba(22,22,30,.92), rgba(10,10,16,.94));
-          box-shadow:
-            0 20px 48px rgba(0,0,0,.5),
-            inset 0 1px 0 rgba(255,255,255,.1),
-            inset 0 -22px 36px rgba(0,0,0,.4);
-
-        }
-
-        .rd-spinning .rd-center, .rd-landing .rd-center { box-shadow: 0 20px 48px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.1), 0 0 20px rgba(47,140,255,.10); }
-
-        .rd-center small {
-          color: rgba(255,255,255,.48);
-          font-size: 6.5px;
-          line-height: 1.36;
-          font-weight: 900;
-          letter-spacing: .18em;
-          text-transform: uppercase;
-          padding-top: 2px;
-        }
-
-        .rd-center strong {
-          margin-top: 2px;
-          color: white;
-          font-size: clamp(30px, 8vw, 48px);
-          line-height: 1.18;
-          font-weight: 900;
-          letter-spacing: -.08em;
-          padding-bottom: 2px;
-          text-shadow: 0 0 26px rgba(255,201,106,.22);
-        }
-
-        .rd-final .rd-center strong,
-        .rd-result .rd-center strong { color: var(--gold); }
-
-        /* ---------------------------------------------------------- clash */
-
-        .rd-clash {
-          position: absolute;
-          inset: 0;
-          z-index: 30;
-          display: grid;
-          place-items: center;
-          pointer-events: none;
-        }
-
-        .rd-clash-value {
-          position: absolute;
-          top: 50%;
-          width: 70px;
-          height: 70px;
-          display: grid;
-          place-items: center;
-          align-content: center;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,.12);
-          background:
-            radial-gradient(circle at 50% 0%, rgba(255,255,255,.14), transparent 70%),
-            rgba(8,8,14,.86);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 18px 50px rgba(0,0,0,.46);
-
-        }
-
-        .rd-clash-value small {
-          font-size: 7px;
-          line-height: 1.18;
-          font-weight: 900;
-          letter-spacing: .14em;
-          opacity: .65;
-        }
-
-        .rd-clash-value span {
-          margin-top: 6px;
-          font-size: 26px;
-          line-height: 1.08;
-          font-weight: 900;
-          letter-spacing: -.07em;
-        }
-
-        .rd-clash-cyan { color: #A7D8FF; animation: rdClashCyan 1.34s cubic-bezier(.2,.9,.2,1) both; }
-        .rd-clash-magenta { color: #FFCC8A; animation: rdClashMagenta 1.34s cubic-bezier(.2,.9,.2,1) both; }
-
-        .rd-clash-core {
-          position: relative;
-          width: 100px;
-          height: 100px;
-          display: grid;
-          place-items: center;
-          align-content: center;
-          border-radius: 30px;
-          border: 1px solid rgba(255,255,255,.14);
-          background:
-            radial-gradient(circle at 50% 0%, rgba(255,107,107,.22), transparent 70%),
-            rgba(8,8,14,.92);
-          box-shadow: 0 0 50px rgba(255,107,107,.26), inset 0 1px 0 rgba(255,255,255,.1);
-          opacity: 0;
-          transform: scale(.78);
-          animation: rdClashCore 1.14s ease .82s both;
-
-        }
-
-        .rd-clash-core::before {
-          content: "";
-          position: absolute;
-          inset: -18px;
-          border-radius: inherit;
-          background: radial-gradient(circle, rgba(255,107,107,.2), transparent 64%);
-          animation: rdShockwave 1.18s ease .82s both;
-        }
-
-        .rd-clash-core small {
-          position: relative;
-          z-index: 2;
-          color: rgba(255,255,255,.42);
+        .nm-player-hud-me .nm-avatar { border-color: rgba(91,183,255,.68); }
+        .nm-player-hud-opponent .nm-avatar { border-color: rgba(255,143,45,.68); }
+        .nm-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .nm-player-copy { min-width: 0; flex: 1; }
+        .nm-player-name {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255,255,255,.82);
           font-size: 8px;
-          font-weight: 900;
-          letter-spacing: .18em;
-          text-transform: uppercase;
-        }
-
-        .rd-clash-core b {
-          position: relative;
-          z-index: 2;
-          margin-top: 6px;
-          color: #ffd7df;
-          font-size: 31px;
-          line-height: 1.08;
-          font-weight: 900;
-          letter-spacing: -.07em;
-          text-shadow: 0 0 22px rgba(255,107,107,.7);
-        }
-
-        .rd-clash-to-cyan .rd-clash-core::after,
-        .rd-clash-to-magenta .rd-clash-core::after {
-          content: "";
-          position: absolute;
-          z-index: 3;
-          width: 22px;
-          height: 22px;
-          border-radius: 999px;
-          background: var(--danger);
-          box-shadow: 0 0 22px rgba(255,107,107,.9), 0 0 48px rgba(255,107,107,.4);
-          animation: rdDamageFlyCyan 1.28s ease 1.22s both;
-        }
-
-        .rd-clash-to-magenta .rd-clash-core::after { animation-name: rdDamageFlyMagenta; }
-
-        /* ---------------------------------------------------------- picks */
-
-        .rd-picks {
-          width: min(100%, 336px);
-          display: grid;
-          grid-template-columns: 1fr .82fr 1fr;
-          gap: 6px;
-        }
-
-        .rd-pick {
-          min-height: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 5px;
-          border-radius: 999px;
-          border: 1px solid var(--line);
-          background: rgba(255,255,255,.035);
-          padding: 0 8px;
-        }
-
-        .rd-pick span {
-          color: rgba(255,255,255,.36);
-          font-size: 7px;
-          font-weight: 900;
-          letter-spacing: .14em;
-          text-transform: uppercase;
-        }
-
-        .rd-pick b { font-size: 12px; line-height: 1.12; font-weight: 900; letter-spacing: -.05em; }
-        .rd-pick small { color: rgba(255,255,255,.45); font-size: 8px; font-weight: 900; }
-
-        .rd-pick-cyan b { color: var(--mint); }
-        .rd-pick-magenta b { color: var(--rose); }
-        .rd-pick-final { border-color: rgba(255,201,106,.2); background: rgba(255,201,106,.06); }
-        .rd-pick-final b { color: var(--gold); }
-
-        /* ---------------------------------------------------------- bottom */
-
-        .rd-bottom { position: relative; z-index: 20; display: grid; gap: 6px; }
-
-        .rd-message {
-          min-height: 18px;
-          text-align: center;
-          color: rgba(255,255,255,.58);
-          font-size: 9px;
-          line-height: 1.42;
-          font-weight: 700;
-          letter-spacing: .01em;
-          padding: 1px 4px;
-        }
-
-        .rd-picker {
-          display: grid;
-          grid-template-columns: 66px minmax(0, 1fr);
-          align-items: center;
-          gap: 10px;
-          min-height: 64px;
-          padding: 10px 12px;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,.09);
-          background:
-            radial-gradient(circle at var(--value) 0%, var(--player-soft), transparent 52%),
-            rgba(255,255,255,.042);
-          box-shadow: 0 10px 30px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.07);
-
-        }
-
-        .rd-picker-value { min-width: 0; display: grid; align-content: center; gap: 3px; }
-
-        .rd-picker-value span {
-          color: var(--player);
-          font-size: 7px;
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: .16em;
-          text-transform: uppercase;
-          opacity: .85;
-        }
-
-        .rd-picker-value b {
-          color: white;
-          font-size: 23px;
-          line-height: 1.22;
-          font-weight: 900;
-          letter-spacing: -.07em;
-          padding-bottom: 1px;
-          text-shadow: 0 0 20px var(--player-glow);
-        }
-
-        .rd-slider-row {
-          position: relative;
-          height: 48px;
-          display: grid;
-          align-items: center;
-          touch-action: none;
-        }
-
-        .rd-slider-track {
-          position: absolute;
-          left: 6px;
-          right: 6px;
-          top: 50%;
-          height: 11px;
-          transform: translateY(-50%);
-          border-radius: 999px;
-          background: rgba(0,0,0,.48);
-          box-shadow: inset 0 1px 2px rgba(0,0,0,.60), 0 0 0 1px rgba(255,255,255,.07);
-        }
-
-        .rd-slider-fill {
-          position: absolute;
-          inset: 0 auto 0 0;
-          width: var(--value);
-          border-radius: inherit;
-          background: linear-gradient(90deg, var(--player) 0%, var(--player) 72%, #ffffff 100%);
-          box-shadow: 0 0 16px var(--player-glow);
-        }
-
-        .rd-slider-thumb {
-          position: absolute;
-          left: var(--value);
-          top: 50%;
-          width: 38px;
-          height: 38px;
-          display: grid;
-          place-items: center;
-          transform: translate(-50%, -50%);
-          border-radius: 999px;
-          background: #ffffff;
-          box-shadow: 0 0 0 8px rgba(255,255,255,.075), 0 0 30px var(--player-glow), 0 8px 16px rgba(0,0,0,.46);
-        }
-
-        .rd-slider-thumb i {
-          color: #050507;
-          font-size: 9px;
-          line-height: 1.2;
-          font-style: normal;
-          font-weight: 900;
+          line-height: 1.45;
           padding-top: 1px;
         }
+        .nm-hp-row { display: flex; align-items: baseline; gap: 4px; margin-top: 2px; }
+        .nm-player-hud-opponent .nm-hp-row { justify-content: flex-end; }
+        .nm-hp-row strong { font-size: 16px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+        .nm-player-hud-me .nm-hp-row strong { color: var(--me); }
+        .nm-player-hud-opponent .nm-hp-row strong { color: var(--opponent); }
+        .nm-hp-row span { color: rgba(255,255,255,.28); font-size: 6px; }
+        .nm-hp-track { height: 5px; margin-top: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.075); }
+        .nm-hp-track i { display: block; height: 100%; border-radius: inherit; transition: width 650ms cubic-bezier(.18,.78,.24,1); }
+        .nm-player-hud-me .nm-hp-track i { margin-right: auto; background: var(--me); }
+        .nm-player-hud-opponent .nm-hp-track i { margin-left: auto; background: var(--opponent); }
+        .nm-player-hit { animation: nmHudHit 520ms ease-out; }
 
-        .rd-slider-hit {
-          position: absolute;
-          z-index: 6;
-          inset: -8px -8px;
-          border-radius: 999px;
-          cursor: pointer;
-          touch-action: none;
-        }
-
-        .rd-slider { position: absolute; inset: 0; z-index: 2; width: 100%; height: 48px; opacity: 0; cursor: pointer; margin: 0; pointer-events: none; }
-
-        .rd-button {
-          border: 0;
-          width: 100%;
-          min-height: 46px;
-          border-radius: 17px;
-          padding: 4px 16px 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #1c1505;
-          background: linear-gradient(135deg, #ffe9ad 0%, #FFC96A 46%, #d78a20 100%);
-          box-shadow: 0 12px 28px rgba(255,201,106,.22), inset 0 1px 0 rgba(255,255,255,.5);
-          font-size: 9.5px;
-          line-height: 1.35;
-          font-weight: 900;
-          text-transform: uppercase;
-          letter-spacing: .12em;
-          white-space: nowrap;
-          transition: transform .12s ease, filter .12s ease;
-        }
-
-        .rd-button:active { transform: scale(.975); }
-        .rd-button:disabled { opacity: .4; filter: grayscale(.7); transform: none; }
-
-        /* ---------------------------------------------------------- modal */
-
-        .rd-card {
-          position: absolute;
-          z-index: 80;
-          left: 50%;
-          top: 50%;
-          width: min(328px, calc(100% - 30px));
-          transform: translate(-50%, -50%);
-          display: grid;
-          justify-items: center;
-          gap: 12px;
-          padding: 24px 22px;
-          text-align: center;
-          border: 1px solid rgba(255,255,255,.1);
-          border-radius: 26px;
-          background:
-            radial-gradient(circle at 50% 0%, rgba(255,201,106,.12), transparent 44%),
-            rgba(8, 8, 14, .94);
-          box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
-
-          animation: rdCardIn .25s ease both;
-        }
-
-        .rd-card-icon {
-          display: grid;
-          place-items: center;
+        .nm-timer {
           width: 58px;
           height: 58px;
-          border-radius: 20px;
-          border: 1px solid rgba(255,255,255,.1);
-          background: linear-gradient(135deg, rgba(47,140,255,.18), rgba(255,201,106,.18));
-          font-size: 24px;
+          padding: 3px;
+          border-radius: 50%;
+          background: conic-gradient(var(--gold) var(--timer-progress), rgba(255,255,255,.08) 0);
+        }
+        .nm-timer > div {
+          width: 100%; height: 100%; border-radius: 50%;
+          display: grid; place-items: center; align-content: center;
+          background: #12141d; border: 1px solid rgba(255,255,255,.06);
+        }
+        .nm-timer strong { font-size: 18px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+        .nm-timer span { margin-top: 2px; color: rgba(255,255,255,.28); font-size: 5px; line-height: 1.2; }
+        .nm-timer-active strong { color: var(--gold); }
+
+        .nm-main {
+          min-height: 0;
+          display: grid;
+          place-items: center;
+          align-content: center;
+          gap: 10px;
+          position: relative;
         }
 
-        .rd-card h2 {
-          margin: 0;
-          color: #fff;
-          font-size: clamp(20px, 5.4vw, 28px);
-          line-height: 1.24;
-          font-weight: 900;
-          letter-spacing: -.06em;
-          padding: 1px 0 3px;
+        .nm-round-caption { text-align: center; min-height: 30px; }
+        .nm-round-caption strong { display: block; color: #fff; font-size: 14px; line-height: 1.35; }
+        .nm-round-caption span { display: block; margin-top: 2px; color: rgba(255,255,255,.34); font-size: 7px; line-height: 1.4; }
+
+        .nm-wheel {
+          position: relative;
+          width: min(82vw, 362px, 48vh);
+          aspect-ratio: 1;
+          min-width: 270px;
+          min-height: 270px;
+          border-radius: 50%;
+          contain: layout paint style;
+          transform: translateZ(0);
         }
-
-        .rd-card p {
-          margin: 0;
-          max-width: 264px;
-          color: rgba(255,255,255,.56);
-          font-size: 10.5px;
-          line-height: 1.45;
-          font-weight: 600;
+        .nm-wheel-face {
+          position: absolute; inset: 0; border-radius: 50%;
+          border: 1px solid rgba(255,255,255,.11);
+          background:
+            radial-gradient(circle at 50% 45%, #202536 0 23%, #151923 24% 56%, #0e1118 57% 100%);
+          box-shadow: inset 0 0 0 7px #0b0d13, inset 0 0 0 9px rgba(255,255,255,.07), 0 18px 50px rgba(0,0,0,.42);
         }
-
-        /* ---------------------------------------------------------- particles */
-
-        .rd-particle {
+        .nm-wheel-ticks {
+          position: absolute; inset: 13px; border-radius: 50%;
+          background: repeating-conic-gradient(from -1deg, rgba(255,255,255,.42) 0 1deg, transparent 1deg 6deg);
+          -webkit-mask: radial-gradient(circle, transparent 0 82%, #000 82.5% 100%);
+          mask: radial-gradient(circle, transparent 0 82%, #000 82.5% 100%);
+          opacity: .42;
+        }
+        .nm-wheel-label {
           position: absolute;
-          z-index: 90;
-          left: var(--x);
-          top: var(--y);
-          width: var(--s);
-          height: var(--s);
-          border-radius: 999px;
-          pointer-events: none;
-          background: currentColor;
-          color: var(--mint);
-          box-shadow: 0 0 8px currentColor;
           transform: translate(-50%, -50%);
-          animation: rdParticle .78s cubic-bezier(.18,.86,.22,1) forwards;
-          animation-delay: var(--delay);
+          color: rgba(255,255,255,.38);
+          font-size: 7px;
+          line-height: 1;
+          pointer-events: none;
+        }
+        .nm-arrow {
+          position: absolute; inset: 0;
+          will-change: transform;
+          transform: rotate(${numberToAngle(DEFAULT_NUMBER)}deg) translateZ(0);
+          pointer-events: none;
+          z-index: 8;
+        }
+        .nm-arrow i {
+          position: absolute; left: calc(50% - 2px); top: 17%; width: 4px; height: 33%;
+          border-radius: 99px;
+          background: linear-gradient(180deg, var(--gold), rgba(255,201,106,.24));
+          transform-origin: 50% 100%;
+        }
+        .nm-arrow b {
+          position: absolute; left: 50%; top: 14%; width: 0; height: 0;
+          transform: translateX(-50%);
+          border-left: 7px solid transparent;
+          border-right: 7px solid transparent;
+          border-bottom: 13px solid var(--gold);
+        }
+        .nm-wheel-center {
+          position: absolute; left: 50%; top: 50%; z-index: 12;
+          width: 31%; aspect-ratio: 1; transform: translate(-50%, -50%);
+          display: grid; place-items: center; align-content: center;
+          border-radius: 50%; border: 1px solid rgba(255,255,255,.1);
+          background: #0c0f16;
+          box-shadow: inset 0 0 0 5px rgba(255,255,255,.025);
+        }
+        .nm-wheel-center span { color: rgba(255,255,255,.3); font-size: 6px; line-height: 1.2; }
+        .nm-wheel-center strong { margin-top: 3px; color: #fff; font-size: clamp(25px, 8vw, 38px); line-height: 1.15; font-variant-numeric: tabular-nums; }
+
+        .nm-marker, .nm-target {
+          position: absolute; inset: 0; z-index: 15;
+          transform: rotate(var(--marker-angle));
+          pointer-events: none;
+        }
+        .nm-marker > div {
+          position: absolute; left: 50%; top: 7.5%;
+          transform: translate(calc(-50% + var(--marker-shift)), -50%) rotate(calc(-1 * var(--marker-angle)));
+        }
+        .nm-wheel-avatar { width: 34px; height: 34px; border-width: 2px; background: #171b25; }
+        .nm-marker-me .nm-wheel-avatar { border-color: var(--me); }
+        .nm-marker-opponent .nm-wheel-avatar { border-color: var(--opponent); }
+        .nm-marker-faded { opacity: .68; }
+        .nm-target { --marker-angle: var(--target-angle); transform: rotate(var(--target-angle)); z-index: 13; }
+        .nm-target span {
+          position: absolute; left: 50%; top: 6.7%;
+          min-width: 28px; height: 22px; padding: 0 6px;
+          display: grid; place-items: center;
+          transform: translate(-50%, -50%) rotate(calc(-1 * var(--target-angle)));
+          border-radius: 8px; background: var(--gold); color: #15100a;
+          font-size: 8px; line-height: 1;
         }
 
-        .rd-particle-magenta { color: var(--rose); }
-        .rd-particle-gold { color: var(--gold); }
-        .rd-particle-green { color: #9fd6ff; }
-        .rd-particle-red { color: var(--danger); }
-
-        /* ---------------------------------------------------------- keyframes */
-
-        @keyframes rdWheelGlow {
-          from { filter: brightness(1); }
-          to { filter: brightness(1.1); }
+        .nm-impact { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+        .nm-distance {
+          position: absolute; left: 50%; top: 50%;
+          display: flex; align-items: center; gap: 6px;
+          min-width: 82px; padding: 7px 9px;
+          border-radius: 14px; border: 1px solid rgba(255,255,255,.12);
+          background: #121621;
+          animation-duration: 900ms;
+          animation-timing-function: cubic-bezier(.18,.82,.22,1);
+          animation-fill-mode: both;
+          animation-delay: var(--impact-delay);
         }
-
-        @keyframes rdImpactGlow {
-          0%, 100% { filter: brightness(1); }
-          45% { filter: brightness(1.2); }
+        .nm-distance-me { animation-name: nmDistanceMe; }
+        .nm-distance-opponent { animation-name: nmDistanceOpponent; flex-direction: row-reverse; }
+        .nm-impact-avatar { width: 25px; height: 25px; font-size: 7px; }
+        .nm-distance-me .nm-impact-avatar { border-color: var(--me); }
+        .nm-distance-opponent .nm-impact-avatar { border-color: var(--opponent); }
+        .nm-distance span { font-size: 13px; font-variant-numeric: tabular-nums; }
+        .nm-damage-projectile, .nm-draw-burst {
+          position: absolute; left: 50%; top: 50%;
+          display: grid; place-items: center;
+          min-width: 54px; height: 40px; padding: 0 10px;
+          border-radius: 14px; border: 1px solid rgba(255,99,120,.4);
+          background: #2a1119; color: #ff7589;
+          font-size: 18px; font-variant-numeric: tabular-nums;
+          animation-duration: 1550ms;
+          animation-timing-function: cubic-bezier(.16,.8,.22,1);
+          animation-fill-mode: both;
+          animation-delay: var(--impact-delay);
+          will-change: transform, opacity;
         }
+        .nm-impact-to-me .nm-damage-projectile { animation-name: nmDamageToMe; }
+        .nm-impact-to-opponent .nm-damage-projectile { animation-name: nmDamageToOpponent; }
+        .nm-draw-burst { border-color: rgba(255,201,106,.4); background: #28200f; color: var(--gold); animation-name: nmDraw; }
+        .nm-impact-done .nm-damage-projectile { opacity: 0; }
 
-        @keyframes rdCenterPulse {
-          from { transform: scale(.99); filter: brightness(1); }
-          to { transform: scale(1.02); filter: brightness(1.1); }
+        .nm-bottom {
+          position: relative; z-index: 10;
+          display: grid; gap: 7px;
+          min-height: 82px;
         }
-
-        @keyframes rdTargetPulse {
-          from { transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(.94); }
-          to { transform: translate(-50%, -50%) rotate(calc(-1 * var(--a))) scale(1.07); }
+        .nm-picker {
+          display: grid;
+          grid-template-columns: 52px minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          padding: 10px 12px;
+          border: 1px solid rgba(91,183,255,.18);
+          border-radius: 18px;
+          background: #11141d;
         }
-
-        @keyframes rdClashCyan {
-          0% { opacity: 0; transform: translate(-150%, -50%) scale(.78) rotate(-4deg); }
-          26% { opacity: 1; }
-          70% { opacity: 1; transform: translate(-62%, -50%) scale(1.03) rotate(0deg); }
-          100% { opacity: 0; transform: translate(-22%, -50%) scale(.82) rotate(3deg); }
+        .nm-picker-value { text-align: center; }
+        .nm-picker-value span { display: block; color: rgba(255,255,255,.32); font-size: 6px; }
+        .nm-picker-value strong { display: block; margin-top: 3px; color: var(--me); font-size: 23px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .nm-range { width: 100%; height: 32px; margin: 0; accent-color: var(--me); touch-action: none; }
+        .nm-action {
+          min-height: 50px;
+          border: 1px solid rgba(91,183,255,.28);
+          border-radius: 17px;
+          background: linear-gradient(180deg, #4ba8ff, #277dd8);
+          color: white;
+          font: inherit;
+          font-size: 10px;
+          line-height: 1.4;
+          padding-top: 3px;
+          transition: transform 120ms ease, opacity 120ms ease;
         }
-
-        @keyframes rdClashMagenta {
-          0% { opacity: 0; transform: translate(150%, -50%) scale(.78) rotate(4deg); }
-          26% { opacity: 1; }
-          70% { opacity: 1; transform: translate(62%, -50%) scale(1.03) rotate(0deg); }
-          100% { opacity: 0; transform: translate(22%, -50%) scale(.82) rotate(-3deg); }
+        .nm-action:active:not(:disabled) { transform: scale(.985); }
+        .nm-action:disabled { opacity: .42; }
+        .nm-locked, .nm-status {
+          min-height: 50px; display: grid; place-items: center;
+          padding: 10px 14px; border: 1px solid rgba(255,255,255,.075);
+          border-radius: 17px; background: #11131b;
+          color: rgba(255,255,255,.48); text-align: center;
+          font-size: 8px; line-height: 1.5;
         }
+        .nm-locked strong { color: var(--me); }
+        .nm-error { color: #ff7187; }
 
-        @keyframes rdClashCore {
-          0% { opacity: 0; transform: scale(.72); }
-          44%, 78% { opacity: 1; transform: scale(1); }
-          100% { opacity: 0; transform: scale(.88); }
+        .nm-overlay {
+          position: absolute; inset: 0; z-index: 40;
+          display: grid; place-items: center; padding: 20px;
+          background: rgba(6,7,11,.88);
+          text-align: center;
         }
-
-        @keyframes rdShockwave {
-          0% { opacity: 0; transform: scale(.45); }
-          35% { opacity: 1; }
-          100% { opacity: 0; transform: scale(1.6); }
+        .nm-countdown-ring {
+          width: 154px; height: 154px; border-radius: 50%;
+          display: grid; place-items: center;
+          border: 1px solid rgba(255,201,106,.22);
+          background: radial-gradient(circle, #171925 0 57%, rgba(255,201,106,.12) 58% 61%, #0b0d13 62%);
+          animation: nmCountdownPulse 900ms ease-in-out infinite alternate;
         }
+        .nm-countdown-ring strong { color: var(--gold); font-size: 64px; line-height: 1.15; }
+        .nm-overlay h3 { margin: 14px 0 0; font-size: 13px; line-height: 1.4; }
+        .nm-overlay p { margin: 7px 0 0; color: rgba(255,255,255,.36); font-size: 8px; line-height: 1.5; }
 
-        @keyframes rdDamageFlyCyan {
-          0% { opacity: 0; transform: translate(0, 0) scale(.6); }
-          15% { opacity: 1; }
-          100% { opacity: 0; transform: translate(-42vw, -42vh) scale(.2); }
+        .nm-modal-layer {
+          position: absolute; inset: 0; z-index: 60;
+          display: grid; place-items: center; padding: 16px;
+          background: rgba(3,4,7,.84);
         }
-
-        @keyframes rdDamageFlyMagenta {
-          0% { opacity: 0; transform: translate(0, 0) scale(.6); }
-          15% { opacity: 1; }
-          100% { opacity: 0; transform: translate(42vw, -42vh) scale(.2); }
+        .nm-result-modal {
+          width: min(100%, 348px);
+          overflow: hidden;
+          padding: 23px 19px 19px;
+          border: 1px solid rgba(255,255,255,.1);
+          border-radius: 28px;
+          background: #0e1119;
+          text-align: center;
+          box-shadow: 0 28px 80px rgba(0,0,0,.62);
+          animation: nmModalIn 260ms ease-out both;
         }
-
-        @keyframes rdHealthHit {
-          0%, 100% { transform: translateX(0); filter: brightness(1); }
-          14% { transform: translateX(-2px); filter: brightness(1.3); }
-          28% { transform: translateX(2px); }
-          42% { transform: translateX(-1px); }
-          56% { transform: translateX(1px); }
+        .nm-result-kicker { color: rgba(255,255,255,.3); font-size: 7px; line-height: 1.5; letter-spacing: .12em; }
+        .nm-result-modal h2 { margin: 7px 0 0; font-size: 27px; line-height: 1.3; }
+        .nm-result-win h2 { color: #58e6a1; }
+        .nm-result-loss h2 { color: #ff6d82; }
+        .nm-result-players { margin-top: 20px; display: grid; grid-template-columns: 1.15fr auto .9fr; align-items: end; gap: 12px; }
+        .nm-result-players > span { padding-bottom: 31px; color: rgba(255,255,255,.2); font-size: 8px; }
+        .nm-result-player { min-width: 0; }
+        .nm-result-player > div:nth-child(2) { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; line-height: 1.5; }
+        .nm-result-player strong { display: block; margin-top: 3px; font-size: 18px; line-height: 1.3; }
+        .nm-result-winner > div:nth-child(2) { color: var(--gold); }
+        .nm-result-loser { opacity: .58; }
+        .nm-result-avatar-big { width: 88px; height: 88px; margin: auto; border: 2px solid var(--gold); font-size: 19px; }
+        .nm-result-avatar-small { width: 62px; height: 62px; margin: auto; font-size: 13px; }
+        .nm-result-divider { height: 1px; margin: 18px 0; background: rgba(255,255,255,.07); }
+        .nm-reward { width: fit-content; margin: auto; display: flex; align-items: center; gap: 8px; padding: 9px 15px; border: 1px solid rgba(88,230,161,.18); border-radius: 99px; background: rgba(88,230,161,.08); color: #58e6a1; }
+        .nm-result-loss .nm-reward { border-color: rgba(255,109,130,.18); background: rgba(255,109,130,.08); color: #ff6d82; }
+        .nm-reward strong { font-size: 19px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .nm-reward img { width: 24px; height: 24px; object-fit: contain; }
+        .nm-result-modal button {
+          width: 100%; min-height: 56px; margin-top: 18px; padding: 8px 10px;
+          display: grid; grid-template-columns: 38px 1fr 38px; align-items: center;
+          border: 1px solid rgba(255,255,255,.11); border-radius: 18px;
+          background: #171b25; color: #fff; font: inherit;
         }
+        .nm-result-modal button span { color: rgba(255,255,255,.45); font-size: 20px; }
+        .nm-result-modal button b { font-size: 9px; line-height: 1.5; letter-spacing: .08em; }
+        .nm-back-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 12px; background: rgba(0,0,0,.2); }
 
-        @keyframes rdDamagePop {
-          0% { opacity: 0; transform: translateY(8px) scale(.8); }
-          22% { opacity: 1; transform: translateY(0) scale(1); }
-          100% { opacity: 0; transform: translateY(-16px) scale(.9); }
+        .nm-empty { height: 100%; min-height: 480px; display: grid; place-items: center; align-content: center; gap: 16px; background: #09090d; color: #fff; text-align: center; }
+        .nm-empty button { border: 0; border-radius: 14px; padding: 12px 18px; font: inherit; font-size: 9px; }
+
+        @keyframes nmHudHit {
+          0%,100% { transform: translateX(0); }
+          20% { transform: translateX(-3px); }
+          40% { transform: translateX(3px); }
+          60% { transform: translateX(-2px); }
+          80% { transform: translateX(1px); }
         }
-
-        @keyframes rdCardIn {
-          from { opacity: 0; transform: translate(-50%, -44%) scale(.94); }
-          to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        }
-
-        @keyframes rdParticle {
-          0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateX(0) scale(.25); }
+        @keyframes nmDistanceMe {
+          0% { opacity: 0; transform: translate(-190%, -50%) scale(.8); }
           18% { opacity: 1; }
-          100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateX(var(--d)) scale(1.05); }
+          72% { opacity: 1; transform: translate(-106%, -50%) scale(1); }
+          100% { opacity: 0; transform: translate(-67%, -50%) scale(.86); }
+        }
+        @keyframes nmDistanceOpponent {
+          0% { opacity: 0; transform: translate(90%, -50%) scale(.8); }
+          18% { opacity: 1; }
+          72% { opacity: 1; transform: translate(6%, -50%) scale(1); }
+          100% { opacity: 0; transform: translate(-33%, -50%) scale(.86); }
+        }
+        @keyframes nmDamageToMe {
+          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+          48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+          58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          100% { opacity: 0; transform: translate(calc(-50% - 42vw), calc(-50% - 38vh)) scale(.55); }
+        }
+        @keyframes nmDamageToOpponent {
+          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+          48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+          58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          100% { opacity: 0; transform: translate(calc(-50% + 42vw), calc(-50% - 38vh)) scale(.55); }
+        }
+        @keyframes nmDraw {
+          0%,42% { opacity: 0; transform: translate(-50%, -50%) scale(.55); }
+          52%,78% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+          100% { opacity: 0; transform: translate(-50%, -50%) scale(.85); }
+        }
+        @keyframes nmCountdownPulse { from { transform: scale(.98); } to { transform: scale(1.02); } }
+        @keyframes nmModalIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+        @media (max-height: 700px) {
+          .nm-page { gap: 4px; padding-top: 6px; }
+          .nm-top { min-height: 50px; }
+          .nm-player-hud { padding: 5px 6px; border-radius: 14px; }
+          .nm-avatar { width: 33px; height: 33px; }
+          .nm-hp-row strong { font-size: 14px; }
+          .nm-timer { width: 50px; height: 50px; }
+          .nm-timer strong { font-size: 15px; }
+          .nm-top { grid-template-columns: minmax(0,1fr) 52px minmax(0,1fr); }
+          .nm-wheel { width: min(78vw, 330px, 45vh); min-width: 250px; min-height: 250px; }
+          .nm-round-caption { min-height: 24px; }
+          .nm-picker { padding: 7px 10px; }
+          .nm-action, .nm-locked, .nm-status { min-height: 44px; }
+          .nm-bottom { min-height: 70px; }
         }
 
-        /* ---------------------------------------------------------- responsive */
-
-        @media (max-height: 720px) {
-          .rd-page { gap: 3px; padding-top: 7px; padding-bottom: max(7px, env(safe-area-inset-bottom)); }
-          .rd-top { min-height: 41px; }
-          .rd-health { padding: 6px 8px; border-radius: 14px; }
-          .rd-health-head { margin-bottom: 5px; }
-          .rd-health-head b { font-size: 12px; line-height:1.18; }
-          .rd-round { height: 37px; border-radius: 13px; }
-          .rd-title h1 { font-size: clamp(17px, 4.4vw, 25px); line-height:1.24; }
-          .rd-wheel {
-            min-width: 264px; min-height: 264px;
-            width: min(80vw, 374px); height: min(80vw, 374px);
-            max-width: min(50vh, 374px); max-height: min(50vh, 374px);
-          }
-          .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel {
-            width: min(78vw, 354px); height: min(78vw, 354px);
-            max-width: min(46vh, 354px); max-height: min(46vh, 354px);
-          }
-          .rd-center strong { font-size: clamp(28px, 7.8vw, 42px); line-height:1.18; }
-          .rd-pick { min-height: 26px; }
-          .rd-picker { min-height: 58px; padding: 8px 10px; border-radius: 19px; grid-template-columns: 60px minmax(0, 1fr); }
-          .rd-picker-value b { font-size: 21px; line-height:1.22; }
-          .rd-button { min-height: 44px; }
-        }
-
-        @media (max-width: 520px) {
-          .rd-wheel { min-width: 278px; min-height: 278px; width: min(85vw, 348px); height: min(85vw, 348px); }
-          .rd-pickCyan .rd-wheel, .rd-pickMagenta .rd-wheel { min-width: 270px; min-height: 270px; width: min(82vw, 336px); height: min(82vw, 336px); }
-          .rd-center strong { font-size: 34px; line-height:1.18; }
+        @media (max-width: 360px) {
+          .nm-page { padding-left: 6px; padding-right: 6px; }
+          .nm-player-name { max-width: 70px; }
+          .nm-wheel { min-width: 250px; min-height: 250px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .rd-page *, .rd-page *::before, .rd-page *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
-          .rd-arrow, .rd-spinning .rd-arrow, .rd-landing .rd-arrow { transition: none; }
+          .nm-page *, .nm-page *::before, .nm-page *::after {
+            animation-duration: .001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .001ms !important;
+          }
         }
       `}</style>
 
-      <TopHud health={health} round={round} activePlayer={activePlayer} phase={phase} outcome={outcome} />
+      <header className="nm-top">
+        <PlayerHud
+          side="me"
+          profile={profiles.me}
+          hp={myHealth}
+          hit={
+            phase === 'impact' &&
+            Boolean(serverState?.damage_applied) &&
+            outcome?.defender === 'me'
+          }
+          round={serverState?.round ?? 1}
+        />
 
-      <main className="rd-main">
-        <div className="rd-title">
-          <small>
-            {phase === 'spinning' || phase === 'landing'
-              ? 'roulette'
-              : phase === 'impact'
-                ? 'distance clash'
-                : phase === 'result'
-                  ? 'round result'
-                  : phase === 'gameover'
-                    ? 'match'
-                    : PLAYERS[activePlayer].label}
-          </small>
-          <h1>{title}</h1>
+        <TimerBadge
+          seconds={timerSeconds}
+          progress={timerProgress}
+          round={serverState?.round ?? 1}
+          active={phase === 'picking' || phase === 'countdown'}
+        />
+
+        <PlayerHud
+          side="opponent"
+          profile={profiles.opponent}
+          hp={opponentHealth}
+          hit={
+            phase === 'impact' &&
+            Boolean(serverState?.damage_applied) &&
+            outcome?.defender === 'opponent'
+          }
+          round={serverState?.round ?? 1}
+        />
+      </header>
+
+      <main className="nm-main">
+        <div className="nm-round-caption">
+          <strong>
+            {phase === 'picking'
+              ? myLocked
+                ? 'ВЫБОР ПРИНЯТ'
+                : 'ВЫБЕРИ ЧИСЛО'
+              : phase === 'spinning'
+                ? 'КОЛЕСО КРУТИТСЯ'
+                : phase === 'landing'
+                  ? 'ФИНАЛЬНОЕ ЧИСЛО'
+                  : phase === 'impact'
+                    ? 'РАЗНИЦА РАССТОЯНИЙ'
+                    : phase === 'match_over'
+                      ? 'МАТЧ ЗАВЕРШЁН'
+                      : 'NEON MATRIX'}
+          </strong>
+          <span>{socketError || serverState?.message || 'Подключение к матчу'}</span>
         </div>
 
         <Wheel
-          angle={arrowAngle}
-          displayNumber={draftValue}
-          phase={phase}
-          target={target}
-          picks={picks}
-          outcome={outcome}
-          showPicks={showWheelPicks}
-          profiles={wheelProfiles}
           arrowRef={arrowRef}
-        />
-
-        <PickPreview
-          picks={picks}
-          target={target}
-          hiddenCyan={hiddenCyan}
-          hiddenMagenta={hiddenMagenta}
-          outcome={outcome}
           phase={phase}
+          draft={draft}
+          target={serverState?.target ?? null}
+          mePick={myPick}
+          opponentPick={opponentPick}
+          myLocked={myLocked}
+          profiles={profiles}
+          outcome={outcome}
+          damageApplied={Boolean(serverState?.damage_applied)}
+          impactElapsedMs={impactElapsedMs}
         />
-
-        {phase === 'gameover' && (
-          <div className="rd-card">
-            <div className="rd-card-icon">🏆</div>
-            <h2>{matchWinner === 'cyan' ? 'Ты победил' : 'Соперник победил'}</h2>
-            <p>
-              Финальное здоровье: ты {formatHp(health.cyan)} HP · соперник {formatHp(health.magenta)} HP.
-            </p>
-          </div>
-        )}
-
-        {particles.map((particle) => (
-          <i
-            key={particle.id}
-            className={`rd-particle ${
-              particle.tone === 'magenta'
-                ? 'rd-particle-magenta'
-                : particle.tone === 'gold'
-                  ? 'rd-particle-gold'
-                  : particle.tone === 'green'
-                    ? 'rd-particle-green'
-                    : particle.tone === 'red'
-                      ? 'rd-particle-red'
-                      : ''
-            }`}
-            style={cssVars({
-              '--x': particle.x,
-              '--y': particle.y,
-              '--a': `${particle.angle}deg`,
-              '--d': `${particle.distance}px`,
-              '--s': `${particle.size}px`,
-              '--delay': `${particle.delay}ms`,
-            })}
-          />
-        ))}
       </main>
 
-      <div className="rd-bottom">
-        <div className="rd-message">
-          {socketError || (matchWinner ? `${matchWinner === 'cyan' ? 'Ты' : 'Соперник'} выиграл матч.` : resultText || message)}
+      <footer className="nm-bottom">
+        {phase === 'picking' && !myLocked ? (
+          <>
+            <div className="nm-picker">
+              <div className="nm-picker-value">
+                <span>ЧИСЛО</span>
+                <strong>{draft}</strong>
+              </div>
+              <input
+                className="nm-range"
+                type="range"
+                min={MIN_NUMBER}
+                max={MAX_NUMBER}
+                step={1}
+                value={draft}
+                disabled={!canPick}
+                onChange={(event) => handleDraft(Number(event.target.value))}
+              />
+            </div>
+            <button
+              type="button"
+              className="nm-action"
+              disabled={!canPick}
+              onClick={submitPick}
+            >
+              {submitting ? 'СОХРАНЯЕМ' : 'ВЫБРАТЬ'}
+            </button>
+          </>
+        ) : phase === 'picking' ? (
+          <div className="nm-locked">
+            ТВОЙ ВЫБОР: <strong>{myPick ?? draft}</strong> · ЖДЁМ СОПЕРНИКА
+          </div>
+        ) : (
+          <div className={`nm-status ${socketError ? 'nm-error' : ''}`}>
+            {socketError ||
+              (connectionStatus === 'connecting'
+                ? 'ПОДКЛЮЧЕНИЕ'
+                : connectionStatus === 'closed' || connectionStatus === 'error'
+                  ? 'СОЕДИНЕНИЕ ПОТЕРЯНО'
+                  : serverState?.message || 'МАТЧ ИДЁТ')}
+          </div>
+        )}
+      </footer>
+
+      {phase === 'waiting' && (
+        <div className="nm-overlay">
+          <div>
+            <div className="nm-countdown-ring">
+              <strong>VS</strong>
+            </div>
+            <h3>ЖДЁМ СОПЕРНИКА</h3>
+            <p>МАТЧ НАЧНЁТСЯ, КОГДА ПОДКЛЮЧАТСЯ ОБА ИГРОКА</p>
+          </div>
         </div>
+      )}
 
-        {canPick && <NumberPicker value={draftValue} activePlayer={activePlayer} onChange={changeDraft} />}
+      {phase === 'countdown' && (
+        <div className="nm-overlay">
+          <div>
+            <div className="nm-countdown-ring">
+              <strong>{Math.max(1, timerSeconds ?? 3)}</strong>
+            </div>
+            <h3>ПРИГОТОВЬСЯ</h3>
+            <p>В КАЖДОМ РАУНДЕ НА ВЫБОР ЕСТЬ 5 СЕКУНД</p>
+          </div>
+        </div>
+      )}
 
-        <button
-          type="button"
-          className="rd-button"
-          onClick={handlePrimary}
-          disabled={buttonDisabled}
-        >
-          {primaryLabel}
-        </button>
-      </div>
-    </div>
+      {matchOver && (
+        <ResultModal
+          didWin={didWin}
+          winner={winnerProfile}
+          loser={loserProfile}
+          winnerHp={winnerHp}
+          loserHp={loserHp}
+          reward={serverState?.winner_profit ?? 0}
+          onBack={backToLobbies}
+        />
+      )}
+    </section>
   );
 };
 

@@ -65,7 +65,7 @@ func (h NeonMatrixWSHandler) Connect(c *gin.Context) {
 		return
 	}
 
-	if err := h.Manager.Connect(lobby.ID, players, userID, conn); err != nil {
+	if err := h.Manager.Connect(lobby.ID, players, userID, lobby.BetCoins, conn); err != nil {
 		_ = conn.WriteJSON(gin.H{"type": "error", "error": err.Error()})
 		_ = conn.Close()
 	}
