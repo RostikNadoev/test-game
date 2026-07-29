@@ -6,7 +6,7 @@ import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
-import defaultGamePreview from '../assets/preview/game-preview.MP4';
+import defaultGamePreview from '../assets/preview/IMG_2076.webm';
 
 const POLL_INTERVAL_MS = 3000;
 
