@@ -6724,3 +6724,153 @@ body.fruit-cascade-active .header-panel {
     animation: none;
   }
 }
+
+/* =========================================================
+   Game preview modal
+   ========================================================= */
+
+.minimal-game-summary-preview {
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+}
+
+.minimal-preview-button {
+  display: inline-flex;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 13px;
+  color: rgba(255, 255, 255, 0.82);
+  background:
+    radial-gradient(circle at 26% 0%, rgba(255, 255, 255, 0.13), transparent 44%),
+    rgba(255, 255, 255, 0.055);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+  font-size: 7.5px;
+  font-weight: 900;
+  line-height: 1.45;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.minimal-preview-button svg {
+  flex-shrink: 0;
+}
+
+.game-preview-modal {
+  position: fixed;
+  z-index: 180;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding:
+    max(14px, env(safe-area-inset-top, 0px))
+    14px
+    max(14px, env(safe-area-inset-bottom, 0px));
+}
+
+.game-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  animation: gamePreviewBackdropIn 0.18s ease-out both;
+}
+
+.game-preview-shell {
+  position: relative;
+  z-index: 1;
+  width: min(78vw, 310px);
+  max-height: min(72dvh, 570px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  background: #050507;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 26px 80px rgba(0, 0, 0, 0.68);
+  transform-origin: center;
+  animation: gamePreviewOpen 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.game-preview-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(72dvh, 570px);
+  object-fit: contain;
+  background: #050507;
+}
+
+.game-preview-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 18px rgba(0, 0, 0, 0.28);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes gamePreviewBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gamePreviewOpen {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (max-width: 370px) {
+  .minimal-game-summary-preview {
+    grid-template-columns: 50px minmax(0, 1fr) 36px;
+    gap: 10px;
+  }
+
+  .minimal-preview-button {
+    width: 36px;
+    padding: 0;
+  }
+
+  .minimal-preview-button span {
+    display: none;
+  }
+
+  .game-preview-shell {
+    width: min(84vw, 300px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-preview-backdrop,
+  .game-preview-shell {
+    animation: none;
+  }
+}

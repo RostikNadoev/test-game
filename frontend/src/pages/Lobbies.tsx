@@ -1,13 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Loader2, Plus, RefreshCw, Users } from 'lucide-react';
+import { ChevronLeft, Loader2, Play, Plus, RefreshCw, Users, X } from 'lucide-react';
 import { api, ApiError, type Lobby } from '../api';
 import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
+import defaultGamePreview from '../assets/prewiev/game-preview.mp4';
 
 const POLL_INTERVAL_MS = 3000;
+
+const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {};
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
@@ -25,10 +28,23 @@ export const Lobbies = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
   const gameName = game?.displayName || gameId || 'Игра';
   const userCoins = Math.floor(user?.balance_game ?? 0);
+  const previewVideo = (gameId && GAME_PREVIEW_BY_CODE[gameId]) || defaultGamePreview;
+
+  useEffect(() => {
+    if (!isPreviewOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsPreviewOpen(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPreviewOpen]);
 
   const loadLobbies = useCallback(
     async (withSpinner = false) => {
@@ -123,7 +139,7 @@ export const Lobbies = () => {
         </div>
       </div>
 
-      <section className="minimal-game-summary">
+      <section className="minimal-game-summary minimal-game-summary-preview">
         <div className="minimal-game-cover">
           {game?.coverUrl ? (
             <img src={game.coverUrl} alt="" draggable={false} />
@@ -137,6 +153,16 @@ export const Lobbies = () => {
           <p>Выбери свободную комнату или создай свою.</p>
         </div>
 
+        <button
+          type="button"
+          onClick={() => setIsPreviewOpen(true)}
+          className="minimal-preview-button press"
+          aria-haspopup="dialog"
+          aria-label={`Открыть превью игры ${gameName}`}
+        >
+          <Play size={13} fill="currentColor" />
+          <span>Превью</span>
+        </button>
       </section>
 
       <section className="minimal-section">
@@ -227,6 +253,44 @@ export const Lobbies = () => {
           </div>
         )}
       </section>
+
+      {isPreviewOpen && (
+        <div
+          className="game-preview-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Превью игры ${gameName}`}
+        >
+          <button
+            type="button"
+            className="game-preview-backdrop"
+            onClick={() => setIsPreviewOpen(false)}
+            aria-label="Закрыть превью"
+          />
+
+          <div className="game-preview-shell">
+            <video
+              key={previewVideo}
+              className="game-preview-video"
+              src={previewVideo}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+            />
+
+            <button
+              type="button"
+              onClick={() => setIsPreviewOpen(false)}
+              className="game-preview-close press"
+              aria-label="Закрыть превью"
+            >
+              <X size={15} strokeWidth={2.4} />
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 };
