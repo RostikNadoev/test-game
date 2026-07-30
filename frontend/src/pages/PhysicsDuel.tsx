@@ -34,7 +34,7 @@ import { getTelegramWebApp } from '../types/telegram';
 /* make either cube stutter or desync.                                        */
 /* ========================================================================== */
 
-const TOTAL_TURNS = 15;
+const TOTAL_TURNS = 10;
 const PREP_TIME = 5;
 const GRAVITY = 2100;
 

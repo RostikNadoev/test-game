@@ -15,8 +15,8 @@ import (
 
 const (
 	GameCode         = "descent_duel"
-	TotalTurns       = 15
-	PrepSeconds      = 5
+	TotalTurns       = 10
+	PrepSeconds      = 4
 	CountdownSeconds = 3
 
 	fixedDT       = 1.0 / 120.0
@@ -57,6 +57,7 @@ const (
 
 	levelHeight = 18.0
 	worldLen    = 9000.0
+	terrainEase = 1.08
 
 	landingEdgePad        = cubeSize * 0.14
 	landingAssistLinear   = 1.55
@@ -803,6 +804,9 @@ func generateStairs(seed uint32) Stairs {
 		} else {
 			width = cubeSize * (1.3 + rnd.Next()*0.08)
 		}
+		if !platform {
+			width *= terrainEase
+		}
 
 		hr := rnd.Next()
 		delta := 0.0
@@ -831,8 +835,8 @@ func generateStairs(seed uint32) Stairs {
 		}
 
 		slope := 0.0
-		if !platform && !safeZone && rnd.Next() < 0.2 {
-			slope = (rnd.Next() - 0.5) * 0.048
+		if !platform && !safeZone && rnd.Next() < 0.18 {
+			slope = (rnd.Next() - 0.5) * 0.044
 		}
 
 		x0 := x

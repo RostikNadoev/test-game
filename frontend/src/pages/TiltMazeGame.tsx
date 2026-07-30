@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -99,10 +98,10 @@ const WALL_TANGENT_KEEP = 0.994;
 const CAMERA_RESPONSE = 8.4;
 const CAMERA_LOOK_AHEAD = 0.035;
 const PLAY_VISIBLE_FRACTION = 0.70;
-const MAX_CONTROL_OMEGA = 3.0;
-const MAX_INPUT_OMEGA = 4.0;
-const MAX_CONTROL_ALPHA = 11.5;
-const BOARD_ANGLE_RESPONSE = 8.5;
+const MAX_CONTROL_OMEGA = 3.2;
+const MAX_INPUT_OMEGA = 4.25;
+const MAX_CONTROL_ALPHA = 12.1;
+const BOARD_ANGLE_RESPONSE = 8.8;
 const INPUT_OMEGA_SMOOTHING = 0.38;
 const INPUT_OMEGA_DEADZONE = 0.08;
 const RELEASE_COAST_LIMIT = 0.12;
@@ -380,8 +379,8 @@ function generateMaze(seed: number): Maze {
 function resolveBallAgainstRect(ball: Ball, rect: WallRect) {
   const nearestX = clamp(ball.x, rect.x, rect.x + rect.w);
   const nearestY = clamp(ball.y, rect.y, rect.y + rect.h);
-  let dx = ball.x - nearestX;
-  let dy = ball.y - nearestY;
+  const dx = ball.x - nearestX;
+  const dy = ball.y - nearestY;
   const distanceSq = dx * dx + dy * dy;
 
   if (distanceSq >= ball.r * ball.r) return false;
@@ -529,15 +528,12 @@ export default function TiltMazeGame() {
   const sendPosition = match.sendPosition;
   const sendFinish = match.sendFinish;
 
-  const matchStartsClientMs = useMemo(() => {
-    if (!serverState?.match_starts_ms) return 0;
-    return serverState.match_starts_ms + match.serverOffsetMs;
-  }, [match.serverOffsetMs, serverState?.match_starts_ms]);
-
-  const matchEndsClientMs = useMemo(() => {
-    if (!serverState?.match_ends_ms) return 0;
-    return serverState.match_ends_ms + match.serverOffsetMs;
-  }, [match.serverOffsetMs, serverState?.match_ends_ms]);
+  const matchStartsClientMs = serverState?.match_starts_ms
+    ? serverState.match_starts_ms + match.serverOffsetMs
+    : 0;
+  const matchEndsClientMs = serverState?.match_ends_ms
+    ? serverState.match_ends_ms + match.serverOffsetMs
+    : 0;
 
   const countdownStartsClientMs = matchStartsClientMs ? matchStartsClientMs - INTRO_MS : 0;
 

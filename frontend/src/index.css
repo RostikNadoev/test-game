@@ -113,6 +113,14 @@ img {
   user-select: none;
 }
 
+.doodle-pvp-surface,
+.doodle-pvp-canvas {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  touch-action: none;
+}
+
 #root {
   position: relative;
   display: flex;
@@ -542,27 +550,30 @@ html.game-gesture-lock #root {
 
 .turbo-series-hud {
   position: absolute;
-  top: calc(var(--telegram-top-offset) + 12px);
+  top: calc(var(--telegram-top-offset) + 14px);
   left: 50%;
   z-index: 145;
   display: flex;
   height: 35px;
   align-items: center;
-  gap: 10px;
-  padding: 0 11px 0 12px;
+  gap: 7px;
+  padding: 0 7px 0 8px;
   transform: translateX(-50%);
-  border: 1px solid rgba(143, 237, 218, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.045);
   border-radius: 12px;
   color: rgba(255, 255, 255, 0.76);
   background:
-    linear-gradient(120deg, rgba(99, 224, 199, 0.09), rgba(157, 124, 255, 0.08)),
-    rgba(8, 10, 16, 0.88);
+    radial-gradient(circle at 14% 0%, rgba(91, 183, 255, 0.18), transparent 36%),
+    radial-gradient(circle at 92% 0%, rgba(255, 143, 45, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03)),
+    rgba(15, 15, 22, 0.84);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    0 8px 24px rgba(0, 0, 0, 0.34);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  font-size: 8px;
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24),
+    0 8px 22px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  font-size: 7.8px;
   font-weight: 900;
   letter-spacing: 0.035em;
   white-space: nowrap;
@@ -572,20 +583,21 @@ html.game-gesture-lock #root {
   display: flex;
   height: 23px;
   align-items: center;
-  gap: 5px;
-  padding: 0 8px;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, 0.035);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .turbo-series-score strong {
-  color: #9ff3df;
+  color: #8ccfff;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .turbo-series-score strong:last-child {
-  color: #c4b4ff;
+  color: #ffb36f;
 }
 
 .turbo-series-score i {
@@ -760,25 +772,34 @@ html.game-gesture-lock #root {
 
 .turbo-final-icon {
   display: grid;
-  width: 68px;
-  height: 68px;
+  width: 54px;
+  height: 54px;
   place-items: center;
-  border-radius: 22px;
-  color: #b9c4ff;
-  background: rgba(157, 124, 255, 0.09);
+  border: 1px solid rgba(91, 183, 255, 0.16);
+  border-radius: 18px;
+  color: #8ccfff;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(91, 183, 255, 0.16), transparent 58%),
+    rgba(255, 255, 255, 0.035);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
 .turbo-final-icon.is-win {
-  color: #f2cb74;
-  background: rgba(242, 203, 116, 0.09);
+  border-color: rgba(255, 180, 92, 0.19);
+  color: #ffc477;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 180, 92, 0.18), transparent 58%),
+    rgba(255, 255, 255, 0.035);
 }
 
 .turbo-final-card > span {
-  margin-top: 13px;
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 8px;
+  margin-top: 11px;
+  color: rgba(255, 255, 255, 0.36);
+  font-size: 7px;
   font-weight: 900;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.17em;
   text-transform: uppercase;
 }
 
@@ -793,27 +814,74 @@ html.game-gesture-lock #root {
 
 .turbo-final-card button {
   width: 100%;
-  margin-top: 18px;
-  padding: 12px;
-  border-radius: 15px;
-  color: #0b1114;
-  background: linear-gradient(135deg, #79f4d7, #c5b2ff);
+  height: 46px;
+  margin-top: 12px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  color: #10131a;
+  background: linear-gradient(180deg, #f5f8fc 0%, #dce6ef 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 26px rgba(47, 140, 255, 0.12);
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  transition:
+    transform 120ms ease,
+    filter 160ms ease;
+}
+
+.turbo-final-card button:active {
+  transform: scale(0.985);
+  filter: brightness(0.96);
 }
 
 .turbo-final-card {
-  width: min(100%, 348px);
-  padding: 22px 18px 18px;
+  width: min(100%, 340px);
+  padding: 20px 17px 17px;
+  border-color: rgba(255, 255, 255, 0.075);
+  border-radius: 27px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(91, 183, 255, 0.1), transparent 34%),
+    radial-gradient(circle at 92% 0%, rgba(255, 143, 45, 0.09), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    #0e0f16;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 34px 90px rgba(0, 0, 0, 0.58);
+  animation: turbo-final-card-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.turbo-final-card::before {
+  position: absolute;
+  top: 0;
+  right: 17%;
+  left: 17%;
+  height: 1px;
+  content: '';
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(151, 211, 255, 0.5),
+    rgba(255, 186, 118, 0.42),
+    transparent
+  );
+}
+
+.turbo-final-card h2 {
+  margin-top: 6px;
+  font-size: 20px;
+  letter-spacing: -0.04em;
 }
 
 .turbo-final-card.is-win {
   background:
-    radial-gradient(circle at 50% 0%, rgba(242, 203, 116, 0.15), transparent 38%),
-    radial-gradient(circle at 92% 10%, rgba(82, 255, 229, 0.1), transparent 34%),
-    #10111a;
+    radial-gradient(circle at 13% 0%, rgba(91, 183, 255, 0.1), transparent 35%),
+    radial-gradient(circle at 88% 0%, rgba(255, 180, 92, 0.13), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    #0e0f16;
 }
 
 .turbo-final-players {
@@ -821,8 +889,8 @@ html.game-gesture-lock #root {
   display: grid;
   width: 100%;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin-top: 18px;
+  gap: 9px;
+  margin-top: 16px;
 }
 
 .turbo-final-player {
@@ -830,17 +898,19 @@ html.game-gesture-lock #root {
   display: grid;
   min-width: 0;
   justify-items: center;
-  padding: 14px 9px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.028);
+  padding: 13px 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    rgba(255, 255, 255, 0.012);
 }
 
 .turbo-final-player.is-winner {
-  border-color: rgba(242, 203, 116, 0.2);
+  border-color: rgba(255, 180, 92, 0.18);
   background:
-    linear-gradient(180deg, rgba(242, 203, 116, 0.08), transparent),
-    rgba(255, 255, 255, 0.025);
+    linear-gradient(180deg, rgba(255, 180, 92, 0.075), transparent 70%),
+    rgba(255, 255, 255, 0.015);
 }
 
 .turbo-final-crown {
@@ -848,8 +918,8 @@ html.game-gesture-lock #root {
   top: -7px;
   padding: 3px 7px;
   border-radius: 999px;
-  color: #251d0e;
-  background: #f2cb74;
+  color: #24170b;
+  background: #ffc477;
   font-size: 6px;
   font-weight: 950;
   letter-spacing: 0.1em;
@@ -858,12 +928,12 @@ html.game-gesture-lock #root {
 
 .turbo-final-avatar {
   display: grid;
-  width: 58px;
-  height: 58px;
+  width: 54px;
+  height: 54px;
   place-items: center;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 19px;
+  border-radius: 17px;
   color: rgba(255, 255, 255, 0.82);
   background: rgba(255, 255, 255, 0.055);
   font-size: 15px;
@@ -871,8 +941,8 @@ html.game-gesture-lock #root {
 }
 
 .turbo-final-player.is-winner .turbo-final-avatar {
-  border-color: rgba(242, 203, 116, 0.32);
-  box-shadow: 0 9px 25px rgba(242, 203, 116, 0.11);
+  border-color: rgba(255, 180, 92, 0.3);
+  box-shadow: 0 9px 24px rgba(255, 180, 92, 0.09);
 }
 
 .turbo-final-avatar img {
@@ -903,12 +973,12 @@ html.game-gesture-lock #root {
 }
 
 .turbo-final-player.is-winner > b {
-  color: #f2cb74;
+  color: #ffc477;
 }
 
 .turbo-final-vs {
   position: absolute;
-  top: 54px;
+  top: 50px;
   left: 50%;
   z-index: 2;
   display: grid;
@@ -919,7 +989,7 @@ html.game-gesture-lock #root {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.3);
-  background: #10111a;
+  background: #0e0f16;
   font-size: 6px;
   font-weight: 950;
 }
@@ -927,14 +997,14 @@ html.game-gesture-lock #root {
 .turbo-final-net {
   display: flex;
   width: 100%;
-  min-height: 45px;
+  min-height: 47px;
   align-items: center;
   justify-content: space-between;
   margin-top: 10px;
   padding: 0 14px;
   border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 15px;
-  background: rgba(255, 255, 255, 0.027);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.022);
 }
 
 .turbo-final-net small {
@@ -966,11 +1036,19 @@ html.game-gesture-lock #root {
 }
 
 .turbo-final-net.is-positive strong {
-  color: #79f4d7;
+  color: #8ccfff;
 }
 
 .turbo-final-net.is-negative strong {
   color: #ff7a90;
+}
+
+.turbo-final-net.is-positive {
+  border-color: rgba(91, 183, 255, 0.13);
+}
+
+.turbo-final-net.is-negative {
+  border-color: rgba(255, 122, 144, 0.12);
 }
 
 html.turbo-series-active .game-result-reward {
@@ -985,6 +1063,18 @@ html.turbo-series-active .game-result-exit {
   50% {
     opacity: 0.36;
     transform: scale(1.14);
+  }
+}
+
+@keyframes turbo-final-card-in {
+  from {
+    transform: translateY(10px) scale(0.985);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
   }
 }
 

@@ -1463,11 +1463,12 @@ export const DoodleJumpGame = () => {
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-[440px] w-full select-none overflow-hidden bg-transparent text-white"
+      className="doodle-pvp-surface relative h-full min-h-[440px] w-full select-none overflow-hidden bg-transparent text-white"
+      onContextMenu={(event) => event.preventDefault()}
     >
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full touch-none"
+        className="doodle-pvp-canvas absolute inset-0 h-full w-full touch-none"
       />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-3">

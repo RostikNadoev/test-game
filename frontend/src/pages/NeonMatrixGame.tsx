@@ -1354,9 +1354,25 @@ export const NeonMatrixGame: React.FC = () => {
   const handleDraft = (value: number) => {
     if (!canPick) return;
     const next = clamp(Math.round(value), MIN_NUMBER, MAX_NUMBER);
+    if (next === draft) return;
     setDraft(next);
     setStaticArrow(numberToAngle(next));
     hapticSelect();
+  };
+
+  const updateDraftFromPointer = (
+    event: React.PointerEvent<HTMLInputElement>,
+  ) => {
+    if (!canPick) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const thumbRadius = 15;
+    const usableWidth = Math.max(1, rect.width - thumbRadius * 2);
+    const progress = clamp(
+      (event.clientX - rect.left - thumbRadius) / usableWidth,
+      0,
+      1,
+    );
+    handleDraft(MIN_NUMBER + progress * (MAX_NUMBER - MIN_NUMBER));
   };
 
   const submitPick = () => {
@@ -1697,7 +1713,76 @@ export const NeonMatrixGame: React.FC = () => {
         .nm-picker-value { text-align: center; }
         .nm-picker-value span { display: block; padding-top: .1em; color: rgba(255,255,255,.32); font-size: 6px; line-height: 1.5; }
         .nm-picker-value strong { display: block; margin-top: 0; padding-top: .08em; color: var(--me); font-size: 23px; line-height: 1.45; font-variant-numeric: tabular-nums; }
-        .nm-range { width: 100%; height: 32px; margin: 0; accent-color: var(--me); touch-action: none; }
+        .nm-picker-control {
+          display: grid;
+          grid-template-columns: 38px minmax(0, 1fr) 38px;
+          align-items: center;
+          gap: 7px;
+          min-width: 0;
+        }
+        .nm-picker-step {
+          display: grid;
+          width: 38px;
+          height: 38px;
+          place-items: center;
+          border: 1px solid rgba(91,183,255,.16);
+          border-radius: 12px;
+          color: rgba(255,255,255,.72);
+          background: rgba(91,183,255,.06);
+          font: inherit;
+          font-size: 16px;
+          font-weight: 900;
+          line-height: 1;
+          touch-action: manipulation;
+        }
+        .nm-picker-step:active:not(:disabled) {
+          transform: scale(.94);
+          background: rgba(91,183,255,.12);
+        }
+        .nm-picker-step:disabled { opacity: .32; }
+        .nm-range {
+          width: 100%;
+          height: 44px;
+          min-width: 0;
+          margin: 0;
+          appearance: none;
+          -webkit-appearance: none;
+          background: transparent;
+          cursor: grab;
+          touch-action: none;
+        }
+        .nm-range:active { cursor: grabbing; }
+        .nm-range::-webkit-slider-runnable-track {
+          height: 8px;
+          border: 1px solid rgba(91,183,255,.16);
+          border-radius: 999px;
+          background: linear-gradient(90deg, rgba(91,183,255,.28), rgba(91,183,255,.08));
+        }
+        .nm-range::-webkit-slider-thumb {
+          width: 30px;
+          height: 30px;
+          margin-top: -12px;
+          appearance: none;
+          -webkit-appearance: none;
+          border: 3px solid #11141d;
+          border-radius: 50%;
+          background: var(--me);
+          box-shadow: 0 4px 16px rgba(91,183,255,.35);
+        }
+        .nm-range::-moz-range-track {
+          height: 8px;
+          border: 1px solid rgba(91,183,255,.16);
+          border-radius: 999px;
+          background: linear-gradient(90deg, rgba(91,183,255,.28), rgba(91,183,255,.08));
+        }
+        .nm-range::-moz-range-thumb {
+          width: 26px;
+          height: 26px;
+          border: 3px solid #11141d;
+          border-radius: 50%;
+          background: var(--me);
+          box-shadow: 0 4px 16px rgba(91,183,255,.35);
+        }
         .nm-action {
           min-height: 50px;
           border: 1px solid rgba(91,183,255,.28);
@@ -1927,16 +2012,48 @@ export const NeonMatrixGame: React.FC = () => {
                 <span>ЧИСЛО</span>
                 <strong>{draft}</strong>
               </div>
-              <input
-                className="nm-range"
-                type="range"
-                min={MIN_NUMBER}
-                max={MAX_NUMBER}
-                step={1}
-                value={draft}
-                disabled={!canPick}
-                onChange={(event) => handleDraft(Number(event.target.value))}
-              />
+              <div className="nm-picker-control">
+                <button
+                  type="button"
+                  className="nm-picker-step"
+                  disabled={!canPick || draft <= MIN_NUMBER}
+                  onClick={() => handleDraft(draft - 1)}
+                  aria-label="Уменьшить число"
+                >
+                  −
+                </button>
+                <input
+                  className="nm-range"
+                  type="range"
+                  min={MIN_NUMBER}
+                  max={MAX_NUMBER}
+                  step={1}
+                  value={draft}
+                  disabled={!canPick}
+                  onChange={(event) => handleDraft(Number(event.target.value))}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    updateDraftFromPointer(event);
+                  }}
+                  onPointerMove={(event) => {
+                    if (
+                      event.currentTarget.hasPointerCapture(event.pointerId)
+                    ) {
+                      updateDraftFromPointer(event);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="nm-picker-step"
+                  disabled={!canPick || draft >= MAX_NUMBER}
+                  onClick={() => handleDraft(draft + 1)}
+                  aria-label="Увеличить число"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <button
               type="button"

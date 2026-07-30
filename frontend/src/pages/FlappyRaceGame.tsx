@@ -464,7 +464,7 @@ export const FlappyRaceGame = () => {
         perfect ? 1.15 : 0.82,
       );
 
-      cameraShake = perfect ? 4.5 : 1.8;
+      cameraShake = perfect ? 3.4 : 1.35;
       triggerHaptic(perfect ? "heavy" : "success");
     };
 
@@ -500,7 +500,7 @@ export const FlappyRaceGame = () => {
       bird.vy = -255;
       bird.y = clamp(bird.y, 135, viewport.height - 105);
       flash = 1;
-      cameraShake = 8;
+      cameraShake = 6;
 
       addParticles(bird.x, bird.y, 350, 28, 1.2);
       addText(
@@ -638,7 +638,7 @@ export const FlappyRaceGame = () => {
       }
 
       flash *= Math.pow(0.012, deltaTime);
-      cameraShake *= Math.pow(0.025, deltaTime);
+      cameraShake *= Math.pow(0.018, deltaTime);
 
       for (const particle of particles) {
         particle.vy += particle.gravity * deltaTime;
