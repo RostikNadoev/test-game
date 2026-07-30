@@ -48,6 +48,12 @@ func (h ReactionsWSHandler) Connect(c *gin.Context) {
 		return
 	}
 
+	playerIDs := make([]uint, 0, len(lobby.Players))
+	for id := range lobby.Players {
+		playerIDs = append(playerIDs, id)
+	}
+	h.Manager.Prepare(lobby.ID, realtime.NormalizeGameCode(lobby.Game), playerIDs)
+
 	upgrader := newPvpUpgrader(h.Cfg)
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {

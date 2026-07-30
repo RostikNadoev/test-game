@@ -225,6 +225,7 @@ type Session struct {
 	winner        *uint
 	finished      bool
 	closed        bool
+	paused        bool
 	lastActive    time.Time
 	loopStop      chan struct{}
 	loopDone      chan struct{}
@@ -356,6 +357,10 @@ func (s *Session) loop() {
 				s.mu.Unlock()
 				return
 			}
+			if s.paused {
+				s.mu.Unlock()
+				continue
+			}
 			s.updatePhaseLocked(now)
 
 			if s.lastBroadcast.IsZero() || now.Sub(s.lastBroadcast) >= stateInterval {
@@ -383,13 +388,18 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 
 	now := time.Now()
 	s.lastActive = now
-	s.updatePhaseLocked(now)
+	if !s.paused {
+		s.updatePhaseLocked(now)
+	}
 
 	switch msg.Type {
 	case "state":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
 		s.sendSyncLocked(userID, now)
 	case "ready":
+		if s.paused {
+			return
+		}
 		if s.phase == "waiting" {
 			s.ready[userID] = true
 			if len(s.clients) == len(s.playerOrder) && s.allReadyLocked() {
@@ -399,6 +409,9 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 			}
 		}
 	case "drop":
+		if s.paused {
+			return
+		}
 		s.dropLocked(userID, msg, now)
 	case "sync_ack":
 		s.acceptSyncAckLocked(userID, msg.Nonce, now)

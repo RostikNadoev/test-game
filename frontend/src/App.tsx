@@ -18,6 +18,7 @@ import { Header } from "./components/Layout/Header";
 import { BottomNav } from "./components/Layout/BottomNav";
 import { SoloPageLoader } from "./components/Solo/SoloPageLoader";
 import { QuickEmojiChat } from "./components/Game/QuickEmojiChat";
+import { TurboSeriesController } from "./components/Turbo/TurboSeriesController";
 import { Home } from "./pages/Home";
 import { Profile } from "./pages/Profile";
 import { Rating } from "./pages/Rating";
@@ -372,6 +373,7 @@ function AppShell() {
 
       <Header showLanguageSwitcher={isFooterRoute} />
       {isLockedGameRoute && <QuickEmojiChat />}
+      <TurboSeriesController />
 
       <main
         ref={mainRef}

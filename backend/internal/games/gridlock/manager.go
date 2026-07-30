@@ -183,6 +183,9 @@ type Session struct {
 	onMatchOver func(lobbyID string, winnerUserID *uint)
 	settled     bool
 	closed      bool
+	paused      bool
+	pauseCountdown time.Duration
+	pauseTurn      time.Duration
 	lastActive  time.Time
 }
 
@@ -327,7 +330,7 @@ func (s *Session) startCountdownLocked() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		if s.closed || s.settled || s.phase != PhaseCountdown {
+		if s.paused || s.closed || s.settled || s.phase != PhaseCountdown {
 			return
 		}
 		if len(s.clients) < 2 {
@@ -360,7 +363,7 @@ func (s *Session) beginTurnLocked(userID uint) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		if s.closed || s.settled || s.phase != PhasePlaying {
+		if s.paused || s.closed || s.settled || s.phase != PhasePlaying {
 			return
 		}
 		if s.turnNumber != expectedTurn || s.turnUserID != expectedUser {
@@ -434,7 +437,7 @@ func (s *Session) placeWallLocked(userID uint, row int, col int, orientation str
 }
 
 func (s *Session) canActLocked(userID uint) bool {
-	if s.phase != PhasePlaying || s.settled || s.closed {
+	if s.paused || s.phase != PhasePlaying || s.settled || s.closed {
 		s.sendErrorLocked(userID, "match is not accepting actions")
 		return false
 	}

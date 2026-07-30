@@ -18,6 +18,7 @@ import (
 	"tg-lobbies-base/internal/reactions"
 	"tg-lobbies-base/internal/realtime"
 	"tg-lobbies-base/internal/services"
+	"tg-lobbies-base/internal/turbo"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,60 +49,68 @@ func main() {
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
 	reactionManager := reactions.NewManager()
+	turboManager := turbo.NewManager(db, lobbyStore)
 
+	settleGameMatch := func(lobbyID string, winnerUserID *uint) {
+		reactionManager.Complete(lobbyID)
+		if turboManager.HandleRoundResult(lobbyID, winnerUserID) {
+			return
+		}
+		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	}
 	discFootballManager := discfootball.NewManager()
 	go discFootballManager.CleanupLoop()
 	discFootballManager.SetOnMatchOver(func(lobbyID string, winnerUserID uint) {
 		winner := winnerUserID
-		settleLobbyMatch(lobbyStore, lobbyID, &winner)
+		settleGameMatch(lobbyID, &winner)
 	})
 
 	dunkShotManager := dunkshot.NewManager()
 	go dunkShotManager.CleanupLoop()
 	dunkShotManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	gridLockManager := gridlock.NewManager()
 	go gridLockManager.CleanupLoop()
 	gridLockManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	arcadeRaceManager := arcaderace.NewManager()
 	go arcadeRaceManager.CleanupLoop()
 	arcadeRaceManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	neonMatrixManager := neonmatrix.NewManager()
 	go neonMatrixManager.CleanupLoop()
 	neonMatrixManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	paperManager := paperio.NewManager()
 	go paperManager.CleanupLoop()
 	paperManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	plinkoManager := plinko.NewManager()
 	go plinkoManager.CleanupLoop()
 	plinkoManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	physicsDuelManager := physicsduel.NewManager()
 	go physicsDuelManager.CleanupLoop()
 	physicsDuelManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	towerManager := towerstack.NewManager()
 	go towerManager.CleanupLoop()
 	towerManager.SetOnMatchOver(func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+		settleGameMatch(lobbyID, winnerUserID)
 	})
 
 	authHandler := handlers.AuthHandler{Cfg: cfg}
@@ -111,6 +120,7 @@ func main() {
 	matchHandler := handlers.MatchHandler{Hub: lobbyStore}
 	leaderboardHandler := handlers.LeaderboardHandler{}
 	soloHandler := handlers.SoloHandler{}
+	turboHandler := handlers.TurboHandler{Manager: turboManager}
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -228,8 +238,64 @@ func main() {
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
 
-	registerTiltMaze(router, cfg, lobbyStore, func(lobbyID string, winnerUserID *uint) {
-		settleLobbyMatch(lobbyStore, lobbyID, winnerUserID)
+	tiltMazeManager := registerTiltMaze(router, cfg, lobbyStore, func(lobbyID string, winnerUserID *uint) {
+		settleGameMatch(lobbyID, winnerUserID)
+	})
+
+	pauseGame := func(game, lobbyID string) {
+		switch realtime.NormalizeGameCode(game) {
+		case "disc_football":
+			discFootballManager.PauseLobby(lobbyID)
+		case "dunk_shot":
+			dunkShotManager.PauseLobby(lobbyID)
+		case "grid_lock":
+			gridLockManager.PauseLobby(lobbyID)
+		case "flappy_race", "doodle_jump", "crossy_pvp", "coin_chase", "cube_fill", "draw_drop", "ballz_duel":
+			arcadeRaceManager.PauseLobby(lobbyID)
+		case "neon_matrix":
+			neonMatrixManager.PauseLobby(lobbyID)
+		case "paper_io":
+			paperManager.PauseLobby(lobbyID)
+		case "plinko_pvp":
+			plinkoManager.PauseLobby(lobbyID)
+		case "descent_duel":
+			physicsDuelManager.PauseLobby(lobbyID)
+		case "tower_stack":
+			towerManager.PauseLobby(lobbyID)
+		case "tilt_maze":
+			tiltMazeManager.PauseLobby(lobbyID)
+		}
+	}
+	resumeGame := func(game, lobbyID string, pausedFor time.Duration) {
+		switch realtime.NormalizeGameCode(game) {
+		case "disc_football":
+			discFootballManager.ResumeLobby(lobbyID, pausedFor)
+		case "dunk_shot":
+			dunkShotManager.ResumeLobby(lobbyID, pausedFor)
+		case "grid_lock":
+			gridLockManager.ResumeLobby(lobbyID, pausedFor)
+		case "flappy_race", "doodle_jump", "crossy_pvp", "coin_chase", "cube_fill", "draw_drop", "ballz_duel":
+			arcadeRaceManager.ResumeLobby(lobbyID, pausedFor)
+		case "neon_matrix":
+			neonMatrixManager.ResumeLobby(lobbyID, pausedFor)
+		case "paper_io":
+			paperManager.ResumeLobby(lobbyID, pausedFor)
+		case "plinko_pvp":
+			plinkoManager.ResumeLobby(lobbyID, pausedFor)
+		case "descent_duel":
+			physicsDuelManager.ResumeLobby(lobbyID, pausedFor)
+		case "tower_stack":
+			towerManager.ResumeLobby(lobbyID, pausedFor)
+		case "tilt_maze":
+			tiltMazeManager.ResumeLobby(lobbyID, pausedFor)
+		}
+	}
+	reactionManager.SetPresenceCallbacks(reactions.PresenceCallbacks{
+		Pause:  pauseGame,
+		Resume: resumeGame,
+		Resolve: func(_ string, lobbyID string, winnerUserID *uint) {
+			settleGameMatch(lobbyID, winnerUserID)
+		},
 	})
 
 	router.GET("/ws/disc-football/:lobby_id", discFootballWSHandler.Connect)
@@ -300,6 +366,14 @@ func main() {
 		matches.Use(middleware.AuthRequired(cfg))
 		{
 			matches.POST("/finish", matchHandler.Finish)
+		}
+
+		turboAPI := api.Group("/turbo")
+		turboAPI.Use(middleware.AuthRequired(cfg))
+		{
+			turboAPI.POST("/queue", turboHandler.Join)
+			turboAPI.GET("/status", turboHandler.Status)
+			turboAPI.DELETE("/queue", turboHandler.Cancel)
 		}
 
 		solo := api.Group("/solo")

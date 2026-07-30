@@ -104,6 +104,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  useEffect(() => {
+    if (!token) return;
+
+    let requestInFlight = false;
+    const syncBalance = async () => {
+      if (requestInFlight || document.visibilityState === 'hidden') return;
+      requestInFlight = true;
+      try {
+        await refreshBalance();
+      } catch {
+        // The next focus/interval tick will retry without interrupting the game.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      void syncBalance();
+    }, 2500);
+    const handleFocus = () => void syncBalance();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void syncBalance();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [refreshBalance, token]);
+
   const exchangeTonToGame = useCallback(async (coins: number) => {
     const response = await api.wallet.exchangeTonToGame(coins);
     let nextBalance: Balance = { ton: 0, game: 0 };

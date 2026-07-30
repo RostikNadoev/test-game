@@ -12,8 +12,18 @@ export type QuickReactionMessage = {
   sent_at_ms: number;
 };
 
+export type GamePresenceMessage = {
+  type: 'presence';
+  status: 'active' | 'waiting' | 'resolved';
+  disconnected_user_id?: number;
+  deadline_ms?: number;
+  winner_user_id?: number;
+  draw?: boolean;
+};
+
 type ReactionHandlers = {
   onReaction?: (message: QuickReactionMessage) => void;
+  onPresence?: (message: GamePresenceMessage) => void;
   onClose?: () => void;
 };
 
@@ -46,6 +56,17 @@ const isReactionMessage = (value: unknown): value is QuickReactionMessage => {
   );
 };
 
+const isPresenceMessage = (value: unknown): value is GamePresenceMessage => {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Record<string, unknown>;
+  return (
+    message.type === 'presence' &&
+    (message.status === 'active' ||
+      message.status === 'waiting' ||
+      message.status === 'resolved')
+  );
+};
+
 export const connectReactionsSocket = ({
   lobbyId,
   token,
@@ -65,6 +86,7 @@ export const connectReactionsSocket = ({
     try {
       const message = JSON.parse(event.data) as unknown;
       if (isReactionMessage(message)) handlers?.onReaction?.(message);
+      else if (isPresenceMessage(message)) handlers?.onPresence?.(message);
     } catch {
       // A malformed optional reaction must never interrupt the game.
     }

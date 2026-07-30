@@ -271,6 +271,7 @@ type Session struct {
 	winner         *uint
 	finished       bool
 	closed         bool
+	paused         bool
 	lastActive     time.Time
 	revision       int64
 	lastBroadcast  time.Time
@@ -379,13 +380,18 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 
 	now := time.Now()
 	s.lastActive = now
-	s.updatePhaseLocked(now)
+	if !s.paused {
+		s.updatePhaseLocked(now)
+	}
 
 	switch msg.Type {
 	case "state":
 		s.sendStateToLocked(userID, "state", true)
 		s.sendSyncLocked(userID, now)
 	case "move":
+		if s.paused {
+			return
+		}
 		s.moveLocked(userID, msg)
 	case "sync_ack":
 		s.acceptSyncAckLocked(userID, msg.Nonce, now)
@@ -572,6 +578,10 @@ func (s *Session) loop() {
 			if s.closed {
 				s.mu.Unlock()
 				return
+			}
+			if s.paused {
+				s.mu.Unlock()
+				continue
 			}
 			s.updatePhaseLocked(now)
 

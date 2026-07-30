@@ -261,6 +261,7 @@ type Session struct {
 	finished      bool
 	settled       bool
 	closed        bool
+	paused        bool
 	lastActive    time.Time
 	loopStop      chan struct{}
 	loopDone      chan struct{}
@@ -368,12 +369,17 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 
 	now := time.Now()
 	s.lastActive = now
-	s.updatePhaseLocked(now)
+	if !s.paused {
+		s.updatePhaseLocked(now)
+	}
 
 	switch msg.Type {
 	case "state":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
 	case "ready":
+		if s.paused {
+			return
+		}
 		if s.phase != PhaseWaiting {
 			s.sendToLocked(userID, s.publicStateForLocked(userID, "already started"))
 			return
@@ -385,14 +391,29 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 			s.broadcastStateLocked("ready")
 		}
 	case "angle":
+		if s.paused {
+			return
+		}
 		s.setAngleLocked(userID, msg.BallIndex, msg.Angle, now)
 	case "submit_angles":
+		if s.paused {
+			return
+		}
 		s.submitAnglesLocked(userID, now)
 	case "action":
+		if s.paused {
+			return
+		}
 		s.applyActionLocked(userID, msg, now)
 	case "submit_actions":
+		if s.paused {
+			return
+		}
 		s.submitActionsLocked(userID, now)
 	case "reveal_done":
+		if s.paused {
+			return
+		}
 		s.revealDoneLocked(userID, now)
 	default:
 		s.sendErrorLocked(userID, "unknown command")
@@ -441,6 +462,10 @@ func (s *Session) loop() {
 			if s.closed {
 				s.mu.Unlock()
 				return
+			}
+			if s.paused {
+				s.mu.Unlock()
+				continue
 			}
 			s.updatePhaseLocked(now)
 			if s.lastBroadcast.IsZero() || now.Sub(s.lastBroadcast) >= stateInterval {

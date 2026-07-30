@@ -284,3 +284,18 @@ export type SoloHistoryResponse = {
   rounds: SoloHistoryRound[];
   count: number;
 };
+
+export type TurboStatus = {
+  status: 'idle' | 'searching' | 'playing' | 'finished';
+  series_id?: string;
+  bet_coins: number;
+  round?: number;
+  games?: string[];
+  wins?: Record<string, number>;
+  player_ids?: number[];
+  current_game?: string;
+  current_lobby?: Lobby;
+  winner_user_id?: number;
+  draw?: boolean;
+  last_round_winner_user_id?: number;
+};

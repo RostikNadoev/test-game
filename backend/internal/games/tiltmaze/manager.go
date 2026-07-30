@@ -99,6 +99,7 @@ type room struct {
 	winnerUserID uint
 	draw         bool
 	settled      bool
+	paused       bool
 }
 
 type Manager struct {
@@ -220,7 +221,7 @@ func (m *Manager) applyPosition(r *room, userID uint, x, y float64, wantsFinish 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.phase != PhasePlaying || now.Before(r.matchStart) || !now.Before(r.matchEnd) {
+	if r.paused || r.phase != PhasePlaying || now.Before(r.matchStart) || !now.Before(r.matchEnd) {
 		return
 	}
 
@@ -282,6 +283,10 @@ func (m *Manager) runRoom(r *room) {
 		shouldStop := false
 
 		r.mu.Lock()
+		if r.paused {
+			r.mu.Unlock()
+			continue
+		}
 		switch r.phase {
 		case PhaseCountdown:
 			if !now.Before(r.matchStart) {

@@ -223,6 +223,9 @@ type Session struct {
 	lastActivity    time.Time
 	settled         bool
 	closed          bool
+	paused          bool
+	pauseCountdown  time.Duration
+	pauseMatch      time.Duration
 
 	countdownTimer   *time.Timer
 	matchTimer       *time.Timer
@@ -368,7 +371,7 @@ func (s *Session) Handle(userID uint, message ClientMessage) {
 
 func (s *Session) applyEventLocked(userID uint, message ClientMessage) {
 	now := time.Now()
-	if s.phase != PhasePlaying || now.After(s.matchEndsAt) {
+	if s.paused || s.phase != PhasePlaying || now.After(s.matchEndsAt) {
 		return
 	}
 	if message.EventID == 0 || message.EventID <= s.lastEventID[userID] {
@@ -783,7 +786,7 @@ func (s *Session) startCountdownLocked() {
 	s.countdownTimer = time.AfterFunc(CountdownDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.closed || s.settled || s.phase != PhaseCountdown {
+		if s.paused || s.closed || s.settled || s.phase != PhaseCountdown {
 			return
 		}
 		if len(s.clients) < 2 {
@@ -808,7 +811,9 @@ func (s *Session) startPlayingLocked() {
 	s.matchTimer = time.AfterFunc(duration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.finishLocked()
+		if !s.paused {
+			s.finishLocked()
+		}
 	})
 }
 

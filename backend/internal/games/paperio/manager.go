@@ -194,6 +194,7 @@ type Session struct {
 	winner      *uint
 	finished    bool
 	closed      bool
+	paused      bool
 	lastActive  time.Time
 	rng         *rand.Rand
 	loopStop    chan struct{}
@@ -307,6 +308,9 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 	case "state":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, true, "state"))
 	case "ready":
+		if s.paused {
+			return
+		}
 		s.ready[userID] = true
 		if s.phase == "waiting" && len(s.clients) == len(s.playerOrder) && s.allReadyLocked() {
 			s.scheduleStartLocked(time.Now())
@@ -314,6 +318,9 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 			s.broadcastStateLocked(false, "ready")
 		}
 	case "direction":
+		if s.paused {
+			return
+		}
 		s.setDirectionLocked(userID, msg.Dir, time.Now())
 	default:
 		s.sendErrorLocked(userID, "unknown command")
@@ -357,6 +364,10 @@ func (s *Session) loop() {
 			if s.closed {
 				s.mu.Unlock()
 				return
+			}
+			if s.paused {
+				s.mu.Unlock()
+				continue
 			}
 			if s.phase == "countdown" && !now.Before(s.startAt) {
 				s.phase = "playing"

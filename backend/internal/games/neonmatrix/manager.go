@@ -215,6 +215,8 @@ type Session struct {
 
 	onMatchOver func(lobbyID string, winnerUserID *uint)
 	matchClosed bool
+	paused      bool
+	pauseRemaining time.Duration
 	lastActive  time.Time
 }
 
@@ -323,6 +325,9 @@ func (s *Session) Handle(userID uint, message ClientMessage) {
 	case "state", "ready":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, "state"))
 	case "pick":
+		if s.paused {
+			return
+		}
 		s.pickLocked(userID, message.Value)
 	default:
 		s.sendErrorLocked(userID, "unknown command")
@@ -342,7 +347,7 @@ func (s *Session) startCountdownLocked() {
 	s.countdownTimer = time.AfterFunc(CountdownDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.phase == PhaseCountdown {
+		if !s.paused && s.phase == PhaseCountdown {
 			s.startPickingLocked(false)
 		}
 	})
@@ -383,7 +388,7 @@ func (s *Session) startPickingLocked(nextRound bool) {
 	s.pickTimer = time.AfterFunc(PickDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.phase == PhasePicking {
+		if !s.paused && s.phase == PhasePicking {
 			_ = s.beginSpinLocked()
 		}
 	})
@@ -459,7 +464,9 @@ func (s *Session) beginSpinLocked() error {
 	s.revealTimer = time.AfterFunc(BlindSpinDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.beginLandingLocked()
+		if !s.paused {
+			s.beginLandingLocked()
+		}
 	})
 
 	return nil
@@ -477,7 +484,9 @@ func (s *Session) beginLandingLocked() {
 	s.landingTimer = time.AfterFunc(LandingDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.finishLandingLocked()
+		if !s.paused {
+			s.finishLandingLocked()
+		}
 	})
 }
 
@@ -510,7 +519,9 @@ func (s *Session) finishLandingLocked() {
 	s.damageTimer = time.AfterFunc(DamageFlightDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.applyDamageLocked()
+		if !s.paused {
+			s.applyDamageLocked()
+		}
 	})
 }
 
@@ -534,7 +545,9 @@ func (s *Session) applyDamageLocked() {
 	s.resultTimer = time.AfterFunc(PostDamageDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.finishImpactLocked()
+		if !s.paused {
+			s.finishImpactLocked()
+		}
 	})
 }
 

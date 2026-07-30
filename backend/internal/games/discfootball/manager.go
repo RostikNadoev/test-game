@@ -348,6 +348,7 @@ type Session struct {
 	started      bool
 	settled      bool
 	closed       bool
+	paused       bool
 	lastActivity time.Time
 
 	onMatchOver func(lobbyID string, winnerUserID uint)
@@ -458,12 +459,8 @@ func (s *Session) Attach(
 			delete(s.clients, userID)
 		}
 
-		if !s.closed && s.winnerUserID == 0 {
-			s.phase = PhaseWaiting
+		if !s.closed && s.winnerUserID == 0 && !s.paused {
 			s.zeroVelocitiesLocked()
-			s.clearPlansLocked()
-			s.planningDeadline = time.Time{}
-			s.revealDeadline = time.Time{}
 
 			s.broadcastLocked(
 				s.publicStateLocked(),
@@ -527,6 +524,9 @@ func (s *Session) Handle(
 		}
 
 	case "plan":
+		if s.paused {
+			return
+		}
 		s.applyPlanLocked(
 			userID,
 			msg.Plans,
@@ -682,6 +682,10 @@ func (s *Session) run() {
 				s.mu.Unlock()
 				return
 			}
+			if s.paused {
+				s.mu.Unlock()
+				continue
+			}
 
 			s.stepLocked(dt, now)
 
@@ -707,12 +711,7 @@ func (s *Session) stepLocked(
 ) {
 	if len(s.clients) != len(s.playerOrder) &&
 		s.phase != PhaseMatchOver {
-		if s.phase != PhaseWaiting {
-			s.phase = PhaseWaiting
-			s.zeroVelocitiesLocked()
-			s.clearPlansLocked()
-		}
-
+		s.zeroVelocitiesLocked()
 		return
 	}
 

@@ -53,7 +53,7 @@ const toErrorMessage = (error: unknown, fallback: string) => {
 export const Lobbies = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshBalance } = useAuth();
   const { localize, tr } = useLanguage();
 
   const [lobbies, setLobbies] = useState<Lobby[]>([]);
@@ -129,6 +129,7 @@ export const Lobbies = () => {
 
     try {
       const response = await api.lobbies.join(lobby.id);
+      await refreshBalance();
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`);
     } catch (requestError) {
       setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));

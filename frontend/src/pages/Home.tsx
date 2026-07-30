@@ -1,12 +1,14 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, RefreshCw, UsersRound } from 'lucide-react';
+import { Loader2, RefreshCw, Shuffle, Swords, UsersRound, Zap } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
 import { api, ApiError, type Lobby } from '../api';
 import { GAME_CATALOG, getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import heroBanner from '../assets/home/banner.webp';
 import { useLanguage } from '../i18n/LanguageContext';
+import { TurboMatchmakingOverlay } from '../components/Turbo/TurboMatchmakingOverlay';
+import { enterTurboRound } from '../components/Turbo/turboNavigation';
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
 
@@ -173,7 +175,7 @@ const LobbyRefreshSpinner = () => {
 
 export const Home = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshBalance } = useAuth();
   const { locale, localize, tr } = useLanguage();
   const formatNumber = (value: number) =>
     new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value);
@@ -183,6 +185,8 @@ export const Home = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [isTurboSearching, setIsTurboSearching] = useState(false);
+  const [turboError, setTurboError] = useState<string | null>(null);
 
   const joinableOrOwnLobbies = useMemo(() => {
     return lobbies.filter((lobby) => {
@@ -213,6 +217,69 @@ export const Home = () => {
   useIntervalWhenVisible(() => {
     void loadLobbies(false);
   }, 8000);
+
+  const acceptTurboStatus = useCallback(
+    async (status: Awaited<ReturnType<typeof api.turbo.status>>) => {
+      if (status.status === 'idle') {
+        setIsTurboSearching(false);
+        return false;
+      }
+      if (status.status !== 'playing') return false;
+      await refreshBalance();
+      setIsTurboSearching(false);
+      setTurboError(null);
+      return enterTurboRound(status, navigate);
+    },
+    [navigate, refreshBalance],
+  );
+
+  useEffect(() => {
+    if (!isTurboSearching) return;
+
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const status = await api.turbo.status();
+        if (!disposed) await acceptTurboStatus(status);
+      } catch (error) {
+        if (!disposed) {
+          setTurboError(toErrorMessage(error, tr('Matchmaking error', 'Ошибка поиска матча')));
+        }
+      }
+    };
+
+    const timer = window.setInterval(() => void poll(), 800);
+    void poll();
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [acceptTurboStatus, isTurboSearching, tr]);
+
+  const startTurbo = async () => {
+    if ((user?.balance_game ?? 0) < 100) {
+      setLobbyError(tr('Not enough coins for Turbo mode', 'Недостаточно монет для режима Turbo'));
+      return;
+    }
+
+    setTurboError(null);
+    setIsTurboSearching(true);
+    try {
+      await acceptTurboStatus(await api.turbo.join());
+    } catch (error) {
+      setTurboError(toErrorMessage(error, tr('Matchmaking error', 'Ошибка поиска матча')));
+    }
+  };
+
+  const cancelTurbo = async () => {
+    setIsTurboSearching(false);
+    setTurboError(null);
+    try {
+      await acceptTurboStatus(await api.turbo.cancel());
+    } catch {
+      // The local overlay can close even if the queue was already matched.
+    }
+  };
 
   const openGame = (game: CatalogGame) => {
     if (game.launchMode === 'direct') {
@@ -249,6 +316,7 @@ export const Home = () => {
 
     try {
       const response = await api.lobbies.join(lobby.id);
+      await refreshBalance();
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`);
     } catch (error) {
       setLobbyError(toErrorMessage(error, tr('Unknown error', 'Неизвестная ошибка')));
@@ -399,6 +467,40 @@ export const Home = () => {
         )}
       </section>
 
+      <section className="animate-fade-in turbo-home-section">
+        <button
+          type="button"
+          onClick={() => void startTurbo()}
+          className="pressable turbo-home-card"
+        >
+          <div className="turbo-home-glow" aria-hidden="true" />
+          <div className="turbo-home-top">
+            <span className="turbo-home-badge"><Zap size={11} /> Turbo</span>
+            <span className="turbo-home-stake"><GameCoinIcon className="h-[18px] w-[18px]" /> 100</span>
+          </div>
+
+          <div className="turbo-home-copy">
+            <h2>{tr('Random arena series', 'Серия случайных арен')}</h2>
+            <p>
+              {tr(
+                'One tap, one opponent and three games selected from the full collection.',
+                'Одно нажатие, один соперник и три игры из всей коллекции.',
+              )}
+            </p>
+          </div>
+
+          <div className="turbo-home-rules">
+            <span><Shuffle size={13} /> {tr('3 random games', '3 случайные игры')}</span>
+            <span><Swords size={13} /> Best of 3</span>
+          </div>
+
+          <div className="turbo-home-play">
+            {tr('Find opponent', 'Найти соперника')}
+            <Zap size={14} />
+          </div>
+        </button>
+      </section>
+
       <section id="games-grid" className="animate-fade-in home-games-reveal scroll-mt-4">
         <div className="section-heading mb-2.5">
           <div>
@@ -444,6 +546,10 @@ export const Home = () => {
           })}
         </div>
       </section>
+
+      {isTurboSearching && (
+        <TurboMatchmakingOverlay error={turboError} onCancel={() => void cancelTurbo()} />
+      )}
     </main>
   );
 };

@@ -7,11 +7,12 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   connectReactionsSocket,
   QUICK_REACTION_EMOJI,
   type QuickReactionEmoji,
+  type GamePresenceMessage,
   type ReactionsSocketClient,
 } from '../../api/reactionsWs';
 import { useAuth } from '../../auth/useAuth';
@@ -31,10 +32,13 @@ type VisibleReaction = {
 
 export const QuickEmojiChat = () => {
   const location = useLocation();
-  const { token, user } = useAuth();
+  const navigate = useNavigate();
+  const { token, user, refreshBalance, refreshProfile } = useAuth();
   const { tr } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [visibleReactions, setVisibleReactions] = useState<VisibleReaction[]>([]);
+  const [presence, setPresence] = useState<GamePresenceMessage | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(10);
   const socketRef = useRef<ReactionsSocketClient | null>(null);
   const removalTimersRef = useRef<number[]>([]);
   const routeState = (location.state || {}) as LocationState;
@@ -83,6 +87,9 @@ export const QuickEmojiChat = () => {
               side: message.user_id === Number(user.id) ? 'own' : 'opponent',
             });
           },
+          onPresence: (message) => {
+            setPresence(message.status === 'active' ? null : message);
+          },
           onClose: () => {
             socketRef.current = null;
             if (!disposed) {
@@ -103,6 +110,19 @@ export const QuickEmojiChat = () => {
     };
   }, [lobbyId, showReaction, token, user?.id]);
 
+  useEffect(() => {
+    if (presence?.status !== 'waiting' || !presence.deadline_ms) return;
+
+    const update = () => {
+      setSecondsLeft(
+        Math.max(0, Math.ceil((presence.deadline_ms! - Date.now()) / 1000)),
+      );
+    };
+    update();
+    const timer = window.setInterval(update, 200);
+    return () => window.clearInterval(timer);
+  }, [presence]);
+
   useEffect(
     () => () => {
       removalTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -115,6 +135,21 @@ export const QuickEmojiChat = () => {
       setIsOpen(false);
     }
   };
+
+  const leaveResolvedMatch = async () => {
+    await Promise.allSettled([refreshBalance(), refreshProfile()]);
+    window.sessionStorage.removeItem(ACTIVE_LOBBY_STORAGE_KEY);
+    window.sessionStorage.removeItem('twingames_active_game');
+    navigate('/', { replace: true });
+  };
+
+  const didWin =
+    presence?.status === 'resolved' &&
+    Boolean(presence.winner_user_id) &&
+    presence.winner_user_id === Number(user?.id);
+  const isTurboSeries = Boolean(
+    window.sessionStorage.getItem('twingames_turbo_series_id'),
+  );
 
   return (
     <>
@@ -159,6 +194,55 @@ export const QuickEmojiChat = () => {
           </span>
         ))}
       </div>
+
+      {presence?.status === 'waiting' && (
+        <div className="game-presence-overlay" role="status">
+          <div className="game-presence-card">
+            <div className="game-presence-orbit" aria-hidden="true" />
+            <span className="game-presence-kicker">
+              {tr('Connection paused', 'Соединение приостановлено')}
+            </span>
+            <strong>{secondsLeft}</strong>
+            <h2>{tr('Waiting for opponent', 'Ожидаем соперника')}</h2>
+            <p>
+              {tr(
+                'The match will continue automatically if they return.',
+                'Матч продолжится автоматически, если игрок вернётся.',
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {presence?.status === 'resolved' && !isTurboSeries && (
+        <div className="game-presence-overlay is-result" role="dialog" aria-modal="true">
+          <div className="game-presence-card">
+            <span className="game-presence-kicker">
+              {tr('Match complete', 'Матч завершён')}
+            </span>
+            <strong className="game-presence-result-icon">
+              {presence.draw ? '–' : didWin ? '✓' : '×'}
+            </strong>
+            <h2>
+              {presence.draw
+                ? tr('Draw', 'Ничья')
+                : didWin
+                  ? tr('Technical victory', 'Техническая победа')
+                  : tr('Defeat', 'Поражение')}
+            </h2>
+            <p>
+              {presence.draw
+                ? tr('Both players left. The bet has been returned.', 'Оба игрока вышли. Ставка возвращена.')
+                : didWin
+                  ? tr('The opponent did not return. Your prize has been credited.', 'Соперник не вернулся. Приз зачислен.')
+                  : tr('The reconnect timer expired.', 'Время на возвращение истекло.')}
+            </p>
+            <button type="button" onClick={() => void leaveResolvedMatch()}>
+              {tr('Continue', 'Продолжить')}
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

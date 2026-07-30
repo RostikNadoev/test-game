@@ -106,6 +106,7 @@ export const LobbyRoom = () => {
 
     try {
       await api.lobbies.leave(lobby.id);
+      await refreshBalance();
       navigate(`/game/${lobby.game}/lobbies`, { replace: true });
     } catch (requestError) {
       setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));

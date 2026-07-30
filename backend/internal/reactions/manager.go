@@ -2,6 +2,7 @@ package reactions
 
 import (
 	"errors"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,7 +10,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const sendCooldown = 650 * time.Millisecond
+const (
+	sendCooldown          = 650 * time.Millisecond
+	disconnectGracePeriod = 10 * time.Second
+)
 
 var allowedEmoji = map[string]struct{}{
 	"🔥": {},
@@ -17,10 +21,30 @@ var allowedEmoji = map[string]struct{}{
 	"👏": {},
 }
 
+type PresenceCallbacks struct {
+	Pause   func(game, lobbyID string)
+	Resume  func(game, lobbyID string, pausedFor time.Duration)
+	Resolve func(game, lobbyID string, winnerUserID *uint)
+}
+
 type Manager struct {
-	mu       sync.RWMutex
-	rooms    map[string]map[*client]struct{}
-	sequence atomic.Uint64
+	mu        sync.Mutex
+	rooms     map[string]*room
+	sequence  atomic.Uint64
+	callbacks PresenceCallbacks
+}
+
+type room struct {
+	lobbyID      string
+	game         string
+	playerIDs    []uint
+	clients      map[*client]struct{}
+	started      bool
+	waiting      bool
+	resolved     bool
+	pausedAt     time.Time
+	deadline     time.Time
+	resolveTimer *time.Timer
 }
 
 type client struct {
@@ -43,8 +67,60 @@ type ReactionMessage struct {
 	SentAtMS int64  `json:"sent_at_ms"`
 }
 
+type PresenceMessage struct {
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	DisconnectedUserID uint   `json:"disconnected_user_id,omitempty"`
+	DeadlineMS         int64  `json:"deadline_ms,omitempty"`
+	WinnerUserID       *uint  `json:"winner_user_id,omitempty"`
+	Draw               bool   `json:"draw,omitempty"`
+}
+
 func NewManager() *Manager {
-	return &Manager{rooms: make(map[string]map[*client]struct{})}
+	return &Manager{rooms: make(map[string]*room)}
+}
+
+func (m *Manager) SetPresenceCallbacks(callbacks PresenceCallbacks) {
+	m.mu.Lock()
+	m.callbacks = callbacks
+	m.mu.Unlock()
+}
+
+func (m *Manager) Complete(lobbyID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	r := m.rooms[lobbyID]
+	if r == nil {
+		return
+	}
+	r.resolved = true
+	r.waiting = false
+	if r.resolveTimer != nil {
+		r.resolveTimer.Stop()
+		r.resolveTimer = nil
+	}
+}
+
+func (m *Manager) Prepare(lobbyID, game string, playerIDs []uint) {
+	ids := append([]uint(nil), playerIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.rooms[lobbyID]
+	if current == nil {
+		m.rooms[lobbyID] = &room{
+			lobbyID:   lobbyID,
+			game:      game,
+			playerIDs: ids,
+			clients:   make(map[*client]struct{}),
+		}
+		return
+	}
+	current.game = game
+	current.playerIDs = ids
 }
 
 func IsAllowedEmoji(emoji string) bool {
@@ -96,34 +172,188 @@ func (m *Manager) Connect(lobbyID string, userID uint, conn *websocket.Conn) err
 }
 
 func (m *Manager) register(lobbyID string, current *client) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	var resume func()
+	var presence PresenceMessage
 
-	if m.rooms[lobbyID] == nil {
-		m.rooms[lobbyID] = make(map[*client]struct{})
+	m.mu.Lock()
+	r := m.rooms[lobbyID]
+	if r == nil {
+		r = &room{lobbyID: lobbyID, clients: make(map[*client]struct{})}
+		m.rooms[lobbyID] = r
 	}
-	m.rooms[lobbyID][current] = struct{}{}
+	r.clients[current] = struct{}{}
+
+	connected := connectedUsers(r)
+	if len(connected) == len(r.playerIDs) && len(r.playerIDs) == 2 {
+		if !r.started {
+			r.started = true
+		}
+		if r.waiting && !r.resolved {
+			pausedFor := time.Since(r.pausedAt)
+			if r.resolveTimer != nil {
+				r.resolveTimer.Stop()
+				r.resolveTimer = nil
+			}
+			r.waiting = false
+			r.deadline = time.Time{}
+			callback := m.callbacks.Resume
+			game := r.game
+			resume = func() {
+				if callback != nil {
+					callback(game, lobbyID, pausedFor)
+				}
+			}
+		}
+		presence = PresenceMessage{Type: "presence", Status: "active"}
+	} else if r.waiting {
+		presence = presenceWaitingMessage(r, connected)
+	}
+	m.mu.Unlock()
+
+	if resume != nil {
+		resume()
+	}
+	if presence.Status != "" {
+		m.broadcast(lobbyID, presence)
+	}
 }
 
 func (m *Manager) unregister(lobbyID string, current *client) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	var pause func()
+	var presence PresenceMessage
 
-	room := m.rooms[lobbyID]
-	delete(room, current)
-	if len(room) == 0 {
-		delete(m.rooms, lobbyID)
+	m.mu.Lock()
+	r := m.rooms[lobbyID]
+	if r == nil {
+		m.mu.Unlock()
+		return
+	}
+	delete(r.clients, current)
+
+	connected := connectedUsers(r)
+	if r.started && !r.waiting && !r.resolved && len(connected) < len(r.playerIDs) {
+		now := time.Now()
+		r.waiting = true
+		r.pausedAt = now
+		r.deadline = now.Add(disconnectGracePeriod)
+		callback := m.callbacks.Pause
+		game := r.game
+		pause = func() {
+			if callback != nil {
+				callback(game, lobbyID)
+			}
+		}
+		r.resolveTimer = time.AfterFunc(disconnectGracePeriod, func() {
+			m.resolveDisconnect(lobbyID)
+		})
+	}
+	if r.waiting {
+		presence = presenceWaitingMessage(r, connected)
+	}
+	m.mu.Unlock()
+
+	if pause != nil {
+		pause()
+	}
+	if presence.Status != "" {
+		m.broadcast(lobbyID, presence)
 	}
 }
 
-func (m *Manager) broadcast(lobbyID string, message ReactionMessage) {
-	m.mu.RLock()
-	room := m.rooms[lobbyID]
-	clients := make([]*client, 0, len(room))
-	for current := range room {
-		clients = append(clients, current)
+func (m *Manager) resolveDisconnect(lobbyID string) {
+	var callback func()
+	var message PresenceMessage
+
+	m.mu.Lock()
+	r := m.rooms[lobbyID]
+	if r == nil || !r.waiting || r.resolved {
+		m.mu.Unlock()
+		return
 	}
-	m.mu.RUnlock()
+
+	connected := connectedUsers(r)
+	if len(connected) == len(r.playerIDs) {
+		m.mu.Unlock()
+		return
+	}
+
+	r.resolved = true
+	r.waiting = false
+	r.resolveTimer = nil
+
+	var winner *uint
+	if len(connected) == 1 {
+		id := connected[0]
+		winner = &id
+	}
+	message = PresenceMessage{
+		Type:         "presence",
+		Status:       "resolved",
+		WinnerUserID: winner,
+		Draw:         winner == nil,
+	}
+	resolve := m.callbacks.Resolve
+	game := r.game
+	callback = func() {
+		if resolve != nil {
+			resolve(game, lobbyID, winner)
+		}
+	}
+	m.mu.Unlock()
+
+	m.broadcast(lobbyID, message)
+	callback()
+}
+
+func presenceWaitingMessage(r *room, connected []uint) PresenceMessage {
+	var disconnected uint
+	for _, id := range r.playerIDs {
+		if !containsID(connected, id) {
+			disconnected = id
+			break
+		}
+	}
+	return PresenceMessage{
+		Type:               "presence",
+		Status:             "waiting",
+		DisconnectedUserID: disconnected,
+		DeadlineMS:         r.deadline.UnixMilli(),
+	}
+}
+
+func connectedUsers(r *room) []uint {
+	seen := make(map[uint]bool)
+	for current := range r.clients {
+		seen[current.userID] = true
+	}
+	users := make([]uint, 0, len(seen))
+	for id := range seen {
+		users = append(users, id)
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
+	return users
+}
+
+func containsID(ids []uint, wanted uint) bool {
+	for _, id := range ids {
+		if id == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) broadcast(lobbyID string, message any) {
+	m.mu.Lock()
+	r := m.rooms[lobbyID]
+	clients := make([]*client, 0)
+	if r != nil {
+		clients = make([]*client, 0, len(r.clients))
+		for current := range r.clients {
+			clients = append(clients, current)
+		}
+	}
+	m.mu.Unlock()
 
 	for _, current := range clients {
 		_ = current.writeJSON(message)

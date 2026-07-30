@@ -152,6 +152,9 @@ type Session struct {
 	lastActivity    time.Time
 	settled         bool
 	closed          bool
+	paused          bool
+	pauseCountdown  time.Duration
+	pauseMatch      time.Duration
 
 	countdownTimer *time.Timer
 	matchTimer     *time.Timer
@@ -295,7 +298,7 @@ func (s *Session) Handle(userID uint, message ClientMessage) {
 }
 
 func (s *Session) applyScoreLocked(userID uint, eventID uint64, grade string) {
-	if s.phase != PhasePlaying || time.Now().After(s.matchEndsAt) {
+	if s.paused || s.phase != PhasePlaying || time.Now().After(s.matchEndsAt) {
 		return
 	}
 	if eventID == 0 || eventID <= s.lastEventID[userID] {
@@ -340,7 +343,7 @@ func (s *Session) applyScoreLocked(userID uint, eventID uint64, grade string) {
 }
 
 func (s *Session) applyMissLocked(userID uint, eventID uint64) {
-	if s.phase != PhasePlaying || time.Now().After(s.matchEndsAt) {
+	if s.paused || s.phase != PhasePlaying || time.Now().After(s.matchEndsAt) {
 		return
 	}
 	if eventID == 0 || eventID <= s.lastEventID[userID] {
@@ -391,7 +394,7 @@ func (s *Session) startCountdownLocked() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		if s.closed || s.settled || s.phase != PhaseCountdown {
+		if s.paused || s.closed || s.settled || s.phase != PhaseCountdown {
 			return
 		}
 		if len(s.clients) < 2 {
@@ -414,7 +417,9 @@ func (s *Session) startPlayingLocked() {
 	s.matchTimer = time.AfterFunc(MatchDuration, func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.finishLocked()
+		if !s.paused {
+			s.finishLocked()
+		}
 	})
 }
 

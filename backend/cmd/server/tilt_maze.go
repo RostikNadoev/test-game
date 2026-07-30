@@ -14,7 +14,7 @@ func registerTiltMaze(
 	cfg *config.Config,
 	lobbyStore *realtime.Hub,
 	onMatchOver func(lobbyID string, winnerUserID *uint),
-) {
+) *tiltmaze.Manager {
 	manager := tiltmaze.NewManager()
 	manager.SetOnMatchOver(onMatchOver)
 	go manager.CleanupLoop()
@@ -26,4 +26,5 @@ func registerTiltMaze(
 	}
 
 	router.GET("/ws/tilt-maze/:lobby_id", handler.Connect)
+	return manager
 }

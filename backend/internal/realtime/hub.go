@@ -92,6 +92,9 @@ func (h *Hub) snapshot(activeOnly bool, game string) []LobbyDTO {
 	game = NormalizeGameCode(game)
 	out := make([]LobbyDTO, 0, len(h.lobbies))
 	for _, lobby := range h.lobbies {
+		if lobby.Transient {
+			continue
+		}
 		if activeOnly && !isActiveLobby(lobby) {
 			continue
 		}
@@ -105,6 +108,50 @@ func (h *Hub) snapshot(activeOnly bool, game string) []LobbyDTO {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out
+}
+
+func (h *Hub) UserHasActiveLobby(userID uint) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.userInActiveLobbyLocked(userID)
+}
+
+func (h *Hub) CreateManagedLobby(playerIDs []uint, name, game string, betCoins float64) (*Lobby, error) {
+	if len(playerIDs) != LobbyMaxPlayers || playerIDs[0] == 0 || playerIDs[1] == 0 || playerIDs[0] == playerIDs[1] {
+		return nil, errors.New("managed lobby requires exactly two players")
+	}
+	game = NormalizeGameCode(game)
+	if !IsSupportedGame(game) {
+		return nil, errors.New("unsupported game")
+	}
+
+	now := time.Now().UTC()
+	lobby := &Lobby{
+		ID:         randomID(),
+		Name:       strings.TrimSpace(name),
+		Game:       game,
+		Status:     LobbyStatusPlaying,
+		BetCoins:   betCoins,
+		MaxPlayers: LobbyMaxPlayers,
+		Players: map[uint]bool{
+			playerIDs[0]: true,
+			playerIDs[1]: true,
+		},
+		CreatedBy: playerIDs[0],
+		CreatedAt: now,
+		UpdatedAt: now,
+		Transient: true,
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, id := range playerIDs {
+		if h.userInActiveLobbyLocked(id) {
+			return nil, errors.New("user already has active lobby")
+		}
+	}
+	h.lobbies[lobby.ID] = lobby
+	return cloneLobby(lobby), nil
 }
 
 func (h *Hub) GetLobby(lobbyID string) (*Lobby, error) {
@@ -541,7 +588,7 @@ func (h *Hub) FinishLobby(lobbyID string) (*Lobby, error) {
 
 	finishedAt := time.Now().UTC()
 
-	if h.db != nil {
+	if h.db != nil && !lobby.Transient {
 		persisted := cloneLobby(lobby)
 		persisted.Status = LobbyStatusFinished
 		persisted.UpdatedAt = finishedAt
@@ -580,7 +627,7 @@ func (h *Hub) cleanupFinished() {
 		}
 		snap := cloneLobby(lobby)
 		delete(h.lobbies, id)
-		if h.db != nil {
+		if h.db != nil && !lobby.Transient {
 			if err := deleteLobbyRecord(h.db, id); err != nil {
 				log.Printf("lobby cleanup failed for %s: %v", id, err)
 				h.lobbies[id] = snap

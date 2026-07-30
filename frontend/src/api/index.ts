@@ -6,6 +6,7 @@ import { walletApi } from './wallet';
 import { matchesApi } from './matches';
 import { leaderboardApi } from './leaderboard';
 import { soloApi } from './solo';
+import { turboApi } from './turbo';
 import type { HealthResponse } from './types';
 
 export * from './types';
@@ -17,6 +18,7 @@ export * from './lobbies';
 export * from './matches';
 export * from './leaderboard';
 export * from './solo';
+export * from './turbo';
 export { getOpponentInfo, resolvePlayersInfo } from './lobbyUtils';
 
 export const api = {
@@ -30,4 +32,5 @@ export const api = {
   matches: matchesApi,
   leaderboard: leaderboardApi,
   solo: soloApi,
+  turbo: turboApi,
 };

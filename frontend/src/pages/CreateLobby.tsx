@@ -20,7 +20,7 @@ const toErrorMessage = (error: unknown, fallback: string) => {
 export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshBalance } = useAuth();
   const { localize, tr } = useLanguage();
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -81,6 +81,7 @@ export const CreateLobby = () => {
         game: gameId,
         bet_coins: Math.floor(bet),
       });
+      await refreshBalance();
 
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`, {
         replace: true,
