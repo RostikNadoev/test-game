@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 type IntroPhase = 'searching' | 'matched' | 'closing';
 
@@ -88,10 +89,10 @@ const getInitials = (name: string) => {
   return initials || 'TG';
 };
 
-const getTelegramUser = () => {
+const getTelegramUser = (fallbackName: string) => {
   if (typeof window === 'undefined') {
     return {
-      name: 'Игрок',
+      name: fallbackName,
       photoUrl: '',
     };
   }
@@ -102,7 +103,7 @@ const getTelegramUser = () => {
   const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
 
   return {
-    name: fullName || user?.username || 'Игрок',
+    name: fullName || user?.username || fallbackName,
     photoUrl: user?.photo_url || '',
   };
 };
@@ -128,11 +129,15 @@ export const GameIntroOverlay = ({
   opponentName,
   opponentPhotoUrl,
 }: Props) => {
+  const { localize, tr } = useLanguage();
   const [phase, setPhase] = useState<IntroPhase>(isMatched ? 'matched' : 'searching');
   const onCompleteRef = useRef(onComplete);
   const completeStartedRef = useRef(false);
 
-  const user = useMemo(() => getTelegramUser(), []);
+  const user = useMemo(
+    () => getTelegramUser(tr('Player', 'Игрок')),
+    [tr],
+  );
 
   const opponentIndex = useMemo(() => getOpponentIndex(gameTitle), [gameTitle]);
 
@@ -757,15 +762,15 @@ export const GameIntroOverlay = ({
           <div className="gi-head">
             <div className="gi-kicker">
               <i />
-              Matchmaking
+              {tr('Matchmaking', 'Поиск матча')}
             </div>
 
             <div className="gi-title">{gameTitle}</div>
 
             <div className="gi-subtitle">
               {showMatchedState
-                ? 'Противник найден. Готовим арену.'
-                : 'Ждем второго игрока для дуэли.'}
+                ? tr('Opponent found. Preparing the arena.', 'Противник найден. Готовим арену.')
+                : tr('Waiting for a second player for the duel.', 'Ждем второго игрока для дуэли.')}
             </div>
           </div>
 
@@ -785,7 +790,7 @@ export const GameIntroOverlay = ({
 
               <div className="gi-label">
                 <i />
-                You
+                {tr('You', 'Вы')}
               </div>
             </div>
 
@@ -809,12 +814,12 @@ export const GameIntroOverlay = ({
               </div>
 
               <div className="gi-name">
-                {showMatchedState ? realOpponentName : 'Поиск'}
+                {showMatchedState ? realOpponentName : tr('Searching', 'Поиск')}
               </div>
 
               <div className="gi-label">
                 <i />
-                {showMatchedState ? 'Opponent' : 'Wait'}
+                {showMatchedState ? tr('Opponent', 'Соперник') : tr('Wait', 'Ожидание')}
               </div>
             </div>
           </div>
@@ -823,7 +828,7 @@ export const GameIntroOverlay = ({
             <div className="gi-status">
               <div className="gi-status-text">
                 <i />
-                {showMatchedState ? 'Connected' : 'Searching'}
+                {showMatchedState ? tr('Connected', 'Подключено') : tr('Searching', 'Поиск')}
               </div>
 
               <div className="gi-status-code">
@@ -847,13 +852,15 @@ export const GameIntroOverlay = ({
                 ) : (
                   <span className="gi-cancel-icon" aria-hidden="true" />
                 )}
-                {isCancelling ? 'Отменяем поиск' : 'Отменить поиск'}
+                {isCancelling
+                  ? tr('Cancelling search', 'Отменяем поиск')
+                  : tr('Cancel search', 'Отменить поиск')}
               </button>
             )}
 
             {!showMatchedState && cancelError && (
               <div className="gi-cancel-error" role="alert">
-                {cancelError}
+                {localize(cancelError)}
               </div>
             )}
           </div>

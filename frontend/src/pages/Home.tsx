@@ -6,6 +6,7 @@ import { api, ApiError, type Lobby } from '../api';
 import { GAME_CATALOG, getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import heroBanner from '../assets/home/banner.webp';
+import { useLanguage } from '../i18n/LanguageContext';
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
 
@@ -20,9 +21,6 @@ type GameWithMedia = CatalogGame & {
 type GameTone = 'blue' | 'orange' | 'violet' | 'green';
 
 const games = GAME_CATALOG as GameWithMedia[];
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value);
 
 const getGameImage = (game?: GameWithMedia) => {
   if (!game) return undefined;
@@ -41,10 +39,10 @@ const getGameTone = (index: number): GameTone => {
   return tones[index % tones.length];
 };
 
-const toErrorMessage = (error: unknown) => {
+const toErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return 'Неизвестная ошибка';
+  return fallback;
 };
 
 const GameCoinIcon = ({ className = '' }: { className?: string }) => {
@@ -156,6 +154,8 @@ const GameImage = ({
 };
 
 const LobbyRefreshSpinner = () => {
+  const { tr } = useLanguage();
+
   return (
     <div className="lobby-refresh-state">
       <div className="refresh-energy-spinner" aria-hidden="true">
@@ -165,7 +165,7 @@ const LobbyRefreshSpinner = () => {
       </div>
 
       <p className="text-safe mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-        Refreshing
+        {tr('Refreshing', 'Обновление')}
       </p>
     </div>
   );
@@ -174,6 +174,9 @@ const LobbyRefreshSpinner = () => {
 export const Home = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { locale, localize, tr } = useLanguage();
+  const formatNumber = (value: number) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value);
 
   const [lobbies, setLobbies] = useState<Lobby[]>([]);
   const [isLoadingLobbies, setIsLoadingLobbies] = useState(true);
@@ -200,12 +203,12 @@ export const Home = () => {
       setLobbies(response.lobbies);
       setLobbyError(null);
     } catch (error) {
-      setLobbyError(toErrorMessage(error));
+      setLobbyError(toErrorMessage(error, tr('Unknown error', 'Неизвестная ошибка')));
     } finally {
       setIsLoadingLobbies(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [tr]);
 
   useIntervalWhenVisible(() => {
     void loadLobbies(false);
@@ -237,7 +240,7 @@ export const Home = () => {
     const userCoins = Math.floor(user?.balance_game ?? 0);
 
     if (lobby.bet_coins > userCoins) {
-      setLobbyError('Недостаточно монет для этой ставки');
+      setLobbyError(tr('Not enough coins for this bet', 'Недостаточно монет для этой ставки'));
       return;
     }
 
@@ -248,7 +251,7 @@ export const Home = () => {
       const response = await api.lobbies.join(lobby.id);
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`);
     } catch (error) {
-      setLobbyError(toErrorMessage(error));
+      setLobbyError(toErrorMessage(error, tr('Unknown error', 'Неизвестная ошибка')));
       await loadLobbies(false);
     } finally {
       setJoiningLobbyId(null);
@@ -272,12 +275,12 @@ export const Home = () => {
 
           <div className="hero-stat-text hero-stat-left">
             <span className="hero-stat-value">{games.length}</span>
-            <span className="hero-stat-label">Games</span>
+            <span className="hero-stat-label">{tr('Games', 'Игры')}</span>
           </div>
 
           <div className="hero-stat-text hero-stat-right">
             <span className="hero-stat-value">{user?.stats?.rating ?? 1000}</span>
-            <span className="hero-stat-label">Rating</span>
+            <span className="hero-stat-label">{tr('Rating', 'Рейтинг')}</span>
           </div>
         </div>
       </section>
@@ -286,10 +289,10 @@ export const Home = () => {
         <div className="section-heading">
           <div>
             <p className="section-kicker section-kicker-orange">
-              Waiting Players
+              {tr('Waiting players', 'Ожидают игроков')}
             </p>
             <h2 className="section-title">
-              Active Lobbies
+              {tr('Active lobbies', 'Активные лобби')}
             </h2>
           </div>
 
@@ -297,7 +300,7 @@ export const Home = () => {
             type="button"
             onClick={() => void loadLobbies(true)}
             disabled={isRefreshing}
-            aria-label="Refresh lobbies"
+            aria-label={tr('Refresh lobbies', 'Обновить лобби')}
             className={`pressable refresh-button ${isRefreshing ? 'is-loading' : ''}`}
           >
             <RefreshCw
@@ -306,14 +309,14 @@ export const Home = () => {
             />
 
             <span className="refresh-button-label">
-              Refresh
+              {tr('Refresh', 'Обновить')}
             </span>
           </button>
         </div>
 
         {lobbyError && (
           <div className="mb-2 rounded-[16px] border border-[#FF7A90]/20 bg-[#FF7A90]/10 px-3 py-2 text-[10px] font-bold leading-snug text-[#FFB3BE]">
-            {lobbyError}
+            {localize(lobbyError)}
           </div>
         )}
 
@@ -372,9 +375,9 @@ export const Home = () => {
                       {isJoining ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : isUserInLobby ? (
-                        'Open'
+                        tr('Open', 'Открыть')
                       ) : (
-                        'Join'
+                        tr('Join', 'Войти')
                       )}
                     </div>
                   </div>
@@ -385,10 +388,10 @@ export const Home = () => {
             {joinableOrOwnLobbies.length === 0 && (
               <div className="app-panel empty-lobby-card min-w-[220px] rounded-[24px] p-4">
                 <p className="text-safe text-[12px] font-bold text-white">
-                  No open lobbies
+                  {tr('No open lobbies', 'Нет открытых лобби')}
                 </p>
                 <p className="text-safe mt-1 text-[9.5px] font-bold text-slate-500">
-                  Waiting rooms will appear here.
+                  {tr('Waiting rooms will appear here.', 'Комнаты ожидания появятся здесь.')}
                 </p>
               </div>
             )}
@@ -400,10 +403,10 @@ export const Home = () => {
         <div className="section-heading mb-2.5">
           <div>
             <p className="section-kicker section-kicker-blue">
-              Collection
+              {tr('Collection', 'Коллекция')}
             </p>
             <h2 className="section-title">
-              Game Arenas
+              {tr('Game arenas', 'Игровые арены')}
             </h2>
           </div>
 
@@ -431,7 +434,9 @@ export const Home = () => {
                   </h3>
 
                   <div className="mini-button mini-button-play w-full">
-                    {game.launchMode === 'direct' ? 'Play' : 'Lobby'}
+                    {game.launchMode === 'direct'
+                      ? tr('Play', 'Играть')
+                      : tr('Lobby', 'Лобби')}
                   </div>
                 </div>
               </button>

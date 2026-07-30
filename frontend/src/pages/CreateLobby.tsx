@@ -5,21 +5,23 @@ import { api, ApiError } from '../api';
 import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const MIN_BET = 10;
 const MAX_BET = 1000;
 const presetBets = [50, 100, 250, 500];
 
-const toErrorMessage = (error: unknown) => {
+const toErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return 'Неизвестная ошибка';
+  return fallback;
 };
 
 export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { localize, tr } = useLanguage();
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const [lobbyName, setLobbyName] = useState('');
@@ -30,7 +32,7 @@ export const CreateLobby = () => {
   const [nameErrorPulse, setNameErrorPulse] = useState(0);
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
-  const gameName = game?.displayName || 'Игра';
+  const gameName = game?.displayName || tr('Game', 'Игра');
   const userCoins = Math.floor(user?.balance_game ?? 0);
   const betProgress = ((bet - MIN_BET) / (MAX_BET - MIN_BET)) * 100;
 
@@ -42,7 +44,7 @@ export const CreateLobby = () => {
     !isSubmitting;
 
   const showNameValidation = () => {
-    setNameError('Заполните название лобби');
+    setNameError(tr('Enter a lobby name', 'Заполните название лобби'));
     setNameErrorPulse((current) => current + 1);
     setError(null);
 
@@ -55,7 +57,7 @@ export const CreateLobby = () => {
     const name = lobbyName.trim();
 
     if (!gameId) {
-      setError('Не найден код игры');
+      setError(tr('Game code not found', 'Не найден код игры'));
       return;
     }
 
@@ -65,7 +67,7 @@ export const CreateLobby = () => {
     }
 
     if (bet > userCoins) {
-      setError('Недостаточно монет');
+      setError(tr('Not enough coins', 'Недостаточно монет'));
       return;
     }
 
@@ -84,7 +86,7 @@ export const CreateLobby = () => {
         replace: true,
       });
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));
     } finally {
       setIsSubmitting(false);
     }
@@ -185,14 +187,14 @@ export const CreateLobby = () => {
           type="button"
           onClick={() => navigate(-1)}
           className="minimal-icon-button press"
-          aria-label="Назад"
+          aria-label={tr('Back', 'Назад')}
         >
           <ChevronLeft size={18} />
         </button>
 
         <div className="minimal-toolbar-title">
-          <span>Новая комната</span>
-          <strong>Создать лобби</strong>
+          <span>{tr('New room', 'Новая комната')}</span>
+          <strong>{tr('Create lobby', 'Создать лобби')}</strong>
         </div>
 
         <div className="minimal-toolbar-spacer" />
@@ -207,14 +209,14 @@ export const CreateLobby = () => {
           )}
         </div>
         <div className="minimal-game-copy">
-          <span>Игра</span>
+          <span>{tr('Game', 'Игра')}</span>
           <h1>{gameName}</h1>
         </div>
       </section>
 
       <section className="minimal-form-card">
         <label className="minimal-field">
-          <span>Название лобби</span>
+          <span>{tr('Lobby name', 'Название лобби')}</span>
 
           <div
             className={`create-lobby-name-wrap ${
@@ -235,7 +237,7 @@ export const CreateLobby = () => {
                   setNameError(null);
                 }
               }}
-              placeholder="Например: Быстрая дуэль"
+              placeholder={tr('For example: Quick duel', 'Например: Быстрая дуэль')}
               maxLength={32}
               aria-invalid={Boolean(nameError)}
               aria-describedby={nameError ? 'create-lobby-name-error' : undefined}
@@ -258,7 +260,7 @@ export const CreateLobby = () => {
 
         <div className="minimal-bet-head">
           <div>
-            <span className="minimal-field-label">Ставка</span>
+            <span className="minimal-field-label">{tr('Bet', 'Ставка')}</span>
             <div className="minimal-bet-value">
               <img src={coinIcon} alt="" draggable={false} />
               <strong>{bet}</strong>
@@ -278,7 +280,7 @@ export const CreateLobby = () => {
             step={10}
             value={bet}
             onChange={(event) => setBet(Number(event.target.value))}
-            aria-label="Ставка"
+            aria-label={tr('Bet', 'Ставка')}
             className="minimal-bet-range"
           />
         </div>
@@ -302,7 +304,7 @@ export const CreateLobby = () => {
         </div>
       </section>
 
-      {error && <div className="minimal-alert">{error}</div>}
+      {error && <div className="minimal-alert">{localize(error)}</div>}
 
       <button
         type="button"
@@ -313,10 +315,10 @@ export const CreateLobby = () => {
         {isSubmitting ? (
           <>
             <Loader2 size={16} className="animate-spin" />
-            Создаём
+            {tr('Creating', 'Создаём')}
           </>
         ) : (
-          'Создать лобби'
+          tr('Create lobby', 'Создать лобби')
         )}
       </button>
     </main>

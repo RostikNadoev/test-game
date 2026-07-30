@@ -16,45 +16,43 @@ import { api } from '../api';
 import type { LeaderboardEntry } from '../api/types';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 import { useAuth } from '../auth/useAuth';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const podiumOrder = [1, 0, 2];
 const podiumTone = ['gold', 'blue', 'orange'];
 
 const prizeCountdown = [
-  { value: '12', label: 'дней' },
-  { value: '08', label: 'часов' },
-  { value: '34', label: 'минут' },
+  { value: '12', label: ['days', 'дней'] },
+  { value: '08', label: ['hours', 'часов'] },
+  { value: '34', label: ['minutes', 'минут'] },
 ] as const;
 
 const prizeTiers = [
   {
     place: '1',
-    placeLabel: 'место',
+    placeLabel: ['place', 'место'],
     tone: 'gold',
     Icon: Crown,
   },
   {
     place: '2',
-    placeLabel: 'место',
+    placeLabel: ['place', 'место'],
     tone: 'silver',
     Icon: Medal,
   },
   {
     place: '3',
-    placeLabel: 'место',
+    placeLabel: ['place', 'место'],
     tone: 'bronze',
     Icon: Medal,
   },
   {
     place: '4–10',
-    placeLabel: 'места',
+    placeLabel: ['places', 'места'],
     tone: 'violet',
     Icon: Trophy,
   },
 ] as const;
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('ru-RU').format(value);
 
 const displayName = (player: LeaderboardEntry) =>
   player.tg_user?.replace(/^@/, '') || `Player #${player.id}`;
@@ -64,6 +62,9 @@ const avatarLabel = (player: LeaderboardEntry) =>
 
 export const Rating = () => {
   const { user } = useAuth();
+  const { locale, localize, tr } = useLanguage();
+  const formatNumber = (value: number) =>
+    new Intl.NumberFormat(locale).format(value);
   const [players, setPlayers] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,13 +83,13 @@ export const Rating = () => {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Не удалось загрузить рейтинг',
+          : tr('Failed to load rating', 'Не удалось загрузить рейтинг'),
       );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [tr]);
 
   useEffect(() => {
     void loadLeaderboard(false);
@@ -96,7 +97,7 @@ export const Rating = () => {
 
   const top3 = players.slice(0, 3);
   const rest = players.slice(3);
-  const yourName = user?.tg_user || 'Игрок';
+  const yourName = user?.tg_user || tr('Player', 'Игрок');
   const yourRating = user?.stats?.rating ?? 0;
   const yourWins = user?.stats?.wins ?? 0;
   const yourRank = useMemo(() => {
@@ -116,12 +117,15 @@ export const Rating = () => {
           <div className="min-w-0">
             <div className="elite-eyebrow elite-prize-eyebrow">
               <Gift size={11} />
-              Сезонные награды
+              {tr('Season rewards', 'Сезонные награды')}
             </div>
 
-            <h1 className="elite-prize-title">Призы за рейтинг</h1>
+            <h1 className="elite-prize-title">{tr('Rating prizes', 'Призы за рейтинг')}</h1>
             <p className="elite-prize-subtitle">
-              Поднимайся в таблице и забирай награду в игровых монетах.
+              {tr(
+                'Climb the standings and claim rewards in game coins.',
+                'Поднимайся в таблице и забирай награду в игровых монетах.',
+              )}
             </p>
           </div>
 
@@ -131,7 +135,7 @@ export const Rating = () => {
               onClick={() => void loadLeaderboard(true)}
               disabled={refreshing}
               className="pressable elite-icon-button"
-              aria-label="Обновить рейтинг"
+              aria-label={tr('Refresh rating', 'Обновить рейтинг')}
             >
               <RefreshCw
                 size={14}
@@ -152,16 +156,16 @@ export const Rating = () => {
               <Clock size={15} />
             </div>
             <div>
-              <span>До выдачи наград</span>
-              <strong>Финал сезона</strong>
+              <span>{tr('Until rewards', 'До выдачи наград')}</span>
+              <strong>{tr('Season finale', 'Финал сезона')}</strong>
             </div>
           </div>
 
-          <div className="elite-prize-time" aria-label="До конца сезона">
+          <div className="elite-prize-time" aria-label={tr('Until season end', 'До конца сезона')}>
             {prizeCountdown.map((item, index) => (
-              <div className="elite-prize-time-item" key={item.label}>
+              <div className="elite-prize-time-item" key={item.label[0]}>
                 <strong>{item.value}</strong>
-                <span>{item.label}</span>
+                <span>{tr(item.label[0], item.label[1])}</span>
                 {index < prizeCountdown.length - 1 && (
                   <i aria-hidden="true">:</i>
                 )}
@@ -187,7 +191,7 @@ export const Rating = () => {
 
               <div className="elite-prize-place">
                 <strong>{place}</strong>
-                <span>{placeLabel}</span>
+                <span>{tr(placeLabel[0], placeLabel[1])}</span>
               </div>
 
               <div className="elite-prize-reward">
@@ -200,14 +204,17 @@ export const Rating = () => {
                 <strong>???</strong>
               </div>
 
-              <span className="elite-prize-currency">игровых монет</span>
+              <span className="elite-prize-currency">{tr('game coins', 'игровых монет')}</span>
             </article>
           ))}
         </div>
 
         <div className="elite-prize-note">
           <Lock size={11} />
-          <span>Размер наград откроется ближе к финалу сезона</span>
+          <span>{tr(
+            'Reward amounts will be revealed closer to the season finale',
+            'Размер наград откроется ближе к финалу сезона',
+          )}</span>
         </div>
       </section>
 
@@ -216,21 +223,21 @@ export const Rating = () => {
           <div className="elite-state-icon">
             <Loader2 size={20} className="animate-spin" />
           </div>
-          <p>Загружаю рейтинг</p>
+          <p>{tr('Loading rating', 'Загружаю рейтинг')}</p>
         </section>
       ) : error ? (
         <section className="elite-state-card elite-panel elite-enter elite-delay-1 is-error">
           <div className="elite-state-icon">
             <RefreshCw size={20} />
           </div>
-          <h2>Не удалось загрузить рейтинг</h2>
-          <p>{error}</p>
+          <h2>{tr('Failed to load rating', 'Не удалось загрузить рейтинг')}</h2>
+          <p>{localize(error)}</p>
           <button
             type="button"
             onClick={() => void loadLeaderboard(false)}
             className="pressable elite-retry-button"
           >
-            Повторить
+            {tr('Try again', 'Повторить')}
           </button>
         </section>
       ) : players.length === 0 ? (
@@ -238,8 +245,8 @@ export const Rating = () => {
           <div className="elite-state-icon">
             <Trophy size={20} />
           </div>
-          <h2>Таблица пока пустая</h2>
-          <p>Сыграй первый матч и займи место в рейтинге.</p>
+          <h2>{tr('The standings are empty', 'Таблица пока пустая')}</h2>
+          <p>{tr('Play your first match and enter the standings.', 'Сыграй первый матч и займи место в рейтинге.')}</p>
         </section>
       ) : (
         <>
@@ -283,9 +290,9 @@ export const Rating = () => {
                     {formatNumber(player.rating)}
                   </strong>
                   <span className="elite-podium-wins">
-                    {formatNumber(player.wins)} побед
+                    {formatNumber(player.wins)} {tr('wins', 'побед')}
                   </span>
-                  {isYou && <div className="elite-you-chip">Вы</div>}
+                  {isYou && <div className="elite-you-chip">{tr('You', 'Вы')}</div>}
                 </article>
               );
             })}
@@ -294,8 +301,8 @@ export const Rating = () => {
           <section className="elite-leaderboard elite-enter elite-delay-2">
             <div className="elite-section-heading">
               <div>
-                <p className="elite-section-kicker">Standings</p>
-                <h2>Таблица</h2>
+                <p className="elite-section-kicker">{tr('Standings', 'Рейтинг')}</p>
+                <h2>{tr('Leaderboard', 'Таблица')}</h2>
               </div>
               <div className="elite-section-icon">
                 <Medal size={16} />
@@ -331,7 +338,7 @@ export const Rating = () => {
                       <p className="elite-list-name">{displayName(player)}</p>
                       <p className="elite-list-meta">
                         <Flame size={10} />
-                        {formatNumber(player.wins)} побед
+                        {formatNumber(player.wins)} {tr('wins', 'побед')}
                       </p>
                     </div>
                     <div className="elite-list-score">
@@ -360,10 +367,10 @@ export const Rating = () => {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="elite-list-name">Вы · {yourName}</p>
+          <p className="elite-list-name">{tr('You', 'Вы')} · {yourName}</p>
           <p className="elite-list-meta">
             <UsersRound size={10} />
-            {formatNumber(yourWins)} побед
+            {formatNumber(yourWins)} {tr('wins', 'побед')}
           </p>
         </div>
         <div className="elite-list-score is-you">

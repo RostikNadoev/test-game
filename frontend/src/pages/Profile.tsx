@@ -14,22 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
-
-const formatNumber = (value: number, maximumFractionDigits = 2) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits }).format(value);
-
-const formatDate = (value?: string) => {
-  if (!value) return '—';
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
-};
+import { useLanguage } from '../i18n/LanguageContext';
 
 const getInitials = (name?: string) => {
   if (!name) return 'TG';
@@ -46,6 +31,21 @@ const getLeague = (rating: number) => {
 
 export const Profile = () => {
   const { user, isLoading, error, refreshProfile } = useAuth();
+  const { locale, localize, tr } = useLanguage();
+  const formatNumber = (value: number, maximumFractionDigits = 2) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value);
+  const formatDate = (value?: string) => {
+    if (!value) return '—';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat(locale, {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  };
 
   if (isLoading) {
     return (
@@ -54,7 +54,7 @@ export const Profile = () => {
           <div className="elite-state-icon">
             <RefreshCw size={20} className="animate-spin" />
           </div>
-          <p>Загружаю профиль</p>
+          <p>{tr('Loading profile', 'Загружаю профиль')}</p>
         </section>
       </main>
     );
@@ -67,8 +67,10 @@ export const Profile = () => {
           <div className="elite-state-icon">
             <UserRound size={20} />
           </div>
-          <h1>Профиль недоступен</h1>
-          <p>{error || 'Открой мини-приложение внутри Telegram.'}</p>
+          <h1>{tr('Profile unavailable', 'Профиль недоступен')}</h1>
+          <p>{error
+            ? localize(error)
+            : tr('Open the mini app inside Telegram.', 'Открой мини-приложение внутри Telegram.')}</p>
         </section>
       </main>
     );
@@ -78,31 +80,31 @@ export const Profile = () => {
   const favoriteMode =
     stats.favorite_mode && stats.favorite_mode !== 'none'
       ? stats.favorite_mode
-      : 'Пока не определён';
+      : tr('Not determined yet', 'Пока не определён');
   const league = getLeague(stats.rating);
   const winrate = Math.max(0, Math.min(100, stats.winrate));
 
   const statItems = [
     {
-      label: 'Победы',
+      label: tr('Wins', 'Победы'),
       value: stats.wins,
       icon: Trophy,
       tone: 'gold',
     },
     {
-      label: 'Поражения',
+      label: tr('Losses', 'Поражения'),
       value: stats.losses,
       icon: ShieldCheck,
       tone: 'muted',
     },
     {
-      label: 'Матчи',
+      label: tr('Matches', 'Матчи'),
       value: stats.total_games,
       icon: Swords,
       tone: 'blue',
     },
     {
-      label: 'Рейтинг',
+      label: tr('Rating', 'Рейтинг'),
       value: stats.rating,
       icon: TrendingUp,
       tone: 'violet',
@@ -139,7 +141,7 @@ export const Profile = () => {
                 <UserRound size={11} />
                 Telegram player
               </div>
-              <h1 className="elite-profile-name">{user.tg_user || 'Игрок'}</h1>
+              <h1 className="elite-profile-name">{user.tg_user || tr('Player', 'Игрок')}</h1>
               <p className="elite-profile-id">ID {user.id} · TG {user.telegram_id}</p>
             </div>
           </div>
@@ -148,7 +150,7 @@ export const Profile = () => {
             type="button"
             onClick={() => void refreshProfile()}
             className="pressable elite-icon-button"
-            aria-label="Обновить профиль"
+            aria-label={tr('Refresh profile', 'Обновить профиль')}
           >
             <RefreshCw size={14} />
           </button>
@@ -160,7 +162,7 @@ export const Profile = () => {
               <Medal size={18} />
             </div>
             <div>
-              <p className="elite-profile-rating-label">Текущая лига</p>
+              <p className="elite-profile-rating-label">{tr('Current league', 'Текущая лига')}</p>
               <div className="elite-profile-rating-line">
                 <strong>{league}</strong>
                 <span>{formatNumber(stats.rating, 0)} RP</span>
@@ -185,7 +187,7 @@ export const Profile = () => {
           <img src={coinIcon} alt="" draggable={false} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="elite-balance-label">Игровой баланс</p>
+          <p className="elite-balance-label">{tr('Game balance', 'Игровой баланс')}</p>
           <p className="elite-balance-value">{formatNumber(user.balance_game)}</p>
         </div>
         <div className="elite-balance-badge">GAME</div>
@@ -211,8 +213,8 @@ export const Profile = () => {
       <section className="elite-profile-summary elite-panel elite-enter elite-delay-3">
         <div className="elite-section-heading">
           <div>
-            <p className="elite-section-kicker">Player overview</p>
-            <h2>Профиль игрока</h2>
+            <p className="elite-section-kicker">{tr('Player overview', 'Обзор игрока')}</p>
+            <h2>{tr('Player profile', 'Профиль игрока')}</h2>
           </div>
           <div className="elite-section-icon">
             <Award size={16} />
@@ -225,9 +227,9 @@ export const Profile = () => {
               <Gamepad2 size={18} />
             </div>
             <div className="min-w-0">
-              <span>Любимый режим</span>
+              <span>{tr('Favorite mode', 'Любимый режим')}</span>
               <strong>{favoriteMode}</strong>
-              <p>Определяется по твоей активности в матчах.</p>
+              <p>{tr('Based on your match activity.', 'Определяется по твоей активности в матчах.')}</p>
             </div>
           </article>
 
@@ -236,16 +238,16 @@ export const Profile = () => {
               <CalendarDays size={18} />
             </div>
             <div className="min-w-0">
-              <span>В клубе с</span>
+              <span>{tr('Member since', 'В клубе с')}</span>
               <strong>{formatDate(user.created_at)}</strong>
-              <p>Дата регистрации аккаунта.</p>
+              <p>{tr('Account registration date.', 'Дата регистрации аккаунта.')}</p>
             </div>
           </article>
         </div>
 
         <div className="elite-profile-footer-note">
           <Sparkles size={14} />
-          <span>Рейтинг обновляется после завершения PvP-матчей.</span>
+          <span>{tr('Rating updates after completed PvP matches.', 'Рейтинг обновляется после завершения PvP-матчей.')}</span>
         </div>
       </section>
     </main>

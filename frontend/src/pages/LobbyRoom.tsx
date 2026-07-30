@@ -6,19 +6,21 @@ import { useAuth } from '../auth/useAuth';
 import { GameIntroOverlay } from '../components/GameIntroOverlay';
 import { getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const POLL_INTERVAL_MS = 2000;
 
-const toErrorMessage = (error: unknown) => {
+const toErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return 'Неизвестная ошибка';
+  return fallback;
 };
 
 export const LobbyRoom = () => {
   const { gameId, lobbyId } = useParams();
   const navigate = useNavigate();
   const { user, refreshBalance } = useAuth();
+  const { localize, tr } = useLanguage();
 
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,7 +44,7 @@ export const LobbyRoom = () => {
 
   const loadLobby = useCallback(async () => {
     if (!lobbyId) {
-      setError('ID лобби не найден');
+      setError(tr('Lobby ID not found', 'ID лобби не найден'));
       setIsLoading(false);
       return;
     }
@@ -52,11 +54,11 @@ export const LobbyRoom = () => {
       setLobby(response.lobby);
       setError(null);
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));
     } finally {
       setIsLoading(false);
     }
-  }, [lobbyId]);
+  }, [lobbyId, tr]);
 
   useIntervalWhenVisible(() => {
     void loadLobby();
@@ -106,7 +108,7 @@ export const LobbyRoom = () => {
       await api.lobbies.leave(lobby.id);
       navigate(`/game/${lobby.game}/lobbies`, { replace: true });
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));
     } finally {
       setIsLeaving(false);
     }
@@ -118,7 +120,7 @@ export const LobbyRoom = () => {
         <div className="grid justify-items-center gap-3">
           <Loader2 size={34} className="animate-spin text-[#F2C766]" />
           <p className="text-[11px] font-black uppercase tracking-[0.18em] text-white/42">
-            Загружаем лобби
+            {tr('Loading lobby', 'Загружаем лобби')}
           </p>
         </div>
       </main>
@@ -133,16 +135,16 @@ export const LobbyRoom = () => {
           className="press mb-3 inline-flex h-10 items-center gap-1.5 rounded-[14px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/58"
         >
           <ChevronLeft size={16} />
-          Назад
+          {tr('Back', 'Назад')}
         </button>
 
         <section className="relative overflow-hidden rounded-[26px] border border-white/[0.08] bg-white/[0.04] p-5 text-center">
           <AlertCircle size={34} className="mx-auto text-[#FF7A90]" />
           <p className="mt-3 text-[16px] font-black tracking-[-0.04em]">
-            Лобби не найдено
+            {tr('Lobby not found', 'Лобби не найдено')}
           </p>
           <p className="mt-2 text-[12px] font-bold leading-snug text-white/42">
-            {error}
+            {localize(error)}
           </p>
         </section>
       </main>
@@ -157,7 +159,7 @@ export const LobbyRoom = () => {
           className="press mb-3 inline-flex h-10 items-center gap-1.5 rounded-[14px] border border-white/[0.07] bg-white/[0.05] px-3 text-[11px] font-black text-white/58"
         >
           <ChevronLeft size={16} />
-          Назад
+          {tr('Back', 'Назад')}
         </button>
 
         <section className="relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0a0a11]/80 p-4">
@@ -170,20 +172,20 @@ export const LobbyRoom = () => {
             </div>
 
             <h1 className="mt-3 text-[28px] font-black leading-[0.95] tracking-[-0.07em]">
-              {lobby?.name || 'Лобби'}
+              {lobby?.name || tr('Lobby', 'Лобби')}
             </h1>
 
             <p className="mt-2 text-[12px] font-bold leading-snug text-white/45">
               {isMatched
-                ? 'Соперник подключился. Сейчас начнется игра.'
-                : 'Комната создана. Ждем второго игрока.'}
+                ? tr('Opponent connected. The game is about to start.', 'Соперник подключился. Сейчас начнется игра.')
+                : tr('Room created. Waiting for a second player.', 'Комната создана. Ждем второго игрока.')}
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               <div className="rounded-[18px] border border-white/[0.08] bg-black/25 p-3">
                 <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-[0.16em] text-white/32">
                   <Coins size={12} />
-                  Ставка
+                  {tr('Bet', 'Ставка')}
                 </div>
                 <p className="mt-1 text-[18px] font-black tabular-nums text-[#F2C766]">
                   {lobby?.bet_coins ?? 0}
@@ -193,7 +195,7 @@ export const LobbyRoom = () => {
               <div className="rounded-[18px] border border-white/[0.08] bg-black/25 p-3">
                 <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-[0.16em] text-white/32">
                   <Users size={12} />
-                  Игроки
+                  {tr('Players', 'Игроки')}
                 </div>
                 <p className="mt-1 text-[18px] font-black tabular-nums text-[#52FFE5]">
                   {lobby?.player_count ?? 0}/{lobby?.max_players ?? 2}
@@ -208,13 +210,13 @@ export const LobbyRoom = () => {
                 className="press mt-4 flex w-full items-center justify-center gap-2 rounded-[18px] border border-white/[0.08] bg-white/[0.05] py-3 text-[11px] font-black uppercase tracking-[0.14em] text-white/48 disabled:opacity-60"
               >
                 {isLeaving && <Loader2 size={15} className="animate-spin" />}
-                Выйти из лобби
+                {tr('Leave lobby', 'Выйти из лобби')}
               </button>
             )}
 
             {error && (
               <p className="mt-3 rounded-[14px] border border-[#FF7A90]/20 bg-[#FF7A90]/10 px-3 py-2 text-[10px] font-bold leading-snug text-[#FFB3BE]">
-                {error}
+                {localize(error)}
               </p>
             )}
           </div>

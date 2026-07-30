@@ -4,6 +4,7 @@ import { ArrowDownToLine, ArrowRight, ArrowUpFromLine, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import tonIcon from '../../assets/header/ton.svg';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 type WalletTab = 'deposit' | 'withdraw';
 
@@ -15,13 +16,10 @@ type WalletModalProps = {
 const TON_TO_GAME_RATE = 10;
 const GAME_TO_TON_RATE = 1 / TON_TO_GAME_RATE;
 
-const tabs: Array<{ id: WalletTab; label: string; icon: LucideIcon }> = [
-  { id: 'deposit', label: 'Ввод', icon: ArrowDownToLine },
-  { id: 'withdraw', label: 'Вывод', icon: ArrowUpFromLine },
+const tabs: Array<{ id: WalletTab; label: readonly [string, string]; icon: LucideIcon }> = [
+  { id: 'deposit', label: ['Deposit', 'Ввод'], icon: ArrowDownToLine },
+  { id: 'withdraw', label: ['Withdraw', 'Вывод'], icon: ArrowUpFromLine },
 ];
-
-const formatBalance = (value: number, maximumFractionDigits = 4) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits }).format(value);
 
 const parseAmount = (value: string) => {
   const parsed = Number(value.replace(',', '.'));
@@ -43,6 +41,9 @@ const sanitizeAmount = (value: string) => {
 
 export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const { user } = useAuth();
+  const { locale, tr } = useLanguage();
+  const formatBalance = (value: number, maximumFractionDigits = 4) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isVisible, setIsVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<WalletTab>('deposit');
@@ -92,17 +93,17 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
 
   return (
     <div className={`wallet-simple-root ${isVisible ? 'is-open' : 'is-closed'}`}>
-      <button type="button" className="wallet-simple-backdrop" onClick={onClose} aria-label="Закрыть" />
+      <button type="button" className="wallet-simple-backdrop" onClick={onClose} aria-label={tr('Close', 'Закрыть')} />
 
       <section role="dialog" aria-modal="true" aria-labelledby="wallet-simple-title" className="wallet-simple-sheet">
         <div className="wallet-simple-handle" />
 
         <header className="wallet-simple-header">
           <div>
-            <span>Баланс</span>
-            <h2 id="wallet-simple-title">Кошелёк</h2>
+            <span>{tr('Balance', 'Баланс')}</span>
+            <h2 id="wallet-simple-title">{tr('Wallet', 'Кошелёк')}</h2>
           </div>
-          <button type="button" onClick={onClose} className="wallet-simple-close press" aria-label="Закрыть">
+          <button type="button" onClick={onClose} className="wallet-simple-close press" aria-label={tr('Close', 'Закрыть')}>
             <X size={17} />
           </button>
         </header>
@@ -117,7 +118,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
           </div>
         </div>
 
-        <div className="wallet-simple-tabs" role="tablist" aria-label="Операция">
+        <div className="wallet-simple-tabs" role="tablist" aria-label={tr('Operation', 'Операция')}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -132,7 +133,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
                 className={`wallet-simple-tab press ${isActive ? 'is-active' : ''}`}
               >
                 <Icon size={14} />
-                {tab.label}
+                {tr(tab.label[0], tab.label[1])}
               </button>
             );
           })}
@@ -140,7 +141,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
 
         <div className="wallet-simple-conversion">
           <label className="wallet-simple-amount">
-            <span>Отдаёшь</span>
+            <span>{tr('You pay', 'Отдаёшь')}</span>
             <div>
               <input
                 value={amount}
@@ -160,7 +161,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
           </div>
 
           <div className="wallet-simple-result">
-            <span>Получишь</span>
+            <span>{tr('You receive', 'Получишь')}</span>
             <div>
               <strong>{result > 0 ? formatBalance(result, isDeposit ? 2 : 4) : '0'}</strong>
               <span className="wallet-simple-currency">
@@ -176,7 +177,9 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
         </div>
 
         <button type="button" disabled className="wallet-simple-submit">
-          {isDeposit ? 'Пополнение скоро будет доступно' : 'Вывод скоро будет доступен'}
+          {isDeposit
+            ? tr('Deposits will be available soon', 'Пополнение скоро будет доступно')
+            : tr('Withdrawals will be available soon', 'Вывод скоро будет доступен')}
         </button>
       </section>
     </div>

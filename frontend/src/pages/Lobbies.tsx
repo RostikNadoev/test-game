@@ -22,6 +22,7 @@ import CrossyPreview from '../assets/preview/crossy.webm';
 import FillPreview from '../assets/preview/fill.webm';
 import TiltPreview from '../assets/preview/tilt.webm';
 import BallsPreview from '../assets/preview/balls.webm';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -43,16 +44,17 @@ const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {
   ballz_duel: BallsPreview,
 };
 
-const toErrorMessage = (error: unknown) => {
+const toErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
-  return 'Неизвестная ошибка';
+  return fallback;
 };
 
 export const Lobbies = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { localize, tr } = useLanguage();
 
   const [lobbies, setLobbies] = useState<Lobby[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +64,7 @@ export const Lobbies = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
-  const gameName = game?.displayName || gameId || 'Игра';
+  const gameName = game?.displayName || gameId || tr('Game', 'Игра');
   const userCoins = Math.floor(user?.balance_game ?? 0);
   const previewVideo = (gameId && GAME_PREVIEW_BY_CODE[gameId]) || defaultGamePreview;
 
@@ -80,7 +82,7 @@ export const Lobbies = () => {
   const loadLobbies = useCallback(
     async (withSpinner = false) => {
       if (!gameId) {
-        setError('Не найден код игры');
+        setError(tr('Game code not found', 'Не найден код игры'));
         setIsLoading(false);
         return;
       }
@@ -92,13 +94,13 @@ export const Lobbies = () => {
         setLobbies(response.lobbies);
         setError(null);
       } catch (requestError) {
-        setError(toErrorMessage(requestError));
+        setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
       }
     },
-    [gameId],
+    [gameId, tr],
   );
 
   useIntervalWhenVisible(() => {
@@ -118,7 +120,7 @@ export const Lobbies = () => {
     if (!canJoin) return;
 
     if (lobby.bet_coins > userCoins) {
-      setError('Недостаточно монет для этой ставки');
+      setError(tr('Not enough coins for this bet', 'Недостаточно монет для этой ставки'));
       return;
     }
 
@@ -129,7 +131,7 @@ export const Lobbies = () => {
       const response = await api.lobbies.join(lobby.id);
       navigate(`/game/${response.lobby.game}/lobby/${response.lobby.id}`);
     } catch (requestError) {
-      setError(toErrorMessage(requestError));
+      setError(toErrorMessage(requestError, tr('Unknown error', 'Неизвестная ошибка')));
       await loadLobbies(false);
     } finally {
       setJoiningLobbyId(null);
@@ -139,12 +141,12 @@ export const Lobbies = () => {
   return (
     <main className="minimal-page app-scroll app-page">
       <div className="minimal-toolbar">
-        <button type="button" onClick={() => navigate(-1)} className="minimal-icon-button press" aria-label="Назад">
+        <button type="button" onClick={() => navigate(-1)} className="minimal-icon-button press" aria-label={tr('Back', 'Назад')}>
           <ChevronLeft size={18} />
         </button>
 
         <div className="minimal-toolbar-title">
-          <span>Лобби</span>
+          <span>{tr('Lobbies', 'Лобби')}</span>
           <strong>{gameName}</strong>
         </div>
 
@@ -154,7 +156,7 @@ export const Lobbies = () => {
             onClick={() => void loadLobbies(true)}
             disabled={isRefreshing}
             className="minimal-icon-button press"
-            aria-label="Обновить"
+            aria-label={tr('Refresh', 'Обновить')}
           >
             <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
           </button>
@@ -163,7 +165,7 @@ export const Lobbies = () => {
             onClick={() => gameId && navigate(`/game/${gameId}/create`)}
             disabled={!gameId}
             className="minimal-icon-button minimal-icon-button-primary press"
-            aria-label="Создать лобби"
+            aria-label={tr('Create lobby', 'Создать лобби')}
           >
             <Plus size={18} />
           </button>
@@ -181,7 +183,7 @@ export const Lobbies = () => {
 
         <div className="minimal-game-copy">
           <h1>{gameName}</h1>
-          <p>Выбери свободную комнату или создай свою.</p>
+          <p>{tr('Choose an open room or create your own.', 'Выбери свободную комнату или создай свою.')}</p>
         </div>
 
         <button
@@ -189,43 +191,43 @@ export const Lobbies = () => {
           onClick={() => setIsPreviewOpen(true)}
           className="minimal-preview-button press"
           aria-haspopup="dialog"
-          aria-label={`Открыть превью игры ${gameName}`}
+          aria-label={`${tr('Open game preview', 'Открыть превью игры')} ${gameName}`}
         >
           <Play size={13} fill="currentColor" />
-          <span>Превью</span>
+          <span>{tr('Preview', 'Превью')}</span>
         </button>
       </section>
 
       <section className="minimal-section">
         <div className="minimal-section-head">
           <div>
-            <span className="minimal-section-label">Доступные комнаты</span>
-            <h2>Комнаты</h2>
+            <span className="minimal-section-label">{tr('Available rooms', 'Доступные комнаты')}</span>
+            <h2>{tr('Rooms', 'Комнаты')}</h2>
           </div>
           <span className="minimal-counter">{lobbies.length}</span>
         </div>
 
-        {error && <div className="minimal-alert">{error}</div>}
+        {error && <div className="minimal-alert">{localize(error)}</div>}
 
         {isLoading ? (
           <div className="minimal-state">
             <Loader2 size={26} className="animate-spin" />
-            <span>Загружаем комнаты</span>
+            <span>{tr('Loading rooms', 'Загружаем комнаты')}</span>
           </div>
         ) : lobbies.length === 0 ? (
           <div className="minimal-empty-state">
             <div className="minimal-empty-icon">
               <Users size={23} />
             </div>
-            <h3>Комнат пока нет</h3>
-            <p>Создай первую и дождись соперника.</p>
+            <h3>{tr('No rooms yet', 'Комнат пока нет')}</h3>
+            <p>{tr('Create the first one and wait for an opponent.', 'Создай первую и дождись соперника.')}</p>
             <button
               type="button"
               onClick={() => gameId && navigate(`/game/${gameId}/create`)}
               className="minimal-primary-button press"
             >
               <Plus size={16} />
-              Создать лобби
+              {tr('Create lobby', 'Создать лобби')}
             </button>
           </div>
         ) : (
@@ -238,12 +240,12 @@ export const Lobbies = () => {
               const isDisabled = isJoining || (!isUserInLobby && !canJoin);
 
               const buttonLabel = isJoining
-                ? 'Входим'
+                ? tr('Joining', 'Входим')
                 : isUserInLobby
-                  ? 'Открыть'
+                  ? tr('Open', 'Открыть')
                   : canJoin
-                    ? 'Войти'
-                    : 'Занято';
+                    ? tr('Join', 'Войти')
+                    : tr('Full', 'Занято');
 
               return (
                 <article key={lobby.id} className="minimal-room-card">
@@ -260,7 +262,9 @@ export const Lobbies = () => {
                           <Users size={12} />
                           {lobby.player_count}/{lobby.max_players}
                         </span>
-                        <span>{lobby.status === 'waiting' ? 'Ожидание' : 'В игре'}</span>
+                        <span>{lobby.status === 'waiting'
+                          ? tr('Waiting', 'Ожидание')
+                          : tr('In game', 'В игре')}</span>
                       </div>
                     </div>
                   </div>
@@ -276,7 +280,7 @@ export const Lobbies = () => {
                   </button>
 
                   {!isAffordable && !isUserInLobby && canJoin && (
-                    <span className="minimal-room-warning">Не хватает монет</span>
+                    <span className="minimal-room-warning">{tr('Not enough coins', 'Не хватает монет')}</span>
                   )}
                 </article>
               );
@@ -290,13 +294,13 @@ export const Lobbies = () => {
           className="game-preview-modal"
           role="dialog"
           aria-modal="true"
-          aria-label={`Превью игры ${gameName}`}
+          aria-label={`${tr('Game preview', 'Превью игры')} ${gameName}`}
         >
           <button
             type="button"
             className="game-preview-backdrop"
             onClick={() => setIsPreviewOpen(false)}
-            aria-label="Закрыть превью"
+            aria-label={tr('Close preview', 'Закрыть превью')}
           />
 
           <div className="game-preview-shell">
@@ -315,7 +319,7 @@ export const Lobbies = () => {
               type="button"
               onClick={() => setIsPreviewOpen(false)}
               className="game-preview-close press"
-              aria-label="Закрыть превью"
+              aria-label={tr('Close preview', 'Закрыть превью')}
             >
               <X size={15} strokeWidth={2.4} />
             </button>

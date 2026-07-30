@@ -3,10 +3,9 @@ import { useLocation } from 'react-router-dom';
 import { Loader2, UserRound, Wallet } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { WalletModal } from '../Wallet/WalletModal';
+import { LanguageSwitcher } from './LanguageSwitcher';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+import { useLanguage } from '../../i18n/LanguageContext';
 
 const getInitials = (name?: string) => {
   if (!name) return 'TG';
@@ -16,15 +15,23 @@ const getInitials = (name?: string) => {
 const isSoloPath = (pathname: string) =>
   pathname === '/solo' || pathname.startsWith('/solo/');
 
-export const Header = () => {
+export const Header = ({
+  showLanguageSwitcher = false,
+}: {
+  showLanguageSwitcher?: boolean;
+}) => {
   const location = useLocation();
   const { user, isLoading, error } = useAuth();
+  const { locale, localize, tr } = useLanguage();
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const isSoloSection = isSoloPath(location.pathname);
+  const formatNumber = (value: number) =>
+    new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
   return (
     <>
       <header className="relative z-50 shrink-0 px-[var(--app-gutter)] pt-[var(--app-header-gap)] pb-1">
+        {showLanguageSwitcher && <LanguageSwitcher />}
         <div className={`app-panel header-panel rounded-[23px] px-3 py-2 ${isSoloSection ? 'solo-header-panel' : ''}`}>
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1">
@@ -36,10 +43,10 @@ export const Header = () => {
 
                   <div className="min-w-0">
                     <p className="text-safe text-[11px] font-bold uppercase tracking-[0.12em] text-slate-300">
-                      Loading
+                      {tr('Loading', 'Загрузка')}
                     </p>
                     <p className="text-safe text-[9px] font-bold text-slate-500">
-                      Profile
+                      {tr('Profile', 'Профиль')}
                     </p>
                   </div>
                 </div>
@@ -65,7 +72,7 @@ export const Header = () => {
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
                       <p className="text-safe truncate text-[12px] font-bold text-white">
-                        {user.tg_user || 'Player'}
+                        {user.tg_user || tr('Player', 'Игрок')}
                       </p>
 
                       {isSoloSection && (
@@ -88,10 +95,12 @@ export const Header = () => {
 
                   <div className="min-w-0">
                     <p className="text-safe text-[12px] font-bold text-slate-300">
-                      Not Authorized
+                      {tr('Not authorized', 'Нет авторизации')}
                     </p>
                     <p className="text-safe truncate text-[9px] font-bold uppercase tracking-[0.12em] text-red-300">
-                      {error || 'Open via Telegram'}
+                      {error
+                        ? localize(error)
+                        : tr('Open via Telegram', 'Откройте через Telegram')}
                     </p>
                   </div>
                 </div>
@@ -115,7 +124,7 @@ export const Header = () => {
               <button
                 type="button"
                 onClick={() => setIsWalletOpen(true)}
-                aria-label="Open wallet"
+                aria-label={tr('Open wallet', 'Открыть кошелёк')}
                 className={`pressable wallet-button ${isSoloSection ? 'solo-wallet-button' : ''}`}
               >
                 <Wallet size={15} className="text-slate-300" />

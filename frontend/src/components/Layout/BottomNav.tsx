@@ -1,16 +1,18 @@
 import { type CSSProperties } from 'react';
 import { Gamepad2, Home, Trophy, User } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 const navItems = [
-  { to: '/', icon: Home, label: 'Home' },
-  { to: '/solo', icon: Gamepad2, label: 'Solo' },
-  { to: '/rating', icon: Trophy, label: 'Rating' },
-  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/', icon: Home, label: ['Home', 'Главная'] },
+  { to: '/solo', icon: Gamepad2, label: ['Solo', 'Соло'] },
+  { to: '/rating', icon: Trophy, label: ['Rating', 'Рейтинг'] },
+  { to: '/profile', icon: User, label: ['Profile', 'Профиль'] },
 ];
 
 export const BottomNav = () => {
   const location = useLocation();
+  const { tr } = useLanguage();
 
   const activeIndex = Math.max(
     0,
@@ -61,7 +63,7 @@ export const BottomNav = () => {
                     </span>
 
                     <span className="nav-label">
-                      {item.label}
+                      {tr(item.label[0], item.label[1])}
                     </span>
                   </>
                 )}

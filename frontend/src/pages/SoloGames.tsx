@@ -1,6 +1,7 @@
 import { type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SOLO_GAMES, type SoloGame } from '../data/soloGames';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const SoloArtwork = ({ game, variant = 'card' }: { game: SoloGame; variant?: 'hero' | 'card' }) => {
   return (
@@ -26,6 +27,7 @@ const SoloArtwork = ({ game, variant = 'card' }: { game: SoloGame; variant?: 'he
 
 export const SoloGames = () => {
   const navigate = useNavigate();
+  const { tr } = useLanguage();
   const heroGame = SOLO_GAMES[0];
 
   return (
@@ -35,7 +37,7 @@ export const SoloGames = () => {
 
         <div className="solo-hero-v3-count">
           <span>{SOLO_GAMES.length}</span>
-          <small>игр</small>
+          <small>{tr('games', 'игр')}</small>
         </div>
       </section>
 
@@ -47,7 +49,7 @@ export const SoloGames = () => {
             onClick={() => navigate(game.route)}
             className={`pressable solo-game-v3-card solo-card-${game.tone}`}
             style={{ '--solo-delay': `${index * 45}ms` } as CSSProperties}
-            aria-label={`Open ${game.title}`}
+            aria-label={`${tr('Open', 'Открыть')} ${game.title}`}
           >
             <SoloArtwork game={game} />
 

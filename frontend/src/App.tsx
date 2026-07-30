@@ -369,7 +369,7 @@ function AppShell() {
         />
       )}
 
-      <Header />
+      <Header showLanguageSwitcher={isFooterRoute} />
 
       <main
         ref={mainRef}

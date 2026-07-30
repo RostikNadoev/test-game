@@ -5,6 +5,8 @@ type MatchFinishStatusProps = {
 };
 
 export function MatchFinishStatus({ pending, error, onDismiss }: MatchFinishStatusProps) {
+  const { localize, tr } = useLanguage();
+
   if (!pending && !error) return null;
 
   return (
@@ -29,10 +31,13 @@ export function MatchFinishStatus({ pending, error, onDismiss }: MatchFinishStat
       }}
     >
       {pending ? (
-        <p style={{ margin: 0 }}>Ожидаем подтверждение второго игрока…</p>
+        <p style={{ margin: 0 }}>{tr(
+          'Waiting for the second player to confirm…',
+          'Ожидаем подтверждение второго игрока…',
+        )}</p>
       ) : (
         <div style={{ display: 'grid', gap: '8px' }}>
-          <p style={{ margin: 0 }}>{error}</p>
+          <p style={{ margin: 0 }}>{error ? localize(error) : null}</p>
           {onDismiss ? (
             <button
               type="button"
@@ -48,7 +53,7 @@ export function MatchFinishStatus({ pending, error, onDismiss }: MatchFinishStat
                 cursor: 'pointer',
               }}
             >
-              Закрыть
+              {tr('Close', 'Закрыть')}
             </button>
           ) : null}
         </div>
@@ -56,3 +61,4 @@ export function MatchFinishStatus({ pending, error, onDismiss }: MatchFinishStat
     </div>
   );
 }
+import { useLanguage } from '../../i18n/LanguageContext';
