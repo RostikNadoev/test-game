@@ -16,6 +16,12 @@ import MatrixPreview from '../assets/preview/matrix.webm';
 import BirdPreview from '../assets/preview/bird.webm';
 import CoinPreview from '../assets/preview/coin.webm';
 import DrawPreview from '../assets/preview/draw.webm';
+import DiscPreview from '../assets/preview/disc.webm';
+import JumpPreview from '../assets/preview/jump.webm';
+import CrossyPreview from '../assets/preview/crossy.webm';
+import FillPreview from '../assets/preview/fill.webm';
+import TiltPreview from '../assets/preview/tilt.webm';
+import BallsPreview from '../assets/preview/balls.webm';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -29,6 +35,12 @@ const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {
   flappy_race: BirdPreview,
   coin_chase: CoinPreview,
   draw_drop: DrawPreview,
+  disc_football: DiscPreview,
+  doodle_jump: JumpPreview,
+  crossy_pvp: CrossyPreview,
+  cube_fill: FillPreview,
+  tilt_maze: TiltPreview,
+  ballz_duel: BallsPreview,
 };
 
 const toErrorMessage = (error: unknown) => {
