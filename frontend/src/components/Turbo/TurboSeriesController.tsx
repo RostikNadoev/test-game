@@ -1,4 +1,4 @@
-import { Crown, Loader2, Trophy } from 'lucide-react';
+import { Crown, Trophy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, type TurboStatus } from '../../api';
@@ -19,7 +19,20 @@ export const TurboSeriesController = () => {
   const [status, setStatus] = useState<TurboStatus | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const transitionLobbyRef = useRef('');
+  const latestStatusRef = useRef<TurboStatus | null>(null);
   const seriesID = window.sessionStorage.getItem(TURBO_SERIES_KEY) || '';
+  const transitionLobbyID =
+    status?.status === 'playing' ? status.current_lobby?.id || '' : '';
+  const transitionGameCode =
+    status?.status === 'playing' ? status.current_game || '' : '';
+  const transitionPath = transitionGameCode
+    ? getGameByCode(transitionGameCode)?.playPath
+    : undefined;
+  const transitionRound = status?.status === 'playing' ? status.round : 0;
+
+  useEffect(() => {
+    latestStatusRef.current = status;
+  }, [status]);
 
   const poll = useCallback(async () => {
     if (!seriesID) return;
@@ -41,23 +54,34 @@ export const TurboSeriesController = () => {
   }, [poll, seriesID]);
 
   useEffect(() => {
-    if (status?.status !== 'playing' || !status.current_lobby || !status.current_game) {
+    const nextStatus = latestStatusRef.current;
+    if (
+      nextStatus?.status !== 'playing' ||
+      !nextStatus.current_lobby ||
+      !transitionLobbyID ||
+      !transitionGameCode
+    ) {
       return;
     }
-    const expectedPath = getGameByCode(status.current_game)?.playPath;
     const isCurrentRound =
-      status.current_lobby.id === window.sessionStorage.getItem(ACTIVE_LOBBY_KEY) &&
-      location.pathname === expectedPath;
-    if (isCurrentRound || transitionLobbyRef.current === status.current_lobby.id) return;
+      transitionLobbyID === window.sessionStorage.getItem(ACTIVE_LOBBY_KEY) &&
+      location.pathname === transitionPath;
+    if (isCurrentRound || transitionLobbyRef.current === transitionLobbyID) return;
 
-    transitionLobbyRef.current = status.current_lobby.id;
+    transitionLobbyRef.current = transitionLobbyID;
     setTransitioning(true);
     const timer = window.setTimeout(() => {
-      enterTurboRound(status, navigate);
+      enterTurboRound(nextStatus, navigate);
       setTransitioning(false);
-    }, 1350);
+    }, 920);
     return () => window.clearTimeout(timer);
-  }, [location.pathname, navigate, status]);
+  }, [
+    location.pathname,
+    navigate,
+    transitionGameCode,
+    transitionLobbyID,
+    transitionPath,
+  ]);
 
   const wins = useMemo(() => {
     if (!user?.id || !status?.wins || !status.player_ids) return [0, 0];
@@ -99,10 +123,16 @@ export const TurboSeriesController = () => {
       )}
 
       {transitioning && (
-        <div className="turbo-series-transition">
-          <Loader2 size={22} className="animate-spin" />
-          <span>{tr('Next arena', 'Следующая арена')}</span>
-          <strong>{currentTitle}</strong>
+        <div className="turbo-series-transition" role="status">
+          <div className="turbo-transition-old-page" aria-hidden="true" />
+          <div className="turbo-transition-new-page">
+            <span>{tr('Next arena', 'Следующая арена')}</span>
+            <strong>{currentTitle}</strong>
+            <small>
+              {tr('Round', 'Раунд')} {transitionRound}/3 · {wins[0]} : {wins[1]}
+            </small>
+          </div>
+          <div className="turbo-transition-edge" aria-hidden="true" />
         </div>
       )}
 

@@ -9,6 +9,7 @@ import heroBanner from '../assets/home/banner.webp';
 import { useLanguage } from '../i18n/LanguageContext';
 import { TurboMatchmakingOverlay } from '../components/Turbo/TurboMatchmakingOverlay';
 import { enterTurboRound } from '../components/Turbo/turboNavigation';
+import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
 
@@ -476,7 +477,10 @@ export const Home = () => {
           <div className="turbo-home-glow" aria-hidden="true" />
           <div className="turbo-home-top">
             <span className="turbo-home-badge"><Zap size={11} /> Turbo</span>
-            <span className="turbo-home-stake"><GameCoinIcon className="h-[18px] w-[18px]" /> 100</span>
+            <span className="turbo-home-stake">
+              <img src={coinIcon} alt="" draggable={false} decoding="async" />
+              100
+            </span>
           </div>
 
           <div className="turbo-home-copy">
