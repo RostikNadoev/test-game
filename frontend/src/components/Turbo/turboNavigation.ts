@@ -5,6 +5,17 @@ import { getGameByCode } from '../../data/games';
 export const TURBO_SERIES_KEY = 'twingames_turbo_series_id';
 export const ACTIVE_LOBBY_KEY = 'twingames_active_lobby_id';
 
+export const prepareTurboSeries = (status: TurboStatus) => {
+  if (!status.series_id) return false;
+
+  window.sessionStorage.setItem(TURBO_SERIES_KEY, status.series_id);
+  window.sessionStorage.removeItem(ACTIVE_LOBBY_KEY);
+  window.sessionStorage.removeItem('twingames_active_game');
+  window.sessionStorage.removeItem('twingames_players_info');
+  window.sessionStorage.removeItem('twingames_blackjack_players_info');
+  return true;
+};
+
 export const storeTurboRound = (status: TurboStatus) => {
   const lobby = status.current_lobby;
   if (!lobby || !status.current_game || !status.series_id) return;

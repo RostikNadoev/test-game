@@ -11,6 +11,9 @@ import {
   TURBO_SERIES_KEY,
 } from './turboNavigation';
 
+const ROUND_TRANSITION_NAVIGATE_MS = 2100;
+const ROUND_TRANSITION_TOTAL_MS = 3600;
+
 export const TurboSeriesController = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -19,6 +22,8 @@ export const TurboSeriesController = () => {
   const [status, setStatus] = useState<TurboStatus | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const transitionLobbyRef = useRef('');
+  const transitionNavigateTimerRef = useRef<number | null>(null);
+  const transitionFinishTimerRef = useRef<number | null>(null);
   const latestStatusRef = useRef<TurboStatus | null>(null);
   const seriesID = window.sessionStorage.getItem(TURBO_SERIES_KEY) || '';
   const transitionLobbyID =
@@ -33,6 +38,18 @@ export const TurboSeriesController = () => {
   useEffect(() => {
     latestStatusRef.current = status;
   }, [status]);
+
+  useEffect(
+    () => () => {
+      if (transitionNavigateTimerRef.current !== null) {
+        window.clearTimeout(transitionNavigateTimerRef.current);
+      }
+      if (transitionFinishTimerRef.current !== null) {
+        window.clearTimeout(transitionFinishTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const poll = useCallback(async () => {
     if (!seriesID) return;
@@ -68,13 +85,31 @@ export const TurboSeriesController = () => {
       location.pathname === transitionPath;
     if (isCurrentRound || transitionLobbyRef.current === transitionLobbyID) return;
 
+    if (transitionNavigateTimerRef.current !== null) {
+      window.clearTimeout(transitionNavigateTimerRef.current);
+    }
+    if (transitionFinishTimerRef.current !== null) {
+      window.clearTimeout(transitionFinishTimerRef.current);
+    }
     transitionLobbyRef.current = transitionLobbyID;
     setTransitioning(true);
-    const timer = window.setTimeout(() => {
-      enterTurboRound(nextStatus, navigate);
+    transitionNavigateTimerRef.current = window.setTimeout(() => {
+      const didEnter = enterTurboRound(nextStatus, navigate);
+      transitionNavigateTimerRef.current = null;
+
+      if (!didEnter) {
+        if (transitionFinishTimerRef.current !== null) {
+          window.clearTimeout(transitionFinishTimerRef.current);
+          transitionFinishTimerRef.current = null;
+        }
+        transitionLobbyRef.current = '';
+        setTransitioning(false);
+      }
+    }, ROUND_TRANSITION_NAVIGATE_MS);
+    transitionFinishTimerRef.current = window.setTimeout(() => {
+      transitionFinishTimerRef.current = null;
       setTransitioning(false);
-    }, 920);
-    return () => window.clearTimeout(timer);
+    }, ROUND_TRANSITION_TOTAL_MS);
   }, [
     location.pathname,
     navigate,
@@ -118,7 +153,11 @@ export const TurboSeriesController = () => {
       {status.status === 'playing' && (
         <div className="turbo-series-hud" aria-label="Turbo series score">
           <span>Turbo · {tr('Round', 'Раунд')} {status.round}/3</span>
-          <strong>{wins[0]} : {wins[1]}</strong>
+          <div className="turbo-series-score">
+            <strong>{wins[0]}</strong>
+            <i>:</i>
+            <strong>{wins[1]}</strong>
+          </div>
         </div>
       )}
 

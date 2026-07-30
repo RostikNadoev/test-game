@@ -8,7 +8,7 @@ import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import heroBanner from '../assets/home/banner.webp';
 import { useLanguage } from '../i18n/LanguageContext';
 import { TurboMatchmakingOverlay } from '../components/Turbo/TurboMatchmakingOverlay';
-import { enterTurboRound } from '../components/Turbo/turboNavigation';
+import { prepareTurboSeries } from '../components/Turbo/turboNavigation';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 
 type CatalogGame = (typeof GAME_CATALOG)[number];
@@ -227,11 +227,13 @@ export const Home = () => {
       }
       if (status.status !== 'playing') return false;
       await refreshBalance();
+      const isPrepared = prepareTurboSeries(status);
+      if (!isPrepared) return false;
       setIsTurboSearching(false);
       setTurboError(null);
-      return enterTurboRound(status, navigate);
+      return true;
     },
-    [navigate, refreshBalance],
+    [refreshBalance],
   );
 
   useEffect(() => {
