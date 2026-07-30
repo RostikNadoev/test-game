@@ -1,12 +1,17 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { AuthProvider } from './auth/AuthProvider';
 import { LanguageProvider } from './i18n/LanguageContext';
 import './index.css';
 
 const CHUNK_RELOAD_KEY = 'twingames_stale_chunk_reload';
 const CHUNK_RELOAD_QUERY = '__app_refresh';
+const tonConnectManifestUrl = (
+  import.meta.env.VITE_TONCONNECT_MANIFEST_URL ||
+  `${window.location.origin}/tonconnect-manifest.json`
+).trim();
 
 const getErrorMessage = (value: unknown): string => {
   if (value instanceof Error) {
@@ -141,10 +146,12 @@ ReactDOM.createRoot(
   document.getElementById('root')!,
 ).render(
   <React.StrictMode>
-    <LanguageProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </LanguageProvider>
+    <TonConnectUIProvider manifestUrl={tonConnectManifestUrl}>
+      <LanguageProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </LanguageProvider>
+    </TonConnectUIProvider>
   </React.StrictMode>,
 );

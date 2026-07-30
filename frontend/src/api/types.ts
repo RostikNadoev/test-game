@@ -76,6 +76,10 @@ export type HealthResponse = {
   database: string;
 };
 
+export type OnlinePresenceResponse = {
+  online: number;
+};
+
 export type BackendGame = {
   code: string;
   display_name: string;
@@ -298,4 +302,5 @@ export type TurboStatus = {
   winner_user_id?: number;
   draw?: boolean;
   last_round_winner_user_id?: number;
+  finish_reason?: 'disconnect';
 };

@@ -22,7 +22,7 @@
   --app-bottom-nav-offset: calc(84px + env(safe-area-inset-bottom, 0px) + var(--telegram-bottom-offset));
   --app-page-padding-bottom: var(--app-bottom-nav-offset);
   --app-header-gap: clamp(8px, 2vw, 12px);
-  --app-hero-height: clamp(148px, 34vw, 210px);
+  --app-hero-height: clamp(163px, calc(34vw + 15px), 225px);
   --app-card-radius: clamp(20px, 5vw, 27px);
 
   --bg-primary: #09090d;
@@ -1290,7 +1290,7 @@ html.turbo-series-active .game-result-exit {
 .language-switcher {
   position: absolute;
   top: 12px;
-  left: 50%;
+  left: calc(50% - 18px);
   z-index: 3;
   display: grid;
   grid-template-columns: repeat(2, 50px);
@@ -1308,6 +1308,58 @@ html.turbo-series-active .game-result-exit {
   cursor: pointer;
   isolation: isolate;
   -webkit-tap-highlight-color: transparent;
+}
+
+.header-online-count {
+  position: absolute;
+  top: 12px;
+  left: calc(50% + 44px);
+  z-index: 3;
+  display: inline-flex;
+  height: 38px;
+  min-width: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(12, 12, 18, 0.7);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+.header-online-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #54e594;
+  box-shadow:
+    0 0 0 3px rgba(84, 229, 148, 0.09),
+    0 0 10px rgba(84, 229, 148, 0.72);
+  animation: header-online-glow 2.2s ease-in-out infinite;
+}
+
+.header-online-count strong {
+  min-width: 1ch;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes header-online-glow {
+  50% {
+    opacity: 0.76;
+    box-shadow:
+      0 0 0 4px rgba(84, 229, 148, 0.05),
+      0 0 7px rgba(84, 229, 148, 0.48);
+  }
 }
 
 .language-switcher-thumb {
@@ -1360,6 +1412,10 @@ html.turbo-series-active .game-result-exit {
   .language-switcher-thumb,
   .language-switcher-label {
     transition: none;
+  }
+
+  .header-online-dot {
+    animation: none;
   }
 }
 
@@ -5205,7 +5261,7 @@ html.game-presence-paused .game-presence-overlay * {
 @media (max-width: 360px) {
   :root {
     --app-gutter: 10px;
-    --app-hero-height: 138px;
+    --app-hero-height: 153px;
   }
 
   .header-panel {
@@ -5223,7 +5279,7 @@ html.game-presence-paused .game-presence-overlay * {
 
 @media (max-height: 700px) {
   :root {
-    --app-hero-height: clamp(128px, 30vw, 168px);
+    --app-hero-height: clamp(143px, calc(30vw + 15px), 183px);
     --app-bottom-nav-offset: calc(76px + env(safe-area-inset-bottom, 0px) + var(--telegram-bottom-offset));
   }
 }
@@ -6769,6 +6825,143 @@ body.fruit-cascade-active .header-panel {
   line-height: 1.45;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.wallet-ton-connect {
+  margin-top: 12px;
+}
+
+.wallet-ton-status {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-height: 92px;
+  padding: 13px;
+  border: 1px solid rgba(0, 152, 234, 0.12);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 6% 0%, rgba(0, 152, 234, 0.11), transparent 48%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.wallet-ton-status.is-connected {
+  border-color: rgba(84, 229, 148, 0.13);
+  background:
+    radial-gradient(circle at 6% 0%, rgba(84, 229, 148, 0.09), transparent 48%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.wallet-ton-status-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 15px;
+  color: #66c7ff;
+  background: rgba(0, 152, 234, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(120, 207, 255, 0.09);
+}
+
+.wallet-ton-status.is-connected .wallet-ton-status-icon {
+  color: #72e9aa;
+  background: rgba(84, 229, 148, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(114, 233, 170, 0.08);
+}
+
+.wallet-ton-status-copy {
+  min-width: 0;
+}
+
+.wallet-ton-status-copy > span {
+  display: block;
+  color: rgba(255, 255, 255, 0.31);
+  font-size: 6.5px;
+  font-weight: 850;
+  line-height: 1.4;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.wallet-ton-status-copy > strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-ton-status-copy > small {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.36);
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+}
+
+.wallet-ton-status.is-connected .wallet-ton-status-copy > small {
+  color: rgba(114, 233, 170, 0.58);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.wallet-ton-button {
+  display: inline-flex;
+  width: 100%;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid rgba(111, 204, 255, 0.17);
+  border-radius: 15px;
+  color: #f8fcff;
+  background:
+    linear-gradient(135deg, rgba(0, 152, 234, 0.94), rgba(60, 125, 240, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 28px rgba(0, 105, 198, 0.16);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.wallet-ton-button.is-disconnect,
+.wallet-ton-button.is-loading {
+  border-color: rgba(255, 255, 255, 0.075);
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.wallet-ton-button:disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+
+.wallet-ton-note {
+  margin: 8px 6px 0;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 6.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.wallet-ton-note.is-error {
+  color: rgba(255, 122, 144, 0.78);
 }
 
 .rating-luxe-identity h1 {

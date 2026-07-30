@@ -51,6 +51,7 @@ type Status struct {
 	WinnerUserID   *uint             `json:"winner_user_id,omitempty"`
 	Draw           bool              `json:"draw,omitempty"`
 	LastRoundWinner *uint            `json:"last_round_winner_user_id,omitempty"`
+	FinishReason    string           `json:"finish_reason,omitempty"`
 }
 
 type series struct {
@@ -64,6 +65,7 @@ type series struct {
 	winner          *uint
 	draw            bool
 	lastRoundWinner *uint
+	finishReason    string
 	finishedAt      time.Time
 }
 
@@ -237,6 +239,23 @@ func (m *Manager) HandleRoundResult(lobbyID string, winnerUserID *uint) bool {
 	return true
 }
 
+func (m *Manager) HandleDisconnectResult(lobbyID string, winnerUserID *uint) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s := m.roundByLobby[lobbyID]
+	if s == nil || s.status != "playing" || s.currentLobbyID != lobbyID {
+		return false
+	}
+
+	delete(m.roundByLobby, lobbyID)
+	_, _ = m.hub.FinishLobby(lobbyID)
+	s.lastRoundWinner = cloneUint(winnerUserID)
+	s.finishReason = "disconnect"
+	m.finishSeriesLocked(s, winnerUserID)
+	return true
+}
+
 func (m *Manager) createSeriesLocked(first, second uint) (*series, error) {
 	players := []uint{first, second}
 	games := randomGames(3)
@@ -301,6 +320,7 @@ func (m *Manager) statusLocked(s *series) Status {
 		WinnerUserID:    cloneUint(s.winner),
 		Draw:            s.draw,
 		LastRoundWinner: cloneUint(s.lastRoundWinner),
+		FinishReason:    s.finishReason,
 	}
 	if lobby, err := m.hub.GetLobbyDTO(s.currentLobbyID); err == nil {
 		status.CurrentLobby = &lobby

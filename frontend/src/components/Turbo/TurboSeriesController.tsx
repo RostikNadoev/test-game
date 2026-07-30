@@ -21,7 +21,7 @@ import {
 
 const ROUND_TRANSITION_NAVIGATE_MS = 2100;
 const ROUND_TRANSITION_TOTAL_MS = 3600;
-const ROUND_RESULT_HOLD_MS = 3500;
+const ROUND_RESULT_HOLD_MS = 5000;
 
 type TransitionTheme = {
   background: string;
@@ -207,7 +207,10 @@ export const TurboSeriesController = () => {
       ? getGameByCode(status.current_game)?.playPath
       : undefined;
     const shouldHoldGameResult =
-      Boolean(activeLobbyID) && Boolean(finalGamePath) && location.pathname === finalGamePath;
+      status.finish_reason !== 'disconnect' &&
+      Boolean(activeLobbyID) &&
+      Boolean(finalGamePath) &&
+      location.pathname === finalGamePath;
 
     finalTimerRef.current = window.setTimeout(() => {
       finalTimerRef.current = null;
@@ -220,7 +223,7 @@ export const TurboSeriesController = () => {
         finalTimerRef.current = null;
       }
     };
-  }, [location.pathname, status?.current_game, status?.status]);
+  }, [location.pathname, status?.current_game, status?.finish_reason, status?.status]);
 
   const wins = useMemo(() => {
     if (!user?.id || !status?.wins || !status.player_ids) return [0, 0];
@@ -248,6 +251,7 @@ export const TurboSeriesController = () => {
     status.status === 'finished' &&
     Boolean(status.winner_user_id) &&
     status.winner_user_id === Number(user?.id);
+  const isTechnicalFinish = status.finish_reason === 'disconnect';
   const currentTitle = status.current_game
     ? getGameByCode(status.current_game)?.displayName || status.current_game
     : '';
@@ -354,13 +358,23 @@ export const TurboSeriesController = () => {
             <div className={`turbo-final-icon ${didWin ? 'is-win' : ''}`}>
               {didWin ? <Crown size={30} /> : <Trophy size={28} />}
             </div>
-            <span>Turbo · Best of 3</span>
+            <span>
+              Turbo · {isTechnicalFinish
+                ? tr('Technical result', 'Технический результат')
+                : 'Best of 3'}
+            </span>
             <h2>
-              {status.draw
-                ? tr('Series draw', 'Ничья в серии')
-                : didWin
-                  ? tr('Turbo victory', 'Победа в Turbo')
-                  : tr('Series complete', 'Серия завершена')}
+              {isTechnicalFinish
+                ? status.draw
+                  ? tr('Lobby closed', 'Лобби закрыто')
+                  : didWin
+                    ? tr('Technical victory', 'Техническая победа')
+                    : tr('Technical defeat', 'Техническое поражение')
+                : status.draw
+                  ? tr('Series draw', 'Ничья в серии')
+                  : didWin
+                    ? tr('Turbo victory', 'Победа в Turbo')
+                    : tr('Series complete', 'Серия завершена')}
             </h2>
             <div className="turbo-final-players">
               {finalPlayers.map(({ player, score, winner, fallback }, index) => {

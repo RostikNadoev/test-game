@@ -6,6 +6,7 @@ import { WalletModal } from '../Wallet/WalletModal';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { useOnlinePresence } from '../../hooks/useOnlinePresence';
 
 const getInitials = (name?: string) => {
   if (!name) return 'TG';
@@ -24,6 +25,7 @@ export const Header = ({
   const { user, isLoading, error } = useAuth();
   const { locale, localize, tr } = useLanguage();
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const onlineCount = useOnlinePresence();
   const isSoloSection = isSoloPath(location.pathname);
   const formatNumber = (value: number) =>
     new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
@@ -31,7 +33,15 @@ export const Header = ({
   return (
     <>
       <header className="relative z-50 shrink-0 px-[var(--app-gutter)] pt-[var(--app-header-gap)] pb-1">
-        {showLanguageSwitcher && <LanguageSwitcher />}
+        {showLanguageSwitcher && (
+          <>
+            <LanguageSwitcher />
+            <div className="header-online-count" aria-label={tr('Users online', 'Пользователей онлайн')}>
+              <span className="header-online-dot" aria-hidden="true" />
+              <strong>{onlineCount ?? '—'}</strong>
+            </div>
+          </>
+        )}
         <div className={`app-panel header-panel rounded-[23px] px-3 py-2 ${isSoloSection ? 'solo-header-panel' : ''}`}>
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1">

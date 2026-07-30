@@ -15,6 +15,7 @@ import (
 	"tg-lobbies-base/internal/games/towerstack"
 	"tg-lobbies-base/internal/handlers"
 	"tg-lobbies-base/internal/middleware"
+	"tg-lobbies-base/internal/presence"
 	"tg-lobbies-base/internal/reactions"
 	"tg-lobbies-base/internal/realtime"
 	"tg-lobbies-base/internal/services"
@@ -49,6 +50,7 @@ func main() {
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
 	reactionManager := reactions.NewManager()
+	presenceManager := presence.NewManager()
 	turboManager := turbo.NewManager(db, lobbyStore)
 
 	settleGameMatch := func(lobbyID string, winnerUserID *uint) {
@@ -121,6 +123,7 @@ func main() {
 	leaderboardHandler := handlers.LeaderboardHandler{}
 	soloHandler := handlers.SoloHandler{}
 	turboHandler := handlers.TurboHandler{Manager: turboManager}
+	presenceHandler := handlers.PresenceHandler{Manager: presenceManager}
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -294,6 +297,10 @@ func main() {
 		Pause:  pauseGame,
 		Resume: resumeGame,
 		Resolve: func(_ string, lobbyID string, winnerUserID *uint) {
+			reactionManager.Complete(lobbyID)
+			if turboManager.HandleDisconnectResult(lobbyID, winnerUserID) {
+				return
+			}
 			settleGameMatch(lobbyID, winnerUserID)
 		},
 	})
@@ -374,6 +381,12 @@ func main() {
 			turboAPI.POST("/queue", turboHandler.Join)
 			turboAPI.GET("/status", turboHandler.Status)
 			turboAPI.DELETE("/queue", turboHandler.Cancel)
+		}
+
+		presenceAPI := api.Group("/presence")
+		presenceAPI.Use(middleware.AuthRequired(cfg))
+		{
+			presenceAPI.POST("/heartbeat", presenceHandler.Heartbeat)
 		}
 
 		solo := api.Group("/solo")
