@@ -3181,14 +3181,14 @@ export const DunkShotGame = () => {
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-[440px] w-full select-none overflow-hidden bg-transparent text-white"
+      className="dunk-shot-game relative h-full min-h-[440px] w-full select-none overflow-hidden bg-transparent text-white"
     >
       <canvas
         ref={canvasRef}
         className="absolute inset-0 h-full w-full touch-none"
       />
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3">
+      <header className="dunk-shot-hud pointer-events-none absolute inset-x-0 top-[4px] z-30 px-3 pt-3">
         <div className="mx-auto flex max-w-[480px] items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <PlayerAvatar
