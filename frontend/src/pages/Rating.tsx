@@ -2,14 +2,11 @@ import {
   Clock,
   Crown,
   Flame,
-  Gift,
   Loader2,
-  Lock,
   Medal,
   RefreshCw,
   Sparkles,
   Trophy,
-  UsersRound,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
@@ -25,33 +22,6 @@ const prizeCountdown = [
   { value: '12', label: ['days', 'дней'] },
   { value: '08', label: ['hours', 'часов'] },
   { value: '34', label: ['minutes', 'минут'] },
-] as const;
-
-const prizeTiers = [
-  {
-    place: '1',
-    placeLabel: ['place', 'место'],
-    tone: 'gold',
-    Icon: Crown,
-  },
-  {
-    place: '2',
-    placeLabel: ['place', 'место'],
-    tone: 'silver',
-    Icon: Medal,
-  },
-  {
-    place: '3',
-    placeLabel: ['place', 'место'],
-    tone: 'bronze',
-    Icon: Medal,
-  },
-  {
-    place: '4–10',
-    placeLabel: ['places', 'места'],
-    tone: 'violet',
-    Icon: Trophy,
-  },
 ] as const;
 
 const displayName = (player: LeaderboardEntry) =>
@@ -107,114 +77,90 @@ export const Rating = () => {
   }, [players, user?.id]);
 
   return (
-    <main className="app-scroll elite-rating-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-      <section className="elite-prize-banner elite-panel elite-enter">
-        <div className="elite-prize-banner-glow" />
-        <div className="elite-prize-orbit elite-prize-orbit-one" />
-        <div className="elite-prize-orbit elite-prize-orbit-two" />
+    <main className="app-scroll elite-rating-page rating-luxe-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+      <section className="rating-luxe-banner elite-enter">
+        <div className="rating-luxe-accent" />
 
-        <div className="elite-prize-head">
-          <div className="min-w-0">
-            <div className="elite-eyebrow elite-prize-eyebrow">
-              <Gift size={11} />
-              {tr('Season rewards', 'Сезонные награды')}
-            </div>
-
-            <h1 className="elite-prize-title">{tr('Rating prizes', 'Призы за рейтинг')}</h1>
-            <p className="elite-prize-subtitle">
-              {tr(
-                'Climb the standings and claim rewards in game coins.',
-                'Поднимайся в таблице и забирай награду в игровых монетах.',
-              )}
-            </p>
-          </div>
-
-          <div className="elite-prize-actions">
-            <button
-              type="button"
-              onClick={() => void loadLeaderboard(true)}
-              disabled={refreshing}
-              className="pressable elite-icon-button"
-              aria-label={tr('Refresh rating', 'Обновить рейтинг')}
-            >
-              <RefreshCw
-                size={14}
-                className={refreshing ? 'animate-spin' : ''}
-              />
-            </button>
-
-            <div className="elite-prize-main-icon" aria-hidden="true">
-              <Trophy size={24} />
-              <Sparkles size={11} className="elite-prize-spark" />
-            </div>
-          </div>
-        </div>
-
-        <div className="elite-prize-countdown">
-          <div className="elite-prize-countdown-copy">
-            <div className="elite-prize-clock">
-              <Clock size={15} />
+        <div className="rating-luxe-head">
+          <div className="rating-luxe-identity">
+            <div className="rating-luxe-mark" aria-hidden="true">
+              <Trophy size={20} />
             </div>
             <div>
-              <span>{tr('Until rewards', 'До выдачи наград')}</span>
-              <strong>{tr('Season finale', 'Финал сезона')}</strong>
+              <p>{tr('Season leaderboard', 'Сезонный рейтинг')}</p>
+              <h1>{tr('Rating', 'Рейтинг')}</h1>
             </div>
           </div>
 
-          <div className="elite-prize-time" aria-label={tr('Until season end', 'До конца сезона')}>
-            {prizeCountdown.map((item, index) => (
-              <div className="elite-prize-time-item" key={item.label[0]}>
+          <button
+            type="button"
+            onClick={() => void loadLeaderboard(true)}
+            disabled={refreshing}
+            className="pressable rating-luxe-refresh"
+            aria-label={tr('Refresh rating', 'Обновить рейтинг')}
+          >
+            <RefreshCw
+              size={14}
+              className={refreshing ? 'animate-spin' : ''}
+            />
+          </button>
+        </div>
+
+        <p className="rating-luxe-copy">
+          {tr(
+            'Every match moves you through the season standings.',
+            'Каждый матч двигает тебя вверх по сезонной таблице.',
+          )}
+        </p>
+
+        <div className="rating-luxe-season">
+          <div className="rating-luxe-season-copy">
+            <span>Season 01</span>
+            <strong>{tr('Top 10 receive rewards', 'Награды получат топ-10')}</strong>
+          </div>
+
+          <div className="rating-luxe-countdown" aria-label={tr('Until season end', 'До конца сезона')}>
+            <Clock size={13} />
+            {prizeCountdown.map((item) => (
+              <div key={item.label[0]}>
                 <strong>{item.value}</strong>
                 <span>{tr(item.label[0], item.label[1])}</span>
-                {index < prizeCountdown.length - 1 && (
-                  <i aria-hidden="true">:</i>
-                )}
               </div>
             ))}
           </div>
         </div>
 
-        <div className="elite-prize-grid">
-          {prizeTiers.map(({ place, placeLabel, tone, Icon }) => (
-            <article
-              key={place}
-              className={`elite-prize-tier is-${tone}`}
-            >
-              <div className="elite-prize-tier-shine" />
-
-              <div className="elite-prize-tier-icon">
-                <Icon
-                  size={place === '1' ? 15 : 14}
-                  className={place === '1' ? 'fill-current' : ''}
-                />
-              </div>
-
-              <div className="elite-prize-place">
-                <strong>{place}</strong>
-                <span>{tr(placeLabel[0], placeLabel[1])}</span>
-              </div>
-
-              <div className="elite-prize-reward">
-                <img
-                  src={coinIcon}
-                  alt=""
-                  draggable={false}
-                  decoding="async"
-                />
-                <strong>???</strong>
-              </div>
-
-              <span className="elite-prize-currency">{tr('game coins', 'игровых монет')}</span>
-            </article>
-          ))}
+        <div className="rating-luxe-reward">
+          <div>
+            <img src={coinIcon} alt="" draggable={false} />
+            <span>{tr('Season reward pool', 'Призовой фонд сезона')}</span>
+          </div>
+          <strong>{tr('Revealed soon', 'Скоро откроется')}</strong>
         </div>
+      </section>
 
-        <div className="elite-prize-note">
-          <Lock size={11} />
-          <span>{tr(
-            'Reward amounts will be revealed closer to the season finale',
-            'Размер наград откроется ближе к финалу сезона',
-          )}</span>
+      <section className="elite-your-rank rating-luxe-your-rank elite-panel elite-enter elite-delay-1">
+        <div className="elite-rank-number is-you">{yourRank ?? '—'}</div>
+        <div className="elite-list-avatar is-you">
+          {user?.photo_url ? (
+            <img
+              src={user.photo_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Sparkles size={16} />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="elite-list-name">{tr('Your position', 'Твоя позиция')}</p>
+          <p className="elite-list-meta">
+            {yourName} · {formatNumber(yourWins)} {tr('wins', 'побед')}
+          </p>
+        </div>
+        <div className="elite-list-score is-you">
+          <strong>{formatNumber(yourRating)}</strong>
+          <span>rating</span>
         </div>
       </section>
 
@@ -353,31 +299,6 @@ export const Rating = () => {
         </>
       )}
 
-      <section className="elite-your-rank elite-panel elite-enter elite-delay-3">
-        <div className="elite-rank-number is-you">{yourRank ?? '—'}</div>
-        <div className="elite-list-avatar is-you">
-          {user?.photo_url ? (
-            <img
-              src={user.photo_url}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <Sparkles size={16} />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="elite-list-name">{tr('You', 'Вы')} · {yourName}</p>
-          <p className="elite-list-meta">
-            <UsersRound size={10} />
-            {formatNumber(yourWins)} {tr('wins', 'побед')}
-          </p>
-        </div>
-        <div className="elite-list-score is-you">
-          <strong>{formatNumber(yourRating)}</strong>
-          <span>rating</span>
-        </div>
-      </section>
     </main>
   );
 };

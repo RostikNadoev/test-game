@@ -1,7 +1,5 @@
 import {
-  Award,
   CalendarDays,
-  Crown,
   Gamepad2,
   Medal,
   RefreshCw,
@@ -49,7 +47,7 @@ export const Profile = () => {
 
   if (isLoading) {
     return (
-      <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+      <main className="app-scroll elite-profile-page profile-luxe-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
         <section className="elite-state-card elite-panel elite-enter">
           <div className="elite-state-icon">
             <RefreshCw size={20} className="animate-spin" />
@@ -62,7 +60,7 @@ export const Profile = () => {
 
   if (!user) {
     return (
-      <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+      <main className="app-scroll elite-profile-page profile-luxe-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
         <section className="elite-state-card elite-panel elite-enter is-error">
           <div className="elite-state-icon">
             <UserRound size={20} />
@@ -112,95 +110,90 @@ export const Profile = () => {
   ];
 
   return (
-    <main className="app-scroll elite-profile-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
-      <section className="elite-profile-hero elite-panel elite-enter">
-        <div className="elite-profile-hero-glow" />
-
-        <div className="elite-profile-top">
-          <div className="elite-profile-identity">
-            <div className="elite-profile-avatar-wrap">
-              <div className="elite-profile-avatar">
-                {user.photo_url ? (
-                  <img
-                    src={user.photo_url}
-                    alt={user.tg_user}
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                  />
-                ) : (
-                  <span>{getInitials(user.tg_user)}</span>
-                )}
-              </div>
-              <div className="elite-profile-crown">
-                <Crown size={13} className="fill-current" />
-              </div>
+    <main className="app-scroll elite-profile-page profile-luxe-page relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-3 text-white">
+      <section className="profile-luxe-hero elite-enter">
+        <div className="profile-luxe-top">
+          <div className="profile-luxe-identity">
+            <div className="profile-luxe-avatar">
+              {user.photo_url ? (
+                <img
+                  src={user.photo_url}
+                  alt={user.tg_user}
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                />
+              ) : (
+                <span>{getInitials(user.tg_user)}</span>
+              )}
+              <i aria-hidden="true">
+                <ShieldCheck size={11} />
+              </i>
             </div>
 
             <div className="min-w-0">
-              <div className="elite-eyebrow">
-                <UserRound size={11} />
-                Telegram player
-              </div>
-              <h1 className="elite-profile-name">{user.tg_user || tr('Player', 'Игрок')}</h1>
-              <p className="elite-profile-id">ID {user.id} · TG {user.telegram_id}</p>
+              <p className="profile-luxe-kicker">
+                <UserRound size={10} />
+                {tr('Telegram account', 'Аккаунт Telegram')}
+              </p>
+              <h1>{user.tg_user || tr('Player', 'Игрок')}</h1>
+              <span>ID {user.id} · TG {user.telegram_id}</span>
             </div>
           </div>
 
           <button
             type="button"
             onClick={() => void refreshProfile()}
-            className="pressable elite-icon-button"
+            className="pressable profile-luxe-refresh"
             aria-label={tr('Refresh profile', 'Обновить профиль')}
           >
             <RefreshCw size={14} />
           </button>
         </div>
 
-        <div className="elite-profile-rating-card">
-          <div className="elite-profile-rating-main">
-            <div className="elite-profile-rating-icon">
-              <Medal size={18} />
-            </div>
-            <div>
-              <p className="elite-profile-rating-label">{tr('Current league', 'Текущая лига')}</p>
-              <div className="elite-profile-rating-line">
-                <strong>{league}</strong>
-                <span>{formatNumber(stats.rating, 0)} RP</span>
-              </div>
-            </div>
-          </div>
+        <div className="profile-luxe-overview">
+          <article>
+            <span>{tr('League', 'Лига')}</span>
+            <strong><Medal size={13} /> {league}</strong>
+          </article>
+          <article>
+            <span>{tr('Rating', 'Рейтинг')}</span>
+            <strong>{formatNumber(stats.rating, 0)} <small>RP</small></strong>
+          </article>
+          <article>
+            <span>{tr('Balance', 'Баланс')}</span>
+            <strong>
+              <img src={coinIcon} alt="" draggable={false} />
+              {formatNumber(user.balance_game)}
+            </strong>
+          </article>
+        </div>
 
-          <div className="elite-winrate-block">
-            <div className="elite-winrate-head">
-              <span>Winrate</span>
-              <strong>{formatNumber(winrate, 1)}%</strong>
-            </div>
-            <div className="elite-winrate-track" aria-hidden="true">
-              <span style={{ width: `${winrate}%` }} />
-            </div>
+        <div className="profile-luxe-winrate">
+          <div>
+            <span>Winrate</span>
+            <strong>{formatNumber(winrate, 1)}%</strong>
+          </div>
+          <div className="profile-luxe-track" aria-hidden="true">
+            <span style={{ width: `${winrate}%` }} />
           </div>
         </div>
       </section>
 
-      <section className="elite-balance-card elite-panel elite-enter elite-delay-1">
-        <div className="elite-balance-icon-wrap">
-          <img src={coinIcon} alt="" draggable={false} />
+      <section className="profile-luxe-stats elite-panel elite-enter elite-delay-1">
+        <div className="profile-luxe-section-head">
+          <div>
+            <span>{tr('Performance', 'Результаты')}</span>
+            <h2>{tr('Match statistics', 'Статистика матчей')}</h2>
+          </div>
+          <Swords size={16} />
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="elite-balance-label">{tr('Game balance', 'Игровой баланс')}</p>
-          <p className="elite-balance-value">{formatNumber(user.balance_game)}</p>
-        </div>
-        <div className="elite-balance-badge">GAME</div>
-      </section>
 
-      <section className="elite-profile-stats elite-enter elite-delay-2">
+        <div className="profile-luxe-stat-grid">
         {statItems.map((item) => {
           const Icon = item.icon;
           return (
-            <article key={item.label} className={`elite-stat-card is-${item.tone}`}>
-              <div className="elite-stat-icon">
-                <Icon size={16} />
-              </div>
+            <article key={item.label} className={`profile-luxe-stat is-${item.tone}`}>
+              <Icon size={14} />
               <div>
                 <strong>{formatNumber(Number(item.value), 0)}</strong>
                 <span>{item.label}</span>
@@ -208,44 +201,41 @@ export const Profile = () => {
             </article>
           );
         })}
+        </div>
       </section>
 
-      <section className="elite-profile-summary elite-panel elite-enter elite-delay-3">
-        <div className="elite-section-heading">
+      <section className="profile-luxe-details elite-panel elite-enter elite-delay-2">
+        <div className="profile-luxe-section-head">
           <div>
-            <p className="elite-section-kicker">{tr('Player overview', 'Обзор игрока')}</p>
-            <h2>{tr('Player profile', 'Профиль игрока')}</h2>
+            <span>{tr('Profile details', 'Детали профиля')}</span>
+            <h2>{tr('About player', 'Об игроке')}</h2>
           </div>
-          <div className="elite-section-icon">
-            <Award size={16} />
-          </div>
+          <UserRound size={16} />
         </div>
 
-        <div className="elite-profile-summary-grid">
-          <article className="elite-summary-card is-favorite">
-            <div className="elite-summary-icon">
+        <div className="profile-luxe-detail-list">
+          <article>
+            <div className="profile-luxe-detail-icon">
               <Gamepad2 size={18} />
             </div>
             <div className="min-w-0">
               <span>{tr('Favorite mode', 'Любимый режим')}</span>
               <strong>{favoriteMode}</strong>
-              <p>{tr('Based on your match activity.', 'Определяется по твоей активности в матчах.')}</p>
             </div>
           </article>
 
-          <article className="elite-summary-card">
-            <div className="elite-summary-icon is-blue">
+          <article>
+            <div className="profile-luxe-detail-icon is-blue">
               <CalendarDays size={18} />
             </div>
             <div className="min-w-0">
               <span>{tr('Member since', 'В клубе с')}</span>
               <strong>{formatDate(user.created_at)}</strong>
-              <p>{tr('Account registration date.', 'Дата регистрации аккаунта.')}</p>
             </div>
           </article>
         </div>
 
-        <div className="elite-profile-footer-note">
+        <div className="profile-luxe-note">
           <Sparkles size={14} />
           <span>{tr('Rating updates after completed PvP matches.', 'Рейтинг обновляется после завершения PvP-матчей.')}</span>
         </div>
