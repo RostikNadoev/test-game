@@ -35,7 +35,11 @@ const (
 
 	discRadius = 0.057
 	ballRadius = discRadius * 0.5
-	goalWidth  = discRadius * 5.0
+
+	// The goal mouth is exactly three disc diameters wide.
+	// The net is one disc diameter deep, so discs can genuinely enter it.
+	goalWidth  = discRadius * 6.0
+	goalDepth  = discRadius * 2.0
 	goalLeft   = (BoardWidth - goalWidth) / 2.0
 	goalRight  = goalLeft + goalWidth
 	postRadius = 0.012
@@ -108,6 +112,8 @@ type PublicState struct {
 	TargetGoals        int                   `json:"target_goals"`
 	BoardWidth         float64               `json:"board_width"`
 	BoardHeight        float64               `json:"board_height"`
+	GoalWidth          float64               `json:"goal_width"`
+	GoalDepth          float64               `json:"goal_depth"`
 	PlayerOrder        []uint                `json:"player_order"`
 	Bodies             []Body                `json:"bodies"`
 	Score              map[uint]int          `json:"score"`
@@ -978,27 +984,14 @@ func (s *Session) resolveArenaLocked(
 				wallRestitution
 	}
 
-	if body.Kind == BodyDisc {
-		if body.Y-body.Radius < 0 {
-			body.Y = body.Radius
-			body.VY =
-				math.Abs(body.VY) *
-					wallRestitution
-		} else if body.Y+body.Radius > BoardHeight {
-			body.Y = BoardHeight - body.Radius
-			body.VY =
-				-math.Abs(body.VY) *
-					wallRestitution
-		}
-
-		return false
-	}
-
-	insideGoal :=
+	insideGoalMouth :=
 		body.X > goalLeft+body.Radius*0.08 &&
 			body.X < goalRight-body.Radius*0.08
 
-	if insideGoal &&
+	// A goal is still counted only when the whole ball crosses the line.
+	// Discs use the same opening, but never trigger a score.
+	if body.Kind == BodyBall &&
+		insideGoalMouth &&
 		body.Y+body.Radius < -0.002 {
 		s.goalLocked(
 			s.playerOrder[0],
@@ -1008,7 +1001,8 @@ func (s *Session) resolveArenaLocked(
 		return true
 	}
 
-	if insideGoal &&
+	if body.Kind == BodyBall &&
+		insideGoalMouth &&
 		body.Y-body.Radius > BoardHeight+0.002 {
 		s.goalLocked(
 			s.playerOrder[1],
@@ -1018,20 +1012,69 @@ func (s *Session) resolveArenaLocked(
 		return true
 	}
 
-	if body.Y-body.Radius < 0 &&
-		!insideGoal {
-		body.Y = body.Radius
-		body.VY =
-			math.Abs(body.VY) *
-				wallRestitution
-	} else if body.Y+body.Radius > BoardHeight &&
-		!insideGoal {
-		body.Y = BoardHeight - body.Radius
-		body.VY =
-			-math.Abs(body.VY) *
-				wallRestitution
+	switch {
+	case body.Y < 0:
+		// The body is behind the top goal line. Keep it inside the net's
+		// side walls and let the back wall stop it one disc diameter deep.
+		if body.X-body.Radius < goalLeft {
+			body.X = goalLeft + body.Radius
+			body.VX =
+				math.Abs(body.VX) *
+					wallRestitution
+		} else if body.X+body.Radius > goalRight {
+			body.X = goalRight - body.Radius
+			body.VX =
+				-math.Abs(body.VX) *
+					wallRestitution
+		}
+
+		if body.Y-body.Radius < -goalDepth {
+			body.Y = -goalDepth + body.Radius
+			body.VY =
+				math.Abs(body.VY) *
+					wallRestitution
+		}
+
+	case body.Y > BoardHeight:
+		// Same physical net for the bottom goal.
+		if body.X-body.Radius < goalLeft {
+			body.X = goalLeft + body.Radius
+			body.VX =
+				math.Abs(body.VX) *
+					wallRestitution
+		} else if body.X+body.Radius > goalRight {
+			body.X = goalRight - body.Radius
+			body.VX =
+				-math.Abs(body.VX) *
+					wallRestitution
+		}
+
+		if body.Y+body.Radius > BoardHeight+goalDepth {
+			body.Y = BoardHeight + goalDepth - body.Radius
+			body.VY =
+				-math.Abs(body.VY) *
+					wallRestitution
+		}
+
+	default:
+		// The field border remains solid everywhere except the goal mouth.
+		if body.Y-body.Radius < 0 &&
+			!insideGoalMouth {
+			body.Y = body.Radius
+			body.VY =
+				math.Abs(body.VY) *
+					wallRestitution
+		} else if body.Y+body.Radius > BoardHeight &&
+			!insideGoalMouth {
+			body.Y = BoardHeight - body.Radius
+			body.VY =
+				-math.Abs(body.VY) *
+					wallRestitution
+		}
 	}
 
+	// The four posts make the transition from field to net rounded and
+	// prevent bodies from clipping through the mouth corners.
 	resolvePostCollision(
 		body,
 		goalLeft,
@@ -1228,9 +1271,7 @@ func uintToString(value uint) string {
 
 	for left, right :=
 		0,
-		len(buffer)-1;
-		left < right;
-		left, right =
+		len(buffer)-1; left < right; left, right =
 		left+1,
 		right-1 {
 		buffer[left], buffer[right] =
@@ -1324,7 +1365,7 @@ func resolveBodyCollision(
 	}
 
 	impulseMagnitude :=
-		-(1+restitution) *
+		-(1 + restitution) *
 			velocityAlongNormal /
 			inverseTotal
 
@@ -1494,17 +1535,19 @@ func (s *Session) publicStateLocked() PublicState {
 		TargetGoals: TargetGoals,
 		BoardWidth:  BoardWidth,
 		BoardHeight: BoardHeight,
+		GoalWidth:   goalWidth,
+		GoalDepth:   goalDepth,
 		PlayerOrder: append(
 			[]uint(nil),
 			s.playerOrder...,
 		),
-		Bodies:             bodies,
-		Score:              score,
-		Submitted:          submitted,
-		GoalSeq:            s.goalSeq,
-		GoalScorerUserID:   s.goalScorerUserID,
-		WinnerUserID:       s.winnerUserID,
-		Message:            s.messageLocked(),
+		Bodies:           bodies,
+		Score:            score,
+		Submitted:        submitted,
+		GoalSeq:          s.goalSeq,
+		GoalScorerUserID: s.goalScorerUserID,
+		WinnerUserID:     s.winnerUserID,
+		Message:          s.messageLocked(),
 	}
 
 	if !s.planningDeadline.IsZero() {
@@ -1534,8 +1577,7 @@ func (s *Session) publicStateLocked() PublicState {
 				len(s.plans[userID]),
 			)
 
-			for discIndex, plan :=
-				range s.plans[userID] {
+			for discIndex, plan := range s.plans[userID] {
 				items = append(
 					items,
 					PlanPublic{

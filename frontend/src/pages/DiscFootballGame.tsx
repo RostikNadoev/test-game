@@ -694,7 +694,10 @@ export const DiscFootballGame = () => {
       const board = boardSize();
       const sidePadding = clamp(viewport.width * 0.035, 10, 18);
       const topPadding = clamp(viewport.height * 0.145, 84, 102);
-      const bottomPadding = clamp(viewport.height * 0.055, 28, 38);
+      const estimatedFieldWidth = Math.max(1, viewport.width - sidePadding * 2);
+      const estimatedGoalDepthWorld = stateRef.current?.goal_depth || 0.057 * 2;
+      const goalDepthPixels = estimatedFieldWidth * (estimatedGoalDepthWorld / board.width);
+      const bottomPadding = clamp(goalDepthPixels + 13, 46, 62);
 
       field.left = sidePadding;
       field.right = viewport.width - sidePadding;
@@ -704,10 +707,13 @@ export const DiscFootballGame = () => {
       field.height = field.bottom - field.top;
       field.centerX = (field.left + field.right) / 2;
       field.centerY = (field.top + field.bottom) / 2;
-      field.goalWidth = field.width * ((0.057 * 5) / board.width);
+      const goalWidthWorld = stateRef.current?.goal_width || 0.057 * 6;
+      const goalDepthWorld = stateRef.current?.goal_depth || 0.057 * 2;
+
+      field.goalWidth = field.width * (goalWidthWorld / board.width);
       field.goalLeft = field.centerX - field.goalWidth / 2;
       field.goalRight = field.centerX + field.goalWidth / 2;
-      field.goalDepth = clamp(field.width * 0.062, 20, 25);
+      field.goalDepth = field.width * (goalDepthWorld / board.width);
     };
 
     const worldToCanvas = (x: number, y: number) => {

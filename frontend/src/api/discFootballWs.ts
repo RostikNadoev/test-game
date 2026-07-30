@@ -42,6 +42,8 @@ export type DiscFootballStateMessage = {
   target_goals: number;
   board_width: number;
   board_height: number;
+  goal_width: number;
+  goal_depth: number;
   player_order: number[];
   bodies: DiscFootballBody[];
   score: Record<string, number>;
@@ -393,6 +395,20 @@ const normalizeState = (
       finiteNumber(
         value.board_height,
         1.68,
+      ),
+    ),
+    goal_width: Math.max(
+      0.1,
+      finiteNumber(
+        value.goal_width,
+        0.057 * 6,
+      ),
+    ),
+    goal_depth: Math.max(
+      0.02,
+      finiteNumber(
+        value.goal_depth,
+        0.057 * 2,
       ),
     ),
     player_order: playerOrder,
