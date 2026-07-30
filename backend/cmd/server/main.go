@@ -15,6 +15,7 @@ import (
 	"tg-lobbies-base/internal/games/towerstack"
 	"tg-lobbies-base/internal/handlers"
 	"tg-lobbies-base/internal/middleware"
+	"tg-lobbies-base/internal/reactions"
 	"tg-lobbies-base/internal/realtime"
 	"tg-lobbies-base/internal/services"
 	"time"
@@ -46,6 +47,7 @@ func main() {
 
 	db := database.DB()
 	lobbyStore := realtime.NewHub(db)
+	reactionManager := reactions.NewManager()
 
 	discFootballManager := discfootball.NewManager()
 	go discFootballManager.CleanupLoop()
@@ -217,6 +219,12 @@ func main() {
 		Manager:    physicsDuelManager,
 	}
 
+	reactionsWSHandler := handlers.ReactionsWSHandler{
+		Cfg:        cfg,
+		LobbyStore: lobbyStore,
+		Manager:    reactionManager,
+	}
+
 	router := gin.Default()
 	router.Use(middleware.CORS(cfg))
 
@@ -239,6 +247,7 @@ func main() {
 	router.GET("/ws/descent-duel/:lobby_id", physicsDuelWSHandler.Connect)
 	router.GET("/ws/paper-io/:lobby_id", paperWSHandler.Connect)
 	router.GET("/ws/tower-stack/:lobby_id", towerWSHandler.Connect)
+	router.GET("/ws/reactions/:lobby_id", reactionsWSHandler.Connect)
 
 	router.GET("/health", func(c *gin.Context) {
 		if err := database.Ping(); err != nil {

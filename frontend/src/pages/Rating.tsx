@@ -130,6 +130,15 @@ export const Rating = () => {
           </div>
         </div>
 
+        <div className="rating-luxe-prizes">
+          <span>{tr('Prize places', 'Призовые места')}</span>
+          <div aria-label={tr('Places with season prizes', 'Места с сезонными призами')}>
+            {['1', '2', '3', '4–10'].map((place) => (
+              <strong key={place}>{place}</strong>
+            ))}
+          </div>
+        </div>
+
         <div className="rating-luxe-reward">
           <div>
             <img src={coinIcon} alt="" draggable={false} />

@@ -271,42 +271,222 @@ img {
 
 .language-switcher {
   position: absolute;
-  top: 8px;
+  top: 12px;
   left: 50%;
   z-index: 3;
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: repeat(2, 50px);
   height: 38px;
   align-items: center;
-  gap: 4px;
   padding: 4px;
   transform: translateX(-50%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
+  color: inherit;
   background: rgba(12, 12, 18, 0.74);
   box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
+  cursor: pointer;
+  isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.language-switcher button {
+.language-switcher-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: -1;
+  width: 50px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(91, 183, 255, 0.48), rgba(157, 124, 255, 0.42));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 4px 12px rgba(72, 105, 205, 0.14);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.language-switcher.is-ru .language-switcher-thumb {
+  transform: translateX(50px);
+}
+
+.language-switcher-label {
   display: grid;
-  min-width: 50px;
   height: 28px;
   place-items: center;
-  padding: 0 10px;
-  border-radius: 999px;
+  pointer-events: none;
   color: rgba(255, 255, 255, 0.38);
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.08em;
-  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+  transition: color 220ms ease, text-shadow 220ms ease;
 }
 
-.language-switcher button.is-active {
+.language-switcher-label.is-active {
   color: rgba(255, 255, 255, 0.96);
-  background: linear-gradient(135deg, rgba(91, 183, 255, 0.48), rgba(157, 124, 255, 0.42));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.18);
+}
+
+.language-switcher:active .language-switcher-thumb {
+  transform: scale(0.94);
+}
+
+.language-switcher.is-ru:active .language-switcher-thumb {
+  transform: translateX(50px) scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .language-switcher-thumb,
+  .language-switcher-label {
+    transition: none;
+  }
+}
+
+/* In-game quick reactions */
+
+.quick-emoji-chat {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+}
+
+.quick-emoji-trigger,
+.quick-emoji-menu button {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(11, 13, 20, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 7px 18px rgba(0, 0, 0, 0.16);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.quick-emoji-trigger {
+  width: 32px;
+  height: 40px;
+  border-left-color: rgba(255, 255, 255, 0.06);
+  border-radius: 4px 13px 13px 4px;
+  transition:
+    width 220ms ease,
+    color 180ms ease,
+    background 180ms ease,
+    transform 160ms ease;
+}
+
+.quick-emoji-trigger:active {
+  transform: scale(0.93);
+}
+
+.quick-emoji-chat.is-open .quick-emoji-trigger {
+  width: 35px;
+  color: rgba(255, 255, 255, 0.96);
+  background: rgba(17, 20, 30, 0.72);
+}
+
+.quick-emoji-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 7px;
+}
+
+.quick-emoji-menu button {
+  width: 39px;
+  height: 39px;
+  border-radius: 13px;
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateX(-16px) scale(0.78);
+  animation: quick-emoji-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--emoji-index) * 65ms);
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.quick-emoji-menu button:active {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.quick-reaction-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 89;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.quick-reaction-burst {
+  position: absolute;
+  top: 35%;
+  display: block;
+  font-size: 45px;
+  line-height: 1;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
+  animation: quick-reaction-burst 2300ms cubic-bezier(0.18, 0.8, 0.24, 1) forwards;
+  will-change: opacity, transform;
+}
+
+.quick-reaction-burst.is-own {
+  left: 15px;
+}
+
+.quick-reaction-burst.is-opponent {
+  right: 15px;
+}
+
+@keyframes quick-emoji-enter {
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes quick-reaction-burst {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.58) rotate(-8deg);
+  }
+  16% {
+    opacity: 1;
+    transform: translateY(0) scale(1.1) rotate(3deg);
+  }
+  28% {
+    transform: translateY(-4px) scale(1) rotate(0deg);
+  }
+  78% {
+    opacity: 1;
+    transform: translateY(-11px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-32px) scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-emoji-menu button {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+
+  .quick-reaction-burst {
+    animation-duration: 400ms;
+  }
 }
 
 /* Header */
@@ -5259,6 +5439,43 @@ body.fruit-cascade-active .header-panel {
   padding: 9px 10px;
   border-radius: 15px;
   background: rgba(255, 255, 255, 0.025);
+}
+
+.rating-luxe-prizes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 11px;
+}
+
+.rating-luxe-prizes > span {
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.rating-luxe-prizes > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(34px, auto));
+  gap: 5px;
+}
+
+.rating-luxe-prizes strong {
+  display: grid;
+  height: 25px;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid rgba(240, 200, 114, 0.1);
+  border-radius: 9px;
+  color: rgba(255, 218, 146, 0.86);
+  background: rgba(240, 200, 114, 0.055);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .rating-luxe-reward > div {

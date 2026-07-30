@@ -1,25 +1,31 @@
 import { useLanguage } from '../../i18n/LanguageContext';
 
 export const LanguageSwitcher = () => {
-  const { language, setLanguage, tr } = useLanguage();
+  const { language, toggleLanguage, tr } = useLanguage();
 
   return (
-    <div
-      className="language-switcher"
-      role="group"
-      aria-label={tr('Language', 'Язык')}
+    <button
+      type="button"
+      className={`language-switcher is-${language}`}
+      onClick={toggleLanguage}
+      aria-label={tr(
+        `Switch language to ${language === 'en' ? 'Russian' : 'English'}`,
+        `Переключить язык на ${language === 'en' ? 'русский' : 'английский'}`,
+      )}
     >
-      {(['en', 'ru'] as const).map((option) => (
-        <button
-          key={option}
-          type="button"
-          className={language === option ? 'is-active' : ''}
-          onClick={() => setLanguage(option)}
-          aria-pressed={language === option}
-        >
-          {option.toUpperCase()}
-        </button>
-      ))}
-    </div>
+      <span className="language-switcher-thumb" aria-hidden="true" />
+      <span
+        className={`language-switcher-label ${language === 'en' ? 'is-active' : ''}`}
+        aria-hidden="true"
+      >
+        EN
+      </span>
+      <span
+        className={`language-switcher-label ${language === 'ru' ? 'is-active' : ''}`}
+        aria-hidden="true"
+      >
+        RU
+      </span>
+    </button>
   );
 };
