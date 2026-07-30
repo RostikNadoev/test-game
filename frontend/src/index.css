@@ -271,14 +271,14 @@ img {
 
 .language-switcher {
   position: absolute;
-  top: 0;
+  top: 8px;
   left: 50%;
   z-index: 3;
   display: inline-flex;
-  height: 20px;
+  height: 38px;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: 4px;
+  padding: 4px;
   transform: translateX(-50%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
@@ -290,13 +290,13 @@ img {
 
 .language-switcher button {
   display: grid;
-  min-width: 27px;
-  height: 14px;
+  min-width: 50px;
+  height: 28px;
   place-items: center;
-  padding: 0 5px;
+  padding: 0 10px;
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.38);
-  font-size: 7px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.08em;
