@@ -18,7 +18,7 @@ import (
 const (
 	GameCode = "neon_matrix"
 
-	StartHP        = 100
+	StartHP        = 60
 	MinNumber      = 1
 	MaxNumber      = 100
 	NoPickDistance = 51

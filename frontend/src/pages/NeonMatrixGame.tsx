@@ -62,7 +62,7 @@ type TelegramWebApp = {
   };
 };
 
-const START_HP = 100;
+const START_HP = 60;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
 const DEFAULT_NUMBER = 50;

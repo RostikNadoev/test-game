@@ -13,6 +13,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { Header } from "./components/Layout/Header";
 import { BottomNav } from "./components/Layout/BottomNav";
@@ -197,6 +198,28 @@ function AppShell() {
     isBallzDuelRoute;
   const isFooterRoute = FOOTER_ROUTES.includes(location.pathname);
   const isLockedGameRoute = LOCKED_GAME_ROUTES.has(location.pathname);
+  const isPlayableGameRoute =
+    isLockedGameRoute ||
+    (isSoloRoute && location.pathname !== SOLO_ROUTE_PREFIX);
+  const routeSurface = isTiltMazeRoute
+    ? "#e7e3da"
+    : isDrawDropRoute
+      ? "#ffffff"
+      : isFruitCascadeRoute
+        ? "#10081f"
+        : isCubeFillRoute
+          ? "#171137"
+          : isBallzDuelRoute
+            ? "#0b1c2e"
+            : isFlappyRaceRoute
+              ? "#071827"
+              : isDoodleJumpRoute
+                ? "#080b2d"
+                : isCoinChaseRoute
+                  ? "#12070f"
+                  : isSoloRoute
+                    ? "#060b14"
+                    : "#09090d";
   const shouldShowSoloLoader = soloLoadingPath === location.pathname;
   const shouldMountRoutes = !shouldShowSoloLoader;
 
@@ -279,30 +302,32 @@ function AppShell() {
 
   useEffect(() => {
     const tg = getTelegramWebApp();
-    const themeColor = isTiltMazeRoute
-      ? "#e7e3da"
-      : isDrawDropRoute
-      ? "#ffffff"
-      : isFruitCascadeRoute
-        ? "#10081f"
-      : isCubeFillRoute
-        ? "#171137"
-        : isBallzDuelRoute
-          ? "#0b1c2e"
-          : isSoloRoute
-            ? "#060b14"
-            : "#09090d";
+    tg?.setHeaderColor?.(routeSurface);
+    tg?.setBackgroundColor?.(routeSurface);
+  }, [routeSurface]);
 
-    tg?.setHeaderColor?.(themeColor);
-    tg?.setBackgroundColor?.(themeColor);
-  }, [
-    isDrawDropRoute,
-    isTiltMazeRoute,
-    isBallzDuelRoute,
-    isCubeFillRoute,
-    isFruitCascadeRoute,
-    isSoloRoute,
-  ]);
+  useEffect(() => {
+    if (!isPlayableGameRoute) return;
+
+    const tg = getTelegramWebApp();
+    const preventNativeSwipe = (event: Event) => event.preventDefault();
+
+    tg?.expand?.();
+    tg?.disableVerticalSwipes?.();
+    document.documentElement.classList.add("game-gesture-lock");
+    document.addEventListener("touchmove", preventNativeSwipe, {
+      passive: false,
+    });
+    document.addEventListener("gesturestart", preventNativeSwipe, {
+      passive: false,
+    });
+
+    return () => {
+      document.documentElement.classList.remove("game-gesture-lock");
+      document.removeEventListener("touchmove", preventNativeSwipe);
+      document.removeEventListener("gesturestart", preventNativeSwipe);
+    };
+  }, [isPlayableGameRoute, location.pathname]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();
@@ -340,6 +365,7 @@ function AppShell() {
     <div
       className={[
         "app-shell",
+        isPlayableGameRoute ? "game-app-shell" : "",
         isSoloRoute ? "solo-app-shell bg-[#060b14]" : "",
         isTiltMazeRoute
           ? "bg-[#e7e3da]"
@@ -350,6 +376,11 @@ function AppShell() {
             : "bg-[#09090d]",
         isFruitCascadeRoute ? "fruit-cascade-app-shell" : "",
       ].join(" ")}
+      style={
+        {
+          "--app-route-surface": routeSurface,
+        } as CSSProperties
+      }
     >
       {hasFullScreenArcadeBackground && (
         <div

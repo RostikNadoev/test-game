@@ -319,9 +319,30 @@ export const TurboSeriesController = () => {
           <div className="turbo-transition-new-page">
             <span>{tr('Next arena', 'Следующая арена')}</span>
             <strong>{currentTitle}</strong>
-            <small>
-              {tr('Round', 'Раунд')} {transitionRound}/3 · {wins[0]} : {wins[1]}
-            </small>
+            <small>{tr('Round', 'Раунд')} {transitionRound}/3</small>
+            <div className="turbo-transition-matchup">
+              <div className="turbo-transition-competitor is-own">
+                <div className="turbo-transition-avatar">
+                  {ownPlayer?.photo_url ? (
+                    <img src={ownPlayer.photo_url} alt="" draggable={false} />
+                  ) : (
+                    initials(displayName(ownPlayer, tr('You', 'Вы')))
+                  )}
+                </div>
+                <b>{wins[0]}</b>
+              </div>
+              <i>:</i>
+              <div className="turbo-transition-competitor is-opponent">
+                <b>{wins[1]}</b>
+                <div className="turbo-transition-avatar">
+                  {opponentPlayer?.photo_url ? (
+                    <img src={opponentPlayer.photo_url} alt="" draggable={false} />
+                  ) : (
+                    initials(displayName(opponentPlayer, tr('Opponent', 'Соперник')))
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="turbo-transition-edge" aria-hidden="true" />
         </div>

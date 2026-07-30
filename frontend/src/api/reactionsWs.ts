@@ -22,6 +22,7 @@ export type GamePresenceMessage = {
 };
 
 type ReactionHandlers = {
+  onOpen?: () => void;
   onReaction?: (message: QuickReactionMessage) => void;
   onPresence?: (message: GamePresenceMessage) => void;
   onClose?: () => void;
@@ -79,6 +80,15 @@ export const connectReactionsSocket = ({
   const socket = new WebSocket(
     `${getWsBaseUrl()}/ws/reactions/${encodeURIComponent(lobbyId)}?token=${encodeURIComponent(token)}`,
   );
+  const queuedEmoji: QuickReactionEmoji[] = [];
+
+  socket.addEventListener('open', () => {
+    const pending = queuedEmoji.splice(0);
+    pending.forEach((emoji) => {
+      socket.send(JSON.stringify({ type: 'reaction', emoji }));
+    });
+    handlers?.onOpen?.();
+  });
 
   socket.addEventListener('message', (event) => {
     if (typeof event.data !== 'string') return;
@@ -95,9 +105,15 @@ export const connectReactionsSocket = ({
 
   return {
     send: (emoji) => {
-      if (socket.readyState !== WebSocket.OPEN) return false;
-      socket.send(JSON.stringify({ type: 'reaction', emoji }));
-      return true;
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'reaction', emoji }));
+        return true;
+      }
+      if (socket.readyState === WebSocket.CONNECTING) {
+        queuedEmoji.splice(0, queuedEmoji.length, emoji);
+        return true;
+      }
+      return false;
     },
     close: () => socket.close(),
   };

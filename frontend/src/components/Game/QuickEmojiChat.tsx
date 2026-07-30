@@ -76,6 +76,8 @@ export const QuickEmojiChat = () => {
   const [presence, setPresence] = useState<GamePresenceMessage | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(10);
   const socketRef = useRef<ReactionsSocketClient | null>(null);
+  const pendingReactionRef = useRef<QuickReactionEmoji | null>(null);
+  const localReactionSequenceRef = useRef(0);
   const removalTimersRef = useRef<number[]>([]);
   const routeState = (location.state || {}) as LocationState;
   const gameCode = readActiveGameCode();
@@ -124,11 +126,18 @@ export const QuickEmojiChat = () => {
         lobbyId,
         token,
         handlers: {
+          onOpen: () => {
+            const pending = pendingReactionRef.current;
+            if (!pending) return;
+            pendingReactionRef.current = null;
+            socketRef.current?.send(pending);
+          },
           onReaction: (message) => {
+            if (message.user_id === Number(user.id)) return;
             showReaction({
               id: `${message.sequence}-${message.sent_at_ms}`,
               emoji: message.emoji,
-              side: message.user_id === Number(user.id) ? 'own' : 'opponent',
+              side: 'opponent',
             });
           },
           onPresence: (message) => {
@@ -183,9 +192,15 @@ export const QuickEmojiChat = () => {
   );
 
   const sendReaction = (emoji: QuickReactionEmoji) => {
-    if (socketRef.current?.send(emoji)) {
-      setIsOpen(false);
-    }
+    localReactionSequenceRef.current += 1;
+    showReaction({
+      id: `local-${localReactionSequenceRef.current}-${emoji}`,
+      emoji,
+      side: 'own',
+    });
+    const didSend = socketRef.current?.send(emoji) === true;
+    pendingReactionRef.current = didSend ? null : emoji;
+    setIsOpen(false);
   };
 
   const leaveResolvedMatch = async () => {

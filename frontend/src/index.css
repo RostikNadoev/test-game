@@ -148,6 +148,41 @@ img {
   padding-top: max(0px, var(--telegram-top-offset));
 }
 
+.game-app-shell {
+  isolation: isolate;
+  background-color: var(--app-route-surface, #09090d) !important;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.game-app-shell > header::after {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 24px;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(
+    180deg,
+    var(--app-route-surface, #09090d) 0%,
+    color-mix(in srgb, var(--app-route-surface, #09090d) 70%, transparent) 42%,
+    transparent 100%
+  );
+}
+
+.game-app-shell > main {
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+html.game-gesture-lock,
+html.game-gesture-lock body,
+html.game-gesture-lock #root {
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 .app-page {
   padding-inline: var(--app-gutter);
   padding-bottom: var(--app-page-padding-bottom);
@@ -507,7 +542,7 @@ img {
 
 .turbo-series-hud {
   position: absolute;
-  top: 12px;
+  top: calc(var(--telegram-top-offset) + 12px);
   left: 50%;
   z-index: 145;
   display: flex;
@@ -584,7 +619,7 @@ img {
   background: rgba(7, 8, 13, 0.7);
   -webkit-backdrop-filter: blur(7px);
   backdrop-filter: blur(7px);
-  animation: turbo-page-out 1000ms cubic-bezier(0.76, 0, 0.24, 1) both;
+  animation: turbo-page-underlay 3600ms linear both;
 }
 
 .turbo-transition-new-page {
@@ -608,6 +643,9 @@ img {
   color: var(--turbo-transition-ink, #fff);
   box-shadow: -22px 0 48px rgba(0, 0, 0, 0.38);
   animation: turbo-page-cycle 3600ms linear both;
+  backface-visibility: hidden;
+  contain: paint;
+  will-change: transform;
 }
 
 .turbo-transition-new-page span {
@@ -630,6 +668,82 @@ img {
   font-weight: 900;
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
+}
+
+.turbo-transition-matchup {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 9px;
+  min-width: 162px;
+  margin-top: 7px;
+  padding: 7px 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--turbo-transition-ink, #fff) 11%, transparent);
+  border-radius: 17px;
+  background: color-mix(
+    in srgb,
+    var(--turbo-transition-ink, #fff) 5%,
+    transparent
+  );
+}
+
+.turbo-transition-competitor {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.turbo-transition-competitor.is-own {
+  justify-content: flex-end;
+}
+
+.turbo-transition-competitor.is-opponent {
+  justify-content: flex-start;
+}
+
+.turbo-transition-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--turbo-transition-ink, #fff) 17%, transparent);
+  border-radius: 11px;
+  color: var(--turbo-transition-ink, #fff);
+  background: color-mix(
+    in srgb,
+    var(--turbo-transition-ink, #fff) 8%,
+    transparent
+  );
+  font-size: 9px;
+  font-weight: 950;
+}
+
+.turbo-transition-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.turbo-transition-competitor b {
+  color: var(--turbo-transition-ink, #fff);
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.turbo-transition-competitor.is-own b {
+  color: var(--turbo-transition-accent, #91eed9);
+}
+
+.turbo-transition-matchup > i {
+  color: color-mix(in srgb, var(--turbo-transition-ink, #fff) 30%, transparent);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
 }
 
 .turbo-transition-edge {
@@ -874,10 +988,30 @@ html.turbo-series-active .game-result-exit {
   }
 }
 
-@keyframes turbo-page-out {
-  to {
+@keyframes turbo-page-underlay {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  28% {
     transform: translateX(-22%);
     opacity: 0.18;
+  }
+
+  60% {
+    transform: translateX(-22%);
+    opacity: 0.18;
+    -webkit-backdrop-filter: blur(7px);
+    backdrop-filter: blur(7px);
+  }
+
+  72%,
+  100% {
+    transform: translateX(-22%);
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0);
+    backdrop-filter: blur(0);
   }
 }
 
@@ -924,7 +1058,7 @@ html.turbo-series-active .game-result-exit {
 
   100% {
     transform: translateX(-70px);
-    opacity: 1;
+    opacity: 0;
   }
 }
 
