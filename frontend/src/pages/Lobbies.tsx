@@ -6,11 +6,30 @@ import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
-import defaultGamePreview from '../assets/preview/IMG_2076.webm';
+import defaultGamePreview from '../assets/preview/dunk.webm';
+import PlinkoPreview from '../assets/preview/plinko.webm';
+import DescentPreview from  '../assets/preview/descent.webm';
+import PaperPreview from '../assets/preview/paper.webm';
+import TowerPreview from '../assets/preview/tower.webm';
+import GridPreview from '../assets/preview/grid.webm';
+import MatrixPreview from '../assets/preview/matrix.webm';
+import BirdPreview from '../assets/preview/bird.webm';
+import CoinPreview from '../assets/preview/coin.webm';
+import DrawPreview from '../assets/preview/draw.webm';
 
 const POLL_INTERVAL_MS = 3000;
 
-const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {};
+const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {
+  plinko_pvp: PlinkoPreview,
+  descent_duel: DescentPreview,
+  paper_io: PaperPreview,
+  tower_stack: TowerPreview,
+  grid_lock: GridPreview,
+  neon_matrix: MatrixPreview,
+  flappy_race: BirdPreview,
+  coin_chase: CoinPreview,
+  draw_drop: DrawPreview,
+};
 
 const toErrorMessage = (error: unknown) => {
   if (error instanceof ApiError) return error.message;
