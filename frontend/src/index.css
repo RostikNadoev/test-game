@@ -895,6 +895,11 @@ html.game-gesture-lock #root {
 }
 
 .turbo-transition-new-page.is-final {
+  align-content: center;
+  gap: 0;
+  overflow-y: auto;
+  padding: max(28px, env(safe-area-inset-top, 0px)) 22px
+    max(24px, env(safe-area-inset-bottom, 0px));
   background:
     radial-gradient(circle at 74% 21%, rgba(91, 183, 255, 0.17), transparent 36%),
     radial-gradient(circle at 22% 79%, rgba(255, 180, 92, 0.12), transparent 38%),
@@ -903,11 +908,248 @@ html.game-gesture-lock #root {
 }
 
 .turbo-transition-new-page.is-final::after {
-  width: 116px;
-  height: 1px;
+  content: none;
+}
+
+.turbo-final-transition .turbo-transition-old-page {
+  animation: turbo-final-underlay-in 1200ms ease-out both;
+}
+
+.turbo-final-transition .turbo-transition-new-page {
+  animation: turbo-final-page-enter 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.turbo-final-transition .turbo-transition-edge {
+  animation: turbo-final-edge-enter 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.turbo-final-page-heading {
+  display: grid;
+  justify-items: center;
+}
+
+.turbo-final-page-heading > span {
+  color: rgba(151, 211, 255, 0.58);
+  font-size: 7px;
+  letter-spacing: 0.17em;
+}
+
+.turbo-final-page-heading > strong {
   margin-top: 7px;
-  content: '';
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: -0.045em;
+}
+
+.turbo-final-page-heading > small {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.turbo-final-matchup {
+  width: min(100%, 306px);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 17px;
+  padding: 10px 12px;
+  border-color: rgba(255, 255, 255, 0.075);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.turbo-final-matchup .turbo-transition-competitor {
+  min-width: 0;
+}
+
+.turbo-final-matchup .turbo-transition-avatar {
+  width: 39px;
+  height: 39px;
+  flex: 0 0 auto;
+  border-radius: 13px;
+}
+
+.turbo-final-matchup .turbo-transition-competitor.is-winner .turbo-transition-avatar {
+  border-color: rgba(244, 199, 127, 0.38);
+  box-shadow: 0 0 0 3px rgba(244, 199, 127, 0.045);
+}
+
+.turbo-final-matchup-player {
+  display: grid;
+  min-width: 0;
+}
+
+.turbo-final-matchup-player > span {
+  display: block;
+  max-width: 76px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 6px;
+  line-height: 1.45;
+  letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.turbo-transition-competitor.is-own .turbo-final-matchup-player {
+  justify-items: start;
+  text-align: left;
+}
+
+.turbo-transition-competitor.is-opponent .turbo-final-matchup-player {
+  justify-items: end;
+  text-align: right;
+}
+
+.turbo-final-matchup .turbo-final-matchup-player > b {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 21px;
+  line-height: 1;
+}
+
+.turbo-final-matchup .turbo-transition-competitor.is-winner .turbo-final-matchup-player > b {
+  color: #f2d29d;
+}
+
+.turbo-final-inline-result {
+  display: grid;
+  width: min(100%, 306px);
+  max-height: 0;
+  justify-items: stretch;
+  overflow: hidden;
+  margin-top: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition:
+    max-height 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 420ms ease 120ms,
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.turbo-final-inline-result.is-visible {
+  max-height: 240px;
+  margin-top: 18px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.turbo-final-inline-result > span {
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 6.5px;
+  letter-spacing: 0.16em;
+  text-align: center;
+}
+
+.turbo-final-inline-result.is-win > span {
+  color: rgba(242, 210, 157, 0.7);
+}
+
+.turbo-final-inline-result.is-loss > span {
+  color: rgba(255, 122, 144, 0.68);
+}
+
+.turbo-final-inline-result > h2 {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.35;
+  letter-spacing: -0.035em;
+  text-align: center;
+}
+
+.turbo-final-inline-result.is-win > h2 {
+  color: #f2d29d;
+}
+
+.turbo-final-inline-net {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 13px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.turbo-final-inline-net > small {
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 6.5px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.turbo-final-inline-net > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.turbo-final-inline-net strong {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.turbo-final-inline-net.is-positive {
+  border-color: rgba(242, 210, 157, 0.12);
+}
+
+.turbo-final-inline-net.is-positive strong {
+  color: #f2d29d;
+}
+
+.turbo-final-inline-net.is-negative {
+  border-color: rgba(255, 122, 144, 0.12);
+}
+
+.turbo-final-inline-net.is-negative strong {
+  color: #ff8ca0;
+}
+
+.turbo-final-inline-net img {
+  width: 23px;
+  height: 23px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.turbo-final-inline-result > button {
+  width: 100%;
+  height: 47px;
+  margin-top: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 15px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.065);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  transition:
+    transform 120ms ease,
+    background 160ms ease;
+}
+
+.turbo-final-inline-result > button:active {
+  transform: scale(0.985);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .turbo-final-icon {
@@ -1438,6 +1680,44 @@ html.turbo-series-active .game-result-exit {
   35% {
     transform: translateY(-3px);
     opacity: 1;
+  }
+}
+
+@keyframes turbo-final-underlay-in {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(-22%);
+    opacity: 0;
+  }
+}
+
+@keyframes turbo-final-page-enter {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes turbo-final-edge-enter {
+  from {
+    transform: translateX(calc(100vw + 18px));
+    opacity: 1;
+  }
+
+  82% {
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(-70px);
+    opacity: 0;
   }
 }
 
@@ -2256,6 +2536,35 @@ html.game-presence-paused .game-presence-overlay * {
 }
 
 .dunk-shot-game .premium-game-result-card > h2 {
+  line-height: 1.38;
+}
+
+/* Doodle Jump shares the same tall Supercell font metrics as Dunk Shot. */
+.doodle-pvp-surface .leading-none,
+.doodle-pvp-surface .truncate {
+  line-height: 1.42 !important;
+  padding-top: 0.09em;
+  padding-bottom: 0.14em;
+}
+
+.doodle-pvp-surface :where(
+  .premium-game-result-kicker,
+  .premium-game-result-card > h2,
+  .premium-game-result-reason,
+  .premium-game-result-player > span,
+  .premium-game-result-player > strong,
+  .premium-game-result-player > b,
+  .premium-game-result-players > i,
+  .premium-game-result-net > span,
+  .premium-game-result-net > strong,
+  .premium-game-result-card > button > b
+) {
+  line-height: 1.42;
+  padding-top: 0.08em;
+  padding-bottom: 0.13em;
+}
+
+.doodle-pvp-surface .premium-game-result-card > h2 {
   line-height: 1.38;
 }
 
