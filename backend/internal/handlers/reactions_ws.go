@@ -48,7 +48,8 @@ func (h ReactionsWSHandler) Connect(c *gin.Context) {
 		return
 	}
 
-	conn, err := newPvpUpgrader(h.Cfg).Upgrade(c.Writer, c.Request, nil)
+	upgrader := newPvpUpgrader(h.Cfg)
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
