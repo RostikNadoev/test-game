@@ -14,6 +14,7 @@ import {
 } from '../api/paperIoWs';
 import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
+import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
 import { getTelegramWebApp } from '../types/telegram';
 
 const GRID = 64;
@@ -997,55 +998,29 @@ export const PaperIoGame = () => {
         <div ref={thumbRef} className="pio-joy-thumb" />
       </div>
 
-      {phase !== 'playing' && (
+      {phase !== 'playing' && phase !== 'over' && (
         <div className="pio-modal-backdrop">
           <div className="pio-modal-card">
             <div className="pio-modal-icon">
-              {phase === 'over'
-                ? didWin
-                  ? '🏆'
-                  : isDraw
-                    ? '🤝'
-                    : '😵'
-                : serverState?.phase === 'countdown'
-                  ? countdownSeconds
-                  : '🟩'}
+              {serverState?.phase === 'countdown' ? countdownSeconds : '🟩'}
             </div>
 
             <p className="pio-modal-kicker">Territory Duel</p>
             <h1 className="pio-modal-title">
-              {phase === 'over'
-                ? didWin
-                  ? 'Победа!'
-                  : isDraw
-                    ? 'Ничья'
-                    : 'Поражение'
-                : serverState?.phase === 'countdown'
-                  ? 'Приготовься'
-                  : 'Paper IO'}
+              {serverState?.phase === 'countdown' ? 'Приготовься' : 'Paper IO'}
             </h1>
 
             <p className="pio-modal-copy">
               {socketError
                 ? socketError
-                : phase === 'over'
-                  ? `Ты: ${p1pct.toFixed(1)}% · ${opponentProfile.nickname}: ${p2pct.toFixed(1)}%`
-                  : serverState?.phase === 'countdown'
-                    ? 'Оба игрока готовы. Матч начинается одновременно.'
-                    : readySent
-                      ? `Ждём, пока ${opponentProfile.nickname} будет готов.`
-                      : 'Захватывай территорию, замыкая петли. 90 секунд — кто захватит больше, тот победил. Наступи на след соперника, чтобы сбросить его территорию.'}
+                : serverState?.phase === 'countdown'
+                  ? 'Оба игрока готовы. Матч начинается одновременно.'
+                  : readySent
+                    ? `Ждём, пока ${opponentProfile.nickname} будет готов.`
+                    : 'Захватывай территорию, замыкая петли. 90 секунд — кто захватит больше, тот победил. Наступи на след соперника, чтобы сбросить его территорию.'}
             </p>
 
-            {phase === 'over' ? (
-              <button
-                onClick={() => navigate(lobbiesPath, { replace: true })}
-                className="pio-modal-btn"
-                type="button"
-              >
-                В лобби
-              </button>
-            ) : serverState?.phase !== 'countdown' ? (
+            {serverState?.phase !== 'countdown' ? (
               <button
                 onClick={start}
                 className="pio-modal-btn"
@@ -1065,6 +1040,42 @@ export const PaperIoGame = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {phase === 'over' && (
+        <PremiumGameResultModal
+          gameTitle="Paper IO"
+          resultTitle={isDraw ? 'Ничья' : didWin ? 'Победа' : 'Поражение'}
+          players={[
+            {
+              id: myProfile.id,
+              name: myProfile.nickname,
+              photoUrl: myProfile.photoUrl,
+              score: `${p1pct.toFixed(1)}%`,
+            },
+            {
+              id: opponentProfile.id,
+              name: opponentProfile.nickname,
+              photoUrl: opponentProfile.photoUrl,
+              score: `${p2pct.toFixed(1)}%`,
+            },
+          ]}
+          winnerUserID={
+            isDraw ? undefined : didWin ? myProfile.id : opponentProfile.id
+          }
+          draw={isDraw}
+          netResult={
+            isDraw
+              ? 0
+              : didWin
+                ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+                : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
+          }
+          netLabel="Чистый результат"
+          continueLabel="В лобби"
+          onContinue={() => navigate(lobbiesPath, { replace: true })}
+          theme={{ background: '#071710', accent: '#54f2a8', rival: '#ff7a90' }}
+        />
       )}
     </div>
   );

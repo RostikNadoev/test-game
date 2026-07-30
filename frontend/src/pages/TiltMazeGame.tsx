@@ -1343,7 +1343,7 @@ export default function TiltMazeGame() {
                   {match.draw ? 'DRAW' : localWon ? 'YOU WIN' : 'RIVAL WINS'}
                 </div>
                 {localWon && match.winnerProfit > 0 && (
-                  <div className="mt-1 pt-[3px] pb-[2px] text-[11px] font-semibold leading-[1.4] text-white/64">
+                  <div className="game-result-reward mt-1 pt-[3px] pb-[2px] text-[11px] font-semibold leading-[1.4] text-white/64">
                     NET WIN +{match.winnerProfit.toFixed(2)}
                   </div>
                 )}

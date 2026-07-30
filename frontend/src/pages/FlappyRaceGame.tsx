@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PremiumGameResultModal } from "../components/Game/PremiumGameResultModal";
 import { useArcadeRaceOnline } from "../hooks/useArcadeRaceOnline";
 import birdSpriteSrc from "../assets/games/bird/bird.webp";
 
@@ -1125,31 +1126,33 @@ export const FlappyRaceGame = () => {
       )}
 
       {phase === "finished" && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 px-5 backdrop-blur-[3px]">
-          <div className="w-full max-w-[310px] rounded-[28px] border border-white/12 bg-[#0b1720]/96 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-            <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#52FFE5]/55">
-              Flappy Race
-            </div>
-            <div className="mt-3 text-[28px] font-black leading-none text-white">
-              {score}
-            </div>
-            <div className="mt-2 text-[8px] font-black uppercase tracking-[0.16em] text-white/35">
-              {match.draw
-                ? "ничья"
-                : match.winnerUserId === match.myUserId
-                  ? "победа"
-                  : "поражение"} · best combo {bestCombo}
-            </div>
-
-            <button
-              type="button"
-              onClick={match.backToLobbies}
-              className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
-            >
-              К лобби
-            </button>
-          </div>
-        </div>
+        <PremiumGameResultModal
+          gameTitle="Flappy Race"
+          resultTitle={
+            match.draw
+              ? "Ничья"
+              : match.winnerUserId === match.myUserId
+                ? "Победа"
+                : "Поражение"
+          }
+          players={[
+            { ...match.playerProfile, score },
+            { ...match.opponentProfile, score: match.opponentScore },
+          ]}
+          winnerUserID={match.winnerUserId}
+          draw={match.draw}
+          netResult={
+            match.draw
+              ? 0
+              : match.winnerUserId === match.myUserId
+                ? Math.round((Number(window.sessionStorage.getItem("twingames_active_bet")) || 0) * 90) / 100
+                : -(Number(window.sessionStorage.getItem("twingames_active_bet")) || 0)
+          }
+          netLabel="Чистый результат"
+          continueLabel="К лобби"
+          onContinue={match.backToLobbies}
+          theme={{ background: "#071523", accent: "#52ffe5", rival: "#ff7a90" }}
+        />
       )}
     </div>
   );

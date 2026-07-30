@@ -2010,7 +2010,7 @@ export default function BallzDuelGame() {
             </div>
 
             {resultStage >= 4 && (
-              <div className="mt-3 rounded-[15px] border border-white/[0.06] bg-white/[0.025] px-3 py-3 text-center">
+              <div className="game-result-reward mt-3 rounded-[15px] border border-white/[0.06] bg-white/[0.025] px-3 py-3 text-center">
                 <p className="text-[5px] font-black uppercase tracking-[.12em] text-white/24">
                   ЧИСТЫЙ ВЫИГРЫШ
                 </p>

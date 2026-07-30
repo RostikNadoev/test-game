@@ -85,6 +85,10 @@ export const LobbyRoom = () => {
 
       window.sessionStorage.setItem('twingames_active_lobby_id', lobby.id);
       window.sessionStorage.setItem('twingames_active_game', lobby.game);
+      window.sessionStorage.setItem(
+        'twingames_active_bet',
+        String(lobby.bet_coins),
+      );
     }
 
     void refreshBalance();

@@ -1511,7 +1511,7 @@ export default function CubeFillGame() {
 
               <div
                 className={[
-                  'mt-2.5 flex items-center justify-center rounded-[15px] border border-white/[0.065] bg-black/15 px-3 py-2.5 text-center transition duration-500',
+                  'game-result-reward mt-2.5 flex items-center justify-center rounded-[15px] border border-white/[0.065] bg-black/15 px-3 py-2.5 text-center transition duration-500',
                   resultStage >= 5
                     ? 'translate-y-0 opacity-100'
                     : 'translate-y-1 opacity-0',

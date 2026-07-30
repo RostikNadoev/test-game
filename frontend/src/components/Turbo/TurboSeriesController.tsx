@@ -1,7 +1,14 @@
 import { Crown, Trophy } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { api, type TurboStatus } from '../../api';
+import { api, type LobbyPlayerInfo, type TurboStatus } from '../../api';
 import { useAuth } from '../../auth/useAuth';
 import { getGameByCode } from '../../data/games';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -13,6 +20,51 @@ import {
 
 const ROUND_TRANSITION_NAVIGATE_MS = 2100;
 const ROUND_TRANSITION_TOTAL_MS = 3600;
+const ROUND_RESULT_HOLD_MS = 3500;
+
+type TransitionTheme = {
+  background: string;
+  glow: string;
+  accent: string;
+  ink: string;
+};
+
+const DEFAULT_TRANSITION_THEME: TransitionTheme = {
+  background: '#0b0c13',
+  glow: '#9d7cff',
+  accent: '#52ffe5',
+  ink: '#ffffff',
+};
+
+const TRANSITION_THEMES: Record<string, TransitionTheme> = {
+  plinko_pvp: { background: '#070b16', glow: '#5bb7ff', accent: '#ffb45c', ink: '#ffffff' },
+  descent_duel: { background: '#09090b', glow: '#d8d9dd', accent: '#7c7f86', ink: '#ffffff' },
+  paper_io: { background: '#071710', glow: '#54f2a8', accent: '#52ffe5', ink: '#f4fff9' },
+  tower_stack: { background: '#0d0919', glow: '#9d7cff', accent: '#52ffe5', ink: '#ffffff' },
+  grid_lock: { background: '#090d13', glow: '#9d7cff', accent: '#ff5d73', ink: '#ffffff' },
+  neon_matrix: { background: '#05070c', glow: '#52ffe5', accent: '#9d7cff', ink: '#ffffff' },
+  dunk_shot: { background: '#17100a', glow: '#f2a65a', accent: '#52ffe5', ink: '#fff8ed' },
+  flappy_race: { background: '#071523', glow: '#4da3ff', accent: '#52ffe5', ink: '#ffffff' },
+  disc_football: { background: '#07130f', glow: '#52ffe5', accent: '#ff7a90', ink: '#ffffff' },
+  doodle_jump: { background: '#0d0a19', glow: '#9d7cff', accent: '#52ffe5', ink: '#ffffff' },
+  crossy_pvp: { background: '#10160b', glow: '#f7c85f', accent: '#54f2a8', ink: '#ffffff' },
+  coin_chase: { background: '#170a12', glow: '#ffd64a', accent: '#9b7cff', ink: '#ffffff' },
+  cube_fill: { background: '#0d0921', glow: '#7653ee', accent: '#f5c94f', ink: '#ffffff' },
+  ballz_duel: { background: '#07131a', glow: '#56e3ff', accent: '#ffd64a', ink: '#ffffff' },
+  draw_drop: { background: '#f4f7fb', glow: '#62d9ff', accent: '#62ffb0', ink: '#101318' },
+  tilt_maze: { background: '#ddd8cd', glow: '#8f9a82', accent: '#b99567', ink: '#292925' },
+};
+
+const displayName = (player: LobbyPlayerInfo | undefined, fallback: string) =>
+  player?.tg_user?.trim() || fallback;
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'P';
 
 export const TurboSeriesController = () => {
   const navigate = useNavigate();
@@ -21,9 +73,12 @@ export const TurboSeriesController = () => {
   const { tr } = useLanguage();
   const [status, setStatus] = useState<TurboStatus | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+  const [showFinal, setShowFinal] = useState(false);
   const transitionLobbyRef = useRef('');
+  const transitionStartTimerRef = useRef<number | null>(null);
   const transitionNavigateTimerRef = useRef<number | null>(null);
   const transitionFinishTimerRef = useRef<number | null>(null);
+  const finalTimerRef = useRef<number | null>(null);
   const latestStatusRef = useRef<TurboStatus | null>(null);
   const seriesID = window.sessionStorage.getItem(TURBO_SERIES_KEY) || '';
   const transitionLobbyID =
@@ -33,7 +88,8 @@ export const TurboSeriesController = () => {
   const transitionPath = transitionGameCode
     ? getGameByCode(transitionGameCode)?.playPath
     : undefined;
-  const transitionRound = status?.status === 'playing' ? status.round : 0;
+  const transitionRound =
+    status?.status === 'playing' ? status.round || 0 : 0;
 
   useEffect(() => {
     latestStatusRef.current = status;
@@ -41,15 +97,26 @@ export const TurboSeriesController = () => {
 
   useEffect(
     () => () => {
+      if (transitionStartTimerRef.current !== null) {
+        window.clearTimeout(transitionStartTimerRef.current);
+      }
       if (transitionNavigateTimerRef.current !== null) {
         window.clearTimeout(transitionNavigateTimerRef.current);
       }
       if (transitionFinishTimerRef.current !== null) {
         window.clearTimeout(transitionFinishTimerRef.current);
       }
+      if (finalTimerRef.current !== null) {
+        window.clearTimeout(finalTimerRef.current);
+      }
     },
     [],
   );
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('turbo-series-active', Boolean(seriesID));
+    return () => document.documentElement.classList.remove('turbo-series-active');
+  }, [seriesID]);
 
   const poll = useCallback(async () => {
     if (!seriesID) return;
@@ -92,31 +159,67 @@ export const TurboSeriesController = () => {
       window.clearTimeout(transitionFinishTimerRef.current);
     }
     transitionLobbyRef.current = transitionLobbyID;
-    setTransitioning(true);
-    transitionNavigateTimerRef.current = window.setTimeout(() => {
-      const didEnter = enterTurboRound(nextStatus, navigate);
-      transitionNavigateTimerRef.current = null;
+    const resultHold = transitionRound > 1 ? ROUND_RESULT_HOLD_MS : 0;
 
-      if (!didEnter) {
-        if (transitionFinishTimerRef.current !== null) {
-          window.clearTimeout(transitionFinishTimerRef.current);
-          transitionFinishTimerRef.current = null;
+    transitionStartTimerRef.current = window.setTimeout(() => {
+      transitionStartTimerRef.current = null;
+      setTransitioning(true);
+      transitionNavigateTimerRef.current = window.setTimeout(() => {
+        const didEnter = enterTurboRound(nextStatus, navigate);
+        transitionNavigateTimerRef.current = null;
+
+        if (!didEnter) {
+          if (transitionFinishTimerRef.current !== null) {
+            window.clearTimeout(transitionFinishTimerRef.current);
+            transitionFinishTimerRef.current = null;
+          }
+          transitionLobbyRef.current = '';
+          setTransitioning(false);
         }
-        transitionLobbyRef.current = '';
+      }, ROUND_TRANSITION_NAVIGATE_MS);
+      transitionFinishTimerRef.current = window.setTimeout(() => {
+        transitionFinishTimerRef.current = null;
         setTransitioning(false);
-      }
-    }, ROUND_TRANSITION_NAVIGATE_MS);
-    transitionFinishTimerRef.current = window.setTimeout(() => {
-      transitionFinishTimerRef.current = null;
-      setTransitioning(false);
-    }, ROUND_TRANSITION_TOTAL_MS);
+      }, ROUND_TRANSITION_TOTAL_MS);
+    }, resultHold);
   }, [
     location.pathname,
     navigate,
     transitionGameCode,
     transitionLobbyID,
     transitionPath,
+    transitionRound,
   ]);
+
+  useEffect(() => {
+    if (finalTimerRef.current !== null) {
+      window.clearTimeout(finalTimerRef.current);
+      finalTimerRef.current = null;
+    }
+    if (status?.status !== 'finished') {
+      setShowFinal(false);
+      return;
+    }
+
+    const activeLobbyID = window.sessionStorage.getItem(ACTIVE_LOBBY_KEY);
+    const finalGamePath = status.current_game
+      ? getGameByCode(status.current_game)?.playPath
+      : undefined;
+    const shouldHoldGameResult =
+      Boolean(activeLobbyID) && Boolean(finalGamePath) && location.pathname === finalGamePath;
+
+    finalTimerRef.current = window.setTimeout(() => {
+      finalTimerRef.current = null;
+      setShowFinal(true);
+    }, shouldHoldGameResult ? ROUND_RESULT_HOLD_MS : 0);
+
+    return () => {
+      if (finalTimerRef.current !== null) {
+        window.clearTimeout(finalTimerRef.current);
+        finalTimerRef.current = null;
+      }
+    };
+  }, [location.pathname, status?.current_game, status?.status]);
 
   const wins = useMemo(() => {
     if (!user?.id || !status?.wins || !status.player_ids) return [0, 0];
@@ -147,6 +250,54 @@ export const TurboSeriesController = () => {
   const currentTitle = status.current_game
     ? getGameByCode(status.current_game)?.displayName || status.current_game
     : '';
+  const transitionTheme =
+    TRANSITION_THEMES[transitionGameCode] || DEFAULT_TRANSITION_THEME;
+  const transitionStyle = {
+    '--turbo-transition-bg': transitionTheme.background,
+    '--turbo-transition-glow': transitionTheme.glow,
+    '--turbo-transition-accent': transitionTheme.accent,
+    '--turbo-transition-ink': transitionTheme.ink,
+  } as CSSProperties;
+  const playerCards = [...(status.current_lobby?.players_info || [])].sort(
+    (left, right) => {
+      if (left.id === Number(user?.id)) return -1;
+      if (right.id === Number(user?.id)) return 1;
+      return 0;
+    },
+  );
+  const normalizedPlayers: LobbyPlayerInfo[] = status.player_ids?.map(
+    (id, index) =>
+      playerCards.find((player) => player.id === id) || {
+        id,
+        tg_user: index === 0 ? tr('Player one', 'Игрок один') : tr('Player two', 'Игрок два'),
+        photo_url: '',
+      },
+  ) || playerCards;
+  const ownPlayer =
+    normalizedPlayers.find((player) => player.id === Number(user?.id)) ||
+    normalizedPlayers[0];
+  const opponentPlayer =
+    normalizedPlayers.find((player) => player.id !== Number(user?.id)) ||
+    normalizedPlayers[1];
+  const finalPlayers = [
+    {
+      player: ownPlayer,
+      score: wins[0],
+      winner: status.winner_user_id === ownPlayer?.id,
+      fallback: tr('You', 'Вы'),
+    },
+    {
+      player: opponentPlayer,
+      score: wins[1],
+      winner: status.winner_user_id === opponentPlayer?.id,
+      fallback: tr('Opponent', 'Соперник'),
+    },
+  ];
+  const netResult = status.draw
+    ? 0
+    : didWin
+      ? Math.round(status.bet_coins * 0.9)
+      : -status.bet_coins;
 
   return (
     <>
@@ -162,7 +313,7 @@ export const TurboSeriesController = () => {
       )}
 
       {transitioning && (
-        <div className="turbo-series-transition" role="status">
+        <div className="turbo-series-transition" role="status" style={transitionStyle}>
           <div className="turbo-transition-old-page" aria-hidden="true" />
           <div className="turbo-transition-new-page">
             <span>{tr('Next arena', 'Следующая арена')}</span>
@@ -175,9 +326,9 @@ export const TurboSeriesController = () => {
         </div>
       )}
 
-      {status.status === 'finished' && (
+      {status.status === 'finished' && showFinal && (
         <div className="turbo-final-overlay" role="dialog" aria-modal="true">
-          <div className="turbo-final-card">
+          <div className={`turbo-final-card ${didWin ? 'is-win' : status.draw ? 'is-draw' : 'is-loss'}`}>
             <div className={`turbo-final-icon ${didWin ? 'is-win' : ''}`}>
               {didWin ? <Crown size={30} /> : <Trophy size={28} />}
             </div>
@@ -189,14 +340,33 @@ export const TurboSeriesController = () => {
                   ? tr('Turbo victory', 'Победа в Turbo')
                   : tr('Series complete', 'Серия завершена')}
             </h2>
-            <div className="turbo-final-score">{wins[0]} : {wins[1]}</div>
-            <p>
-              {status.draw
-                ? tr('The stake has been returned.', 'Ставка возвращена.')
-                : didWin
-                  ? tr('The series prize has been credited to your balance.', 'Приз за серию зачислен на баланс.')
-                  : tr('Return to the arena and try another series.', 'Возвращайся на арену и попробуй ещё одну серию.')}
-            </p>
+            <div className="turbo-final-players">
+              {finalPlayers.map(({ player, score, winner, fallback }, index) => {
+                const name = displayName(player, fallback);
+                return (
+                  <div
+                    className={`turbo-final-player ${winner ? 'is-winner' : ''}`}
+                    key={player?.id || index}
+                  >
+                    {winner && <span className="turbo-final-crown">Winner</span>}
+                    <div className="turbo-final-avatar">
+                      {player?.photo_url ? (
+                        <img src={player.photo_url} alt="" draggable={false} />
+                      ) : (
+                        <span>{initials(name)}</span>
+                      )}
+                    </div>
+                    <strong>{name}</strong>
+                    <b>{score}</b>
+                  </div>
+                );
+              })}
+              <span className="turbo-final-vs">VS</span>
+            </div>
+            <div className={`turbo-final-net ${netResult > 0 ? 'is-positive' : netResult < 0 ? 'is-negative' : ''}`}>
+              <small>{tr('Net result', 'Чистый результат')}</small>
+              <strong>{netResult > 0 ? '+' : ''}{netResult}</strong>
+            </div>
             <button type="button" onClick={() => void finish()}>
               {tr('Continue', 'Продолжить')}
             </button>

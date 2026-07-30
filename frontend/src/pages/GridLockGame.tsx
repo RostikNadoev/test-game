@@ -917,7 +917,7 @@ export const GridLockGame: React.FC = () => {
               )}
 
               <div className="my-5 h-px bg-white/[.07]" />
-              <div className={`mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5 ${didWin ? 'border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]' : 'border-white/10 bg-white/[.05] text-white/55'}`}>
+              <div className={`game-result-reward mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5 ${didWin ? 'border-[#49E99A]/20 bg-[#49E99A]/10 text-[#49E99A]' : 'border-white/10 bg-white/[.05] text-white/55'}`}>
                 <span className="gl-safe text-[20px] font-black tabular-nums">{didWin ? `+${formatReward(serverState?.winner_profit || 0)}` : '0'}</span>
                 <img src={coinIcon} alt="GAME" className="h-6 w-6 object-contain" draggable={false} />
               </div>

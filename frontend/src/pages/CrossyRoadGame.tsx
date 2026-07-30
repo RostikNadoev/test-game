@@ -1566,7 +1566,7 @@ export const CrossyRoadGame = () => {
 
               <div
                 className={[
-                  "mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5",
+                  "game-result-reward mx-auto flex w-fit items-center justify-center gap-2 rounded-full border px-4 py-2.5",
                   isDraw
                     ? "border-white/10 bg-white/[0.05] text-white/55"
                     : didWin

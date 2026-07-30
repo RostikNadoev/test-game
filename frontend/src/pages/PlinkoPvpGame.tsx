@@ -1987,7 +1987,7 @@ function ResultModal({ players, scores, winner, reward, refund, onExit }: Result
           </div>
         </div>
 
-        <div className="mt-2.5 flex min-h-[48px] items-center justify-between rounded-[17px] border border-white/[0.065] bg-white/[0.03] px-3">
+        <div className="game-result-reward mt-2.5 flex min-h-[48px] items-center justify-between rounded-[17px] border border-white/[0.065] bg-white/[0.03] px-3">
           <div className="text-left">
             <div className="plinko-safe-text text-[6.5px] font-black uppercase tracking-[0.11em] text-white/28">
               {won ? "Выигрыш" : isTie ? "Возврат" : "Результат"}

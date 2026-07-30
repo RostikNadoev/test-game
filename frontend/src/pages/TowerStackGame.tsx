@@ -1394,7 +1394,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
 
                 <div className="ts-result-divider" />
 
-                <div className={`ts-reward-pill ${didWin ? 'is-win' : isDraw ? 'is-draw' : 'is-loss'}`}>
+                <div className={`game-result-reward ts-reward-pill ${didWin ? 'is-win' : isDraw ? 'is-draw' : 'is-loss'}`}>
                   <span className="ts-reward-value">{didWin ? `+${formatReward(displayedReward)}` : '0'}</span>
                   <img src={coinIcon} alt="GAME" draggable={false} />
                 </div>

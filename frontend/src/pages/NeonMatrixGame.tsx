@@ -799,7 +799,7 @@ const ResultModal = memo(
 
         <div className="nm-result-divider" />
 
-        <div className="nm-reward">
+        <div className="game-result-reward nm-reward">
           <strong>{didWin ? `+${formatReward(reward)}` : '0'}</strong>
           <img src={coinIcon} alt="GAME" draggable={false} />
         </div>

@@ -15,6 +15,7 @@ import {
 } from '../api/discFootballWs';
 import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
+import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
 
 type Team = 'home' | 'away';
 type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
@@ -2012,41 +2013,24 @@ export const DiscFootballGame = () => {
       )}
 
       {serverState?.phase === 'match_over' && winnerUserId > 0 && (
-        <div className="absolute inset-0 z-30 grid place-items-center bg-black/58 px-5 backdrop-blur-[3px]">
-          <div className="w-full max-w-[310px] rounded-[28px] border border-white/12 bg-[#101614]/95 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-            <div
-              className={[
-                'text-[24px] font-black uppercase leading-none',
-                winnerUserId === myUserId
-                  ? 'text-[#52FFE5]'
-                  : 'text-[#FF7A90]',
-              ].join(' ')}
-            >
-              {winnerUserId === myUserId
-                ? 'Победа!'
-                : 'Поражение'}
-            </div>
-
-            <div className="mt-3 text-[11px] font-black text-white/80">
-              {homeScore} : {awayScore}
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  lobbiesPath,
-                  {
-                    replace: true,
-                  },
-                )
-              }
-              className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
-            >
-              К списку лобби
-            </button>
-          </div>
-        </div>
+        <PremiumGameResultModal
+          gameTitle="Disc Football"
+          resultTitle={winnerUserId === myUserId ? 'Победа' : 'Поражение'}
+          players={[
+            { ...homeProfile, score: homeScore },
+            { ...awayProfile, score: awayScore },
+          ]}
+          winnerUserID={winnerUserId}
+          netResult={
+            winnerUserId === myUserId
+              ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+              : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
+          }
+          netLabel="Чистый результат"
+          continueLabel="К списку лобби"
+          onContinue={() => navigate(lobbiesPath, { replace: true })}
+          theme={{ background: '#07130f', accent: '#52ffe5', rival: '#ff7a90' }}
+        />
       )}
     </div>
   );

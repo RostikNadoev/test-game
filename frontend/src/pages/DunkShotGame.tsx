@@ -9,6 +9,7 @@ import {
 } from '../api/dunkShotWs';
 import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
+import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
 
 type Phase = 'ready' | 'flying' | 'scoring' | 'settling';
 
@@ -3307,54 +3308,33 @@ export const DunkShotGame = () => {
       )}
 
       {serverState?.phase === 'match_over' && (
-        <div className="absolute inset-0 z-50 grid place-items-center bg-black/60 px-5 backdrop-blur-[3px]">
-          <div className="w-full max-w-[320px] rounded-[28px] border border-white/12 bg-[#15110e]/96 p-5 text-center shadow-[0_24px_80px_rgba(0,0,0,0.58)]">
-            <div
-              className={[
-                'text-[24px] font-black uppercase leading-none',
-                serverState.draw
-                  ? 'text-white'
-                  : winnerUserId === myUserId
-                    ? 'text-[#52FFE5]'
-                    : 'text-[#FF7A90]',
-              ].join(' ')}
-            >
-              {serverState.draw
-                ? 'Ничья'
-                : winnerUserId === myUserId
-                  ? 'Победа!'
-                  : 'Поражение'}
-            </div>
-
-            <div className="mt-4 flex items-center justify-center gap-5">
-              <div>
-                <div className="text-[24px] font-black text-[#52FFE5]">
-                  {myScore}
-                </div>
-                <div className="mt-1 text-[7px] font-black uppercase tracking-[0.13em] text-white/32">
-                  твои очки
-                </div>
-              </div>
-              <div className="text-[18px] font-black text-white/20">:</div>
-              <div>
-                <div className="text-[24px] font-black text-[#F2A65A]">
-                  {opponentScore}
-                </div>
-                <div className="mt-1 text-[7px] font-black uppercase tracking-[0.13em] text-white/32">
-                  соперник
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => navigate(lobbiesPath, { replace: true })}
-              className="mt-5 w-full rounded-2xl bg-white px-4 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-black transition active:scale-[0.98]"
-            >
-              К списку лобби
-            </button>
-          </div>
-        </div>
+        <PremiumGameResultModal
+          gameTitle="Dunk Shot"
+          resultTitle={
+            serverState.draw
+              ? 'Ничья'
+              : winnerUserId === myUserId
+                ? 'Победа'
+                : 'Поражение'
+          }
+          players={[
+            { ...playerProfile, score: myScore },
+            { ...opponentProfile, score: opponentScore },
+          ]}
+          winnerUserID={winnerUserId}
+          draw={serverState.draw}
+          netResult={
+            serverState.draw
+              ? 0
+              : winnerUserId === myUserId
+                ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+                : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
+          }
+          netLabel="Чистый результат"
+          continueLabel="К списку лобби"
+          onContinue={() => navigate(lobbiesPath, { replace: true })}
+          theme={{ background: '#17100a', accent: '#f2a65a', rival: '#52ffe5' }}
+        />
       )}
     </div>
   );

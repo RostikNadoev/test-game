@@ -1609,7 +1609,7 @@ const DrawDropGame = () => {
               </div>
               <div
                 className={[
-                  'mx-auto mt-2 flex w-fit items-center gap-1.5 border-2 border-[#111111] bg-[#111111] px-3 py-1.5 text-white transition-all duration-500 ease-out',
+                  'game-result-reward mx-auto mt-2 flex w-fit items-center gap-1.5 border-2 border-[#111111] bg-[#111111] px-3 py-1.5 text-white transition-all duration-500 ease-out',
                   resultStage >= 4 && didWin && profit > 0
                     ? 'translate-y-0 opacity-100'
                     : 'pointer-events-none -translate-y-1 opacity-0',

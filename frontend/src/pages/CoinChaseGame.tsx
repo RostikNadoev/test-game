@@ -1555,7 +1555,7 @@ export default function CoinChaseGame() {
               <div className="my-2.5 h-px bg-[#5b183b]/60" />
 
               <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1 text-left">
+                <div className="game-result-reward min-w-0 flex-1 text-left">
                   <p className="py-[1px] text-[5.5px] font-black uppercase leading-[1.45] tracking-[.12em] text-white/26">
                     Чистый выигрыш
                   </p>

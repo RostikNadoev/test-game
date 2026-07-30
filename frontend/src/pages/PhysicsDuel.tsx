@@ -16,6 +16,7 @@ import {
   type PhysicsDuelTrajectory,
 } from '../api/physicsDuelWs';
 import type { LobbyPlayerInfo } from '../api/types';
+import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
 import { getTelegramWebApp } from '../types/telegram';
 
 /* ========================================================================== */
@@ -1183,40 +1184,49 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ onExit }) => {
       )}
 
       {phase === 'result' && outcome && (
-        <div className="pd-result-overlay">
-          <div className="pd-result-card">
-            <div className="pd-result-kicker">MATCH COMPLETE</div>
-            <div
-              className={`pd-result-title ${
-                outcome === 'VICTORY'
-                  ? 'is-win'
-                  : outcome === 'DEFEAT'
-                    ? 'is-loss'
-                    : 'is-draw'
-              }`}
-            >
-              {outcome === 'VICTORY' ? 'ПОБЕДА' : outcome === 'DEFEAT' ? 'ПОРАЖЕНИЕ' : 'НИЧЬЯ'}
-            </div>
-
-            <div className="pd-result-players">
-              <ResultPlayer
-                info={outcome === 'DEFEAT' ? rivalMeta : myMeta}
-                distance={outcome === 'DEFEAT' ? rivalM : playerM}
-                winner={outcome !== 'DRAW'}
-              />
-              <div className="pd-result-line" />
-              <ResultPlayer
-                info={outcome === 'DEFEAT' ? myMeta : rivalMeta}
-                distance={outcome === 'DEFEAT' ? playerM : rivalM}
-                muted
-              />
-            </div>
-
-            <button type="button" className="pd-modal-button" onClick={leave}>
-              К ЛОББИ
-            </button>
-          </div>
-        </div>
+        <PremiumGameResultModal
+          gameTitle="Physics Duel"
+          resultTitle={
+            outcome === 'VICTORY'
+              ? 'Победа'
+              : outcome === 'DEFEAT'
+                ? 'Поражение'
+                : 'Ничья'
+          }
+          players={[
+            {
+              id: myMeta.id,
+              name: displayName(myMeta.tg_user),
+              photoUrl: myMeta.photo_url,
+              score: `${playerM}m`,
+            },
+            {
+              id: rivalMeta.id,
+              name: displayName(rivalMeta.tg_user),
+              photoUrl: rivalMeta.photo_url,
+              score: `${rivalM}m`,
+            },
+          ]}
+          winnerUserID={
+            outcome === 'DRAW'
+              ? undefined
+              : outcome === 'VICTORY'
+                ? myMeta.id
+                : rivalMeta.id
+          }
+          draw={outcome === 'DRAW'}
+          netResult={
+            outcome === 'DRAW'
+              ? 0
+              : outcome === 'VICTORY'
+                ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+                : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
+          }
+          netLabel="Чистый результат"
+          continueLabel="К лобби"
+          onContinue={leave}
+          theme={{ background: '#09090b', accent: '#d8d9dd', rival: '#858991' }}
+        />
       )}
     </div>
   );
@@ -1254,31 +1264,6 @@ const PlayerHUD = ({
           <div className="pd-player-distance">{distance}</div>
         </div>
       )}
-    </div>
-  );
-};
-
-const ResultPlayer = ({
-  info,
-  distance,
-  winner = false,
-  muted = false,
-}: {
-  info: LobbyPlayerInfo;
-  distance: number;
-  winner?: boolean;
-  muted?: boolean;
-}) => {
-  const name = displayName(info.tg_user);
-  return (
-    <div className={`pd-result-player ${winner ? 'is-winner' : ''} ${muted ? 'is-muted' : ''}`}>
-      <div className="pd-result-avatar">
-        {info.photo_url ? <img src={info.photo_url} alt="" /> : <span>{initials(name)}</span>}
-      </div>
-      <div className="pd-result-player-copy">
-        <strong>{name}</strong>
-        <span>{distance}m</span>
-      </div>
     </div>
   );
 };
