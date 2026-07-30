@@ -6,6 +6,7 @@ import { api, ApiError, type Lobby } from '../api';
 import { GAME_CATALOG, getGameByCode } from '../data/games';
 import { useIntervalWhenVisible } from '../hooks/useIntervalWhenVisible';
 import heroBanner from '../assets/home/banner.webp';
+import turboModeBackground from '../assets/home/turbo-mode-bg.webp';
 import { useLanguage } from '../i18n/LanguageContext';
 import { TurboMatchmakingOverlay } from '../components/Turbo/TurboMatchmakingOverlay';
 import { prepareTurboSeries } from '../components/Turbo/turboNavigation';
@@ -476,6 +477,13 @@ export const Home = () => {
           onClick={() => void startTurbo()}
           className="pressable turbo-home-card"
         >
+          <img
+            className="turbo-home-background"
+            src={turboModeBackground}
+            alt=""
+            draggable={false}
+            decoding="async"
+          />
           <div className="turbo-home-glow" aria-hidden="true" />
           <div className="turbo-home-top">
             <span className="turbo-home-badge"><Zap size={11} /> Turbo</span>
