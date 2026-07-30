@@ -1399,7 +1399,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
                   <img src={coinIcon} alt="GAME" draggable={false} />
                 </div>
 
-                <button className="ts-result-button" onClick={leave} type="button">
+                <button className="game-result-exit ts-result-button" onClick={leave} type="button">
                   <span className="ts-result-button-icon" aria-hidden="true">←</span>
                   <span>К ЛОББИ</span>
                   <span className="ts-result-button-spacer" aria-hidden="true" />

@@ -2007,7 +2007,7 @@ function ResultModal({ players, scores, winner, reward, refund, onExit }: Result
         <button
           type="button"
           onClick={onExit}
-          className="press mt-3 h-10 w-full rounded-[15px] bg-white text-[9px] font-black text-[#09090d] plinko-safe-text"
+          className="game-result-exit press mt-3 h-10 w-full rounded-[15px] bg-white text-[9px] font-black text-[#09090d] plinko-safe-text"
         >
           К лобби
         </button>

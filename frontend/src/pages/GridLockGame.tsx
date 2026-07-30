@@ -922,7 +922,7 @@ export const GridLockGame: React.FC = () => {
                 <img src={coinIcon} alt="GAME" className="h-6 w-6 object-contain" draggable={false} />
               </div>
 
-              <button type="button" onClick={backToLobbies} className="mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[.11] bg-[linear-gradient(180deg,rgba(255,255,255,.10)_0%,rgba(255,255,255,.045)_100%)] px-2.5 py-2.5 text-white active:scale-[.985]">
+              <button type="button" onClick={backToLobbies} className="game-result-exit mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[.11] bg-[linear-gradient(180deg,rgba(255,255,255,.10)_0%,rgba(255,255,255,.045)_100%)] px-2.5 py-2.5 text-white active:scale-[.985]">
                 <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[.10] bg-black/20 text-white/72"><svg viewBox="0 0 24 24" className="h-[17px] w-[17px]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><path d="m11 18-6-6 6-6" /></svg></span>
                 <span className="gl-safe px-2 text-[10px] font-black uppercase tracking-[.14em]">К лобби</span>
                 <span className="grid h-[38px] w-[38px] place-items-center text-white/30"><svg viewBox="0 0 24 24" className="h-[16px] w-[16px]" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg></span>

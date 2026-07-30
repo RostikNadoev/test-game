@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, type LobbyPlayerInfo, type TurboStatus } from '../../api';
+import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
 import { useAuth } from '../../auth/useAuth';
 import { getGameByCode } from '../../data/games';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -365,10 +366,13 @@ export const TurboSeriesController = () => {
             </div>
             <div className={`turbo-final-net ${netResult > 0 ? 'is-positive' : netResult < 0 ? 'is-negative' : ''}`}>
               <small>{tr('Net result', 'Чистый результат')}</small>
-              <strong>{netResult > 0 ? '+' : ''}{netResult}</strong>
+              <div>
+                <strong>{netResult > 0 ? '+' : ''}{netResult}</strong>
+                <img src={coinIcon} alt="" draggable={false} />
+              </div>
             </div>
             <button type="button" onClick={() => void finish()}>
-              {tr('Continue', 'Продолжить')}
+              {tr('Home', 'На главную')}
             </button>
           </div>
         </div>

@@ -1550,7 +1550,7 @@ export default function CubeFillGame() {
                 type="button"
                 onClick={match.backToLobbies}
                 disabled={resultStage < 5}
-                className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-[14px] bg-[linear-gradient(180deg,#f7d15f,#dfad2b)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.11em] text-[#241a05] transition active:scale-[.985] disabled:cursor-default disabled:opacity-25"
+                className="game-result-exit mt-3 flex min-h-[44px] w-full items-center justify-center rounded-[14px] bg-[linear-gradient(180deg,#f7d15f,#dfad2b)] px-4 py-3 text-[8px] font-black uppercase leading-[1.5] tracking-[.11em] text-[#241a05] transition active:scale-[.985] disabled:cursor-default disabled:opacity-25"
               >
                 К ЛОББИ
               </button>

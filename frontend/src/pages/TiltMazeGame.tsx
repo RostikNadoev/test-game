@@ -1354,7 +1354,7 @@ export default function TiltMazeGame() {
               <button
                 type="button"
                 onClick={match.backToLobbies}
-                className="h-12 w-full rounded-[16px] border border-black/[0.07] bg-[#e8e4db] px-5 pt-[3px] font-[Supercell] text-[11px] leading-[1.4] text-[#242321] active:scale-[0.985]"
+                className="game-result-exit h-12 w-full rounded-[16px] border border-black/[0.07] bg-[#e8e4db] px-5 pt-[3px] font-[Supercell] text-[11px] leading-[1.4] text-[#242321] active:scale-[0.985]"
               >
                 BACK TO LOBBIES
               </button>

@@ -1583,7 +1583,7 @@ export const CrossyRoadGame = () => {
               <button
                 type="button"
                 onClick={match.backToLobbies}
-                className="group mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[0.11] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.045)_100%)] px-2.5 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_36px_rgba(0,0,0,0.30)] transition-[transform,border-color,background-color,box-shadow] duration-150 hover:border-white/[0.17] hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.135)_0%,rgba(255,255,255,0.06)_100%)] active:translate-y-[1px] active:scale-[0.985] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_8px_20px_rgba(0,0,0,0.24)]"
+                className="game-result-exit group mt-5 grid min-h-[58px] w-full grid-cols-[42px_1fr_42px] items-center rounded-[20px] border border-white/[0.11] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.045)_100%)] px-2.5 py-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_16px_36px_rgba(0,0,0,0.30)] transition-[transform,border-color,background-color,box-shadow] duration-150 hover:border-white/[0.17] hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.135)_0%,rgba(255,255,255,0.06)_100%)] active:translate-y-[1px] active:scale-[0.985] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_8px_20px_rgba(0,0,0,0.24)]"
               >
                 <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] border border-white/[0.10] bg-black/20 text-white/72 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-150 group-hover:bg-black/28 group-hover:text-white">
                   <svg

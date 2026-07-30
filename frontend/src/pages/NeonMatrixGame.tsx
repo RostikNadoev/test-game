@@ -804,7 +804,7 @@ const ResultModal = memo(
           <img src={coinIcon} alt="GAME" draggable={false} />
         </div>
 
-        <button type="button" onClick={onBack}>
+        <button type="button" className="game-result-exit" onClick={onBack}>
           <span className="nm-back-icon">←</span>
           <b>К ЛОББИ</b>
           <span>›</span>

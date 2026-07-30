@@ -104,7 +104,7 @@ export const PremiumGameResultModal = ({
           </div>
         )}
 
-        <button type="button" onClick={onContinue}>
+        <button type="button" className="game-result-exit" onClick={onContinue}>
           <span>←</span>
           <b>{continueLabel}</b>
           <i />

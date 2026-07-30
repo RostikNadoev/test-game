@@ -2039,7 +2039,7 @@ export default function BallzDuelGame() {
             <button
               type="button"
               onClick={match.backToLobbies}
-              className="mt-3 w-full rounded-[14px] px-4 py-3 text-[7px] font-black uppercase tracking-[.1em] text-[#071018] transition active:scale-[.985]"
+              className="game-result-exit mt-3 w-full rounded-[14px] px-4 py-3 text-[7px] font-black uppercase tracking-[.1em] text-[#071018] transition active:scale-[.985]"
               style={{ background: theme.accent }}
             >
               В ЛОББИ

@@ -1595,7 +1595,7 @@ export default function CoinChaseGame() {
               <button
                 type="button"
                 onClick={match.backToLobbies}
-                className="mt-3 flex min-h-[43px] w-full items-center justify-center gap-2 rounded-[14px] border border-[#7e2553]/65 bg-[linear-gradient(180deg,#5b183b_0%,#3d102b_100%)] px-3 py-2 text-[#ffd64a] shadow-[inset_0_1px_0_rgba(255,214,74,.08),0_8px_20px_rgba(0,0,0,.28)] transition duration-150 active:translate-y-[1px] active:scale-[0.985]"
+                className="game-result-exit mt-3 flex min-h-[43px] w-full items-center justify-center gap-2 rounded-[14px] border border-[#7e2553]/65 bg-[linear-gradient(180deg,#5b183b_0%,#3d102b_100%)] px-3 py-2 text-[#ffd64a] shadow-[inset_0_1px_0_rgba(255,214,74,.08),0_8px_20px_rgba(0,0,0,.28)] transition duration-150 active:translate-y-[1px] active:scale-[0.985]"
               >
                 <svg
                   viewBox="0 0 24 24"

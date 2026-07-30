@@ -838,6 +838,19 @@ img {
   font-variant-numeric: tabular-nums;
 }
 
+.turbo-final-net > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.turbo-final-net img {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  object-fit: contain;
+}
+
 .turbo-final-net.is-positive strong {
   color: #79f4d7;
 }
@@ -847,6 +860,10 @@ img {
 }
 
 html.turbo-series-active .game-result-reward {
+  display: none !important;
+}
+
+html.turbo-series-active .game-result-exit {
   display: none !important;
 }
 
