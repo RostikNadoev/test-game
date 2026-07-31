@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, RefreshCw, Shuffle, Swords, UsersRound, Zap } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
@@ -189,6 +189,8 @@ export const Home = () => {
   const [lobbyError, setLobbyError] = useState<string | null>(null);
   const [isTurboSearching, setIsTurboSearching] = useState(false);
   const [turboError, setTurboError] = useState<string | null>(null);
+  const turboJoinPendingRef = useRef(false);
+  const turboIgnoreIdleUntilRef = useRef(0);
 
   const joinableOrOwnLobbies = useMemo(() => {
     return lobbies.filter((lobby) => {
@@ -223,6 +225,12 @@ export const Home = () => {
   const acceptTurboStatus = useCallback(
     async (status: Awaited<ReturnType<typeof api.turbo.status>>) => {
       if (status.status === 'idle') {
+        if (
+          turboJoinPendingRef.current ||
+          Date.now() < turboIgnoreIdleUntilRef.current
+        ) {
+          return false;
+        }
         setIsTurboSearching(false);
         return false;
       }
@@ -242,6 +250,8 @@ export const Home = () => {
 
     let disposed = false;
     const poll = async () => {
+      if (turboJoinPendingRef.current) return;
+
       try {
         const status = await api.turbo.status();
         if (!disposed) await acceptTurboStatus(status);
@@ -261,21 +271,30 @@ export const Home = () => {
   }, [acceptTurboStatus, isTurboSearching, tr]);
 
   const startTurbo = async () => {
+    if (turboJoinPendingRef.current || isTurboSearching) return;
+
     if ((user?.balance_game ?? 0) < 100) {
       setLobbyError(tr('Not enough coins for Turbo mode', 'Недостаточно монет для режима Turbo'));
       return;
     }
 
     setTurboError(null);
+    turboJoinPendingRef.current = true;
+    turboIgnoreIdleUntilRef.current = Date.now() + 2200;
     setIsTurboSearching(true);
     try {
-      await acceptTurboStatus(await api.turbo.join());
+      const status = await api.turbo.join();
+      turboJoinPendingRef.current = false;
+      await acceptTurboStatus(status);
     } catch (error) {
+      turboJoinPendingRef.current = false;
       setTurboError(toErrorMessage(error, tr('Matchmaking error', 'Ошибка поиска матча')));
     }
   };
 
   const cancelTurbo = async () => {
+    turboJoinPendingRef.current = false;
+    turboIgnoreIdleUntilRef.current = 0;
     setIsTurboSearching(false);
     setTurboError(null);
     try {

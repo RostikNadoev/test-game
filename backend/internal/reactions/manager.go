@@ -3,6 +3,7 @@ package reactions
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,16 +36,17 @@ type Manager struct {
 }
 
 type room struct {
-	lobbyID      string
-	game         string
-	playerIDs    []uint
-	clients      map[*client]struct{}
-	started      bool
-	waiting      bool
-	resolved     bool
-	pausedAt     time.Time
-	deadline     time.Time
-	resolveTimer *time.Timer
+	lobbyID          string
+	game             string
+	playerIDs        []uint
+	clients          map[*client]struct{}
+	started          bool
+	waiting          bool
+	resolved         bool
+	pausedAt         time.Time
+	deadline         time.Time
+	resolveTimer     *time.Timer
+	reactionReceipts map[string]ReactionMessage
 }
 
 type client struct {
@@ -55,8 +57,9 @@ type client struct {
 }
 
 type incomingMessage struct {
-	Type  string `json:"type"`
-	Emoji string `json:"emoji"`
+	Type     string `json:"type"`
+	Emoji    string `json:"emoji"`
+	ClientID string `json:"client_id,omitempty"`
 }
 
 type ReactionMessage struct {
@@ -65,6 +68,7 @@ type ReactionMessage struct {
 	UserID   uint   `json:"user_id"`
 	Emoji    string `json:"emoji"`
 	SentAtMS int64  `json:"sent_at_ms"`
+	ClientID string `json:"client_id,omitempty"`
 }
 
 type PresenceMessage struct {
@@ -112,10 +116,11 @@ func (m *Manager) Prepare(lobbyID, game string, playerIDs []uint) {
 	current := m.rooms[lobbyID]
 	if current == nil {
 		m.rooms[lobbyID] = &room{
-			lobbyID:   lobbyID,
-			game:      game,
-			playerIDs: ids,
-			clients:   make(map[*client]struct{}),
+			lobbyID:          lobbyID,
+			game:             game,
+			playerIDs:        ids,
+			clients:          make(map[*client]struct{}),
+			reactionReceipts: make(map[string]ReactionMessage),
 		}
 		return
 	}
@@ -154,6 +159,19 @@ func (m *Manager) Connect(lobbyID string, userID uint, conn *websocket.Conn) err
 			})
 			continue
 		}
+		if len(incoming.ClientID) > 80 {
+			_ = current.writeJSON(map[string]any{
+				"type":  "error",
+				"error": "invalid reaction id",
+			})
+			continue
+		}
+		if incoming.ClientID != "" {
+			if receipt, ok := m.reactionReceipt(lobbyID, userID, incoming.ClientID); ok {
+				_ = current.writeJSON(receipt)
+				continue
+			}
+		}
 
 		now := time.Now()
 		if !current.lastSent.IsZero() && now.Sub(current.lastSent) < sendCooldown {
@@ -161,13 +179,18 @@ func (m *Manager) Connect(lobbyID string, userID uint, conn *websocket.Conn) err
 		}
 		current.lastSent = now
 
-		m.broadcast(lobbyID, ReactionMessage{
+		message := ReactionMessage{
 			Type:     "reaction",
 			Sequence: m.sequence.Add(1),
 			UserID:   userID,
 			Emoji:    incoming.Emoji,
 			SentAtMS: now.UnixMilli(),
-		})
+			ClientID: incoming.ClientID,
+		}
+		if incoming.ClientID != "" {
+			m.storeReactionReceipt(lobbyID, userID, incoming.ClientID, message)
+		}
+		m.broadcast(lobbyID, message)
 	}
 }
 
@@ -178,8 +201,14 @@ func (m *Manager) register(lobbyID string, current *client) {
 	m.mu.Lock()
 	r := m.rooms[lobbyID]
 	if r == nil {
-		r = &room{lobbyID: lobbyID, clients: make(map[*client]struct{})}
+		r = &room{
+			lobbyID:          lobbyID,
+			clients:          make(map[*client]struct{}),
+			reactionReceipts: make(map[string]ReactionMessage),
+		}
 		m.rooms[lobbyID] = r
+	} else if r.reactionReceipts == nil {
+		r.reactionReceipts = make(map[string]ReactionMessage)
 	}
 	r.clients[current] = struct{}{}
 
@@ -358,6 +387,41 @@ func (m *Manager) broadcast(lobbyID string, message any) {
 	for _, current := range clients {
 		_ = current.writeJSON(message)
 	}
+}
+
+func (m *Manager) reactionReceipt(lobbyID string, userID uint, clientID string) (ReactionMessage, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	r := m.rooms[lobbyID]
+	if r == nil || r.reactionReceipts == nil {
+		return ReactionMessage{}, false
+	}
+	receipt, ok := r.reactionReceipts[reactionReceiptKey(userID, clientID)]
+	return receipt, ok
+}
+
+func (m *Manager) storeReactionReceipt(
+	lobbyID string,
+	userID uint,
+	clientID string,
+	message ReactionMessage,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	r := m.rooms[lobbyID]
+	if r == nil {
+		return
+	}
+	if r.reactionReceipts == nil {
+		r.reactionReceipts = make(map[string]ReactionMessage)
+	}
+	r.reactionReceipts[reactionReceiptKey(userID, clientID)] = message
+}
+
+func reactionReceiptKey(userID uint, clientID string) string {
+	return strconv.FormatUint(uint64(userID), 10) + ":" + clientID
 }
 
 func (c *client) writeJSON(value any) error {

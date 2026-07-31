@@ -10,6 +10,7 @@ export type QuickReactionMessage = {
   user_id: number;
   emoji: QuickReactionEmoji;
   sent_at_ms: number;
+  client_id?: string;
 };
 
 export type GamePresenceMessage = {
@@ -29,7 +30,7 @@ type ReactionHandlers = {
 };
 
 export type ReactionsSocketClient = {
-  send: (emoji: QuickReactionEmoji) => boolean;
+  send: (emoji: QuickReactionEmoji, clientId?: string) => boolean;
   close: () => void;
 };
 
@@ -53,6 +54,7 @@ const isReactionMessage = (value: unknown): value is QuickReactionMessage => {
     typeof message.sequence === 'number' &&
     typeof message.user_id === 'number' &&
     typeof message.sent_at_ms === 'number' &&
+    (message.client_id === undefined || typeof message.client_id === 'string') &&
     QUICK_REACTION_EMOJI.includes(message.emoji as QuickReactionEmoji)
   );
 };
@@ -80,12 +82,15 @@ export const connectReactionsSocket = ({
   const socket = new WebSocket(
     `${getWsBaseUrl()}/ws/reactions/${encodeURIComponent(lobbyId)}?token=${encodeURIComponent(token)}`,
   );
-  const queuedEmoji: QuickReactionEmoji[] = [];
+  const queuedReactions: Array<{
+    emoji: QuickReactionEmoji;
+    clientId?: string;
+  }> = [];
 
   socket.addEventListener('open', () => {
-    const pending = queuedEmoji.splice(0);
-    pending.forEach((emoji) => {
-      socket.send(JSON.stringify({ type: 'reaction', emoji }));
+    const pending = queuedReactions.splice(0);
+    pending.forEach(({ emoji, clientId }) => {
+      socket.send(JSON.stringify({ type: 'reaction', emoji, client_id: clientId }));
     });
     handlers?.onOpen?.();
   });
@@ -104,13 +109,13 @@ export const connectReactionsSocket = ({
   socket.addEventListener('close', () => handlers?.onClose?.());
 
   return {
-    send: (emoji) => {
+    send: (emoji, clientId) => {
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'reaction', emoji }));
+        socket.send(JSON.stringify({ type: 'reaction', emoji, client_id: clientId }));
         return true;
       }
       if (socket.readyState === WebSocket.CONNECTING) {
-        queuedEmoji.splice(0, queuedEmoji.length, emoji);
+        queuedReactions.push({ emoji, clientId });
         return true;
       }
       return false;

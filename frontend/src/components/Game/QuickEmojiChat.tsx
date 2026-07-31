@@ -66,6 +66,23 @@ type VisibleReaction = {
   side: 'own' | 'opponent';
 };
 
+type PendingReaction = {
+  id: string;
+  emoji: QuickReactionEmoji;
+};
+
+const REACTION_SEND_INTERVAL_MS = 700;
+const REACTION_ACK_RETRY_MS = 1600;
+const REACTION_CLIENT_SEQUENCE_KEY = 'twingames_reaction_client_sequence';
+
+const nextReactionClientID = (userID: number) => {
+  const previous =
+    Number(window.sessionStorage.getItem(REACTION_CLIENT_SEQUENCE_KEY)) || 0;
+  const next = previous + 1;
+  window.sessionStorage.setItem(REACTION_CLIENT_SEQUENCE_KEY, String(next));
+  return `${userID}-${next}`;
+};
+
 export const QuickEmojiChat = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -76,7 +93,11 @@ export const QuickEmojiChat = () => {
   const [presence, setPresence] = useState<GamePresenceMessage | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(10);
   const socketRef = useRef<ReactionsSocketClient | null>(null);
-  const pendingReactionRef = useRef<QuickReactionEmoji | null>(null);
+  const socketReadyRef = useRef(false);
+  const pendingReactionsRef = useRef<PendingReaction[]>([]);
+  const reactionSendTimerRef = useRef<number | null>(null);
+  const flushPendingReactionsRef = useRef<() => void>(() => undefined);
+  const lastReactionSentAtRef = useRef(0);
   const localReactionSequenceRef = useRef(0);
   const removalTimersRef = useRef<number[]>([]);
   const routeState = (location.state || {}) as LocationState;
@@ -115,6 +136,48 @@ export const QuickEmojiChat = () => {
     [],
   );
 
+  const flushPendingReactions = useCallback(() => {
+    if (
+      reactionSendTimerRef.current !== null ||
+      !socketReadyRef.current ||
+      !socketRef.current ||
+      pendingReactionsRef.current.length === 0
+    ) {
+      return;
+    }
+
+    const delay = Math.max(
+      0,
+      REACTION_SEND_INTERVAL_MS - (Date.now() - lastReactionSentAtRef.current),
+    );
+    reactionSendTimerRef.current = window.setTimeout(() => {
+      reactionSendTimerRef.current = null;
+      const pending = pendingReactionsRef.current[0];
+      if (!pending || !socketReadyRef.current || !socketRef.current) return;
+
+      if (socketRef.current.send(pending.emoji, pending.id)) {
+        lastReactionSentAtRef.current = Date.now();
+        reactionSendTimerRef.current = window.setTimeout(() => {
+          reactionSendTimerRef.current = null;
+          flushPendingReactionsRef.current();
+        }, REACTION_ACK_RETRY_MS);
+        return;
+      }
+
+      reactionSendTimerRef.current = window.setTimeout(() => {
+        reactionSendTimerRef.current = null;
+        flushPendingReactionsRef.current();
+      }, 500);
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    flushPendingReactionsRef.current = flushPendingReactions;
+    return () => {
+      flushPendingReactionsRef.current = () => undefined;
+    };
+  }, [flushPendingReactions]);
+
   useEffect(() => {
     if (!lobbyId || !token || !user?.id) return;
 
@@ -122,18 +185,36 @@ export const QuickEmojiChat = () => {
     let reconnectTimer: number | undefined;
 
     const connect = () => {
-      socketRef.current = connectReactionsSocket({
+      const activeClient = { current: null as ReactionsSocketClient | null };
+      const client = connectReactionsSocket({
         lobbyId,
         token,
         handlers: {
           onOpen: () => {
-            const pending = pendingReactionRef.current;
-            if (!pending) return;
-            pendingReactionRef.current = null;
-            socketRef.current?.send(pending);
+            if (socketRef.current !== activeClient.current) return;
+            socketReadyRef.current = true;
+            flushPendingReactions();
           },
           onReaction: (message) => {
-            if (message.user_id === Number(user.id)) return;
+            if (socketRef.current !== activeClient.current) return;
+            if (message.user_id === Number(user.id)) {
+              const pendingIndex = message.client_id
+                ? pendingReactionsRef.current.findIndex(
+                    (pending) => pending.id === message.client_id,
+                  )
+                : pendingReactionsRef.current.findIndex(
+                    (pending) => pending.emoji === message.emoji,
+                  );
+              if (pendingIndex >= 0) {
+                pendingReactionsRef.current.splice(pendingIndex, 1);
+              }
+              if (reactionSendTimerRef.current !== null) {
+                window.clearTimeout(reactionSendTimerRef.current);
+                reactionSendTimerRef.current = null;
+              }
+              flushPendingReactions();
+              return;
+            }
             showReaction({
               id: `${message.sequence}-${message.sent_at_ms}`,
               emoji: message.emoji,
@@ -141,27 +222,42 @@ export const QuickEmojiChat = () => {
             });
           },
           onPresence: (message) => {
+            if (socketRef.current !== activeClient.current) return;
             setPresence(message.status === 'active' ? null : message);
           },
           onClose: () => {
+            if (socketRef.current !== activeClient.current) return;
+            socketReadyRef.current = false;
             socketRef.current = null;
+            if (reactionSendTimerRef.current !== null) {
+              window.clearTimeout(reactionSendTimerRef.current);
+              reactionSendTimerRef.current = null;
+            }
             if (!disposed) {
               reconnectTimer = window.setTimeout(connect, 1200);
             }
           },
         },
       });
+      activeClient.current = client;
+      socketRef.current = client;
     };
 
     connect();
 
     return () => {
       disposed = true;
+      socketReadyRef.current = false;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      if (reactionSendTimerRef.current !== null) {
+        window.clearTimeout(reactionSendTimerRef.current);
+        reactionSendTimerRef.current = null;
+      }
+      pendingReactionsRef.current = [];
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [lobbyId, showReaction, token, user?.id]);
+  }, [flushPendingReactions, lobbyId, showReaction, token, user?.id]);
 
   useEffect(() => {
     if (presence?.status !== 'waiting' || !presence.deadline_ms) return;
@@ -193,13 +289,17 @@ export const QuickEmojiChat = () => {
 
   const sendReaction = (emoji: QuickReactionEmoji) => {
     localReactionSequenceRef.current += 1;
+    const localSequence = localReactionSequenceRef.current;
     showReaction({
-      id: `local-${localReactionSequenceRef.current}-${emoji}`,
+      id: `local-${localSequence}-${emoji}`,
       emoji,
       side: 'own',
     });
-    const didSend = socketRef.current?.send(emoji) === true;
-    pendingReactionRef.current = didSend ? null : emoji;
+    pendingReactionsRef.current.push({
+      id: nextReactionClientID(Number(user?.id) || 0),
+      emoji,
+    });
+    flushPendingReactions();
     setIsOpen(false);
   };
 

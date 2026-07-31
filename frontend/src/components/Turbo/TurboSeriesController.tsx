@@ -63,7 +63,7 @@ const TRANSITION_THEMES: Record<string, TransitionTheme> = {
   coin_chase: { background: '#170a12', glow: '#ffd64a', accent: '#9b7cff', ink: '#ffffff' },
   cube_fill: { background: '#0d0921', glow: '#7653ee', accent: '#f5c94f', ink: '#ffffff' },
   ballz_duel: { background: '#07131a', glow: '#56e3ff', accent: '#ffd64a', ink: '#ffffff' },
-  draw_drop: { background: '#f4f7fb', glow: '#62d9ff', accent: '#62ffb0', ink: '#101318' },
+  draw_drop: { background: '#ffffff', glow: '#111111', accent: '#111111', ink: '#111111' },
   tilt_maze: { background: '#ddd8cd', glow: '#8f9a82', accent: '#b99567', ink: '#292925' },
 };
 
@@ -273,13 +273,12 @@ export const TurboSeriesController = () => {
     ];
   }, [status?.player_ids, status?.wins, user?.id]);
 
-  const finish = async () => {
-    await Promise.allSettled([refreshBalance(), refreshProfile()]);
+  const finish = () => {
     window.sessionStorage.removeItem(TURBO_SERIES_KEY);
     window.sessionStorage.removeItem(ACTIVE_LOBBY_KEY);
     window.sessionStorage.removeItem('twingames_active_game');
-    setStatus(null);
     navigate('/', { replace: true });
+    void Promise.allSettled([refreshBalance(), refreshProfile()]);
   };
 
   if (!seriesID || !status || status.status === 'idle' || status.status === 'searching') {
@@ -348,7 +347,7 @@ export const TurboSeriesController = () => {
       ? tr('Series draw', 'Ничья в серии')
       : didWin
         ? tr('Turbo victory', 'Победа в Turbo')
-        : tr('Turbo defeat', 'Поражение в Turbo');
+        : '';
 
   return (
     <>
@@ -364,8 +363,8 @@ export const TurboSeriesController = () => {
       )}
 
       {resultHold && (
-        <div className="turbo-result-hold" role="status" aria-live="polite">
-          <div className="turbo-result-hold-dots" aria-hidden="true">
+        <div className={`turbo-result-hold is-${resultHold.kind}`} role="status" aria-live="polite">
+          <div className="turbo-result-hold-arrow" aria-hidden="true">
             <i />
             <i />
             <i />
@@ -476,7 +475,7 @@ export const TurboSeriesController = () => {
               aria-live="polite"
             >
               <span>{status.draw ? tr('Draw', 'Ничья') : didWin ? tr('Victory', 'Победа') : tr('Defeat', 'Поражение')}</span>
-              <h2>{finalOutcomeTitle}</h2>
+              {finalOutcomeTitle && <h2>{finalOutcomeTitle}</h2>}
               <div className={`turbo-final-inline-net ${netResult > 0 ? 'is-positive' : netResult < 0 ? 'is-negative' : ''}`}>
                 <small>{tr('Net result', 'Чистый результат')}</small>
                 <div>
@@ -484,7 +483,7 @@ export const TurboSeriesController = () => {
                   <img src={coinIcon} alt="" draggable={false} />
                 </div>
               </div>
-              <button type="button" onClick={() => void finish()}>
+              <button type="button" onClick={finish}>
                 {tr('Home', 'На главную')}
               </button>
             </div>
