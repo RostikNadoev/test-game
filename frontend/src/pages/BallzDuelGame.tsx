@@ -293,6 +293,7 @@ export default function BallzDuelGame() {
   const localStageIndexRef = useRef(0);
   const launchXRef = useRef(0.5);
   const aimAngleRef = useRef(-Math.PI / 2);
+  const lastAutomaticSyncKeyRef = useRef('');
   const aimReadyRef = useRef(false);
   const pointerActiveRef = useRef(false);
 
@@ -517,7 +518,13 @@ export default function BallzDuelGame() {
       return;
     }
 
-    syncFromServer();
+    if (lastAutomaticSyncKeyRef.current === ownSnapshotKey) {
+      return;
+    }
+
+    if (syncFromServer()) {
+      lastAutomaticSyncKeyRef.current = ownSnapshotKey;
+    }
   }, [match.stages.length, ownSnapshotKey, pendingEventId, syncFromServer]);
 
   useEffect(() => {
@@ -1810,7 +1817,10 @@ export default function BallzDuelGame() {
             onChange={(event) =>
               changeSelectedBalls(Number(event.target.value))
             }
-            className="mt-1 block h-[24px] w-full cursor-pointer accent-current disabled:opacity-30"
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerMove={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            className="ballz-balls-range block w-full cursor-pointer disabled:opacity-30"
             style={{ color: theme.accent }}
             aria-label="Количество шаров в залпе"
           />

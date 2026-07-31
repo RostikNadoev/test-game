@@ -291,6 +291,7 @@ export type SoloHistoryResponse = {
 
 export type TurboStatus = {
   status: 'idle' | 'searching' | 'playing' | 'finished';
+  online_count: number;
   series_id?: string;
   bet_coins: number;
   round?: number;

@@ -414,7 +414,7 @@ function AppShell() {
           isFruitCascadeRoute ? "fruit-cascade-main" : "",
           isLockedGameRoute || isFruitCascadeRoute
             ? "overflow-hidden pb-0"
-            : "overflow-y-auto pb-24",
+            : "overflow-y-auto pb-0",
         ].join(" ")}
       >
         {shouldMountRoutes ? (

@@ -9,7 +9,6 @@ import {
   History,
   Loader2,
   LogOut,
-  ShieldCheck,
   WalletCards,
   X,
 } from 'lucide-react';
@@ -99,10 +98,13 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isVisible, setIsVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<WalletTab>('deposit');
+  const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [walletAction, setWalletAction] = useState<'connect' | 'disconnect' | null>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
 
+  const parsedDepositTon = useMemo(() => parseAmount(depositAmount), [depositAmount]);
+  const depositGameAmount = parsedDepositTon > 0 ? parsedDepositTon / GAME_TO_TON_RATE : 0;
   const parsedWithdrawGame = useMemo(() => parseAmount(withdrawAmount), [withdrawAmount]);
   const withdrawTonAmount = parsedWithdrawGame > 0 ? parsedWithdrawGame * GAME_TO_TON_RATE : 0;
   const isTonConnected = Boolean(tonWallet && tonAddress);
@@ -261,53 +263,12 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
           </div>
         ) : isDeposit ? (
           <div className="wallet-ton-connect" role="tabpanel">
-            <div className={`wallet-ton-status ${isTonConnected ? 'is-connected' : ''}`}>
-              <div className="wallet-ton-status-icon">
-                {isTonConnected ? <ShieldCheck size={20} /> : <WalletCards size={20} />}
-              </div>
-
-              <div className="wallet-ton-status-copy">
-                <span>
-                  {isTonConnected
-                    ? tr('Wallet connected', 'Кошелёк подключён')
-                    : 'TON Connect'}
-                </span>
-                <strong>
-                  {isTonConnected
-                    ? walletName
-                    : tr('Connect your TON wallet', 'Подключите TON-кошелёк')}
-                </strong>
-                <small>
-                  {isTonConnected
-                    ? shortenAddress(tonAddress)
-                    : tr(
-                        'Choose any compatible wallet in the secure TON Connect window.',
-                        'Выберите любой совместимый кошелёк в безопасном окне TON Connect.',
-                      )}
-                </small>
-              </div>
-            </div>
-
             {!isConnectionRestored ? (
               <button type="button" disabled className="wallet-ton-button is-loading">
                 <Loader2 size={15} className="animate-spin" />
                 {tr('Checking connection', 'Проверяем подключение')}
               </button>
-            ) : isTonConnected ? (
-              <button
-                type="button"
-                className="wallet-ton-button is-disconnect press"
-                disabled={walletAction !== null}
-                onClick={() => void disconnectWallet()}
-              >
-                {walletAction === 'disconnect' ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <LogOut size={15} />
-                )}
-                {tr('Disconnect wallet', 'Отключить кошелёк')}
-              </button>
-            ) : (
+            ) : !isTonConnected ? (
               <button
                 type="button"
                 className="wallet-ton-button press"
@@ -321,14 +282,74 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
                 )}
                 {tr('Connect wallet', 'Подключить кошелёк')}
               </button>
+            ) : (
+              <>
+                <div className="wallet-connected-row">
+                  <div className="wallet-connected-icon">
+                    <WalletCards size={17} />
+                  </div>
+                  <div className="wallet-connected-copy">
+                    <strong>{walletName}</strong>
+                    <span>{shortenAddress(tonAddress)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="wallet-connected-disconnect press"
+                    disabled={walletAction !== null}
+                    onClick={() => void disconnectWallet()}
+                    aria-label={tr('Disconnect wallet', 'Отключить кошелёк')}
+                  >
+                    {walletAction === 'disconnect' ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <LogOut size={14} />
+                    )}
+                    <span>{tr('Disconnect', 'Отключить')}</span>
+                  </button>
+                </div>
+
+                <div className="wallet-simple-conversion wallet-deposit-conversion">
+                  <label className="wallet-simple-amount">
+                    <span>{tr('You pay', 'Отдаёшь')}</span>
+                    <div>
+                      <input
+                        value={depositAmount}
+                        onChange={(event) => setDepositAmount(sanitizeAmount(event.target.value))}
+                        inputMode="decimal"
+                        placeholder="1"
+                      />
+                      <span className="wallet-simple-currency">
+                        <img src={tonIcon} alt="" draggable={false} />
+                        TON
+                      </span>
+                    </div>
+                  </label>
+
+                  <div className="wallet-simple-arrow" aria-hidden="true">
+                    <ArrowRight size={16} />
+                  </div>
+
+                  <div className="wallet-simple-result">
+                    <span>{tr('You receive', 'Получишь')}</span>
+                    <div>
+                      <strong>{depositGameAmount > 0 ? formatBalance(depositGameAmount, 2) : '0'}</strong>
+                      <span className="wallet-simple-currency">
+                        <img src={coinIcon} alt="" className="is-game" draggable={false} />
+                        GAME
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="wallet-simple-rate">1 TON = 10 GAME</div>
+
+                <button type="button" disabled className="wallet-simple-submit">
+                  {tr('Deposit', 'Пополнить')}
+                </button>
+              </>
             )}
 
-            <p className={`wallet-ton-note ${walletError ? 'is-error' : ''}`}>
-              {walletError || tr(
-                  'Deposits are not enabled yet. Connecting does not initiate a transaction.',
-                  'Пополнение пока отключено. Подключение не запускает транзакцию.',
-                )}
-            </p>
+            {walletError && <p className="wallet-ton-note is-error">{walletError}</p>}
           </div>
         ) : (
           <>

@@ -40,6 +40,7 @@ var gamePool = []string{
 
 type Status struct {
 	Status         string            `json:"status"`
+	OnlineCount    int               `json:"online_count"`
 	SeriesID       string            `json:"series_id,omitempty"`
 	BetCoins       float64           `json:"bet_coins"`
 	Round          int               `json:"round,omitempty"`
@@ -124,7 +125,7 @@ func (m *Manager) Join(userID uint) (Status, error) {
 	}
 	if m.queued[userID] {
 		m.queueSeenAt[userID] = time.Now()
-		return Status{Status: "searching", BetCoins: BetCoins}, nil
+		return Status{Status: "searching", BetCoins: BetCoins, OnlineCount: m.onlineCountLocked()}, nil
 	}
 	if m.hub.UserHasActiveLobby(userID) {
 		return Status{}, errors.New("finish the active lobby first")
@@ -157,7 +158,7 @@ func (m *Manager) Join(userID uint) (Status, error) {
 	m.queue = append(m.queue, userID)
 	m.queued[userID] = true
 	m.queueSeenAt[userID] = time.Now()
-	return Status{Status: "searching", BetCoins: BetCoins}, nil
+	return Status{Status: "searching", BetCoins: BetCoins, OnlineCount: m.onlineCountLocked()}, nil
 }
 
 func (m *Manager) Cancel(userID uint) Status {
@@ -178,7 +179,7 @@ func (m *Manager) Cancel(userID uint) Status {
 		}
 		m.queue = filtered
 	}
-	return Status{Status: "idle", BetCoins: BetCoins}
+	return Status{Status: "idle", BetCoins: BetCoins, OnlineCount: m.onlineCountLocked()}
 }
 
 func (m *Manager) Status(userID uint) Status {
@@ -190,9 +191,9 @@ func (m *Manager) Status(userID uint) Status {
 	}
 	if m.queued[userID] {
 		m.queueSeenAt[userID] = time.Now()
-		return Status{Status: "searching", BetCoins: BetCoins}
+		return Status{Status: "searching", BetCoins: BetCoins, OnlineCount: m.onlineCountLocked()}
 	}
-	return Status{Status: "idle", BetCoins: BetCoins}
+	return Status{Status: "idle", BetCoins: BetCoins, OnlineCount: m.onlineCountLocked()}
 }
 
 func (m *Manager) HandleRoundResult(lobbyID string, winnerUserID *uint) bool {
@@ -310,6 +311,7 @@ func (m *Manager) finishSeriesLocked(s *series, winner *uint) {
 func (m *Manager) statusLocked(s *series) Status {
 	status := Status{
 		Status:          s.status,
+		OnlineCount:     m.onlineCountLocked(),
 		SeriesID:        s.id,
 		BetCoins:        BetCoins,
 		Round:           s.round,
@@ -326,6 +328,41 @@ func (m *Manager) statusLocked(s *series) Status {
 		status.CurrentLobby = &lobby
 	}
 	return status
+}
+
+func (m *Manager) onlineCountLocked() int {
+	m.pruneQueueLocked()
+
+	users := make(map[uint]struct{}, len(m.queued)+len(m.seriesByUser))
+	for userID, queued := range m.queued {
+		if queued {
+			users[userID] = struct{}{}
+		}
+	}
+	for _, s := range m.seriesByID {
+		if s == nil || s.status != "playing" {
+			continue
+		}
+		for _, userID := range s.players {
+			users[userID] = struct{}{}
+		}
+	}
+	return len(users)
+}
+
+func (m *Manager) pruneQueueLocked() {
+	now := time.Now()
+	filtered := m.queue[:0]
+	for _, userID := range m.queue {
+		lastSeen := m.queueSeenAt[userID]
+		if m.queued[userID] && !lastSeen.IsZero() && now.Sub(lastSeen) <= queueHeartbeatTTL {
+			filtered = append(filtered, userID)
+			continue
+		}
+		delete(m.queued, userID)
+		delete(m.queueSeenAt, userID)
+	}
+	m.queue = filtered
 }
 
 func (m *Manager) ensureBalance(userID uint) error {

@@ -25,6 +25,7 @@ import BallsPreview from '../assets/preview/balls.webm';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const POLL_INTERVAL_MS = 3000;
+type LobbyFilter = 'all' | 'open';
 
 const GAME_PREVIEW_BY_CODE: Partial<Record<string, string>> = {
   plinko_pvp: PlinkoPreview,
@@ -62,11 +63,18 @@ export const Lobbies = () => {
   const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [lobbyFilter, setLobbyFilter] = useState<LobbyFilter>('all');
 
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
   const gameName = game?.displayName || gameId || tr('Game', 'Игра');
   const userCoins = Math.floor(user?.balance_game ?? 0);
   const previewVideo = (gameId && GAME_PREVIEW_BY_CODE[gameId]) || defaultGamePreview;
+  const visibleLobbies = useMemo(
+    () => lobbyFilter === 'all'
+      ? lobbies
+      : lobbies.filter((lobby) => lobby.status === 'waiting' && lobby.player_count < lobby.max_players),
+    [lobbies, lobbyFilter],
+  );
 
   useEffect(() => {
     if (!isPreviewOpen) return;
@@ -205,7 +213,25 @@ export const Lobbies = () => {
             <span className="minimal-section-label">{tr('Available rooms', 'Доступные комнаты')}</span>
             <h2>{tr('Rooms', 'Комнаты')}</h2>
           </div>
-          <span className="minimal-counter">{lobbies.length}</span>
+          <div className="minimal-section-tools">
+            <div className="lobby-mini-filter" role="group" aria-label={tr('Lobby filter', 'Фильтр лобби')}>
+              <button
+                type="button"
+                className={lobbyFilter === 'all' ? 'is-active' : ''}
+                onClick={() => setLobbyFilter('all')}
+              >
+                {tr('All', 'Все')}
+              </button>
+              <button
+                type="button"
+                className={lobbyFilter === 'open' ? 'is-active' : ''}
+                onClick={() => setLobbyFilter('open')}
+              >
+                {tr('Open', 'Свободные')}
+              </button>
+            </div>
+            <span className="minimal-counter">{visibleLobbies.length}</span>
+          </div>
         </div>
 
         {error && <div className="minimal-alert">{localize(error)}</div>}
@@ -215,13 +241,17 @@ export const Lobbies = () => {
             <Loader2 size={26} className="animate-spin" />
             <span>{tr('Loading rooms', 'Загружаем комнаты')}</span>
           </div>
-        ) : lobbies.length === 0 ? (
+        ) : visibleLobbies.length === 0 ? (
           <div className="minimal-empty-state">
             <div className="minimal-empty-icon">
               <Users size={23} />
             </div>
-            <h3>{tr('No rooms yet', 'Комнат пока нет')}</h3>
-            <p>{tr('Create the first one and wait for an opponent.', 'Создай первую и дождись соперника.')}</p>
+            <h3>{lobbyFilter === 'open'
+              ? tr('No open rooms', 'Нет свободных комнат')
+              : tr('No rooms yet', 'Комнат пока нет')}</h3>
+            <p>{lobbyFilter === 'open' && lobbies.length > 0
+              ? tr('Every current room is occupied. Switch to All to view them.', 'Сейчас все комнаты заняты. Переключись на «Все», чтобы увидеть их.')
+              : tr('Create the first one and wait for an opponent.', 'Создай первую и дождись соперника.')}</p>
             <button
               type="button"
               onClick={() => gameId && navigate(`/game/${gameId}/create`)}
@@ -233,12 +263,13 @@ export const Lobbies = () => {
           </div>
         ) : (
           <div className="minimal-room-list">
-            {lobbies.map((lobby) => {
+            {visibleLobbies.map((lobby) => {
               const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
               const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
               const isJoining = joiningLobbyId === lobby.id;
               const isAffordable = lobby.bet_coins <= userCoins;
               const isDisabled = isJoining || (!isUserInLobby && !canJoin);
+              const isFull = !isUserInLobby && !canJoin;
 
               const buttonLabel = isJoining
                 ? tr('Joining', 'Входим')
@@ -249,9 +280,9 @@ export const Lobbies = () => {
                     : tr('Full', 'Занято');
 
               return (
-                <article key={lobby.id} className="minimal-room-card">
+                <article key={lobby.id} className={`minimal-room-card ${isFull ? 'is-full' : ''}`}>
                   <div className="minimal-room-main">
-                    <div className={`minimal-room-status ${canJoin || isUserInLobby ? 'is-online' : ''}`} />
+                    <div className={`minimal-room-status ${canJoin || isUserInLobby ? 'is-online' : 'is-full'}`} />
                     <div className="minimal-room-copy">
                       <h3>{lobby.name}</h3>
                       <div className="minimal-room-meta">
@@ -274,7 +305,7 @@ export const Lobbies = () => {
                     type="button"
                     onClick={() => void handleOpenOrJoin(lobby)}
                     disabled={isDisabled}
-                    className={`minimal-room-action press ${isUserInLobby ? 'is-open' : ''}`}
+                    className={`minimal-room-action press ${isUserInLobby ? 'is-open' : ''} ${isFull ? 'is-full' : ''}`}
                   >
                     {isJoining && <Loader2 size={13} className="animate-spin" />}
                     {buttonLabel}

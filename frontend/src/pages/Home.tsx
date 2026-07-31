@@ -23,6 +23,7 @@ type GameWithMedia = CatalogGame & {
 };
 
 type GameTone = 'blue' | 'orange' | 'violet' | 'green';
+type LobbyFilter = 'all' | 'open';
 
 const games = GAME_CATALOG as GameWithMedia[];
 
@@ -187,19 +188,23 @@ export const Home = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [lobbyFilter, setLobbyFilter] = useState<LobbyFilter>('all');
   const [isTurboSearching, setIsTurboSearching] = useState(false);
   const [turboError, setTurboError] = useState<string | null>(null);
+  const [turboOnline, setTurboOnline] = useState(0);
   const turboJoinPendingRef = useRef(false);
   const turboIgnoreIdleUntilRef = useRef(0);
 
-  const joinableOrOwnLobbies = useMemo(() => {
+  const visibleLobbies = useMemo(() => {
+    if (lobbyFilter === 'all') return lobbies;
+
     return lobbies.filter((lobby) => {
       const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
       const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
 
       return isUserInLobby || canJoin;
     });
-  }, [lobbies, user]);
+  }, [lobbies, lobbyFilter, user]);
 
   const loadLobbies = useCallback(async (withSpinner = false) => {
     if (withSpinner) {
@@ -224,6 +229,7 @@ export const Home = () => {
 
   const acceptTurboStatus = useCallback(
     async (status: Awaited<ReturnType<typeof api.turbo.status>>) => {
+      setTurboOnline(status.online_count ?? 0);
       if (status.status === 'idle') {
         if (
           turboJoinPendingRef.current ||
@@ -244,6 +250,19 @@ export const Home = () => {
     },
     [refreshBalance],
   );
+
+  const loadTurboOnline = useCallback(async () => {
+    try {
+      const status = await api.turbo.status();
+      setTurboOnline(status.online_count ?? 0);
+    } catch {
+      // Keep the last known value while the lightweight status poll recovers.
+    }
+  }, []);
+
+  useIntervalWhenVisible(() => {
+    void loadTurboOnline();
+  }, 4000);
 
   useEffect(() => {
     if (!isTurboSearching) return;
@@ -387,22 +406,37 @@ export const Home = () => {
             </h2>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadLobbies(true)}
-            disabled={isRefreshing}
-            aria-label={tr('Refresh lobbies', 'Обновить лобби')}
-            className={`pressable refresh-button ${isRefreshing ? 'is-loading' : ''}`}
-          >
-            <RefreshCw
-              size={14}
-              className={`refresh-button-icon ${isRefreshing ? 'animate-spin' : ''}`}
-            />
+          <div className="lobby-heading-actions">
+            <div className="lobby-mini-filter" role="group" aria-label={tr('Lobby filter', 'Фильтр лобби')}>
+              <button
+                type="button"
+                className={lobbyFilter === 'all' ? 'is-active' : ''}
+                onClick={() => setLobbyFilter('all')}
+              >
+                {tr('All', 'Все')}
+              </button>
+              <button
+                type="button"
+                className={lobbyFilter === 'open' ? 'is-active' : ''}
+                onClick={() => setLobbyFilter('open')}
+              >
+                {tr('Open', 'Свободные')}
+              </button>
+            </div>
 
-            <span className="refresh-button-label">
-              {tr('Refresh', 'Обновить')}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => void loadLobbies(true)}
+              disabled={isRefreshing}
+              aria-label={tr('Refresh lobbies', 'Обновить лобби')}
+              className={`pressable refresh-button ${isRefreshing ? 'is-loading' : ''}`}
+            >
+              <RefreshCw
+                size={14}
+                className={`refresh-button-icon ${isRefreshing ? 'animate-spin' : ''}`}
+              />
+            </button>
+          </div>
         </div>
 
         {lobbyError && (
@@ -415,11 +449,13 @@ export const Home = () => {
           <LobbyRefreshSpinner />
         ) : (
           <div className="lobby-scroll flex gap-2.5 overflow-x-auto pb-1" style={{ marginInline: 'calc(var(--app-gutter) * -1)', paddingInline: 'var(--app-gutter)' }}>
-            {joinableOrOwnLobbies.map((lobby, index) => {
+            {visibleLobbies.map((lobby, index) => {
               const game = getGameByCode(lobby.game) as GameWithMedia | undefined;
               const tone = getGameTone(index);
               const isUserInLobby = Boolean(user && lobby.players.includes(user.id));
               const isJoining = joiningLobbyId === lobby.id;
+              const canJoin = lobby.status === 'waiting' && lobby.player_count < lobby.max_players;
+              const isFull = !isUserInLobby && !canJoin;
 
               const fallbackGame = {
                 code: lobby.game,
@@ -438,10 +474,15 @@ export const Home = () => {
                   key={lobby.id}
                   type="button"
                   onClick={() => void handleOpenOrJoinLobby(lobby)}
-                  disabled={Boolean(joiningLobbyId)}
-                  className="pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[25px] p-2 text-left disabled:opacity-70"
+                  disabled={Boolean(joiningLobbyId) || isFull}
+                  className={`pressable app-panel lobby-card min-w-[178px] shrink-0 rounded-[25px] p-2 text-left disabled:opacity-70 ${isFull ? 'is-full' : ''}`}
                 >
                   <GameImage game={targetGame} tone={tone} size="lobby" />
+                  {isFull && (
+                    <span className="lobby-card-state">
+                      {lobby.status === 'playing' ? tr('In game', 'Идёт игра') : tr('Full', 'Занято')}
+                    </span>
+                  )}
 
                   <div className="px-1 pt-2.5">
                     <h3 className="text-safe mb-2 truncate text-[12px] font-bold text-white">
@@ -462,11 +503,13 @@ export const Home = () => {
                       </div>
                     </div>
 
-                    <div className="mini-button mini-button-join w-full">
+                    <div className={`mini-button mini-button-join w-full ${isFull ? 'is-full' : ''}`}>
                       {isJoining ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : isUserInLobby ? (
                         tr('Open', 'Открыть')
+                      ) : isFull ? (
+                        tr('Full', 'Занято')
                       ) : (
                         tr('Join', 'Войти')
                       )}
@@ -476,10 +519,12 @@ export const Home = () => {
               );
             })}
 
-            {joinableOrOwnLobbies.length === 0 && (
+            {visibleLobbies.length === 0 && (
               <div className="app-panel empty-lobby-card min-w-[220px] rounded-[24px] p-4">
                 <p className="text-safe text-[12px] font-bold text-white">
-                  {tr('No open lobbies', 'Нет открытых лобби')}
+                  {lobbyFilter === 'open'
+                    ? tr('No open lobbies', 'Нет свободных лобби')
+                    : tr('No active lobbies', 'Нет активных лобби')}
                 </p>
                 <p className="text-safe mt-1 text-[9.5px] font-bold text-slate-500">
                   {tr('Waiting rooms will appear here.', 'Комнаты ожидания появятся здесь.')}
@@ -506,10 +551,16 @@ export const Home = () => {
           <div className="turbo-home-glow" aria-hidden="true" />
           <div className="turbo-home-top">
             <span className="turbo-home-badge"><Zap size={11} /> Turbo</span>
-            <span className="turbo-home-stake">
-              <img src={coinIcon} alt="" draggable={false} decoding="async" />
-              100
-            </span>
+            <div className="turbo-home-top-meta">
+              <span className="turbo-home-online">
+                <i aria-hidden="true" />
+                {turboOnline} {tr('online', 'онлайн')}
+              </span>
+              <span className="turbo-home-stake">
+                <img src={coinIcon} alt="" draggable={false} decoding="async" />
+                100
+              </span>
+            </div>
           </div>
 
           <div className="turbo-home-copy">
