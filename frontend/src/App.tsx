@@ -49,9 +49,9 @@ const CrystalMinesSoloGame = lazy(() =>
     default: module.CrystalMinesSoloGame,
   })),
 );
-const SoloPlaceholderGame = lazy(() =>
-  import("./pages/solo/SoloPlaceholderGame").then((module) => ({
-    default: module.SoloPlaceholderGame,
+const RoyalVaultSoloGame = lazy(() =>
+  import("./pages/solo/RoyalVaultSoloGame").then((module) => ({
+    default: module.RoyalVaultSoloGame,
   })),
 );
 const NeonScratchSoloGame = lazy(() =>
@@ -439,7 +439,7 @@ function AppShell() {
                 path="/solo/crystal-mines"
                 element={<CrystalMinesSoloGame />}
               />
-              <Route path="/solo/coming-soon" element={<SoloPlaceholderGame />} />
+              <Route path="/solo/royal-vault" element={<RoyalVaultSoloGame />} />
               <Route
                 path="/solo/neon-scratch"
                 element={<NeonScratchSoloGame />}

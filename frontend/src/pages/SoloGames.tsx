@@ -48,15 +48,15 @@ export const SoloGames = () => {
               <div>
                 <h2>{game.title}</h2>
                 <p>
-                  {game.isPlaceholder
-                    ? tr('A new game is being prepared', 'Новая игра готовится')
-                    : game.id === 'fruit_cascade'
+                  {game.id === 'fruit_cascade'
                       ? tr('Cascade slot', 'Каскадный слот')
                       : game.id === 'royal_5x5'
                         ? tr('Choose the safe path', 'Выбери безопасный путь')
                         : game.id === 'crystal_mines'
                           ? tr('Find crystals, avoid mines', 'Ищи кристаллы, избегай мин')
-                          : tr('Scratch and reveal prizes', 'Стирай и открывай призы')}
+                          : game.id === 'royal_vault'
+                            ? tr('Classic slot · 10 paylines', 'Классический слот · 10 линий')
+                            : tr('Scratch and reveal prizes', 'Стирай и открывай призы')}
                 </p>
               </div>
               <span className="solo-game-v3-arrow" aria-hidden="true">›</span>

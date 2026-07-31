@@ -2,6 +2,7 @@ import fruitCascadeCard from '../assets/solo/cards/fruit-cascade-card.webp';
 import appleTrailCard from '../assets/solo/cards/apple-trail-card.webp';
 import crystalMinesCard from '../assets/solo/cards/crystal-mines-card.webp';
 import neonScratchCard from '../assets/solo/cards/neon-scratch-card.webp';
+import royalVaultCard from '../assets/solo/cards/royal-vault-card.webp';
 
 export type SoloGameTone = 'ruby' | 'cyan' | 'violet' | 'lime' | 'amber';
 
@@ -59,14 +60,14 @@ export const SOLO_GAMES: SoloGame[] = [
     imageSrc: neonScratchCard,
   },
   {
-    id: 'coming_soon',
-    slug: 'coming-soon',
-    title: 'Coming Soon',
-    tag: 'New game',
-    icon: '+',
-    route: '/solo/coming-soon',
-    tone: 'violet',
-    isPlaceholder: true,
+    id: 'royal_vault',
+    slug: 'royal-vault',
+    title: 'Royal Vault',
+    tag: '10 paylines',
+    icon: '♛',
+    route: '/solo/royal-vault',
+    tone: 'amber',
+    imageSrc: royalVaultCard,
   },
 ];
 
