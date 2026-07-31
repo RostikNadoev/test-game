@@ -578,7 +578,7 @@ html.game-gesture-lock #root {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.064);
   border-radius: 12px;
   color: rgba(255, 255, 255, 0.62);
   background: rgba(255, 255, 255, 0.028);
