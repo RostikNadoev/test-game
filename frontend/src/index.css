@@ -615,7 +615,7 @@ html.game-gesture-lock #root {
 .turbo-series-hud {
   position: absolute;
   top: calc(var(--telegram-top-offset) + 14px);
-  left: calc(50% + 3px);
+  left: calc(50% + 4px);
   z-index: 145;
   display: flex;
   height: 35px;
