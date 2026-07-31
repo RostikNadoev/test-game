@@ -26,11 +26,17 @@ const DROP_MS = 620;
 const HIGHLIGHT_MS = 360;
 const POP_MS = 320;
 const AFTER_DROP_MS = 150;
+const SPIN_OUT_MS = 420;
+const SPIN_IN_MS = 620;
+const SPIN_COLUMN_STAGGER_MS = 58;
+const SPIN_ROW_STAGGER_MS = 8;
+const SPIN_OUT_TOTAL_MS = SPIN_OUT_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS + (ROWS - 1) * SPIN_ROW_STAGGER_MS;
+const SPIN_IN_TOTAL_MS = SPIN_IN_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS + (ROWS - 1) * SPIN_ROW_STAGGER_MS;
 
 const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
 
 type SymbolId = 'cherry' | 'lemon' | 'orange' | 'grape' | 'strawberry' | 'watermelon' | 'wild';
-type CellPhase = 'idle' | 'drop' | 'win' | 'pop';
+type CellPhase = 'idle' | 'drop' | 'win' | 'pop' | 'spin-out' | 'spin-in';
 type BigTier = null | 'win' | 'big' | 'mega' | 'epic';
 
 interface SymbolDef {
@@ -137,9 +143,26 @@ const boardFromSymbols = (symbols: SymbolId[], phase: CellPhase = 'idle'): Cell[
       id: cellSeq++,
       sym,
       phase,
-      delay: col * 16 + row * 22,
+      delay:
+        phase === 'spin-in'
+          ? col * SPIN_COLUMN_STAGGER_MS + row * SPIN_ROW_STAGGER_MS
+          : col * 16 + row * 22,
       drop: phase === 'drop' ? row + 2 : 0,
       rot: 0,
+    };
+  });
+
+const boardForSpinOut = (cells: Cell[]): Cell[] =>
+  cells.map((cell, index) => {
+    const row = Math.floor(index / COLS);
+    const col = index % COLS;
+
+    return {
+      ...cell,
+      phase: 'spin-out',
+      delay: col * SPIN_COLUMN_STAGGER_MS + row * SPIN_ROW_STAGGER_MS,
+      drop: 0,
+      rot: Math.round((Math.random() - 0.5) * 8),
     };
   });
 
@@ -321,22 +344,49 @@ const CloseIcon = ({ size = 17 }: { size?: number }) => (
   </svg>
 );
 
+const LOADER_FRUITS: Array<{ symbol: SymbolId; x: number; delay: number; size: number; rotate: number }> = [
+  { symbol: 'cherry', x: 8, delay: 0, size: 44, rotate: -12 },
+  { symbol: 'lemon', x: 30, delay: 0.12, size: 45, rotate: 10 },
+  { symbol: 'strawberry', x: 54, delay: 0.24, size: 49, rotate: -7 },
+  { symbol: 'orange', x: 77, delay: 0.36, size: 45, rotate: 11 },
+  { symbol: 'grape', x: 18, delay: 0.48, size: 47, rotate: 7 },
+  { symbol: 'watermelon', x: 45, delay: 0.60, size: 51, rotate: -9 },
+  { symbol: 'wild', x: 72, delay: 0.72, size: 48, rotate: 8 },
+];
+
 const LoadingScreen = ({ progress }: { progress: number }) => (
   <div className="fc-loading-screen">
-    <div className="fc-load-emblem">
+    <div className="fc-load-stage" aria-hidden="true">
       <div className="fc-load-halo" />
-      <div className="fc-load-ring fc-load-ring-a" />
-      <div className="fc-load-ring fc-load-ring-b" />
-      <div className="fc-load-fruit fc-load-fruit-a"><SymbolIcon id="cherry" size={48} /></div>
-      <div className="fc-load-fruit fc-load-fruit-b"><SymbolIcon id="strawberry" size={52} /></div>
-      <div className="fc-load-fruit fc-load-fruit-c"><SymbolIcon id="lemon" size={46} /></div>
+      <div className="fc-load-stage-grid" />
 
-      <div className="fc-load-star">
-        <SymbolIcon id="wild" size={82} />
+      {LOADER_FRUITS.map((fruit, index) => (
+        <div
+          className="fc-load-drop"
+          key={`${fruit.symbol}-${index}`}
+          style={
+            {
+              '--load-x': `${fruit.x}%`,
+              '--load-delay': `${fruit.delay}s`,
+              '--load-rotate': `${fruit.rotate}deg`,
+            } as CSSProperties
+          }
+        >
+          <SymbolIcon id={fruit.symbol} size={fruit.size} />
+          <span className="fc-load-pop-ring" />
+        </div>
+      ))}
+
+      <div className="fc-load-floor-glow" />
+      <div className="fc-load-sparkles">
+        {Array.from({ length: 8 }, (_, index) => (
+          <i key={index} style={{ '--spark-index': index } as CSSProperties} />
+        ))}
       </div>
     </div>
 
     <div className="fc-load-title">FRUIT CASCADE</div>
+    <div className="fc-load-caption">LOADING</div>
 
     <div className="fc-load-bar">
       <span style={{ width: `${progress}%` }} />
@@ -447,7 +497,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
           <div className="fc-paytable">
             {SYMBOL_ORDER.map((symbol) => (
               <div className="fc-pay-row" key={symbol}>
-                <SymbolIcon id={symbol} size={30} />
+                <SymbolIcon id={symbol} size={25} />
                 <span>{SYMBOLS[symbol].name}</span>
                 <b>{formatMoney(SYMBOLS[symbol].pay * (bet / 10), locale)}</b>
               </div>
@@ -687,6 +737,59 @@ const StyleBlock = () => (
     .fc-cell.drop .fc-cell-inner {
       animation: fcDropPhysics ${DROP_MS}ms cubic-bezier(.16, .9, .19, 1) both;
       animation-delay: var(--delay);
+    }
+
+    .fc-cell.spin-out .fc-cell-inner {
+      animation: fcSpinColumnOut ${SPIN_OUT_MS}ms cubic-bezier(.55, .02, .82, .42) both;
+      animation-delay: var(--delay);
+    }
+
+    .fc-cell.spin-in .fc-cell-inner {
+      animation: fcSpinColumnIn ${SPIN_IN_MS}ms cubic-bezier(.16, .9, .19, 1) both;
+      animation-delay: var(--delay);
+    }
+
+    @keyframes fcSpinColumnOut {
+      0% {
+        transform: translate3d(0, 0, 0) rotate(var(--rot)) scale(1);
+        opacity: 1;
+        filter: blur(0);
+      }
+
+      22% {
+        transform: translate3d(0, -8%, 0) rotate(calc(var(--rot) - 2deg)) scale(1.025);
+        opacity: 1;
+      }
+
+      100% {
+        transform: translate3d(0, 660%, 0) rotate(calc(var(--rot) + 10deg)) scale(.92);
+        opacity: .08;
+        filter: blur(2px);
+      }
+    }
+
+    @keyframes fcSpinColumnIn {
+      0% {
+        transform: translate3d(0, -660%, 0) rotate(calc(var(--rot) - 9deg)) scale(.92);
+        opacity: .08;
+        filter: blur(2px);
+      }
+
+      67% {
+        transform: translate3d(0, 7%, 0) rotate(calc(var(--rot) + 2deg)) scale(1.035, .97);
+        opacity: 1;
+        filter: blur(0);
+      }
+
+      84% {
+        transform: translate3d(0, -2.8%, 0) rotate(var(--rot)) scale(.99, 1.018);
+      }
+
+      100% {
+        transform: translate3d(0, 0, 0) rotate(var(--rot)) scale(1);
+        opacity: 1;
+        filter: blur(0);
+      }
     }
 
     @keyframes fcDropPhysics {
@@ -1103,79 +1206,125 @@ const StyleBlock = () => (
       text-align: center;
     }
 
-    .fc-load-emblem {
+    .fc-load-stage {
       position: relative;
-      display: grid;
-      width: 220px;
-      height: 220px;
-      place-items: center;
+      width: 244px;
+      height: 216px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 220, 145, .13);
+      border-radius: 38px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.014)),
+        rgba(18, 8, 34, .44);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.08),
+        inset 0 -34px 54px rgba(3, 1, 9, .30),
+        0 24px 58px rgba(0,0,0,.22);
       isolation: isolate;
     }
 
     .fc-load-halo {
       position: absolute;
-      inset: -25px;
+      z-index: 0;
+      left: 50%;
+      bottom: -100px;
+      width: 260px;
+      height: 210px;
       border-radius: 999px;
-      background: radial-gradient(circle, rgba(255, 190, 77, .22), transparent 66%);
+      background: radial-gradient(circle, rgba(255, 190, 77, .28), rgba(176,107,255,.10) 44%, transparent 70%);
+      transform: translateX(-50%);
       animation: fcPulse 1.8s ease-in-out infinite;
     }
 
-    .fc-load-ring {
+    .fc-load-stage-grid {
       position: absolute;
-      border-radius: 999px;
-      border: 2px solid rgba(255,255,255,.10);
-    }
-
-    .fc-load-ring-a {
       inset: 0;
-      border-top-color: #ffd34d;
-      animation: fcSpin 2.2s linear infinite;
+      opacity: .32;
+      background:
+        linear-gradient(90deg, transparent 24.5%, rgba(255,255,255,.045) 25%, transparent 25.5%, transparent 49.5%, rgba(255,255,255,.045) 50%, transparent 50.5%, transparent 74.5%, rgba(255,255,255,.045) 75%, transparent 75.5%),
+        linear-gradient(180deg, transparent 70%, rgba(255,255,255,.05));
     }
 
-    .fc-load-ring-b {
-      inset: 21px;
-      border-bottom-color: #b06bff;
-      animation: fcSpin 1.6s linear infinite reverse;
-    }
-
-    .fc-load-star {
-      position: relative;
-      z-index: 2;
-      animation: fcPulse 1.5s ease-in-out infinite;
-    }
-
-    .fc-load-fruit {
+    .fc-load-drop {
       position: absolute;
       z-index: 3;
-      filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .34));
-      will-change: transform;
+      left: var(--load-x);
+      top: -58px;
+      width: 52px;
+      height: 52px;
+      margin-left: -26px;
+      display: grid;
+      place-items: center;
+      opacity: 0;
+      filter: drop-shadow(0 12px 14px rgba(0, 0, 0, .38));
+      transform-origin: center;
+      will-change: transform, opacity, filter;
+      animation: fcLoaderFruitCycle 1.72s cubic-bezier(.22, .78, .24, 1) infinite both;
+      animation-delay: var(--load-delay);
     }
 
-    .fc-load-fruit-a {
-      left: -4px;
-      top: 86px;
-      animation: fcLoadFruitA 2.4s ease-in-out infinite;
+    .fc-load-pop-ring {
+      position: absolute;
+      inset: 3px;
+      border: 2px solid rgba(255, 223, 135, .82);
+      border-radius: 999px;
+      opacity: 0;
+      animation: fcLoaderPopRing 1.72s ease-out infinite both;
+      animation-delay: var(--load-delay);
     }
 
-    .fc-load-fruit-b {
-      right: -5px;
-      top: 78px;
-      animation: fcLoadFruitB 2.6s ease-in-out infinite;
+    .fc-load-floor-glow {
+      position: absolute;
+      z-index: 1;
+      left: 17px;
+      right: 17px;
+      bottom: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, rgba(255,211,77,.65), rgba(176,107,255,.7), transparent);
+      box-shadow: 0 0 18px rgba(255,190,77,.38);
+      animation: fcLoadFloor 1.15s ease-in-out infinite;
     }
 
-    .fc-load-fruit-c {
-      left: 86px;
-      bottom: -7px;
-      animation: fcLoadFruitC 2.2s ease-in-out infinite;
+    .fc-load-sparkles {
+      position: absolute;
+      z-index: 4;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .fc-load-sparkles i {
+      --spark-angle: calc(var(--spark-index) * 45deg);
+      position: absolute;
+      left: 50%;
+      bottom: 30px;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: #ffd34d;
+      box-shadow: 0 0 9px rgba(255,211,77,.8);
+      animation: fcLoaderSpark 1.72s ease-out infinite both;
+      animation-delay: calc(.52s + var(--spark-index) * .035s);
     }
 
     .fc-load-title {
       position: relative;
-      margin-top: 18px;
-      font-size: 25px;
-      line-height: 1;
+      margin-top: 16px;
+      padding-block: 3px;
+      font-size: 27px;
+      line-height: 1.22;
       color: #fff3bd;
       text-shadow: 0 0 18px rgba(255,190,77,.26);
+    }
+
+    .fc-load-caption {
+      margin-top: 2px;
+      color: rgba(220, 202, 255, .48);
+      font-family: Arial, sans-serif;
+      font-size: 7px;
+      font-weight: 800;
+      line-height: 1.4;
+      letter-spacing: .28em;
     }
 
     .fc-load-bar {
@@ -1183,7 +1332,7 @@ const StyleBlock = () => (
       overflow: hidden;
       width: 210px;
       height: 8px;
-      margin-top: 22px;
+      margin-top: 15px;
       border-radius: 999px;
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.08);
@@ -1199,24 +1348,55 @@ const StyleBlock = () => (
 
     @keyframes fcPulse {
       50% {
-        transform: scale(1.08);
+        transform: translateX(-50%) scale(1.08);
         opacity: .78;
       }
     }
 
-    @keyframes fcLoadFruitA {
-      0%, 100% { transform: translate3d(0, 0, 0) rotate(-10deg) scale(.96); }
-      50% { transform: translate3d(5px, -9px, 0) rotate(5deg) scale(1.04); }
+    @keyframes fcLoaderFruitCycle {
+      0% {
+        transform: translate3d(0, -8px, 0) rotate(var(--load-rotate)) scale(.82);
+        opacity: 0;
+        filter: blur(2px) drop-shadow(0 12px 14px rgba(0, 0, 0, .38));
+      }
+      12% {
+        opacity: 1;
+        filter: blur(0) drop-shadow(0 12px 14px rgba(0, 0, 0, .38));
+      }
+      55% {
+        transform: translate3d(0, 204px, 0) rotate(calc(var(--load-rotate) + 15deg)) scale(1);
+        opacity: 1;
+      }
+      63% {
+        transform: translate3d(0, 195px, 0) rotate(calc(var(--load-rotate) + 9deg)) scale(1.1, .9);
+        opacity: 1;
+      }
+      73% {
+        transform: translate3d(0, 202px, 0) rotate(calc(var(--load-rotate) + 12deg)) scale(1.18);
+        opacity: 1;
+        filter: blur(0) drop-shadow(0 0 15px rgba(255, 211, 77, .52));
+      }
+      82%, 100% {
+        transform: translate3d(0, 202px, 0) rotate(calc(var(--load-rotate) + 20deg)) scale(.12);
+        opacity: 0;
+        filter: blur(1px) drop-shadow(0 0 18px rgba(255, 211, 77, .68));
+      }
     }
 
-    @keyframes fcLoadFruitB {
-      0%, 100% { transform: translate3d(0, -2px, 0) rotate(8deg) scale(1); }
-      50% { transform: translate3d(-6px, 8px, 0) rotate(-6deg) scale(.95); }
+    @keyframes fcLoaderPopRing {
+      0%, 67% { transform: scale(.45); opacity: 0; }
+      73% { transform: scale(.72); opacity: .9; }
+      92%, 100% { transform: scale(1.9); opacity: 0; }
     }
 
-    @keyframes fcLoadFruitC {
-      0%, 100% { transform: translate3d(0, 0, 0) rotate(-5deg); }
-      50% { transform: translate3d(0, -8px, 0) rotate(7deg); }
+    @keyframes fcLoaderSpark {
+      0%, 64% { transform: rotate(var(--spark-angle)) translateX(0) scale(.2); opacity: 0; }
+      72% { opacity: 1; }
+      94%, 100% { transform: rotate(var(--spark-angle)) translateX(48px) scale(.1); opacity: 0; }
+    }
+
+    @keyframes fcLoadFloor {
+      50% { transform: scaleX(.72); opacity: .62; }
     }
 
     .fc-bigwin {
@@ -1343,9 +1523,9 @@ const StyleBlock = () => (
       inset: 0;
       z-index: 240;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
-      padding: 0;
+      padding: 16px;
       background: rgba(5,3,12,.68);
       backdrop-filter: blur(5px);
       -webkit-backdrop-filter: blur(5px);
@@ -1354,26 +1534,27 @@ const StyleBlock = () => (
 
     .fc-modal {
       width: 100%;
-      max-width: 480px;
-      max-height: min(76vh, 610px);
+      max-width: 430px;
+      max-height: min(72dvh, 520px);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border-radius: 24px 24px 0 0;
+      border-radius: 24px;
       background: linear-gradient(180deg, #20133b, #120a22);
       border: 1px solid rgba(255,214,122,.18);
-      border-bottom: 0;
-      box-shadow: 0 -18px 50px rgba(0,0,0,.38);
-      animation: fcSlideUp .24s ease-out both;
+      box-shadow: 0 24px 64px rgba(0,0,0,.44);
+      animation: fcModalIn .24s cubic-bezier(.22, 1, .36, 1) both;
     }
 
-    @keyframes fcSlideUp {
+    @keyframes fcModalIn {
       from {
-        transform: translateY(100%);
+        transform: translateY(18px) scale(.965);
+        opacity: 0;
       }
 
       to {
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
+        opacity: 1;
       }
     }
 
@@ -1390,7 +1571,7 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 16px 11px;
+      padding: 8px 14px 9px;
       border-bottom: 1px solid rgba(255,255,255,.07);
     }
 
@@ -1403,13 +1584,15 @@ const StyleBlock = () => (
 
     .fc-modal-head h2 {
       margin: 0;
-      font-size: 17px;
+      padding-block: 2px;
+      font-size: 16px;
+      line-height: 1.28;
       color: #fff3bd;
     }
 
     .fc-modal-head button {
-      width: 34px;
-      height: 34px;
+      width: 31px;
+      height: 31px;
       border-radius: 999px;
       color: #fff;
       background: rgba(255,255,255,.07);
@@ -1422,49 +1605,62 @@ const StyleBlock = () => (
     .fc-modal-body {
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-      padding: 12px 16px 20px;
+      padding: 9px 14px 13px;
     }
 
     .fc-modal-body section + section {
-      margin-top: 14px;
+      margin-top: 9px;
     }
 
     .fc-modal-body h3 {
-      margin: 0 0 5px;
-      font-size: 12px;
+      margin: 0 0 3px;
+      padding-block: 1px;
+      font-size: 10.5px;
+      line-height: 1.35;
       color: #ffd891;
     }
 
     .fc-modal-body p {
       margin: 0;
-      font-size: 12px;
-      line-height: 1.5;
+      font-family: Arial, sans-serif;
+      font-size: 10.5px;
+      line-height: 1.38;
       color: rgba(239,231,255,.78);
     }
 
     .fc-paytable {
       display: grid;
-      gap: 5px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
     }
 
     .fc-pay-row {
       display: grid;
-      grid-template-columns: 34px 1fr auto;
+      min-width: 0;
+      grid-template-columns: 27px minmax(0, 1fr) auto;
       align-items: center;
-      gap: 8px;
-      padding: 5px 8px;
-      border-radius: 12px;
+      gap: 5px;
+      min-height: 34px;
+      padding: 2px 6px;
+      border-radius: 10px;
       background: rgba(255,255,255,.045);
       border: 1px solid rgba(255,255,255,.055);
     }
 
     .fc-pay-row span {
-      font-size: 12px;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      font-size: 9.5px;
+      line-height: 1.25;
       color: rgba(239,231,255,.86);
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .fc-pay-row b {
-      font-size: 12px;
+      padding-block: 1px;
+      font-size: 9.5px;
+      line-height: 1.3;
       color: #fff3bd;
     }
 
@@ -1547,13 +1743,16 @@ const StyleBlock = () => (
 
     @media (prefers-reduced-motion: reduce) {
       .fc-spin-ring,
-      .fc-load-ring,
-      .fc-load-star,
-      .fc-load-fruit,
+      .fc-load-drop,
+      .fc-load-pop-ring,
+      .fc-load-sparkles i,
+      .fc-load-floor-glow,
       .fc-load-halo,
       .fc-confetti span,
       .fc-bigwin-burst,
       .fc-cell.drop .fc-cell-inner,
+      .fc-cell.spin-out .fc-cell-inner,
+      .fc-cell.spin-in .fc-cell-inner,
       .fc-cell.win,
       .fc-cell.pop .fc-cell-inner,
       .fc-particles span {
@@ -1592,11 +1791,13 @@ export const FruitCascadeSoloGame = () => {
   const [bigAmount, setBigAmount] = useState(0);
 
   const audioRef = useRef<AudioContext | null>(null);
+  const boardRef = useRef(board);
   const mutedRef = useRef(muted);
   const spinningRef = useRef(spinning);
   const autoRef = useRef(auto);
   const winShownRef = useRef(0);
 
+  boardRef.current = board;
   mutedRef.current = muted;
   spinningRef.current = spinning;
   autoRef.current = auto;
@@ -1649,49 +1850,55 @@ export const FruitCascadeSoloGame = () => {
         duration: number,
         volume: number,
         type: OscillatorType = 'sine',
+        endFrequency = frequency,
       ) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
+        const startAt = now + startOffset;
+        const endAt = startAt + duration;
 
         osc.type = type;
-        osc.frequency.setValueAtTime(frequency, now + startOffset);
+        osc.frequency.setValueAtTime(Math.max(1, frequency), startAt);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFrequency), endAt);
 
-        gain.gain.setValueAtTime(0.0001, now + startOffset);
-        gain.gain.exponentialRampToValueAtTime(volume, now + startOffset + 0.014);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(volume, startAt + Math.min(.022, duration * .24));
+        gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
 
         osc.connect(gain);
         gain.connect(ctx.destination);
 
-        osc.start(now + startOffset);
-        osc.stop(now + startOffset + duration + 0.02);
+        osc.start(startAt);
+        osc.stop(endAt + 0.025);
       };
 
-      if (kind === 'tap') playTone(520, 0, 0.07, 0.025);
+      if (kind === 'tap') playTone(390, 0, .075, .011, 'sine', 520);
 
       if (kind === 'spin') {
-        playTone(180, 0, 0.12, 0.025, 'triangle');
-        playTone(260, 0.05, 0.16, 0.022, 'triangle');
+        playTone(178, 0, .15, .011, 'triangle', 244);
+        playTone(238, .075, .16, .010, 'triangle', 326);
+        playTone(318, .15, .18, .009, 'sine', 430);
       }
 
       if (kind === 'drop') {
-        playTone(160, 0, 0.08, 0.018, 'triangle');
+        playTone(148, 0, .12, .012, 'sine', 92);
+        playTone(252, .018, .09, .006, 'triangle', 188);
       }
 
       if (kind === 'pop') {
-        playTone(620, 0, 0.06, 0.023, 'square');
-        playTone(820, 0.035, 0.07, 0.018, 'sine');
+        playTone(430, 0, .12, .014, 'sine', 820);
+        playTone(650, .028, .10, .008, 'triangle', 1040);
       }
 
       if (kind === 'win') {
-        playTone(520, 0, 0.09, 0.026);
-        playTone(720, 0.08, 0.11, 0.024);
-        playTone(960, 0.17, 0.13, 0.022);
+        playTone(523, 0, .20, .013, 'sine', 560);
+        playTone(659, .09, .22, .012, 'sine', 705);
+        playTone(784, .18, .24, .011, 'sine', 880);
       }
 
       if (kind === 'big') {
-        [440, 660, 880, 1170].forEach((freq, index) => {
-          playTone(freq, index * 0.1, 0.18, 0.028);
+        [523, 659, 784, 1046].forEach((freq, index) => {
+          playTone(freq, index * .105, .28, .016, index === 3 ? 'triangle' : 'sine', freq * 1.06);
         });
       }
     },
@@ -1760,13 +1967,25 @@ export const FruitCascadeSoloGame = () => {
     haptic('spin');
     playSound('spin');
 
+    const restingBoard = boardRef.current.map((cell) => ({
+      ...cell,
+      phase: 'idle' as CellPhase,
+      delay: 0,
+      drop: 0,
+    }));
+
     try {
       const response = await soloSpin('fruit_cascade', bet);
       const outcome = response.outcome as ServerFruitOutcome;
 
-      const freshBoard = boardFromSymbols(outcome.initial_board, 'drop');
+      setBoard(boardForSpinOut(restingBoard));
+      await sleep(SPIN_OUT_TOTAL_MS);
+
+      const freshBoard = boardFromSymbols(outcome.initial_board, 'spin-in');
       setBoard(freshBoard);
-      await sleep(DROP_MS + 65);
+      await sleep(Math.max(0, SPIN_IN_TOTAL_MS - 175));
+      playSound('drop');
+      await sleep(220);
 
       let current = freshBoard.map((cell) => ({
         ...cell,
@@ -1840,6 +2059,7 @@ export const FruitCascadeSoloGame = () => {
       }
     } catch {
       // wallet error shown in bar
+      setBoard(restingBoard);
     }
 
     setMultiplier(1);
@@ -1877,7 +2097,7 @@ export const FruitCascadeSoloGame = () => {
   useEffect(() => {
     let raf = 0;
     const start = performance.now();
-    const duration = 740;
+    const duration = 1720;
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
@@ -1888,7 +2108,7 @@ export const FruitCascadeSoloGame = () => {
       if (t < 1) {
         raf = requestAnimationFrame(tick);
       } else {
-        window.setTimeout(() => setLoading(false), 90);
+        window.setTimeout(() => setLoading(false), 120);
       }
     };
 
