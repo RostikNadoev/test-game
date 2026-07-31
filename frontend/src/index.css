@@ -2605,6 +2605,35 @@ html.game-presence-paused .game-presence-overlay * {
   line-height: 1.38;
 }
 
+/* Flappy Race uses the same tall Supercell font in its HUD and result card. */
+.flappy-race-game .leading-none,
+.flappy-race-game .truncate {
+  line-height: 1.42 !important;
+  padding-top: 0.09em;
+  padding-bottom: 0.14em;
+}
+
+.flappy-race-game :where(
+  .premium-game-result-kicker,
+  .premium-game-result-card > h2,
+  .premium-game-result-reason,
+  .premium-game-result-player > span,
+  .premium-game-result-player > strong,
+  .premium-game-result-player > b,
+  .premium-game-result-players > i,
+  .premium-game-result-net > span,
+  .premium-game-result-net > strong,
+  .premium-game-result-card > button > b
+) {
+  line-height: 1.42;
+  padding-top: 0.08em;
+  padding-bottom: 0.13em;
+}
+
+.flappy-race-game .premium-game-result-card > h2 {
+  line-height: 1.38;
+}
+
 @keyframes quick-emoji-enter {
   to {
     opacity: 1;

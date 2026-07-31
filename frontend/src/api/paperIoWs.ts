@@ -56,7 +56,6 @@ export type PaperIoErrorMessage = {
 export type PaperIoSocketClient = {
   socket: WebSocket;
   requestState: () => boolean;
-  ready: () => boolean;
   direction: (dir: number) => boolean;
   close: () => void;
 };
@@ -208,7 +207,6 @@ export const paperIoWsApi = {
     return {
       socket,
       requestState: () => send({ type: 'state' }),
-      ready: () => send({ type: 'ready' }),
       direction: (dir) => send({ type: 'direction', dir }),
       close: () => socket.close(),
     };

@@ -21,7 +21,7 @@ const GRID = 64;
 const N = GRID * GRID;
 const TICK_MS = 78;
 const VISIBLE_CELLS = 19;
-const DURATION = 90_000;
+const DURATION = 60_000;
 
 const DX = [0, 1, 0, -1] as const;
 const DY = [-1, 0, 1, 0] as const;
@@ -398,7 +398,6 @@ export const PaperIoGame = () => {
   const [didWin, setDidWin] = useState(false);
   const [isDraw, setIsDraw] = useState(false);
   const [timeLeft, setTimeLeft] = useState(DURATION);
-  const [readySent, setReadySent] = useState(false);
 
   const routeState = (location.state || {}) as LocationState;
   const gameId = routeState.game || 'paper_io';
@@ -579,6 +578,11 @@ export const PaperIoGame = () => {
 
           if (state.server_ms) {
             serverOffsetRef.current = Date.now() - state.server_ms;
+          }
+          if (state.phase === 'countdown' && state.start_at_ms) {
+            setTimeLeft(Math.max(0, state.start_at_ms - state.server_ms));
+          } else if (state.phase === 'playing' && state.deadline_ms) {
+            setTimeLeft(Math.max(0, state.deadline_ms - state.server_ms));
           }
 
           setP1pct(Number(state.percent['1'] || 0));
@@ -929,23 +933,10 @@ export const PaperIoGame = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [phase, sendDirection]);
 
-  const start = () => {
-    if (connectionStatus !== 'open') {
-      setSocketError('Нет подключения к серверу');
-      return;
-    }
-    if (socketRef.current?.ready()) {
-      resultHandledRef.current = false;
-      setReadySent(true);
-      setSocketError(null);
-    }
-  };
-
-  const countdownSeconds = useMemo(() => {
-    if (serverState?.phase !== 'countdown' || !serverState.start_at_ms) return 0;
-    const estimatedServerNow = Date.now() - serverOffsetRef.current;
-    return Math.max(1, Math.ceil((serverState.start_at_ms - estimatedServerNow) / 1000));
-  }, [serverState, timeLeft]);
+  const countdownSeconds =
+    serverState?.phase === 'countdown'
+      ? Math.max(1, Math.ceil(timeLeft / 1000))
+      : 0;
 
   if (!lobbyId) {
     return (
@@ -1014,26 +1005,11 @@ export const PaperIoGame = () => {
               {socketError
                 ? socketError
                 : serverState?.phase === 'countdown'
-                  ? 'Оба игрока готовы. Матч начинается одновременно.'
-                  : readySent
-                    ? `Ждём, пока ${opponentProfile.nickname} будет готов.`
-                    : 'Захватывай территорию, замыкая петли. 90 секунд — кто захватит больше, тот победил. Наступи на след соперника, чтобы сбросить его территорию.'}
+                  ? 'Матч начнётся автоматически после отсчёта.'
+                  : connectionStatus !== 'open'
+                    ? 'Подключаемся к матчу...'
+                    : 'Ждём соперника. Когда подключатся оба игрока, автоматически начнётся отсчёт 3 секунды. Матч длится 60 секунд.'}
             </p>
-
-            {serverState?.phase !== 'countdown' ? (
-              <button
-                onClick={start}
-                className="pio-modal-btn"
-                type="button"
-                disabled={readySent || connectionStatus !== 'open'}
-              >
-                {connectionStatus !== 'open'
-                  ? 'Подключение...'
-                  : readySent
-                    ? 'Ждём соперника...'
-                    : 'Готов'}
-              </button>
-            ) : null}
 
             <div className={`pio-connection pio-connection-${connectionStatus}`}>
               {connectionStatus}

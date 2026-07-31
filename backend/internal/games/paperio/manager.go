@@ -17,9 +17,9 @@ const (
 	GridSize     = 64
 	CellCount    = GridSize * GridSize
 	TickMS       = 78
-	DurationMS   = 90_000
+	DurationMS   = 60_000
 	RespawnMS    = 900
-	startDelayMS = 650
+	startDelayMS = 3_000
 	cleanupAfter = 10 * time.Minute
 	maxInputRate = 30 * time.Millisecond
 )
@@ -179,7 +179,6 @@ type Session struct {
 	lobbyID     string
 	playerOrder []uint
 	clients     map[uint]*client
-	ready       map[uint]bool
 	players     [2]*player
 	slotByUser  map[uint]uint8
 	territory   []uint8
@@ -207,7 +206,6 @@ func newSession(lobbyID string, ids []uint, onMatchOver func(string, *uint)) *Se
 		lobbyID:     lobbyID,
 		playerOrder: append([]uint(nil), ids...),
 		clients:     make(map[uint]*client),
-		ready:       make(map[uint]bool),
 		slotByUser:  map[uint]uint8{ids[0]: 1, ids[1]: 2},
 		territory:   make([]uint8, CellCount),
 		trail:       make([]uint8, CellCount),
@@ -248,6 +246,9 @@ func (s *Session) Attach(userID uint, conn *websocket.Conn) error {
 	}
 	s.clients[userID] = cl
 	s.lastActive = time.Now()
+	if !s.paused && s.phase == "waiting" && len(s.clients) == len(s.playerOrder) {
+		s.scheduleStartLocked(time.Now())
+	}
 	state := s.publicStateForLocked(userID, true, "connected")
 	s.mu.Unlock()
 	_ = cl.Send(state)
@@ -308,11 +309,11 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 	case "state":
 		s.sendToLocked(userID, s.publicStateForLocked(userID, true, "state"))
 	case "ready":
+		// Backward compatibility for clients opened before automatic start.
 		if s.paused {
 			return
 		}
-		s.ready[userID] = true
-		if s.phase == "waiting" && len(s.clients) == len(s.playerOrder) && s.allReadyLocked() {
+		if s.phase == "waiting" && len(s.clients) == len(s.playerOrder) {
 			s.scheduleStartLocked(time.Now())
 		} else {
 			s.broadcastStateLocked(false, "ready")
@@ -325,15 +326,6 @@ func (s *Session) Handle(userID uint, msg ClientMessage) {
 	default:
 		s.sendErrorLocked(userID, "unknown command")
 	}
-}
-
-func (s *Session) allReadyLocked() bool {
-	for _, id := range s.playerOrder {
-		if !s.ready[id] {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Session) scheduleStartLocked(now time.Time) {
@@ -709,7 +701,7 @@ func (s *Session) publicStateForLocked(userID uint, full bool, message string) P
 		Game:         GameCode,
 		LobbyID:      s.lobbyID,
 		Phase:        s.phase,
-		Ready:        s.allReadyLocked(),
+		Ready:        len(s.clients) == len(s.playerOrder),
 		YourUserID:   userID,
 		ServerMS:     time.Now().UnixMilli(),
 		StartAtMS:    millis(s.startAt),
