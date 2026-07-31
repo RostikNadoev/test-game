@@ -45,3 +45,21 @@ func TestBaselineMigrationDefinesAllTables(t *testing.T) {
 		t.Fatal("baseline should not use global unique idempotency_key")
 	}
 }
+
+func TestWithdrawalMigrationDefinesRequestTable(t *testing.T) {
+	path := filepath.Join("003_withdrawals.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read withdrawal migration: %v", err)
+	}
+	content := strings.ToLower(string(raw))
+	for _, required := range []string{
+		"create table if not exists withdrawal_requests",
+		"unique (user_id, idempotency_key)",
+		"ton_nano_amount bigint not null",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("withdrawal migration missing: %s", required)
+		}
+	}
+}

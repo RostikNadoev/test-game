@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowDownToLine,
@@ -6,6 +6,7 @@ import {
   ArrowUpFromLine,
   Check,
   Clock3,
+  CircleAlert,
   History,
   Loader2,
   LogOut,
@@ -20,6 +21,7 @@ import {
   useTonWallet,
 } from '@tonconnect/ui-react';
 import { useAuth } from '../../auth/useAuth';
+import { api, ApiError, type WithdrawalItem } from '../../api';
 import tonIcon from '../../assets/header/ton.svg';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -39,30 +41,6 @@ const tabs: Array<{ id: WalletTab; label: readonly [string, string]; icon: Lucid
   { id: 'history', label: ['History', 'История'], icon: History },
 ];
 
-const historyItems = [
-  {
-    id: 'withdraw-success',
-    type: 'withdraw' as const,
-    amount: '-12.40 TON',
-    date: ['29 Jul · 18:42', '29 июл · 18:42'] as const,
-    status: 'success' as const,
-  },
-  {
-    id: 'deposit-success',
-    type: 'deposit' as const,
-    amount: '+5.00 TON',
-    date: ['28 Jul · 11:06', '28 июл · 11:06'] as const,
-    status: 'success' as const,
-  },
-  {
-    id: 'withdraw-pending',
-    type: 'withdraw' as const,
-    amount: '-2.75 TON',
-    date: ['Today · 09:18', 'Сегодня · 09:18'] as const,
-    status: 'pending' as const,
-  },
-] as const;
-
 const parseAmount = (value: string) => {
   const parsed = Number(value.replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -81,13 +59,22 @@ const sanitizeAmount = (value: string) => {
   return `${integerPart || '0'}${separator}${fractionPart}`;
 };
 
+const sanitizeWholeAmount = (value: string) => value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+
+const createIdempotencyKey = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `withdraw_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+};
+
 const shortenAddress = (address: string) => {
   if (address.length <= 14) return address;
   return `${address.slice(0, 7)}…${address.slice(-5)}`;
 };
 
 export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
-  const { user } = useAuth();
+  const { user, refreshBalance } = useAuth();
   const { language, locale, tr } = useLanguage();
   const [tonConnectUI, setTonConnectOptions] = useTonConnectUI();
   const tonWallet = useTonWallet();
@@ -100,6 +87,15 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const [activeTab, setActiveTab] = useState<WalletTab>('deposit');
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawalKey, setWithdrawalKey] = useState(createIdempotencyKey);
+  const [withdrawals, setWithdrawals] = useState<WithdrawalItem[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawalFeedback, setWithdrawalFeedback] = useState<{
+    kind: 'error' | 'wallet' | 'success';
+    message: string;
+  } | null>(null);
   const [walletAction, setWalletAction] = useState<'connect' | 'disconnect' | null>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
 
@@ -109,6 +105,20 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const withdrawTonAmount = parsedWithdrawGame > 0 ? parsedWithdrawGame * GAME_TO_TON_RATE : 0;
   const isTonConnected = Boolean(tonWallet && tonAddress);
   const walletName = tonWallet?.device.appName || tr('TON wallet', 'TON-кошелёк');
+
+  const loadWithdrawalHistory = useCallback(async (withSpinner = false) => {
+    if (withSpinner) setIsHistoryLoading(true);
+    try {
+      const response = await api.wallet.withdrawalHistory();
+      setWithdrawals(response.withdrawals);
+      setHistoryError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : tr('Could not load history', 'Не удалось загрузить историю');
+      setHistoryError(message);
+    } finally {
+      if (withSpinner) setIsHistoryLoading(false);
+    }
+  }, [tr]);
 
   useEffect(() => {
     setTonConnectOptions({
@@ -140,6 +150,22 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [shouldRender, onClose]);
 
+  useEffect(() => {
+    setWithdrawalKey(createIdempotencyKey());
+  }, [withdrawAmount, tonAddress]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    void loadWithdrawalHistory(activeTab === 'history');
+    if (activeTab !== 'history') return;
+
+    const timer = window.setInterval(() => {
+      void loadWithdrawalHistory(false);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, isOpen, loadWithdrawalHistory]);
+
   const connectWallet = async () => {
     setWalletError(null);
     setWalletAction('connect');
@@ -161,6 +187,78 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
       setWalletError(tr('Could not disconnect wallet', 'Не удалось отключить кошелёк'));
     } finally {
       setWalletAction(null);
+    }
+  };
+
+  const submitWithdrawal = async () => {
+    setWithdrawalFeedback(null);
+
+    if (!isConnectionRestored) {
+      setWithdrawalFeedback({
+        kind: 'error',
+        message: tr('Wait while the wallet connection is checked.', 'Подожди, пока проверяется подключение кошелька.'),
+      });
+      return;
+    }
+    if (!isTonConnected) {
+      setWithdrawalFeedback({
+        kind: 'wallet',
+        message: tr(
+          'Connect a TON wallet first. Open Deposit and tap Connect wallet.',
+          'Сначала подключи TON-кошелёк. Открой «Ввод» и нажми «Подключить кошелёк».',
+        ),
+      });
+      return;
+    }
+
+    const amount = Number(withdrawAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setWithdrawalFeedback({
+        kind: 'error',
+        message: tr('Enter a positive whole GAME amount.', 'Введи положительную целую сумму GAME.'),
+      });
+      return;
+    }
+    if (amount > Math.floor(user?.balance_game ?? 0)) {
+      setWithdrawalFeedback({
+        kind: 'error',
+        message: tr('Not enough GAME on your balance.', 'Недостаточно GAME на балансе.'),
+      });
+      return;
+    }
+
+    setIsWithdrawing(true);
+    try {
+      const response = await api.wallet.createWithdrawal(amount, tonAddress, withdrawalKey);
+      setWithdrawals((current) => [
+        response.withdrawal,
+        ...current.filter((item) => item.id !== response.withdrawal.id),
+      ]);
+      try {
+        await refreshBalance();
+      } catch {
+        // The global balance poll will retry; the withdrawal itself already exists.
+      }
+      setWithdrawAmount('');
+      setWithdrawalFeedback({
+        kind: 'success',
+        message: tr(
+          'Withdrawal request sent. You can track it in History.',
+          'Заявка на вывод отправлена. Её статус можно отслеживать в истории.',
+        ),
+      });
+    } catch (error) {
+      let message = error instanceof Error ? error.message : tr('Could not create withdrawal', 'Не удалось создать заявку');
+      if (error instanceof ApiError) {
+        if (error.status === 409) {
+          message = tr('Not enough GAME on your balance.', 'Недостаточно GAME на балансе.');
+        } else if (error.status === 503) {
+          message = tr('Withdrawals are temporarily unavailable.', 'Вывод временно недоступен.');
+        }
+      }
+      setWithdrawalFeedback({ kind: 'error', message });
+    } finally {
+      setIsWithdrawing(false);
     }
   };
 
@@ -220,46 +318,64 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
         {isHistory ? (
           <div className="wallet-history" role="tabpanel">
             <div className="wallet-history-heading">
-              <span>{tr('Recent activity', 'Последние операции')}</span>
-              <small>{tr('TON transactions', 'Операции TON')}</small>
+              <span>{tr('Withdrawal history', 'История выводов')}</span>
+              <small>{withdrawals.length}</small>
             </div>
 
-            <div className="wallet-history-list">
-              {historyItems.map((item) => {
-                const isPending = item.status === 'pending';
-                const isDepositItem = item.type === 'deposit';
-                const Icon = isDepositItem ? ArrowDownToLine : ArrowUpFromLine;
+            {isHistoryLoading ? (
+              <div className="wallet-history-state">
+                <Loader2 size={19} className="animate-spin" />
+                <span>{tr('Loading history', 'Загружаем историю')}</span>
+              </div>
+            ) : historyError ? (
+              <div className="wallet-history-state is-error">
+                <CircleAlert size={18} />
+                <span>{historyError}</span>
+                <button type="button" className="press" onClick={() => void loadWithdrawalHistory(true)}>
+                  {tr('Retry', 'Повторить')}
+                </button>
+              </div>
+            ) : withdrawals.length === 0 ? (
+              <div className="wallet-history-state">
+                <History size={19} />
+                <span>{tr('No withdrawal requests yet', 'Заявок на вывод пока нет')}</span>
+              </div>
+            ) : (
+              <div className="wallet-history-list">
+                {withdrawals.map((item) => {
+                  const isPending = item.status === 'pending';
+                  const createdAt = new Intl.DateTimeFormat(locale, {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }).format(new Date(item.created_at));
 
-                return (
-                  <article className="wallet-history-item" key={item.id}>
-                    <div className={`wallet-history-icon is-${item.type}`}>
-                      <Icon size={15} />
-                    </div>
+                  return (
+                    <article className="wallet-history-item" key={item.id}>
+                      <div className="wallet-history-icon is-withdraw">
+                        <ArrowUpFromLine size={15} />
+                      </div>
 
-                    <div className="wallet-history-copy">
-                      <strong>
-                        {isDepositItem
-                          ? tr('Deposit', 'Пополнение')
-                          : tr('Withdrawal', 'Вывод')}
-                      </strong>
-                      <span>{tr(item.date[0], item.date[1])}</span>
-                    </div>
+                      <div className="wallet-history-copy">
+                        <strong>{tr('Withdrawal', 'Вывод')} · {formatBalance(item.game_amount, 0)} GAME</strong>
+                        <span>{createdAt} · #{item.id}</span>
+                      </div>
 
-                    <div className="wallet-history-value">
-                      <strong className={isDepositItem ? 'is-positive' : ''}>
-                        {item.amount}
-                      </strong>
-                      <span className={isPending ? 'is-pending' : 'is-success'}>
-                        {isPending ? <Clock3 size={9} /> : <Check size={9} />}
-                        {isPending
-                          ? tr('Pending', 'В ожидании')
-                          : tr('Successful', 'Успешно')}
-                      </span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+                      <div className="wallet-history-value">
+                        <strong>{item.ton_amount} TON</strong>
+                        <span className={isPending ? 'is-pending' : 'is-success'}>
+                          {isPending ? <Clock3 size={9} /> : <Check size={9} />}
+                          {isPending
+                            ? tr('Pending', 'В ожидании')
+                            : tr('Completed', 'Выполнено')}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : isDeposit ? (
           <div className="wallet-ton-connect" role="tabpanel">
@@ -352,15 +468,32 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
             {walletError && <p className="wallet-ton-note is-error">{walletError}</p>}
           </div>
         ) : (
-          <>
-            <div className="wallet-simple-conversion" role="tabpanel">
+          <div className="wallet-withdraw-panel" role="tabpanel">
+            {isTonConnected && (
+              <div className="wallet-withdraw-destination">
+                <div>
+                  <span>{tr('Destination wallet', 'Кошелёк получателя')}</span>
+                  <strong>{shortenAddress(tonAddress)}</strong>
+                </div>
+                <span className="wallet-withdraw-connected">
+                  <i aria-hidden="true" />
+                  {tr('Connected', 'Подключён')}
+                </span>
+              </div>
+            )}
+
+            <div className="wallet-simple-conversion">
               <label className="wallet-simple-amount">
-                <span>{tr('You pay', 'Отдаёшь')}</span>
+                <span>{tr('Withdraw', 'Вывести')}</span>
                 <div>
                   <input
                     value={withdrawAmount}
-                    onChange={(event) => setWithdrawAmount(sanitizeAmount(event.target.value))}
-                    inputMode="decimal"
+                    onChange={(event) => {
+                      setWithdrawAmount(sanitizeWholeAmount(event.target.value));
+                      setWithdrawalFeedback(null);
+                    }}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="10"
                   />
                   <span className="wallet-simple-currency">
@@ -387,15 +520,40 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
             </div>
 
             <div className="wallet-simple-rate">
-              10 GAME = 1 TON
+              10 GAME = 1 TON · {tr('Whole GAME only', 'Только целое количество GAME')}
             </div>
 
-            <button type="button" disabled className="wallet-simple-submit">
-              {isDeposit
-                ? tr('Deposits will be available soon', 'Пополнение скоро будет доступно')
-                : tr('Withdrawals will be available soon', 'Вывод скоро будет доступен')}
+            {withdrawalFeedback && (
+              <div className={`wallet-withdraw-feedback is-${withdrawalFeedback.kind}`}>
+                <div>
+                  {withdrawalFeedback.kind === 'success' ? <Check size={15} /> : <CircleAlert size={15} />}
+                  <span>{withdrawalFeedback.message}</span>
+                </div>
+                {withdrawalFeedback.kind === 'wallet' && (
+                  <button type="button" className="press" onClick={() => setActiveTab('deposit')}>
+                    {tr('Open Deposit', 'Перейти во «Ввод»')}
+                    <ArrowRight size={12} />
+                  </button>
+                )}
+                {withdrawalFeedback.kind === 'success' && (
+                  <button type="button" className="press" onClick={() => setActiveTab('history')}>
+                    {tr('Open History', 'Открыть историю')}
+                    <ArrowRight size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={isWithdrawing}
+              className="wallet-simple-submit is-primary press"
+              onClick={() => void submitWithdrawal()}
+            >
+              {isWithdrawing && <Loader2 size={14} className="animate-spin" />}
+              {tr('Request withdrawal', 'Отправить заявку')}
             </button>
-          </>
+          </div>
         )}
       </section>
     </div>

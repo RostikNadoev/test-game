@@ -23,6 +23,7 @@ func Open(t *testing.T) *gorm.DB {
 		&models.UserStats{},
 		&models.UserSoloStats{},
 		&models.WalletTransaction{},
+		&models.WithdrawalRequest{},
 		&models.BetReservation{},
 		&models.Match{},
 		&models.MatchFinishVote{},

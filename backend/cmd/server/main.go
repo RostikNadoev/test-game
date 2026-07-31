@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
+	"time"
+
 	"tg-lobbies-base/internal/config"
 	"tg-lobbies-base/internal/database"
 	"tg-lobbies-base/internal/games/arcaderace"
@@ -20,7 +23,7 @@ import (
 	"tg-lobbies-base/internal/realtime"
 	"tg-lobbies-base/internal/services"
 	"tg-lobbies-base/internal/turbo"
-	"time"
+	"tg-lobbies-base/internal/withdrawalbot"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,6 +55,13 @@ func main() {
 	reactionManager := reactions.NewManager()
 	presenceManager := presence.NewManager()
 	turboManager := turbo.NewManager(db, lobbyStore)
+	withdrawalBot := withdrawalbot.New(
+		db,
+		cfg.WithdrawalBotToken,
+		cfg.WithdrawalAdminChatID,
+		cfg.WithdrawalAdminUserID,
+	)
+	go withdrawalBot.Run(context.Background())
 
 	settleGameMatch := func(lobbyID string, winnerUserID *uint) {
 		reactionManager.Complete(lobbyID)
@@ -117,7 +127,7 @@ func main() {
 
 	authHandler := handlers.AuthHandler{Cfg: cfg}
 	userHandler := handlers.UserHandler{}
-	walletHandler := handlers.WalletHandler{}
+	walletHandler := handlers.WalletHandler{WithdrawalNotifier: withdrawalBot}
 	lobbyHandler := handlers.LobbyHandler{Hub: lobbyStore}
 	matchHandler := handlers.MatchHandler{Hub: lobbyStore}
 	leaderboardHandler := handlers.LeaderboardHandler{}
@@ -408,6 +418,8 @@ func main() {
 		{
 			wallet.POST("/topup-quote", middleware.RateLimit(60, time.Minute), walletHandler.TopUpQuote)
 			wallet.POST("/exchange-ton-to-game", middleware.RateLimit(30, time.Minute), walletHandler.ExchangeTONToGame)
+			wallet.POST("/withdrawals", middleware.RateLimitByUser(10, time.Minute), walletHandler.CreateWithdrawal)
+			wallet.GET("/withdrawals", walletHandler.WithdrawalHistory)
 		}
 
 		if cfg.GinMode != "release" && cfg.AllowDevAuth {

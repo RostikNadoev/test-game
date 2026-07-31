@@ -1,11 +1,28 @@
 import { apiRequest } from './client';
 import type {
   BalanceResponse,
+  CreateWithdrawalResponse,
   ExchangeTonToGameResponse,
   TopUpQuoteResponse,
+  WithdrawalHistoryResponse,
 } from './types';
 
 export const walletApi = {
+  createWithdrawal(gameAmount: number, walletAddress: string, idempotencyKey: string) {
+    return apiRequest<CreateWithdrawalResponse>('/api/v1/wallet/withdrawals', {
+      method: 'POST',
+      body: {
+        game_amount: Math.floor(gameAmount),
+        wallet_address: walletAddress,
+        idempotency_key: idempotencyKey,
+      },
+    });
+  },
+
+  withdrawalHistory(limit = 50) {
+    return apiRequest<WithdrawalHistoryResponse>(`/api/v1/wallet/withdrawals?limit=${limit}`);
+  },
+
   topupQuote(coins: number) {
     return apiRequest<TopUpQuoteResponse>('/api/v1/wallet/topup-quote', {
       method: 'POST',

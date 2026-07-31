@@ -67,6 +67,29 @@ type WalletTransaction struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+const (
+	WithdrawalStatusPending   = "pending"
+	WithdrawalStatusCompleted = "completed"
+)
+
+type WithdrawalRequest struct {
+	ID                   uint       `gorm:"primaryKey" json:"id"`
+	UserID               uint       `gorm:"index;not null;uniqueIndex:idx_withdrawal_user_idempotency,priority:1" json:"user_id"`
+	WalletTransactionID  uint       `gorm:"index" json:"wallet_transaction_id"`
+	IdempotencyKey       string     `gorm:"size:80;not null;uniqueIndex:idx_withdrawal_user_idempotency,priority:2" json:"-"`
+	WalletAddress        string     `gorm:"size:128;not null" json:"wallet_address"`
+	GameAmount           int64      `gorm:"not null" json:"game_amount"`
+	TonNanoAmount        int64      `gorm:"not null" json:"ton_nano_amount"`
+	Status               string     `gorm:"index;not null;default:'pending'" json:"status"`
+	BotChatID            int64      `json:"-"`
+	BotMessageID         int        `gorm:"index;not null;default:0" json:"-"`
+	BotNotifiedAt        *time.Time `json:"-"`
+	BotNotificationError string    `json:"-"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	CreatedAt            time.Time  `gorm:"index" json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
 type BetReservation struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	LobbyID   string    `gorm:"index;not null;uniqueIndex:idx_bet_lobby_user" json:"lobby_id"`

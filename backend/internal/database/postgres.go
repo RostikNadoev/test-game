@@ -26,6 +26,7 @@ func Init(cfg *config.Config) error {
 		&models.UserStats{},
 		&models.UserSoloStats{},
 		&models.WalletTransaction{},
+		&models.WithdrawalRequest{},
 		&models.BetReservation{},
 		&models.Match{},
 		&models.MatchFinishVote{},

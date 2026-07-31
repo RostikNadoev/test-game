@@ -1,31 +1,34 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
-	"fmt"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port             string
-	GinMode          string
-	AppEnv           string
-	DatabaseDSN      string
-	TelegramBotToken string
-	JWTSecret        string
-	JWTTTLHours      int
-	AllowDevAuth     bool
-	CORSAllowOrigins []string
+	Port                  string
+	GinMode               string
+	AppEnv                string
+	DatabaseDSN           string
+	TelegramBotToken      string
+	WithdrawalBotToken    string
+	WithdrawalAdminChatID int64
+	WithdrawalAdminUserID int64
+	JWTSecret             string
+	JWTTTLHours           int
+	AllowDevAuth          bool
+	CORSAllowOrigins      []string
 
-	AdminUsername     string
-	AdminPassword     string
-	AdminPasswordHash string
-	AdminJWTSecret    string
-	AdminJWTTTLHours   int
-	AdminEnabled       bool
+	AdminUsername       string
+	AdminPassword       string
+	AdminPasswordHash   string
+	AdminJWTSecret      string
+	AdminJWTTTLHours    int
+	AdminEnabled        bool
 	AdminAllowedOrigins []string
 }
 
@@ -33,20 +36,23 @@ func Load() *Config {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Port:             getEnv("PORT", "8080"),
-		GinMode:          getEnv("GIN_MODE", "debug"),
-		AppEnv:           getEnv("APP_ENV", "local"),
-		DatabaseDSN:      getEnv("DATABASE_DSN", "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable TimeZone=UTC"),
-		TelegramBotToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
-		JWTSecret:        getEnv("JWT_SECRET", "change_me"),
-		JWTTTLHours:      getEnvAsInt("JWT_TTL_HOURS", 168),
-		AllowDevAuth:     getEnvAsBool("ALLOW_DEV_AUTH", false),
-		CORSAllowOrigins: splitCSV(getEnv("CORS_ALLOW_ORIGINS", "*")),
+		Port:                  getEnv("PORT", "8080"),
+		GinMode:               getEnv("GIN_MODE", "debug"),
+		AppEnv:                getEnv("APP_ENV", "local"),
+		DatabaseDSN:           getEnv("DATABASE_DSN", "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable TimeZone=UTC"),
+		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
+		WithdrawalBotToken:    getEnv("WITHDRAWAL_BOT_TOKEN", ""),
+		WithdrawalAdminChatID: getEnvAsInt64("WITHDRAWAL_ADMIN_CHAT_ID", 0),
+		WithdrawalAdminUserID: getEnvAsInt64("WITHDRAWAL_ADMIN_USER_ID", 0),
+		JWTSecret:             getEnv("JWT_SECRET", "change_me"),
+		JWTTTLHours:           getEnvAsInt("JWT_TTL_HOURS", 168),
+		AllowDevAuth:          getEnvAsBool("ALLOW_DEV_AUTH", false),
+		CORSAllowOrigins:      splitCSV(getEnv("CORS_ALLOW_ORIGINS", "*")),
 
-		AdminUsername:     getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:     getEnv("ADMIN_PASSWORD", ""),
-		AdminPasswordHash: getEnv("ADMIN_PASSWORD_HASH", ""),
-		AdminJWTSecret:    getEnv("ADMIN_JWT_SECRET", ""),
+		AdminUsername:       getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:       getEnv("ADMIN_PASSWORD", ""),
+		AdminPasswordHash:   getEnv("ADMIN_PASSWORD_HASH", ""),
+		AdminJWTSecret:      getEnv("ADMIN_JWT_SECRET", ""),
 		AdminJWTTTLHours:    getEnvAsInt("ADMIN_JWT_TTL_HOURS", 12),
 		AdminEnabled:        getEnvAsBool("ADMIN_ENABLED", true),
 		AdminAllowedOrigins: splitCSV(getEnv("ADMIN_ALLOWED_ORIGINS", "http://localhost:5174,http://127.0.0.1:5174")),
@@ -74,6 +80,15 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("ADMIN_PASSWORD or ADMIN_PASSWORD_HASH must be set when admin is enabled in release mode")
 		}
 	}
+	if c.WithdrawalAdminChatID != 0 && c.WithdrawalBotToken == "" {
+		return fmt.Errorf("WITHDRAWAL_BOT_TOKEN must be set when WITHDRAWAL_ADMIN_CHAT_ID is configured")
+	}
+	if c.WithdrawalBotToken != "" && c.WithdrawalBotToken == c.TelegramBotToken {
+		return fmt.Errorf("WITHDRAWAL_BOT_TOKEN must belong to a separate bot")
+	}
+	if c.WithdrawalAdminUserID != 0 && c.WithdrawalAdminChatID == 0 {
+		return fmt.Errorf("WITHDRAWAL_ADMIN_CHAT_ID must be set when WITHDRAWAL_ADMIN_USER_ID is configured")
+	}
 	return nil
 }
 
@@ -90,6 +105,18 @@ func getEnvAsInt(key string, fallback int) int {
 		return fallback
 	}
 	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func getEnvAsInt64(key string, fallback int64) int64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
 		return fallback
 	}

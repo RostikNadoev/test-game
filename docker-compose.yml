@@ -32,6 +32,9 @@ services:
       APP_ENV: ${APP_ENV:-docker}
       DATABASE_DSN: host=postgres user=${POSTGRES_USER:-postgres} password=${POSTGRES_PASSWORD:-postgres} dbname=${POSTGRES_DB:-tg_lobbies} port=5432 sslmode=disable TimeZone=UTC
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      WITHDRAWAL_BOT_TOKEN: ${WITHDRAWAL_BOT_TOKEN:-}
+      WITHDRAWAL_ADMIN_CHAT_ID: ${WITHDRAWAL_ADMIN_CHAT_ID:-0}
+      WITHDRAWAL_ADMIN_USER_ID: ${WITHDRAWAL_ADMIN_USER_ID:-0}
       JWT_SECRET: ${JWT_SECRET}
       JWT_TTL_HOURS: ${JWT_TTL_HOURS:-168}
       ALLOW_DEV_AUTH: ${ALLOW_DEV_AUTH:-false}

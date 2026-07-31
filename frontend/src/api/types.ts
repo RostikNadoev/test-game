@@ -76,6 +76,31 @@ export type HealthResponse = {
   database: string;
 };
 
+export type WithdrawalStatus = 'pending' | 'completed';
+
+export type WithdrawalItem = {
+  id: number;
+  type: 'withdrawal';
+  status: WithdrawalStatus;
+  game_amount: number;
+  ton_amount: string;
+  wallet_address: string;
+  created_at: string;
+  completed_at?: string | null;
+};
+
+export type WithdrawalHistoryResponse = {
+  withdrawals: WithdrawalItem[];
+  count: number;
+};
+
+export type CreateWithdrawalResponse = {
+  withdrawal: WithdrawalItem;
+  balance: {
+    game: number;
+  };
+};
+
 export type OnlinePresenceResponse = {
   online: number;
 };
