@@ -1016,9 +1016,11 @@ html.game-gesture-lock #root {
   display: block;
   max-width: 76px;
   overflow: hidden;
+  padding-top: 0.09em;
+  padding-bottom: 0.15em;
   color: rgba(255, 255, 255, 0.38);
   font-size: 6px;
-  line-height: 1.45;
+  line-height: 1.52;
   letter-spacing: 0.035em;
   text-overflow: ellipsis;
   text-transform: none;
@@ -1036,7 +1038,7 @@ html.game-gesture-lock #root {
 }
 
 .turbo-final-matchup .turbo-final-matchup-player > b {
-  margin-top: 2px;
+  margin-top: 5px;
   color: rgba(255, 255, 255, 0.94);
   font-size: 21px;
   line-height: 1;
