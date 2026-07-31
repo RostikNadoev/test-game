@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
@@ -910,6 +910,24 @@ const StyleBlock = () => (
       transition: opacity .35s ease, transform .35s ease;
     }
 
+    .ns-scratch-primer {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      border-radius: inherit;
+      pointer-events: none;
+      opacity: 1;
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,.14) 0 1px, transparent 1px 14px),
+        linear-gradient(135deg, #dffcff 0%, #75f0ff 20%, #b98dff 48%, #ff65c7 74%, #ffe38b 100%);
+      transition: opacity .08s linear;
+    }
+
+    .ns-card.mask-ready .ns-scratch-primer,
+    .ns-card.revealed .ns-scratch-primer {
+      opacity: 0;
+    }
+
     .ns-card.revealed .ns-scratch-canvas {
       opacity: 0;
       transform: scale(1.015);
@@ -1212,69 +1230,48 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
       padding: 18px;
-      background:
-        radial-gradient(circle at 50% 45%, rgba(75, 36, 152, .3), transparent 48%),
-        rgba(4, 4, 10, .66);
-      -webkit-backdrop-filter: blur(14px) saturate(.82);
-      backdrop-filter: blur(14px) saturate(.82);
+      background: transparent;
       animation: nsFade .18s ease-out both;
       pointer-events: none;
     }
 
     .ns-final-card {
       position: relative;
-      overflow: hidden;
-      width: min(330px, 88vw);
-      border-radius: 30px;
-      padding: 22px 18px 18px;
+      width: 100%;
+      padding: 18px;
       text-align: center;
-      background:
-        radial-gradient(circle at 50% 0%, var(--finalGlow), transparent 48%),
-        linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.032)),
-        rgba(13, 9, 31, .94);
-      border: 1px solid rgba(111, 238, 255, .18);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.10),
-        0 24px 70px rgba(0,0,0,.58),
-        0 0 38px var(--finalGlowSoft);
+      background: radial-gradient(circle at 50% 50%, var(--finalGlow), transparent 36%);
       animation: nsFinalPop .36s cubic-bezier(.22, 1.3, .3, 1) both;
     }
 
     .ns-final-symbol {
-      width: 88px;
-      height: 88px;
-      margin: 0 auto 12px;
+      width: 82px;
+      height: 82px;
+      margin: 0 auto 7px;
       display: grid;
       place-items: center;
-      border-radius: 999px;
-      background: rgba(255,255,255,.055);
-      border: 1px solid rgba(255,255,255,.08);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      filter: drop-shadow(0 13px 26px var(--finalGlowSoft));
+      animation: nsResultFloat 1.15s ease-in-out infinite;
     }
 
     .ns-final-title {
-      font-size: 31px;
-      line-height: .95;
+      padding-block: 3px;
+      font-size: 30px;
+      line-height: 1.25;
       color: var(--finalText);
       text-shadow: 0 0 24px var(--finalGlowSoft);
     }
 
     .ns-final-value {
-      margin-top: 10px;
-      font-size: 38px;
-      line-height: 1;
+      margin-top: 5px;
+      padding-block: 3px;
+      font-size: 36px;
+      line-height: 1.2;
       color: #fff;
       text-shadow: 0 0 18px rgba(255,255,255,.20);
       font-variant-numeric: tabular-nums;
-    }
-
-    .ns-final-mult {
-      position: relative;
-      z-index: 2;
-      margin-top: 8px;
-      color: rgba(215, 246, 255, .76);
-      font-size: 12px;
     }
 
     .ns-final-symbol,
@@ -1285,23 +1282,33 @@ const StyleBlock = () => (
     }
 
     .ns-final-fx {
-      position: absolute;
+      position: fixed;
       inset: 0;
+      overflow: hidden;
       pointer-events: none;
     }
 
     .ns-final-fx i {
-      --ns-angle: calc(var(--ns-fx) * 29deg);
       position: absolute;
-      left: 50%;
-      top: 47%;
-      width: 4px;
-      height: 10px;
-      border-radius: 999px;
+      left: var(--ns-left);
+      top: -18px;
+      width: 7px;
+      height: 13px;
+      border-radius: 3px;
       background: var(--finalText);
       opacity: 0;
-      transform: rotate(var(--ns-angle)) translateY(-34px);
-      animation: nsFinalSpark 1.3s ease-out calc(var(--ns-fx) * 25ms) both;
+      box-shadow: 0 0 8px var(--finalGlowSoft);
+      animation: nsFinalSpark 1.55s ease-in calc(var(--ns-fx) * 24ms) both;
+    }
+
+    .ns-final-card.is-zero .ns-final-fx i {
+      width: 6px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(151, 158, 171, .64);
+      box-shadow: none;
+      animation-name: nsSadFall;
+      animation-duration: 1.3s;
     }
 
     @keyframes nsFade {
@@ -1327,8 +1334,19 @@ const StyleBlock = () => (
     }
 
     @keyframes nsFinalSpark {
+      0% { opacity: 0; transform: translate3d(0, -20px, 0) rotate(0); }
       12% { opacity: .9; }
-      100% { opacity: 0; transform: rotate(var(--ns-angle)) translateY(-142px) scale(.3); }
+      100% { opacity: 0; transform: translate3d(var(--ns-drift), 105dvh, 0) rotate(520deg); }
+    }
+
+    @keyframes nsSadFall {
+      0% { opacity: 0; transform: translate3d(0, -18px, 0) rotate(0); }
+      18% { opacity: .6; }
+      100% { opacity: 0; transform: translate3d(var(--ns-drift), 80dvh, 0) rotate(145deg); }
+    }
+
+    @keyframes nsResultFloat {
+      50% { transform: translateY(-6px) scale(1.035); }
     }
 
     .ns-modal-layer {
@@ -1336,9 +1354,9 @@ const StyleBlock = () => (
       inset: 0;
       z-index: 240;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
-      padding: 0;
+      padding: 16px;
       background: rgba(5,3,12,.68);
       backdrop-filter: blur(14px) saturate(.82);
       -webkit-backdrop-filter: blur(14px) saturate(.82);
@@ -1347,26 +1365,27 @@ const StyleBlock = () => (
 
     .ns-modal {
       width: 100%;
-      max-width: 480px;
-      max-height: min(76vh, 610px);
+      max-width: 420px;
+      max-height: min(70dvh, 470px);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border-radius: 24px 24px 0 0;
+      border-radius: 24px;
       background: linear-gradient(180deg, #1a1139, #070812);
       border: 1px solid rgba(111, 238, 255, .18);
-      border-bottom: 0;
-      box-shadow: 0 -18px 50px rgba(0,0,0,.38);
-      animation: nsSlideUp .24s ease-out both;
+      box-shadow: 0 24px 60px rgba(0,0,0,.44);
+      animation: nsModalIn .24s cubic-bezier(.22, 1, .36, 1) both;
     }
 
-    @keyframes nsSlideUp {
+    @keyframes nsModalIn {
       from {
-        transform: translateY(100%);
+        transform: translateY(16px) scale(.965);
+        opacity: 0;
       }
 
       to {
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
+        opacity: 1;
       }
     }
 
@@ -1383,7 +1402,7 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 16px 11px;
+      padding: 8px 14px 9px;
       border-bottom: 1px solid rgba(255,255,255,.07);
     }
 
@@ -1396,13 +1415,15 @@ const StyleBlock = () => (
 
     .ns-modal-head h2 {
       margin: 0;
+      padding-block: 2px;
       color: #e8feff;
-      font-size: 17px;
+      font-size: 16px;
+      line-height: 1.28;
     }
 
     .ns-modal-head button {
-      width: 34px;
-      height: 34px;
+      width: 31px;
+      height: 31px;
       border-radius: 999px;
       color: #fff;
       background: rgba(255,255,255,.07);
@@ -1415,41 +1436,55 @@ const StyleBlock = () => (
     .ns-modal-body {
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-      padding: 12px 16px 20px;
+      padding: 9px 14px 13px;
     }
 
     .ns-modal-body section + section {
-      margin-top: 14px;
+      margin-top: 9px;
     }
 
     .ns-modal-body h3 {
-      margin: 0 0 5px;
+      margin: 0 0 3px;
+      padding-block: 1px;
       color: #9ff6ff;
-      font-size: 12px;
+      font-size: 10.5px;
+      line-height: 1.35;
     }
 
     .ns-modal-body p {
       margin: 0;
       color: rgba(239,231,255,.78);
-      font-size: 12px;
-      line-height: 1.5;
+      font-family: Arial, sans-serif;
+      font-size: 10.5px;
+      line-height: 1.38;
     }
 
-    .ns-info-list {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .ns-info-list span {
-      height: 30px;
+    .ns-info-range,
+    .ns-info-bet {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 7px;
+      padding: 9px 11px;
       border-radius: 12px;
-      display: grid;
-      place-items: center;
-      color: #06131b;
+      background: rgba(73, 236, 255, .065);
+      border: 1px solid rgba(111, 238, 255, .08);
+    }
+
+    .ns-info-range span,
+    .ns-info-bet span {
+      color: rgba(255,255,255,.52);
+      font-family: Arial, sans-serif;
+      font-size: 9.5px;
+    }
+
+    .ns-info-range strong,
+    .ns-info-bet strong {
+      padding-block: 1px;
+      color: #a9f7ff;
       font-size: 10px;
-      background: linear-gradient(180deg, #dffcff, #4de8ff);
+      line-height: 1.3;
     }
 
     @media (max-height: 760px) {
@@ -1681,7 +1716,9 @@ const StyleBlock = () => (
       .ns-loading-glow,
       .ns-start-btn::after,
       .ns-scratch-canvas,
-      .ns-final-card {
+      .ns-final-card,
+      .ns-final-symbol,
+      .ns-final-fx i {
         animation: none !important;
         transition: none !important;
       }
@@ -1744,6 +1781,7 @@ const ScratchCard = ({
   const progressPillRef = useRef<HTMLDivElement | null>(null);
 
   const [progress, setProgress] = useState(revealed ? 100 : 0);
+  const [maskReady, setMaskReady] = useState(revealed);
 
   useEffect(() => {
     revealedRef.current = revealed;
@@ -1828,6 +1866,7 @@ const ScratchCard = ({
     ctx.restore();
 
     setProgress(0);
+    setMaskReady(true);
   }, [tr]);
 
   const completeReveal = useCallback(() => {
@@ -1964,10 +2003,11 @@ const ScratchCard = ({
     checkProgress();
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     revealedRef.current = false;
     lastPointRef.current = null;
     drawingRef.current = false;
+    setMaskReady(false);
 
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -1980,7 +2020,7 @@ const ScratchCard = ({
       }
     };
 
-    const timer = window.setTimeout(redraw, 30);
+    redraw();
 
     if ('ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => redraw());
@@ -1988,7 +2028,6 @@ const ScratchCard = ({
     }
 
     return () => {
-      window.clearTimeout(timer);
       resizeObserver?.disconnect();
     };
   }, [card.id, drawMask]);
@@ -2005,7 +2044,7 @@ const ScratchCard = ({
 
   return (
     <div
-      className={`ns-card ${revealed ? 'revealed' : ''}`}
+      className={`ns-card ${revealed ? 'revealed' : ''} ${maskReady ? 'mask-ready' : ''}`}
       data-prize={card.prize.id}
       data-index={card.index}
     >
@@ -2023,6 +2062,8 @@ const ScratchCard = ({
           {card.prize.multiplier > 0 ? formatMoney(roundMoney(bet * card.prize.multiplier), locale) : '0'}
         </div>
       </div>
+
+      <div className="ns-scratch-primer" aria-hidden="true" />
 
       <canvas
         ref={canvasRef}
@@ -2066,7 +2107,7 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
         <div className="ns-modal-head">
           <div>
             <p>{tr('INFO', 'ИНФО')}</p>
-            <h2>Neon Scratch</h2>
+            <h2>Lucky Scratch</h2>
           </div>
 
           <button type="button" onClick={onClose} aria-label={tr('Close', 'Закрыть')}>
@@ -2090,17 +2131,16 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
               'У каждой карточки свой множитель. Итоговая выплата — сумма всех трёх открытых призов.',
             )}</p>
 
-            <div className="ns-info-list">
-              {PRIZES.filter((prize) => prize.multiplier > 0).map((prize) => (
-                <span key={prize.id}>{prize.label}</span>
-              ))}
+            <div className="ns-info-range">
+              <span>{tr('Multipliers', 'Множители')}</span>
+              <strong>X0.2 — X25</strong>
             </div>
           </section>
 
-          <section>
-            <h3>{tr('Bet', 'Ставка')}</h3>
-            <p>{tr('Current bet', 'Текущая ставка')}: {formatMoney(bet, locale)} GAME.</p>
-          </section>
+          <div className="ns-info-bet">
+            <span>{tr('Current bet', 'Текущая ставка')}</span>
+            <strong>{formatMoney(bet, locale)} GAME</strong>
+          </div>
         </div>
       </div>
     </div>,
@@ -2122,7 +2162,7 @@ const FinalOverlay = ({
   const isZero = win <= 0;
 
   const tierClass = isZero ? 'is-zero' : isEpic ? 'is-epic' : isMega ? 'is-mega' : isBig ? 'is-big' : 'is-win';
-  const effectCount = isZero ? 0 : isEpic ? 22 : isMega ? 16 : isBig ? 12 : 7;
+  const effectCount = isZero ? 12 : isEpic ? 24 : isMega ? 18 : isBig ? 14 : 10;
 
   return createPortal(
     <div className="ns-final-layer">
@@ -2143,12 +2183,20 @@ const FinalOverlay = ({
                   : tr('WIN', 'ВЫИГРЫШ')}
         </div>
 
-        <div className="ns-final-value">{formatMoney(win, locale)}</div>
+        {!isZero && <div className="ns-final-value">+{formatMoney(win, locale)}</div>}
 
-        <div className="ns-final-mult">{tr('Total', 'Итого')}: X{roundMoney(totalMultiplier)}</div>
         <div className="ns-final-fx" aria-hidden="true">
           {Array.from({ length: effectCount }, (_, index) => (
-            <i key={index} style={{ '--ns-fx': index } as CSSProperties} />
+            <i
+              key={index}
+              style={
+                {
+                  '--ns-fx': index,
+                  '--ns-left': `${(index * 41 + 7) % 94}%`,
+                  '--ns-drift': `${((index % 5) - 2) * 19}px`,
+                } as CSSProperties
+              }
+            />
           ))}
         </div>
       </div>

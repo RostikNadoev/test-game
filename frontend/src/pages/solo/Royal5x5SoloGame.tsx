@@ -1026,69 +1026,48 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
       padding: 18px;
-      background:
-        radial-gradient(circle at 50% 45%, rgba(96, 32, 92, .3), transparent 48%),
-        rgba(5, 2, 8, .66);
-      -webkit-backdrop-filter: blur(14px) saturate(.82);
-      backdrop-filter: blur(14px) saturate(.82);
+      background: transparent;
       animation: atFade .18s ease-out both;
       pointer-events: none;
     }
 
     .at-final-card {
       position: relative;
-      overflow: hidden;
-      width: min(330px, 88vw);
-      border-radius: 30px;
-      padding: 22px 18px 18px;
+      width: 100%;
+      padding: 18px;
       text-align: center;
-      background:
-        radial-gradient(circle at 50% 0%, var(--finalGlow), transparent 48%),
-        linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.032)),
-        rgba(28, 12, 34, .94);
-      border: 1px solid rgba(255, 221, 134, .18);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.10),
-        0 24px 70px rgba(0,0,0,.58),
-        0 0 38px var(--finalGlowSoft);
+      background: radial-gradient(circle at 50% 50%, var(--finalGlow), transparent 36%);
       animation: atFinalPop .36s cubic-bezier(.22, 1.3, .3, 1) both;
     }
 
     .at-final-icon {
       display: grid;
-      width: 88px;
-      height: 88px;
-      margin: 0 auto 12px;
+      width: 82px;
+      height: 82px;
+      margin: 0 auto 7px;
       place-items: center;
-      border-radius: 999px;
-      background: rgba(255,255,255,.055);
-      border: 1px solid rgba(255,255,255,.08);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      filter: drop-shadow(0 13px 26px var(--finalGlowSoft));
+      animation: atResultFloat 1.15s ease-in-out infinite;
     }
 
     .at-final-title {
-      font-size: 31px;
-      line-height: .95;
+      padding-block: 3px;
+      font-size: 30px;
+      line-height: 1.25;
       color: var(--finalText);
       text-shadow: 0 0 24px var(--finalGlowSoft);
     }
 
     .at-final-value {
-      margin-top: 10px;
-      font-size: 38px;
-      line-height: 1;
+      margin-top: 5px;
+      padding-block: 3px;
+      font-size: 36px;
+      line-height: 1.2;
       color: #fff;
       text-shadow: 0 0 18px rgba(255,255,255,.20);
       font-variant-numeric: tabular-nums;
-    }
-
-    .at-final-mult {
-      position: relative;
-      z-index: 2;
-      margin-top: 8px;
-      color: rgba(255, 239, 188, .76);
-      font-size: 12px;
     }
 
     .at-final-icon,
@@ -1099,23 +1078,33 @@ const StyleBlock = () => (
     }
 
     .at-final-fx {
-      position: absolute;
+      position: fixed;
       inset: 0;
+      overflow: hidden;
       pointer-events: none;
     }
 
     .at-final-fx i {
-      --at-angle: calc(var(--at-fx) * 31deg);
       position: absolute;
-      left: 50%;
-      top: 48%;
-      width: 4px;
-      height: 10px;
-      border-radius: 999px;
+      left: var(--at-left);
+      top: -18px;
+      width: 7px;
+      height: 13px;
+      border-radius: 3px;
       background: var(--finalText);
       opacity: 0;
-      transform: rotate(var(--at-angle)) translateY(-34px);
-      animation: atFinalSpark 1.3s ease-out calc(var(--at-fx) * 26ms) both;
+      box-shadow: 0 0 8px var(--finalGlowSoft);
+      animation: atFinalSpark 1.55s ease-in calc(var(--at-fx) * 24ms) both;
+    }
+
+    .at-final-card.is-lost .at-final-fx i {
+      width: 6px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(151, 143, 151, .66);
+      box-shadow: none;
+      animation-name: atSadFall;
+      animation-duration: 1.3s;
     }
 
     @keyframes atFade {
@@ -1141,8 +1130,19 @@ const StyleBlock = () => (
     }
 
     @keyframes atFinalSpark {
+      0% { opacity: 0; transform: translate3d(0, -20px, 0) rotate(0); }
       12% { opacity: .9; }
-      100% { opacity: 0; transform: rotate(var(--at-angle)) translateY(-138px) scale(.3); }
+      100% { opacity: 0; transform: translate3d(var(--at-drift), 105dvh, 0) rotate(520deg); }
+    }
+
+    @keyframes atSadFall {
+      0% { opacity: 0; transform: translate3d(0, -18px, 0) rotate(0); }
+      18% { opacity: .62; }
+      100% { opacity: 0; transform: translate3d(var(--at-drift), 80dvh, 0) rotate(150deg); }
+    }
+
+    @keyframes atResultFloat {
+      50% { transform: translateY(-6px) scale(1.035); }
     }
 
     @keyframes atPendingTile {
@@ -1154,9 +1154,9 @@ const StyleBlock = () => (
       inset: 0;
       z-index: 240;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
-      padding: 0;
+      padding: 16px;
       background: rgba(5,3,12,.68);
       backdrop-filter: blur(14px) saturate(.82);
       -webkit-backdrop-filter: blur(14px) saturate(.82);
@@ -1165,26 +1165,27 @@ const StyleBlock = () => (
 
     .at-modal {
       width: 100%;
-      max-width: 480px;
-      max-height: min(76vh, 610px);
+      max-width: 420px;
+      max-height: min(70dvh, 470px);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border-radius: 24px 24px 0 0;
+      border-radius: 24px;
       background: linear-gradient(180deg, #25102f, #120713);
       border: 1px solid rgba(255,214,122,.18);
-      border-bottom: 0;
-      box-shadow: 0 -18px 50px rgba(0,0,0,.38);
-      animation: atSlideUp .24s ease-out both;
+      box-shadow: 0 24px 60px rgba(0,0,0,.44);
+      animation: atModalIn .24s cubic-bezier(.22, 1, .36, 1) both;
     }
 
-    @keyframes atSlideUp {
+    @keyframes atModalIn {
       from {
-        transform: translateY(100%);
+        transform: translateY(16px) scale(.965);
+        opacity: 0;
       }
 
       to {
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
+        opacity: 1;
       }
     }
 
@@ -1201,7 +1202,7 @@ const StyleBlock = () => (
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 16px 11px;
+      padding: 8px 14px 9px;
       border-bottom: 1px solid rgba(255,255,255,.07);
     }
 
@@ -1214,13 +1215,15 @@ const StyleBlock = () => (
 
     .at-modal-head h2 {
       margin: 0;
+      padding-block: 2px;
       color: #fff3bd;
-      font-size: 17px;
+      font-size: 16px;
+      line-height: 1.28;
     }
 
     .at-modal-head button {
-      width: 34px;
-      height: 34px;
+      width: 31px;
+      height: 31px;
       border-radius: 999px;
       color: #fff;
       background: rgba(255,255,255,.07);
@@ -1233,41 +1236,69 @@ const StyleBlock = () => (
     .at-modal-body {
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-      padding: 12px 16px 20px;
+      padding: 9px 14px 13px;
     }
 
     .at-modal-body section + section {
-      margin-top: 14px;
+      margin-top: 9px;
     }
 
     .at-modal-body h3 {
-      margin: 0 0 5px;
+      margin: 0 0 3px;
+      padding-block: 1px;
       color: #ffd891;
-      font-size: 12px;
+      font-size: 10.5px;
+      line-height: 1.35;
     }
 
     .at-modal-body p {
       margin: 0;
       color: rgba(239,231,255,.78);
-      font-size: 12px;
-      line-height: 1.5;
+      font-family: Arial, sans-serif;
+      font-size: 10.5px;
+      line-height: 1.38;
     }
 
     .at-info-mults {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
-      margin-top: 8px;
+      gap: 4px;
+      margin-top: 6px;
     }
 
     .at-info-mults span {
-      height: 30px;
-      border-radius: 12px;
+      height: 26px;
+      border-radius: 9px;
       display: grid;
       place-items: center;
       color: #201005;
-      font-size: 10px;
+      font-size: 9px;
       background: linear-gradient(180deg, #fff1a8, #ffb548);
+    }
+
+    .at-info-bet {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 9px;
+      padding: 9px 11px;
+      border-radius: 12px;
+      background: rgba(255, 193, 83, .07);
+      border: 1px solid rgba(255, 214, 122, .08);
+    }
+
+    .at-info-bet span {
+      color: rgba(255,255,255,.52);
+      font-family: Arial, sans-serif;
+      font-size: 9.5px;
+    }
+
+    .at-info-bet strong {
+      padding-block: 1px;
+      color: #ffe4a0;
+      font-size: 10px;
+      line-height: 1.3;
     }
 
     @media (max-height: 760px) {
@@ -1515,6 +1546,8 @@ const StyleBlock = () => (
       .at-card-inner,
       .at-tile.bomb.picked-bomb,
       .at-final-card,
+      .at-final-icon,
+      .at-final-fx i,
       .at-loading-orbit,
       .at-loading-apple,
       .at-loading-bomb,
@@ -1604,15 +1637,10 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
           </div>
         </section>
 
-        <section>
-          <h3>{tr('Bet', 'Ставка')}</h3>
-          <p>
-            {tr(
-              `Current bet: ${formatMoney(bet, locale)} GAME. The server determines every tile before it is revealed.`,
-              `Текущая ставка: ${formatMoney(bet, locale)} GAME. Результат каждой плитки определяет сервер до её открытия.`,
-            )}
-          </p>
-        </section>
+        <div className="at-info-bet">
+          <span>{tr('Current bet', 'Текущая ставка')}</span>
+          <strong>{formatMoney(bet, locale)} GAME</strong>
+        </div>
       </div>
     </div>
   </div>, document.body);
@@ -1633,7 +1661,7 @@ const FinalOverlay = ({
   const isMega = !isLost && multiplier >= 3 && multiplier < 7;
 
   const tierClass = isLost ? 'is-lost' : isEpic ? 'is-epic' : isMega ? 'is-mega' : 'is-win';
-  const effectCount = isLost ? 0 : isEpic ? 20 : isMega ? 14 : 8;
+  const effectCount = isLost ? 12 : isEpic ? 22 : isMega ? 16 : 10;
 
   return createPortal(
     <div className="at-final-layer">
@@ -1652,11 +1680,21 @@ const FinalOverlay = ({
                 : tr('WIN', 'ВЫИГРЫШ')}
         </div>
 
-        <div className="at-final-value">{isLost ? '0' : formatMoney(win, locale)}</div>
+        {!isLost && <div className="at-final-value">+{formatMoney(win, locale)}</div>}
 
-        <div className="at-final-mult">{tr('Multiplier', 'Множитель')}: X{multiplier}</div>
         <div className="at-final-fx" aria-hidden="true">
-          {Array.from({ length: effectCount }, (_, index) => <i key={index} style={{ '--at-fx': index } as CSSProperties} />)}
+          {Array.from({ length: effectCount }, (_, index) => (
+            <i
+              key={index}
+              style={
+                {
+                  '--at-fx': index,
+                  '--at-left': `${(index * 43 + 5) % 94}%`,
+                  '--at-drift': `${((index % 5) - 2) * 20}px`,
+                } as CSSProperties
+              }
+            />
+          ))}
         </div>
       </div>
     </div>,

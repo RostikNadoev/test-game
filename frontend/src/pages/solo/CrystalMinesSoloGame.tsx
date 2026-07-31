@@ -96,7 +96,7 @@ const MinesInfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) 
   );
 };
 
-const MinesFinalOverlay = ({ type, win, bet, onClose }: {
+const MinesResultEffect = ({ type, win, bet, onClose }: {
   type: Exclude<FinishType, null>;
   win: number;
   bet: number;
@@ -104,20 +104,39 @@ const MinesFinalOverlay = ({ type, win, bet, onClose }: {
 }) => {
   const { locale, tr } = useLanguage();
   const ratio = bet > 0 ? win / bet : 0;
-  const tier = type === 'lose' ? 'is-lose' : ratio >= 7 ? 'is-epic' : ratio >= 3 ? 'is-big' : 'is-win';
+  const isLoss = type === 'lose';
+  const tier = isLoss ? 'is-lose' : ratio >= 7 ? 'is-epic' : ratio >= 3 ? 'is-big' : 'is-win';
+  const effectCount = isLoss ? 14 : ratio >= 7 ? 26 : ratio >= 3 ? 20 : 14;
+
+  useEffect(() => {
+    const timer = window.setTimeout(onClose, isLoss ? 1450 : 1950);
+    return () => window.clearTimeout(timer);
+  }, [isLoss, onClose]);
 
   return createPortal(
-    <div className={`cm-final-layer ${tier}`} onClick={onClose}>
-      <div className="cm-final-card" onClick={(event) => event.stopPropagation()}>
-        <div className="cm-final-gem">
-          <img src={type === 'lose' ? bombAsset : diamondAsset} alt="" />
-        </div>
-        <p>{type === 'lose' ? tr('ROUND OVER', 'РАУНД ОКОНЧЕН') : tr('PAYOUT', 'ВЫПЛАТА')}</p>
-        <h2>{type === 'lose' ? tr('Mine found', 'Найдена мина') : ratio >= 7 ? tr('Epic win', 'Эпический выигрыш') : ratio >= 3 ? tr('Big win', 'Большой выигрыш') : tr('You won', 'Вы выиграли')}</h2>
-        <strong>{formatMoney(win, locale)} GAME</strong>
-        <button type="button" onClick={onClose}>{tr('Continue', 'Продолжить')}</button>
-        {type === 'win' && Array.from({ length: ratio >= 7 ? 18 : ratio >= 3 ? 12 : 7 }, (_, index) => (
-          <i key={index} style={{ '--cm-fx': index } as CSSProperties} />
+    <div className={`cm-result-effect ${tier}`} aria-live="polite">
+      <div className="cm-result-copy">
+        <span>{isLoss ? tr('Mine found', 'Найдена мина') : tr('WIN', 'ВЫИГРЫШ')}</span>
+        {!isLoss && (
+          <strong>
+            {formatMoney(win, locale)}
+            <img src={coinIcon} alt="" />
+          </strong>
+        )}
+      </div>
+
+      <div className="cm-result-confetti" aria-hidden="true">
+        {Array.from({ length: effectCount }, (_, index) => (
+        <i
+          key={index}
+          style={
+            {
+              '--cm-fx': index,
+              '--cm-left': `${(index * 41 + 7) % 94}%`,
+              '--cm-drift': `${((index % 5) - 2) * 18}px`,
+            } as CSSProperties
+          }
+        />
         ))}
       </div>
     </div>,
@@ -838,8 +857,7 @@ export const CrystalMinesSoloGame = () => {
           transition: width .1s linear;
         }
 
-        .cm-modal-layer,
-        .cm-final-layer {
+        .cm-modal-layer {
           position: fixed;
           inset: 0;
           z-index: 240;
@@ -883,29 +901,117 @@ export const CrystalMinesSoloGame = () => {
         .cm-info-bet span { color: rgba(255,255,255,.48); font-size: 8px; }
         .cm-info-bet strong { color: #a7efff; font-size: 10px; }
 
-        .cm-final-card {
-          position: relative;
-          width: min(100%, 340px);
+        .cm-result-effect {
+          position: fixed;
+          inset: 0;
+          z-index: 240;
+          display: grid;
+          place-items: center;
           overflow: hidden;
-          padding: 28px 22px 22px;
-          border: 1px solid rgba(112, 231, 255, .16);
-          border-radius: 28px;
-          background: linear-gradient(180deg, rgba(19, 48, 66, .98), rgba(5, 16, 25, .99));
-          box-shadow: 0 30px 80px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.09);
-          text-align: center;
-          animation: cmFinalIn .34s cubic-bezier(.2, 1, .25, 1) both;
+          pointer-events: none;
+          animation: cmOverlayIn .2s ease both;
         }
 
-        .cm-final-gem { position: relative; z-index: 2; display: grid; height: 88px; place-items: center; }
-        .cm-final-gem img { width: 86px; height: 86px; object-fit: contain; filter: drop-shadow(0 14px 26px rgba(40, 205, 255, .25)); }
-        .cm-final-layer.is-lose .cm-final-gem img { width: 92px; height: 92px; filter: drop-shadow(0 14px 26px rgba(255, 75, 115, .18)); }
-        .cm-final-card > p { position: relative; z-index: 2; margin: 15px 0 4px; color: rgba(132, 226, 255, .58); font-size: 8px; letter-spacing: .16em; }
-        .cm-final-card > h2 { position: relative; z-index: 2; margin: 0; color: #f2fdff; font-size: 22px; line-height: 1.3; }
-        .cm-final-card > strong { position: relative; z-index: 2; display: block; margin-top: 14px; color: #84eeff; font-size: 20px; line-height: 1.35; text-shadow: 0 0 20px rgba(81, 222, 255, .28); }
-        .cm-final-layer.is-lose .cm-final-card > strong { color: #ff869e; text-shadow: none; }
-        .cm-final-card > button { position: relative; z-index: 2; width: 100%; min-height: 43px; margin-top: 20px; border-radius: 15px; color: #041116; background: linear-gradient(135deg, #dffcff, #5de4f7); font-size: 9px; font-weight: 900; }
-        .cm-final-layer.is-lose .cm-final-card > button { color: #fff; background: rgba(255,255,255,.08); }
-        .cm-final-card > i { --cm-angle: calc(var(--cm-fx) * 29deg); position: absolute; left: 50%; top: 43%; width: 4px; height: 10px; border-radius: 999px; background: #7deaff; opacity: 0; transform: rotate(var(--cm-angle)) translateY(-35px); animation: cmFinalSpark 1.25s ease-out calc(var(--cm-fx) * 28ms) both; }
+        .cm-result-effect:not(.is-lose) {
+          background:
+            radial-gradient(circle at 50% 46%, rgba(58, 226, 255, .25), transparent 43%),
+            rgba(2, 10, 17, .34);
+          -webkit-backdrop-filter: blur(10px) saturate(.86);
+          backdrop-filter: blur(10px) saturate(.86);
+        }
+
+        .cm-result-effect.is-big {
+          background:
+            radial-gradient(circle at 50% 46%, rgba(92, 255, 229, .32), transparent 46%),
+            rgba(2, 10, 17, .38);
+        }
+
+        .cm-result-effect.is-epic {
+          background:
+            radial-gradient(circle at 50% 46%, rgba(190, 120, 255, .32), transparent 47%),
+            rgba(2, 10, 17, .40);
+        }
+
+        .cm-result-copy {
+          position: relative;
+          z-index: 2;
+          display: grid;
+          justify-items: center;
+          gap: 9px;
+          text-align: center;
+          animation: cmResultCopyIn .42s cubic-bezier(.2, 1.2, .3, 1) both;
+        }
+
+        .cm-result-copy span {
+          padding-block: 3px;
+          color: #dffcff;
+          font-size: 30px;
+          line-height: 1.25;
+          text-shadow: 0 0 24px rgba(82, 255, 229, .42);
+        }
+
+        .cm-result-copy strong {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding-block: 3px;
+          color: #fff;
+          font-size: 35px;
+          line-height: 1.2;
+          text-shadow: 0 0 20px rgba(92, 232, 255, .35);
+        }
+
+        .cm-result-copy strong img {
+          width: 29px;
+          height: 29px;
+          object-fit: contain;
+          filter: drop-shadow(0 5px 10px rgba(0,0,0,.3));
+        }
+
+        .cm-result-effect.is-lose .cm-result-copy {
+          align-self: center;
+          animation: cmSadCopyIn .4s ease-out both;
+        }
+
+        .cm-result-effect.is-lose .cm-result-copy span {
+          color: rgba(205, 211, 220, .8);
+          font-size: 22px;
+          text-shadow: 0 6px 20px rgba(0, 0, 0, .28);
+        }
+
+        .cm-result-confetti {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
+
+        .cm-result-confetti i {
+          position: absolute;
+          left: var(--cm-left);
+          top: -18px;
+          width: 7px;
+          height: 14px;
+          border-radius: 3px;
+          opacity: 0;
+          background: #52ffe5;
+          box-shadow: 0 0 8px rgba(82, 255, 229, .36);
+          animation: cmResultConfetti 1.55s ease-in calc(var(--cm-fx) * 24ms) both;
+        }
+
+        .cm-result-confetti i:nth-child(3n) { background: #fff; }
+        .cm-result-confetti i:nth-child(3n + 1) { background: #7deaff; }
+        .cm-result-effect.is-epic .cm-result-confetti i:nth-child(3n) { background: #d7a8ff; }
+
+        .cm-result-effect.is-lose .cm-result-confetti i {
+          width: 6px;
+          height: 11px;
+          border-radius: 999px;
+          background: rgba(159, 167, 179, .62);
+          box-shadow: none;
+          animation-name: cmSadConfetti;
+          animation-duration: 1.35s;
+        }
 
         @keyframes cmCrystalPop {
           0% { opacity: 0; transform: translateZ(18px) scale(.35) rotate(-12deg); }
@@ -919,8 +1025,18 @@ export const CrystalMinesSoloGame = () => {
         @keyframes cmLoadingGemLeft { 0%, 100% { transform: translate(0, 0) rotate(-10deg); } 50% { transform: translate(6px, -9px) rotate(4deg); } }
         @keyframes cmLoadingGemRight { 0%, 100% { transform: translate(0, 0) rotate(8deg); } 50% { transform: translate(-5px, 8px) rotate(-5deg); } }
         @keyframes cmOverlayIn { from { opacity: 0; } }
-        @keyframes cmFinalIn { from { opacity: 0; transform: translateY(18px) scale(.95); } }
-        @keyframes cmFinalSpark { 12% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--cm-angle)) translateY(-138px) scale(.35); } }
+        @keyframes cmResultCopyIn { from { opacity: 0; transform: translateY(12px) scale(.72); } }
+        @keyframes cmSadCopyIn { from { opacity: 0; transform: translateY(-8px); } }
+        @keyframes cmResultConfetti {
+          0% { opacity: 0; transform: translate3d(0, -20px, 0) rotate(0); }
+          12% { opacity: 1; }
+          100% { opacity: 0; transform: translate3d(var(--cm-drift), 105dvh, 0) rotate(520deg); }
+        }
+        @keyframes cmSadConfetti {
+          0% { opacity: 0; transform: translate3d(0, -18px, 0) rotate(0); }
+          16% { opacity: .62; }
+          100% { opacity: 0; transform: translate3d(var(--cm-drift), 82dvh, 0) rotate(145deg); }
+        }
 
         @keyframes cmMinePop {
           0% { opacity: 0; transform: translateZ(18px) scale(.35) rotate(0); }
@@ -1175,13 +1291,6 @@ export const CrystalMinesSoloGame = () => {
           </strong>
         </div>
 
-        {phase === 'finished' ? (
-          <div className="cm-stat">
-            <span>{tr('Result', 'Итог')}</span>
-            <strong>{formatMoney(lastWin, locale)}</strong>
-          </div>
-        ) : null}
-
         <div className="cm-bet-row">
           <label className="cm-bet-input-wrap">
             <img className="cm-coin" src={coinIcon} alt="" />
@@ -1244,7 +1353,7 @@ export const CrystalMinesSoloGame = () => {
 
       {showInfo && <MinesInfoModal bet={effectiveBet} onClose={() => setShowInfo(false)} />}
       {showFinal && finishType && (
-        <MinesFinalOverlay
+        <MinesResultEffect
           type={finishType}
           win={lastWin}
           bet={effectiveBet}

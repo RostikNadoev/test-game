@@ -6026,7 +6026,7 @@ html.game-presence-paused .game-presence-overlay * {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 0;
+  margin-top: 9px;
 }
 
 .solo-game-v3-card {

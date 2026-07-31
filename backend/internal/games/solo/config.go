@@ -30,7 +30,7 @@ type GameConfig struct {
 }
 
 var catalog = map[string]GameConfig{
-	"neon_scratch":  {Code: "neon_scratch", Title: "Neon Scratch", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
+	"neon_scratch":  {Code: "neon_scratch", Title: "Lucky Scratch", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
 	"fruit_cascade": {Code: "fruit_cascade", Title: "Fruit Cascade", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
 	"royal_5x5":     {Code: "royal_5x5", Title: "Apple Trail", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 	"crystal_mines": {Code: "crystal_mines", Title: "Crystal Mines", Mode: ModeSession, MinBet: 1, MaxBet: 500},

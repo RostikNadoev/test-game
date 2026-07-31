@@ -51,7 +51,7 @@ export const SOLO_GAMES: SoloGame[] = [
   {
     id: 'neon_scratch',
     slug: 'neon-scratch',
-    title: 'Neon Scratch',
+    title: 'Lucky Scratch',
     tag: 'Instant',
     icon: '◇',
     route: '/solo/neon-scratch',
