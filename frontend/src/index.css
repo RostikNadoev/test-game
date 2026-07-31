@@ -8561,10 +8561,30 @@ body.fruit-cascade-active .header-panel {
 }
 
 .wallet-history-list {
-  overflow: hidden;
+  max-height: 284px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(135, 200, 255, 0.32) transparent;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-radius: 17px;
   background: rgba(255, 255, 255, 0.018);
+}
+
+.wallet-history-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.wallet-history-list::-webkit-scrollbar-track {
+  margin-block: 12px;
+  background: transparent;
+}
+
+.wallet-history-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(135, 200, 255, 0.28);
 }
 
 .wallet-history-item {
