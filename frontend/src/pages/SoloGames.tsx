@@ -28,33 +28,38 @@ const SoloArtwork = ({ game, variant = 'card' }: { game: SoloGame; variant?: 'he
 export const SoloGames = () => {
   const navigate = useNavigate();
   const { tr } = useLanguage();
-  const heroGame = SOLO_GAMES[0];
 
   return (
     <main className="app-scroll solo-page solo-page-v3 relative min-h-full overflow-y-auto overflow-x-hidden app-page pt-2">
-      <section className="solo-hero-v3 page-reveal">
-        <SoloArtwork game={heroGame} variant="hero" />
-
-        <div className="solo-hero-v3-count">
-          <span>{SOLO_GAMES.length}</span>
-          <small>{tr('games', 'игр')}</small>
-        </div>
-      </section>
-
-      <section className="solo-games-v3-list page-reveal" style={{ animationDelay: '70ms' }}>
+      <section className="solo-games-v3-list page-reveal">
         {SOLO_GAMES.map((game, index) => (
           <button
             key={game.id}
             type="button"
             onClick={() => navigate(game.route)}
-            className={`pressable solo-game-v3-card solo-card-${game.tone}`}
+            className={`pressable solo-game-v3-card solo-card-${game.tone} ${game.isPlaceholder ? 'is-placeholder' : ''}`}
             style={{ '--solo-delay': `${index * 45}ms` } as CSSProperties}
             aria-label={`${tr('Open', 'Открыть')} ${game.title}`}
           >
             <SoloArtwork game={game} />
 
             <div className="solo-game-v3-title">
-              <h2>{game.title}</h2>
+              <span className="solo-game-v3-icon" aria-hidden="true">{game.icon}</span>
+              <div>
+                <h2>{game.title}</h2>
+                <p>
+                  {game.isPlaceholder
+                    ? tr('A new game is being prepared', 'Новая игра готовится')
+                    : game.id === 'fruit_cascade'
+                      ? tr('Cascade slot', 'Каскадный слот')
+                      : game.id === 'royal_5x5'
+                        ? tr('Choose the safe path', 'Выбери безопасный путь')
+                        : game.id === 'crystal_mines'
+                          ? tr('Find crystals, avoid mines', 'Ищи кристаллы, избегай мин')
+                          : tr('Scratch and reveal prizes', 'Стирай и открывай призы')}
+                </p>
+              </div>
+              <span className="solo-game-v3-arrow" aria-hidden="true">›</span>
             </div>
           </button>
         ))}

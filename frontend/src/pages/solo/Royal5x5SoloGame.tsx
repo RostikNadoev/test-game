@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { Royal5x5PublicState } from '../../api/types';
 import { useSoloSession } from '../../hooks/useSoloSession';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
+import { useLanguage } from '../../i18n/LanguageContext';
 import {
   deriveRoyal5x5CurrentRow,
   deriveRoyal5x5PickedByRow,
@@ -49,8 +52,8 @@ const waitFrame = () =>
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
-const formatMoney = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+const formatMoney = (value: number, locale = 'en-US') =>
+  new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
 const getCashoutMultiplier = (openedRows: number) => {
   if (openedRows <= 0) return 1;
@@ -628,6 +631,10 @@ const StyleBlock = () => (
       transform: rotateY(180deg) translateZ(0);
     }
 
+    .at-tile.pending .at-card-inner {
+      animation: atPendingTile .78s ease-in-out infinite;
+    }
+
     .at-card-face {
       position: absolute;
       inset: 0;
@@ -1015,18 +1022,23 @@ const StyleBlock = () => (
     .at-final-layer {
       position: fixed;
       inset: 0;
-      z-index: 85;
+      z-index: 240;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 18px;
       background:
-        radial-gradient(circle at 50% 45%, rgba(48, 15, 55, .68), rgba(5, 2, 8, .92));
+        radial-gradient(circle at 50% 45%, rgba(96, 32, 92, .3), transparent 48%),
+        rgba(5, 2, 8, .66);
+      -webkit-backdrop-filter: blur(14px) saturate(.82);
+      backdrop-filter: blur(14px) saturate(.82);
       animation: atFade .18s ease-out both;
       pointer-events: none;
     }
 
     .at-final-card {
+      position: relative;
+      overflow: hidden;
       width: min(330px, 88vw);
       border-radius: 30px;
       padding: 22px 18px 18px;
@@ -1072,9 +1084,38 @@ const StyleBlock = () => (
     }
 
     .at-final-mult {
+      position: relative;
+      z-index: 2;
       margin-top: 8px;
       color: rgba(255, 239, 188, .76);
       font-size: 12px;
+    }
+
+    .at-final-icon,
+    .at-final-title,
+    .at-final-value {
+      position: relative;
+      z-index: 2;
+    }
+
+    .at-final-fx {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .at-final-fx i {
+      --at-angle: calc(var(--at-fx) * 31deg);
+      position: absolute;
+      left: 50%;
+      top: 48%;
+      width: 4px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--finalText);
+      opacity: 0;
+      transform: rotate(var(--at-angle)) translateY(-34px);
+      animation: atFinalSpark 1.3s ease-out calc(var(--at-fx) * 26ms) both;
     }
 
     @keyframes atFade {
@@ -1099,17 +1140,26 @@ const StyleBlock = () => (
       }
     }
 
+    @keyframes atFinalSpark {
+      12% { opacity: .9; }
+      100% { opacity: 0; transform: rotate(var(--at-angle)) translateY(-138px) scale(.3); }
+    }
+
+    @keyframes atPendingTile {
+      50% { filter: brightness(1.15); transform: scale(.97); }
+    }
+
     .at-modal-layer {
       position: fixed;
       inset: 0;
-      z-index: 90;
+      z-index: 240;
       display: flex;
       align-items: flex-end;
       justify-content: center;
       padding: 0;
       background: rgba(5,3,12,.68);
-      backdrop-filter: blur(5px);
-      -webkit-backdrop-filter: blur(5px);
+      backdrop-filter: blur(14px) saturate(.82);
+      -webkit-backdrop-filter: blur(14px) saturate(.82);
       animation: atFade .18s ease-out both;
     }
 
@@ -1509,36 +1559,42 @@ const LoadingScreen = ({ progress }: { progress: number }) => {
   );
 };
 
-const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
-  <div className="at-modal-layer" onClick={onClose}>
+const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
+  const { locale, tr } = useLanguage();
+
+  return createPortal(<div className="at-modal-layer" onClick={onClose}>
     <div className="at-modal" onClick={(event) => event.stopPropagation()}>
       <div className="at-modal-grip" />
 
       <div className="at-modal-head">
         <div>
-          <p>INFO</p>
+          <p>{tr('INFO', 'ИНФО')}</p>
           <h2>Apple Trail</h2>
         </div>
 
-        <button type="button" onClick={onClose} aria-label="Close">
+        <button type="button" onClick={onClose} aria-label={tr('Close', 'Закрыть')}>
           <CloseIcon />
         </button>
       </div>
 
       <div className="at-modal-body">
         <section>
-          <h3>Как играется</h3>
+          <h3>{tr('How to play', 'Как играть')}</h3>
           <p>
-            На каждом ряду выбери одну закрытую плитку. Если внутри яблоко — проходишь выше и
-            множитель растёт. Если попалась бомба — раунд проигран.
+            {tr(
+              'Choose one closed tile in each row. An apple moves you higher and grows the multiplier; a bomb ends the round.',
+              'На каждом ряду выбери одну закрытую плитку. Яблоко поднимает выше и увеличивает множитель, а бомба завершает раунд.',
+            )}
           </p>
         </section>
 
         <section>
-          <h3>Когда забирать</h3>
+          <h3>{tr('When to cash out', 'Когда забирать')}</h3>
           <p>
-            После любого успешного выбора можно нажать «Забрать». Чем выше ты дошёл, тем больше
-            множитель и итоговый выигрыш.
+            {tr(
+              'Cash out after any successful pick. The higher you climb, the larger the multiplier and payout.',
+              'После любого успешного выбора можно забрать выигрыш. Чем выше ты дошёл, тем больше множитель и выплата.',
+            )}
           </p>
 
           <div className="at-info-mults">
@@ -1549,16 +1605,18 @@ const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
         </section>
 
         <section>
-          <h3>Ставка</h3>
+          <h3>{tr('Bet', 'Ставка')}</h3>
           <p>
-            Текущая ставка: {formatMoney(bet)}. Значение вводится целым числом. Сейчас кнопка
-            Сейчас ставка списывается через solo API, исход определяет сервер.
+            {tr(
+              `Current bet: ${formatMoney(bet, locale)} GAME. The server determines every tile before it is revealed.`,
+              `Текущая ставка: ${formatMoney(bet, locale)} GAME. Результат каждой плитки определяет сервер до её открытия.`,
+            )}
           </p>
         </section>
       </div>
     </div>
-  </div>
-);
+  </div>, document.body);
+};
 
 const FinalOverlay = ({
   phase,
@@ -1569,13 +1627,15 @@ const FinalOverlay = ({
   win: number;
   multiplier: number;
 }) => {
+  const { locale, tr } = useLanguage();
   const isLost = phase === 'lost';
   const isEpic = !isLost && multiplier >= 7;
   const isMega = !isLost && multiplier >= 3 && multiplier < 7;
 
   const tierClass = isLost ? 'is-lost' : isEpic ? 'is-epic' : isMega ? 'is-mega' : 'is-win';
+  const effectCount = isLost ? 0 : isEpic ? 20 : isMega ? 14 : 8;
 
-  return (
+  return createPortal(
     <div className="at-final-layer">
       <div className={`at-final-card ${tierClass}`}>
         <div className="at-final-icon">
@@ -1583,18 +1643,29 @@ const FinalOverlay = ({
         </div>
 
         <div className="at-final-title">
-          {isLost ? 'BOMB!' : isEpic ? 'EPIC WIN' : isMega ? 'MEGA WIN' : 'WIN'}
+          {isLost
+            ? tr('BOMB!', 'БОМБА!')
+            : isEpic
+              ? tr('EPIC WIN', 'ЭПИЧЕСКИЙ ВЫИГРЫШ')
+              : isMega
+                ? tr('MEGA WIN', 'МЕГА ВЫИГРЫШ')
+                : tr('WIN', 'ВЫИГРЫШ')}
         </div>
 
-        <div className="at-final-value">{isLost ? '0' : formatMoney(win)}</div>
+        <div className="at-final-value">{isLost ? '0' : formatMoney(win, locale)}</div>
 
-        <div className="at-final-mult">Multiplier: X{multiplier}</div>
+        <div className="at-final-mult">{tr('Multiplier', 'Множитель')}: X{multiplier}</div>
+        <div className="at-final-fx" aria-hidden="true">
+          {Array.from({ length: effectCount }, (_, index) => <i key={index} style={{ '--at-fx': index } as CSSProperties} />)}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
 export const Royal5x5SoloGame = () => {
+  const { locale, tr } = useLanguage();
   const { canAfford, setError: setWalletError } = useSoloWallet();
   const session = useSoloSession('royal_5x5');
   const { markPublicStateHydrated, publicState, resumed, status, isSessionPlayable, openedSteps } = session;
@@ -1614,6 +1685,7 @@ export const Royal5x5SoloGame = () => {
   const [showInfo, setShowInfo] = useState(false);
   const [showFinal, setShowFinal] = useState(false);
   const [isRevealingAll, setIsRevealingAll] = useState(false);
+  const [pendingTile, setPendingTile] = useState<string | null>(null);
 
   const audioRef = useRef<AudioContext | null>(null);
   const mutedRef = useRef(muted);
@@ -1653,7 +1725,7 @@ export const Royal5x5SoloGame = () => {
     effectivePhase === 'playing' ? MULTIPLIERS[effectiveRow] ?? cashMultiplier : cashMultiplier;
   const cashoutValue = roundMoney(effectiveBet * cashMultiplier);
   const canCashout =
-    effectivePhase === 'playing' && effectiveRow > 0 && !isRevealingAll && !session.loading;
+    effectivePhase === 'playing' && effectiveRow > 0 && !isRevealingAll && pendingTile === null && !session.loading;
   const canStart = effectivePhase !== 'playing' && !isRevealingAll && !session.loading;
 
   useEffect(() => {
@@ -1666,6 +1738,7 @@ export const Royal5x5SoloGame = () => {
     setRevealed(deriveRoyal5x5Revealed(state));
     setCurrentRow(state.current_row);
     setPhase('playing');
+    setPendingTile(null);
     markPublicStateHydrated();
   }, [markPublicStateHydrated, publicState, resumed, status]);
 
@@ -1820,6 +1893,7 @@ export const Royal5x5SoloGame = () => {
     setLastWin(0);
     setShowFinal(false);
     setIsRevealingAll(false);
+    setPendingTile(null);
   }, []);
 
   const startRound = async () => {
@@ -1883,6 +1957,8 @@ export const Royal5x5SoloGame = () => {
     if (effectiveRevealed.has(key)) return;
     if (effectivePickedByRow[row] !== null) return;
 
+    setPendingTile(key);
+
     try {
       const response = await session.step('pick', { row, col });
       const event = response.event as {
@@ -1933,6 +2009,8 @@ export const Royal5x5SoloGame = () => {
       }, 430);
     } catch {
       // session error shown elsewhere
+    } finally {
+      setPendingTile(null);
     }
   };
 
@@ -2047,7 +2125,7 @@ export const Royal5x5SoloGame = () => {
             type="button"
             className="at-icon-btn"
             onClick={() => setShowInfo(true)}
-            aria-label="Info"
+            aria-label={tr('Information', 'Информация')}
           >
             <InfoIcon />
           </button>
@@ -2060,7 +2138,7 @@ export const Royal5x5SoloGame = () => {
             type="button"
             className="at-icon-btn"
             onClick={toggleMute}
-            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+            aria-label={muted ? tr('Turn sound on', 'Включить звук') : tr('Turn sound off', 'Выключить звук')}
           >
             {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
           </button>
@@ -2078,16 +2156,18 @@ export const Royal5x5SoloGame = () => {
                     <div className="at-row-cells">
                       {Array.from({ length: COLS }, (_, col) => {
                         const key = makeCellKey(row, col);
-                        const isRevealed = effectiveRevealed.has(key);
+                        const isPending = pendingTile === key;
+                        const isRevealed = effectiveRevealed.has(key) && !isPending;
                         const isBomb = bombs[row] === col;
                         const isPicked = effectivePickedByRow[row] === col;
                         const isAvailable =
                           effectivePhase === 'playing' &&
                           row === effectiveRow &&
                           !isRevealed &&
-                          effectivePickedByRow[row] === null &&
-                          !isRevealingAll &&
-                          isSessionPlayable;
+                           effectivePickedByRow[row] === null &&
+                           !isRevealingAll &&
+                           pendingTile === null &&
+                           isSessionPlayable;
                         const isLocked =
                           effectivePhase === 'playing' && row !== effectiveRow && !isRevealed;
                         const shouldDim =
@@ -2106,6 +2186,7 @@ export const Royal5x5SoloGame = () => {
                             className={[
                               'at-tile',
                               isAvailable ? 'available' : '',
+                              isPending ? 'pending' : '',
                               isLocked ? 'locked' : '',
                               isRevealed ? 'revealed' : '',
                               isRevealed && isBomb ? 'bomb' : '',
@@ -2113,7 +2194,7 @@ export const Royal5x5SoloGame = () => {
                               isBomb && isPicked && phase === 'lost' ? 'picked-bomb' : '',
                               shouldDim ? 'dimmed' : '',
                             ].join(' ')}
-                            aria-label={`Row ${row + 1}, tile ${col + 1}`}
+                            aria-label={tr(`Row ${row + 1}, tile ${col + 1}`, `Ряд ${row + 1}, плитка ${col + 1}`)}
                           >
                             <span className="at-card-inner">
                               <span className="at-card-face at-card-front">
@@ -2135,7 +2216,7 @@ export const Royal5x5SoloGame = () => {
           </section>
 
           <aside className="at-side-panel">
-            <div className="at-side-title">WIN</div>
+            <div className="at-side-title">{tr('WIN', 'ПРИЗ')}</div>
 
             {Array.from({ length: ROWS }, (_, visualIndex) => {
               const row = ROWS - 1 - visualIndex;
@@ -2161,9 +2242,9 @@ export const Royal5x5SoloGame = () => {
 
         <div className="at-result-bar">
           <div className="at-result-card">
-            <span className="at-result-label">Выигрыш</span>
+            <span className="at-result-label">{tr('Win', 'Выигрыш')}</span>
             <strong className="at-result-value">
-              {effectivePhase === 'playing' ? formatMoney(cashoutValue) : formatMoney(lastWin)}
+              {effectivePhase === 'playing' ? formatMoney(cashoutValue, locale) : formatMoney(lastWin, locale)}
             </strong>
           </div>
 
@@ -2174,12 +2255,12 @@ export const Royal5x5SoloGame = () => {
               disabled={!canCashout}
               onClick={cashout}
             >
-              ЗАБРАТЬ
+              {tr('CASH OUT', 'ЗАБРАТЬ')}
             </button>
 
             <div className="at-current-mult">
-              Сейчас: <b>X{effectivePhase === 'playing' ? cashMultiplier : getCashoutMultiplier(effectiveRow)}</b>
-              {' '} / Далее: <b>X{nextMultiplier}</b>
+              {tr('Now', 'Сейчас')}: <b>X{effectivePhase === 'playing' ? cashMultiplier : getCashoutMultiplier(effectiveRow)}</b>
+              {' '} / {tr('Next', 'Далее')}: <b>X{nextMultiplier}</b>
             </div>
           </div>
         </div>
@@ -2187,7 +2268,7 @@ export const Royal5x5SoloGame = () => {
         <footer className="at-controls">
           <div className="at-bet-card">
             <label className="at-bet-field">
-              <span className="at-bet-label">Ставка</span>
+              <span className="at-bet-label">{tr('Bet', 'Ставка')}</span>
 
               <input
                 className="at-bet-input"
@@ -2198,7 +2279,7 @@ export const Royal5x5SoloGame = () => {
                 inputMode="numeric"
                 pattern="[0-9]*"
                 enterKeyHint="done"
-                aria-label="Bet"
+                aria-label={tr('Bet', 'Ставка')}
               />
             </label>
 
@@ -2224,9 +2305,9 @@ export const Royal5x5SoloGame = () => {
             >
               <span className="at-main-ring" />
               <span className="at-main-core">
-                <span className="at-main-title">{effectivePhase === 'playing' ? 'PLAY' : 'START'}</span>
+                <span className="at-main-title">{effectivePhase === 'playing' ? tr('PLAY', 'ИГРА') : tr('START', 'СТАРТ')}</span>
                 <span className="at-main-subtitle">
-                  {effectivePhase === 'playing' ? 'Идёт раунд' : 'Начать'}
+                  {effectivePhase === 'playing' ? tr('Round active', 'Идёт раунд') : tr('Begin', 'Начать')}
                 </span>
               </span>
             </button>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 import loadingCardImg from '../../assets/solo/scratch/loading-card.webp';
 import titleImg from '../../assets/solo/scratch/title.webp';
@@ -208,8 +210,8 @@ const waitFrame = () =>
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
-const formatMoney = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+const formatMoney = (value: number, locale = 'en-US') =>
+  new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
 const sanitizeBetInput = (value: string) => {
   const onlyDigits = value.replace(/[^\d]/g, '');
@@ -1206,18 +1208,23 @@ const StyleBlock = () => (
     .ns-final-layer {
       position: fixed;
       inset: 0;
-      z-index: 85;
+      z-index: 240;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 18px;
       background:
-        radial-gradient(circle at 50% 45%, rgba(29, 14, 60, .70), rgba(4, 4, 10, .92));
+        radial-gradient(circle at 50% 45%, rgba(75, 36, 152, .3), transparent 48%),
+        rgba(4, 4, 10, .66);
+      -webkit-backdrop-filter: blur(14px) saturate(.82);
+      backdrop-filter: blur(14px) saturate(.82);
       animation: nsFade .18s ease-out both;
       pointer-events: none;
     }
 
     .ns-final-card {
+      position: relative;
+      overflow: hidden;
       width: min(330px, 88vw);
       border-radius: 30px;
       padding: 22px 18px 18px;
@@ -1263,9 +1270,38 @@ const StyleBlock = () => (
     }
 
     .ns-final-mult {
+      position: relative;
+      z-index: 2;
       margin-top: 8px;
       color: rgba(215, 246, 255, .76);
       font-size: 12px;
+    }
+
+    .ns-final-symbol,
+    .ns-final-title,
+    .ns-final-value {
+      position: relative;
+      z-index: 2;
+    }
+
+    .ns-final-fx {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .ns-final-fx i {
+      --ns-angle: calc(var(--ns-fx) * 29deg);
+      position: absolute;
+      left: 50%;
+      top: 47%;
+      width: 4px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--finalText);
+      opacity: 0;
+      transform: rotate(var(--ns-angle)) translateY(-34px);
+      animation: nsFinalSpark 1.3s ease-out calc(var(--ns-fx) * 25ms) both;
     }
 
     @keyframes nsFade {
@@ -1290,17 +1326,22 @@ const StyleBlock = () => (
       }
     }
 
+    @keyframes nsFinalSpark {
+      12% { opacity: .9; }
+      100% { opacity: 0; transform: rotate(var(--ns-angle)) translateY(-142px) scale(.3); }
+    }
+
     .ns-modal-layer {
       position: fixed;
       inset: 0;
-      z-index: 90;
+      z-index: 240;
       display: flex;
       align-items: flex-end;
       justify-content: center;
       padding: 0;
       background: rgba(5,3,12,.68);
-      backdrop-filter: blur(5px);
-      -webkit-backdrop-filter: blur(5px);
+      backdrop-filter: blur(14px) saturate(.82);
+      -webkit-backdrop-filter: blur(14px) saturate(.82);
       animation: nsFade .18s ease-out both;
     }
 
@@ -1693,6 +1734,7 @@ const ScratchCard = ({
   disabled: boolean;
   onReveal: (id: number) => void;
 }) => {
+  const { locale, tr } = useLanguage();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const drawingRef = useRef(false);
@@ -1781,12 +1823,12 @@ const ScratchCard = ({
     ctx.font = '700 18px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('SCRATCH', cssWidth / 2, cssHeight / 2);
+    ctx.fillText(tr('SCRATCH', 'СТИРАЙ'), cssWidth / 2, cssHeight / 2);
 
     ctx.restore();
 
     setProgress(0);
-  }, []);
+  }, [tr]);
 
   const completeReveal = useCallback(() => {
     if (revealedRef.current) return;
@@ -1974,11 +2016,11 @@ const ScratchCard = ({
 
         <div className="ns-prize-main">
           <div className="ns-prize-label">{card.prize.label}</div>
-          <div className="ns-prize-sub">Lucky scratch #{card.index + 1}</div>
+          <div className="ns-prize-sub">{tr('Lucky scratch', 'Счастливый билет')} #{card.index + 1}</div>
         </div>
 
         <div className="ns-prize-amount">
-          {card.prize.multiplier > 0 ? formatMoney(roundMoney(bet * card.prize.multiplier)) : '0'}
+          {card.prize.multiplier > 0 ? formatMoney(roundMoney(bet * card.prize.multiplier), locale) : '0'}
         </div>
       </div>
 
@@ -2013,55 +2055,58 @@ const ClosedScratchPreview = ({ index }: { index: number }) => (
   </div>
 );
 
-const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
-  <div className="ns-modal-layer" onClick={onClose}>
-    <div className="ns-modal" onClick={(event) => event.stopPropagation()}>
-      <div className="ns-modal-grip" />
+const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
+  const { locale, tr } = useLanguage();
 
-      <div className="ns-modal-head">
-        <div>
-          <p>INFO</p>
-          <h2>Lucky Scratch</h2>
+  return createPortal(
+    <div className="ns-modal-layer" onClick={onClose}>
+      <div className="ns-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="ns-modal-grip" />
+
+        <div className="ns-modal-head">
+          <div>
+            <p>{tr('INFO', 'ИНФО')}</p>
+            <h2>Neon Scratch</h2>
+          </div>
+
+          <button type="button" onClick={onClose} aria-label={tr('Close', 'Закрыть')}>
+            <CloseIcon />
+          </button>
         </div>
 
-        <button type="button" onClick={onClose} aria-label="Close">
-          <CloseIcon />
-        </button>
+        <div className="ns-modal-body">
+          <section>
+            <h3>{tr('How to play', 'Как играть')}</h3>
+            <p>{tr(
+              'Place a bet, press Start and scratch all three cards. A card opens automatically once enough foil is removed.',
+              'Сделай ставку, нажми Start и сотри три карточки. Карточка откроется автоматически, когда снято достаточно покрытия.',
+            )}</p>
+          </section>
+
+          <section>
+            <h3>{tr('Payout', 'Выигрыш')}</h3>
+            <p>{tr(
+              'Every card has its own multiplier. The final payout is the sum of all three revealed prizes.',
+              'У каждой карточки свой множитель. Итоговая выплата — сумма всех трёх открытых призов.',
+            )}</p>
+
+            <div className="ns-info-list">
+              {PRIZES.filter((prize) => prize.multiplier > 0).map((prize) => (
+                <span key={prize.id}>{prize.label}</span>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3>{tr('Bet', 'Ставка')}</h3>
+            <p>{tr('Current bet', 'Текущая ставка')}: {formatMoney(bet, locale)} GAME.</p>
+          </section>
+        </div>
       </div>
-
-      <div className="ns-modal-body">
-        <section>
-          <h3>Как играется</h3>
-          <p>
-            Сделай ставку, нажми Start и сотри три скретча. Когда достаточно стерто, карточка
-            сама считается открытой.
-          </p>
-        </section>
-
-        <section>
-          <h3>Выигрыш</h3>
-          <p>
-            Каждая карточка даёт свой множитель. Итоговый выигрыш — сумма всех трёх открытых
-            призов.
-          </p>
-
-          <div className="ns-info-list">
-            {PRIZES.filter((prize) => prize.multiplier > 0).map((prize) => (
-              <span key={prize.id}>{prize.label}</span>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <h3>Ставка</h3>
-          <p>
-            Текущая ставка: {formatMoney(bet)}. Выигрыш и списание идут через серверный solo API.
-          </p>
-        </section>
-      </div>
-    </div>
-  </div>
-);
+    </div>,
+    document.body,
+  );
+};
 
 const FinalOverlay = ({
   win,
@@ -2070,14 +2115,16 @@ const FinalOverlay = ({
   win: number;
   totalMultiplier: number;
 }) => {
+  const { locale, tr } = useLanguage();
   const isBig = totalMultiplier >= 3;
   const isMega = totalMultiplier >= 7;
   const isEpic = totalMultiplier >= 20;
   const isZero = win <= 0;
 
   const tierClass = isZero ? 'is-zero' : isEpic ? 'is-epic' : isMega ? 'is-mega' : isBig ? 'is-big' : 'is-win';
+  const effectCount = isZero ? 0 : isEpic ? 22 : isMega ? 16 : isBig ? 12 : 7;
 
-  return (
+  return createPortal(
     <div className="ns-final-layer">
       <div className={`ns-final-card ${tierClass}`}>
         <div className="ns-final-symbol">
@@ -2085,18 +2132,33 @@ const FinalOverlay = ({
         </div>
 
         <div className="ns-final-title">
-          {isZero ? 'NO WIN' : isEpic ? 'EPIC WIN' : isMega ? 'MEGA WIN' : isBig ? 'BIG WIN' : 'WIN'}
+          {isZero
+            ? tr('NO WIN', 'БЕЗ ВЫИГРЫША')
+            : isEpic
+              ? tr('EPIC WIN', 'ЭПИЧЕСКИЙ ВЫИГРЫШ')
+              : isMega
+                ? tr('MEGA WIN', 'МЕГА ВЫИГРЫШ')
+                : isBig
+                  ? tr('BIG WIN', 'БОЛЬШОЙ ВЫИГРЫШ')
+                  : tr('WIN', 'ВЫИГРЫШ')}
         </div>
 
-        <div className="ns-final-value">{formatMoney(win)}</div>
+        <div className="ns-final-value">{formatMoney(win, locale)}</div>
 
-        <div className="ns-final-mult">Total: X{roundMoney(totalMultiplier)}</div>
+        <div className="ns-final-mult">{tr('Total', 'Итого')}: X{roundMoney(totalMultiplier)}</div>
+        <div className="ns-final-fx" aria-hidden="true">
+          {Array.from({ length: effectCount }, (_, index) => (
+            <i key={index} style={{ '--ns-fx': index } as CSSProperties} />
+          ))}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
 export const NeonScratchSoloGame = () => {
+  const { locale, tr } = useLanguage();
   const { spin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
@@ -2395,7 +2457,7 @@ export const NeonScratchSoloGame = () => {
             type="button"
             className="ns-icon-btn"
             onClick={() => setShowInfo(true)}
-            aria-label="Info"
+            aria-label={tr('Information', 'Информация')}
           >
             <InfoIcon />
           </button>
@@ -2408,7 +2470,7 @@ export const NeonScratchSoloGame = () => {
             type="button"
             className="ns-icon-btn"
             onClick={toggleMute}
-            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+            aria-label={muted ? tr('Turn sound on', 'Включить звук') : tr('Turn sound off', 'Выключить звук')}
           >
             {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
           </button>
@@ -2437,14 +2499,14 @@ export const NeonScratchSoloGame = () => {
 
           <div className="ns-result-bar">
             <div className="ns-result-card">
-              <span className="ns-result-label">Выигрыш</span>
+              <span className="ns-result-label">{tr('Win', 'Выигрыш')}</span>
               <strong className="ns-result-value">
-                {phase === 'finished' ? formatMoney(totalWin) : formatMoney(currentWin)}
+                {phase === 'finished' ? formatMoney(totalWin, locale) : formatMoney(currentWin, locale)}
               </strong>
             </div>
 
             <div className="ns-result-card">
-              <span className="ns-result-label">Открыто</span>
+              <span className="ns-result-label">{tr('Revealed', 'Открыто')}</span>
               <strong className="ns-result-value">
                 {revealedIds.size}/{CARD_COUNT}
               </strong>
@@ -2455,7 +2517,7 @@ export const NeonScratchSoloGame = () => {
         <footer className="ns-controls">
           <div className="ns-bet-card">
             <label className="ns-bet-field">
-              <span className="ns-bet-label">Ставка</span>
+              <span className="ns-bet-label">{tr('Bet', 'Ставка')}</span>
 
               <input
                 className="ns-bet-input"
@@ -2466,7 +2528,7 @@ export const NeonScratchSoloGame = () => {
                 inputMode="numeric"
                 pattern="[0-9]*"
                 enterKeyHint="done"
-                aria-label="Bet"
+                aria-label={tr('Bet', 'Ставка')}
               />
             </label>
 
@@ -2491,11 +2553,11 @@ export const NeonScratchSoloGame = () => {
               onClick={startRound}
             >
               <span className="ns-start-main">
-                {isPlaying ? 'SCRATCH' : phase === 'finished' ? 'AGAIN' : 'START'}
+                {isPlaying ? tr('SCRATCH', 'СТИРАЙ') : phase === 'finished' ? tr('AGAIN', 'ЕЩЁ') : tr('START', 'СТАРТ')}
               </span>
 
               <span className="ns-start-sub">
-                {isPlaying ? 'Сотри все 3' : 'Запустить'}
+                {isPlaying ? tr('Reveal all 3', 'Сотри все 3') : tr('Begin', 'Запустить')}
               </span>
             </button>
           </div>

@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 import cherryImg from '../../assets/solo/fruit/cherry.webp';
 import lemonImg from '../../assets/solo/fruit/lemon.webp';
@@ -20,16 +22,16 @@ const ROWS = 5;
 const CELL_COUNT = COLS * ROWS;
 const MIN_CLUSTER = 5;
 
-const DROP_MS = 510;
-const HIGHLIGHT_MS = 220;
-const POP_MS = 210;
-const AFTER_DROP_MS = 90;
+const DROP_MS = 620;
+const HIGHLIGHT_MS = 360;
+const POP_MS = 320;
+const AFTER_DROP_MS = 150;
 
 const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
 
 type SymbolId = 'cherry' | 'lemon' | 'orange' | 'grape' | 'strawberry' | 'watermelon' | 'wild';
 type CellPhase = 'idle' | 'drop' | 'win' | 'pop';
-type BigTier = null | 'big' | 'mega' | 'epic';
+type BigTier = null | 'win' | 'big' | 'mega' | 'epic';
 
 interface SymbolDef {
   id: SymbolId;
@@ -112,8 +114,8 @@ const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(r
 const randomSym = () => WEIGHT_TABLE[Math.floor(Math.random() * WEIGHT_TABLE.length)];
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
-const formatMoney = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+const formatMoney = (value: number, locale = 'en-US') =>
+  new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
 const getTelegramHaptics = () =>
   (window as BrowserWithAudio).Telegram?.WebApp?.HapticFeedback;
@@ -140,6 +142,55 @@ const boardFromSymbols = (symbols: SymbolId[], phase: CellPhase = 'idle'): Cell[
       rot: 0,
     };
   });
+
+const collapseBoardCells = (
+  current: Cell[],
+  winning: Set<number>,
+  nextSymbols: SymbolId[],
+): Cell[] => {
+  const next = Array<Cell>(CELL_COUNT);
+
+  for (let col = 0; col < COLS; col += 1) {
+    const survivors: Array<{ cell: Cell; row: number }> = [];
+
+    for (let row = ROWS - 1; row >= 0; row -= 1) {
+      const index = row * COLS + col;
+      if (!winning.has(index)) survivors.push({ cell: current[index], row });
+    }
+
+    let writeRow = ROWS - 1;
+
+    survivors.forEach(({ cell, row }) => {
+      const targetIndex = writeRow * COLS + col;
+      const distance = Math.max(0, writeRow - row);
+
+      next[targetIndex] = {
+        ...cell,
+        sym: nextSymbols[targetIndex],
+        phase: distance > 0 ? 'drop' : 'idle',
+        delay: col * 18 + distance * 22,
+        drop: distance,
+        rot: Math.round((Math.random() - 0.5) * 7),
+      };
+      writeRow -= 1;
+    });
+
+    const incomingCount = writeRow + 1;
+    for (let row = writeRow; row >= 0; row -= 1) {
+      const targetIndex = row * COLS + col;
+      next[targetIndex] = {
+        id: cellSeq++,
+        sym: nextSymbols[targetIndex],
+        phase: 'drop',
+        delay: col * 18 + (writeRow - row) * 28,
+        drop: incomingCount - row + 0.75,
+        rot: Math.round((Math.random() - 0.5) * 8),
+      };
+    }
+  }
+
+  return next;
+};
 
 type ServerFruitOutcome = {
   initial_board: SymbolId[];
@@ -272,12 +323,17 @@ const CloseIcon = ({ size = 17 }: { size?: number }) => (
 
 const LoadingScreen = ({ progress }: { progress: number }) => (
   <div className="fc-loading-screen">
-    <div className="fc-load-halo" />
-    <div className="fc-load-ring fc-load-ring-a" />
-    <div className="fc-load-ring fc-load-ring-b" />
+    <div className="fc-load-emblem">
+      <div className="fc-load-halo" />
+      <div className="fc-load-ring fc-load-ring-a" />
+      <div className="fc-load-ring fc-load-ring-b" />
+      <div className="fc-load-fruit fc-load-fruit-a"><SymbolIcon id="cherry" size={48} /></div>
+      <div className="fc-load-fruit fc-load-fruit-b"><SymbolIcon id="strawberry" size={52} /></div>
+      <div className="fc-load-fruit fc-load-fruit-c"><SymbolIcon id="lemon" size={46} /></div>
 
-    <div className="fc-load-star">
-      <SymbolIcon id="wild" size={82} />
+      <div className="fc-load-star">
+        <SymbolIcon id="wild" size={82} />
+      </div>
     </div>
 
     <div className="fc-load-title">FRUIT CASCADE</div>
@@ -289,6 +345,8 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
 );
 
 const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount: number }) => {
+  const { locale, tr } = useLanguage();
+  const effectCount = tier === 'epic' ? 26 : tier === 'mega' ? 19 : tier === 'big' ? 13 : 7;
   const [shown, setShown] = useState(0);
 
   useEffect(() => {
@@ -312,12 +370,12 @@ const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount:
     return () => cancelAnimationFrame(raf);
   }, [amount]);
 
-  return (
+  return createPortal(
     <div className="fc-bigwin">
       <div className="fc-bigwin-burst" />
 
       <div className="fc-confetti" aria-hidden="true">
-        {Array.from({ length: 18 }, (_, index) => (
+        {Array.from({ length: effectCount }, (_, index) => (
           <span
             key={index}
             style={{
@@ -329,64 +387,77 @@ const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount:
       </div>
 
       <div className={`fc-bigwin-label ${tier}`}>
-        {tier === 'epic' ? 'EPIC WIN' : tier === 'mega' ? 'MEGA WIN' : 'BIG WIN'}
+        {tier === 'epic'
+          ? tr('EPIC WIN', 'ЭПИЧЕСКИЙ ВЫИГРЫШ')
+          : tier === 'mega'
+            ? tr('MEGA WIN', 'МЕГА ВЫИГРЫШ')
+            : tier === 'big'
+              ? tr('BIG WIN', 'БОЛЬШОЙ ВЫИГРЫШ')
+              : tr('WIN', 'ВЫИГРЫШ')}
       </div>
 
-      <div className="fc-bigwin-value">{formatMoney(shown)}</div>
-    </div>
+      <div className="fc-bigwin-value">{formatMoney(shown, locale)}</div>
+    </div>,
+    document.body,
   );
 };
 
-const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => (
-  <div className="fc-modal-layer" onClick={onClose}>
+const InfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
+  const { locale, tr } = useLanguage();
+
+  return createPortal(<div className="fc-modal-layer" onClick={onClose}>
     <div className="fc-modal" onClick={(event) => event.stopPropagation()}>
       <div className="fc-modal-grip" />
 
       <div className="fc-modal-head">
         <div>
-          <p>INFO</p>
+          <p>{tr('INFO', 'ИНФО')}</p>
           <h2>Fruit Cascade</h2>
         </div>
 
-        <button type="button" onClick={onClose} aria-label="Close">
+        <button type="button" onClick={onClose} aria-label={tr('Close', 'Закрыть')}>
           <CloseIcon />
         </button>
       </div>
 
       <div className="fc-modal-body">
         <section>
-          <h3>Как играется</h3>
+          <h3>{tr('How to play', 'Как играть')}</h3>
           <p>
-            Собери {MIN_CLUSTER}+ одинаковых фруктов рядом по сторонам. Выигрышные символы
-            лопаются, сверху падают новые, а множитель растёт на каждом каскаде.
+            {tr(
+              `Connect ${MIN_CLUSTER}+ matching fruits by their sides. Winning symbols pop, the fruits above fall into place, and the multiplier grows with every cascade.`,
+              `Собери ${MIN_CLUSTER}+ одинаковых фруктов рядом по сторонам. Выигрышные символы лопаются, фрукты сверху падают на свободные места, а множитель растёт с каждым каскадом.`,
+            )}
           </p>
         </section>
 
         <section>
-          <h3>Ставка</h3>
+          <h3>{tr('Bet', 'Ставка')}</h3>
           <p>
-            Выбери размер ставки целым числом от 1 и нажми Spin. Для быстрого изменения можно
-            использовать кнопки -10, -1, +1, +10 или готовые значения под ставкой.
+            {tr(
+              'Choose a whole-number bet from 1 and press Spin. Use the quick controls to adjust it.',
+              'Выбери размер ставки целым числом от 1 и нажми Spin. Для быстрого изменения используй кнопки рядом со ставкой.',
+            )}
           </p>
         </section>
 
         <section>
-          <h3>Выплаты при ставке {formatMoney(bet)}</h3>
+          <h3>{tr('Payouts at bet', 'Выплаты при ставке')} {formatMoney(bet, locale)}</h3>
 
           <div className="fc-paytable">
             {SYMBOL_ORDER.map((symbol) => (
               <div className="fc-pay-row" key={symbol}>
                 <SymbolIcon id={symbol} size={30} />
                 <span>{SYMBOLS[symbol].name}</span>
-                <b>{formatMoney(SYMBOLS[symbol].pay * (bet / 10))}</b>
+                <b>{formatMoney(SYMBOLS[symbol].pay * (bet / 10), locale)}</b>
               </div>
             ))}
           </div>
         </section>
       </div>
     </div>
-  </div>
-);
+  </div>, document.body);
+};
 
 const StyleBlock = () => (
   <style>{`
@@ -1032,10 +1103,18 @@ const StyleBlock = () => (
       text-align: center;
     }
 
+    .fc-load-emblem {
+      position: relative;
+      display: grid;
+      width: 220px;
+      height: 220px;
+      place-items: center;
+      isolation: isolate;
+    }
+
     .fc-load-halo {
       position: absolute;
-      width: 270px;
-      height: 270px;
+      inset: -25px;
       border-radius: 999px;
       background: radial-gradient(circle, rgba(255, 190, 77, .22), transparent 66%);
       animation: fcPulse 1.8s ease-in-out infinite;
@@ -1048,27 +1127,51 @@ const StyleBlock = () => (
     }
 
     .fc-load-ring-a {
-      width: 220px;
-      height: 220px;
+      inset: 0;
       border-top-color: #ffd34d;
       animation: fcSpin 2.2s linear infinite;
     }
 
     .fc-load-ring-b {
-      width: 178px;
-      height: 178px;
+      inset: 21px;
       border-bottom-color: #b06bff;
       animation: fcSpin 1.6s linear infinite reverse;
     }
 
     .fc-load-star {
       position: relative;
+      z-index: 2;
       animation: fcPulse 1.5s ease-in-out infinite;
+    }
+
+    .fc-load-fruit {
+      position: absolute;
+      z-index: 3;
+      filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .34));
+      will-change: transform;
+    }
+
+    .fc-load-fruit-a {
+      left: -4px;
+      top: 86px;
+      animation: fcLoadFruitA 2.4s ease-in-out infinite;
+    }
+
+    .fc-load-fruit-b {
+      right: -5px;
+      top: 78px;
+      animation: fcLoadFruitB 2.6s ease-in-out infinite;
+    }
+
+    .fc-load-fruit-c {
+      left: 86px;
+      bottom: -7px;
+      animation: fcLoadFruitC 2.2s ease-in-out infinite;
     }
 
     .fc-load-title {
       position: relative;
-      margin-top: 24px;
+      margin-top: 18px;
       font-size: 25px;
       line-height: 1;
       color: #fff3bd;
@@ -1101,15 +1204,34 @@ const StyleBlock = () => (
       }
     }
 
+    @keyframes fcLoadFruitA {
+      0%, 100% { transform: translate3d(0, 0, 0) rotate(-10deg) scale(.96); }
+      50% { transform: translate3d(5px, -9px, 0) rotate(5deg) scale(1.04); }
+    }
+
+    @keyframes fcLoadFruitB {
+      0%, 100% { transform: translate3d(0, -2px, 0) rotate(8deg) scale(1); }
+      50% { transform: translate3d(-6px, 8px, 0) rotate(-6deg) scale(.95); }
+    }
+
+    @keyframes fcLoadFruitC {
+      0%, 100% { transform: translate3d(0, 0, 0) rotate(-5deg); }
+      50% { transform: translate3d(0, -8px, 0) rotate(7deg); }
+    }
+
     .fc-bigwin {
       position: fixed;
       inset: 0;
-      z-index: 80;
+      z-index: 240;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: radial-gradient(circle at 50% 45%, rgba(32, 15, 65, .86), rgba(7, 4, 14, .96));
+      background:
+        radial-gradient(circle at 50% 45%, rgba(82, 35, 150, .34), transparent 48%),
+        rgba(7, 4, 14, .68);
+      -webkit-backdrop-filter: blur(14px) saturate(.8);
+      backdrop-filter: blur(14px) saturate(.8);
       animation: fcFade .18s ease-out both;
     }
 
@@ -1147,6 +1269,11 @@ const StyleBlock = () => (
       color: #fff1ba;
       text-shadow: 0 0 24px rgba(255,190,77,.44);
       animation: fcBigPop .42s cubic-bezier(.22, 1.35, .31, 1) both;
+    }
+
+    .fc-bigwin-label.win {
+      font-size: 34px;
+      color: #fff5d0;
     }
 
     .fc-bigwin-label.mega {
@@ -1214,7 +1341,7 @@ const StyleBlock = () => (
     .fc-modal-layer {
       position: fixed;
       inset: 0;
-      z-index: 90;
+      z-index: 240;
       display: flex;
       align-items: flex-end;
       justify-content: center;
@@ -1422,6 +1549,7 @@ const StyleBlock = () => (
       .fc-spin-ring,
       .fc-load-ring,
       .fc-load-star,
+      .fc-load-fruit,
       .fc-load-halo,
       .fc-confetti span,
       .fc-bigwin-burst,
@@ -1444,6 +1572,7 @@ const cellStyle = (cell: Cell): CSSProperties =>
   }) as CSSProperties;
 
 export const FruitCascadeSoloGame = () => {
+  const { locale, tr } = useLanguage();
   const { spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadPct, setLoadPct] = useState(0);
@@ -1678,7 +1807,7 @@ export const FruitCascadeSoloGame = () => {
 
         await sleep(POP_MS);
 
-        current = boardFromSymbols(step.next_board, 'drop');
+        current = collapseBoardCells(current, winning, step.next_board);
         setWinCells(new Set());
         setBoard(current);
         playSound('drop');
@@ -1698,14 +1827,14 @@ export const FruitCascadeSoloGame = () => {
 
       if (totalWin > 0) {
         const ratio = totalWin / bet;
-        const tier: BigTier = ratio >= 14 ? 'epic' : ratio >= 7 ? 'mega' : ratio >= 3 ? 'big' : null;
+        const tier: BigTier = ratio >= 14 ? 'epic' : ratio >= 7 ? 'mega' : ratio >= 3 ? 'big' : 'win';
 
         if (tier) {
           setBigAmount(totalWin);
           setBigTier(tier);
           haptic('big');
           playSound('big');
-          await sleep(tier === 'epic' ? 2200 : tier === 'mega' ? 1950 : 1650);
+          await sleep(tier === 'epic' ? 2200 : tier === 'mega' ? 1950 : tier === 'big' ? 1650 : 1150);
           setBigTier(null);
         }
       }
@@ -1821,13 +1950,13 @@ export const FruitCascadeSoloGame = () => {
             type="button"
             className="fc-info-btn"
             onClick={() => setShowInfo(true)}
-            aria-label="Info"
+            aria-label={tr('Information', 'Информация')}
           >
             <InfoIcon />
           </button>
 
           <div className="fc-title-block">
-            <p className="fc-kicker">SOLO SLOT</p>
+            <p className="fc-kicker">{tr('SOLO SLOT', 'СОЛО СЛОТ')}</p>
             <h1 className="fc-title">
               FRUIT <span>CASCADE</span>
             </h1>
@@ -1837,7 +1966,7 @@ export const FruitCascadeSoloGame = () => {
             type="button"
             className="fc-icon-btn"
             onClick={toggleMute}
-            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+            aria-label={muted ? tr('Turn sound on', 'Включить звук') : tr('Turn sound off', 'Выключить звук')}
           >
             {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
           </button>
@@ -1886,15 +2015,15 @@ export const FruitCascadeSoloGame = () => {
                     } as CSSProperties
                   }
                 >
-                  +{formatMoney(toast.value)}
+                  +{formatMoney(toast.value, locale)}
                 </div>
               ))}
             </div>
           </div>
 
           <div className="fc-winline">
-            <span className="fc-win-caption">WIN</span>
-            <strong className="fc-win-value">{formatMoney(winShown || winValue)}</strong>
+            <span className="fc-win-caption">{tr('WIN', 'ВЫИГРЫШ')}</span>
+            <strong className="fc-win-value">{formatMoney(winShown || winValue, locale)}</strong>
             <span className="fc-win-mult">X{multiplier}</span>
           </div>
         </main>
@@ -1907,7 +2036,7 @@ export const FruitCascadeSoloGame = () => {
                 className="fc-bet-btn"
                 disabled={spinning || bet <= 1}
                 onClick={() => changeBet(-10)}
-                aria-label="Decrease bet by 10"
+                aria-label={tr('Decrease bet by 10', 'Уменьшить ставку на 10')}
               >
                 -10
               </button>
@@ -1917,14 +2046,14 @@ export const FruitCascadeSoloGame = () => {
                 className="fc-bet-btn main"
                 disabled={spinning || bet <= 1}
                 onClick={() => changeBet(-1)}
-                aria-label="Decrease bet"
+                aria-label={tr('Decrease bet', 'Уменьшить ставку')}
               >
                 -
               </button>
 
               <div className="fc-bet-value">
-                <span className="fc-bet-label">BET</span>
-                <span className="fc-bet-number">{formatMoney(bet)}</span>
+                <span className="fc-bet-label">{tr('BET', 'СТАВКА')}</span>
+                <span className="fc-bet-number">{formatMoney(bet, locale)}</span>
               </div>
 
               <button
@@ -1932,7 +2061,7 @@ export const FruitCascadeSoloGame = () => {
                 className="fc-bet-btn main"
                 disabled={spinning}
                 onClick={() => changeBet(1)}
-                aria-label="Increase bet"
+                aria-label={tr('Increase bet', 'Увеличить ставку')}
               >
                 +
               </button>
@@ -1942,7 +2071,7 @@ export const FruitCascadeSoloGame = () => {
                 className="fc-bet-btn"
                 disabled={spinning}
                 onClick={() => changeBet(10)}
-                aria-label="Increase bet by 10"
+                aria-label={tr('Increase bet by 10', 'Увеличить ставку на 10')}
               >
                 +10
               </button>
@@ -1957,7 +2086,7 @@ export const FruitCascadeSoloGame = () => {
                   disabled={spinning}
                   onClick={() => chooseBet(value)}
                 >
-                  {formatMoney(value)}
+                  {formatMoney(value, locale)}
                 </button>
               ))}
             </div>
@@ -1972,10 +2101,10 @@ export const FruitCascadeSoloGame = () => {
                 playSound('tap');
                 setAuto((value) => !value);
               }}
-              aria-label="Auto spin"
+              aria-label={tr('Auto spin', 'Автоматическая игра')}
             >
               <span className="fc-auto-dot" />
-              AUTO
+              {tr('AUTO', 'АВТО')}
             </button>
 
             <button
@@ -1983,11 +2112,11 @@ export const FruitCascadeSoloGame = () => {
               className={`fc-spin-btn ${spinning ? 'spinning' : ''}`}
               disabled={spinning}
               onClick={() => void spin()}
-              aria-label="Spin"
+              aria-label={tr('Spin', 'Крутить')}
             >
               <span className="fc-spin-ring" />
               <span className="fc-spin-core">
-                {spinning ? <span className="fc-spin-loader" /> : 'SPIN'}
+                {spinning ? <span className="fc-spin-loader" /> : tr('SPIN', 'КРУТИТЬ')}
               </span>
             </button>
 
@@ -1995,10 +2124,10 @@ export const FruitCascadeSoloGame = () => {
               type="button"
               className="fc-sound-pill"
               onClick={toggleMute}
-              aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+              aria-label={muted ? tr('Turn sound on', 'Включить звук') : tr('Turn sound off', 'Выключить звук')}
             >
               {muted ? <VolumeOffIcon /> : <VolumeOnIcon />}
-              <span>{muted ? 'OFF' : 'ON'}</span>
+              <span>{muted ? tr('OFF', 'ВЫКЛ') : tr('ON', 'ВКЛ')}</span>
             </button>
           </div>
         </footer>

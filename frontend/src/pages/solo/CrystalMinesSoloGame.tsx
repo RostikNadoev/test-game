@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { useSoloSession } from '../../hooks/useSoloSession';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
+import { useLanguage } from '../../i18n/LanguageContext';
 import type { CrystalMinesPublicState } from '../../api/types';
 import {
   deriveCrystalMinesPicked,
@@ -16,8 +19,8 @@ const GRID = 25;
 const MIN_BET = 1;
 const QUICK_BETS = [10, 50, 100].filter((value) => value >= MIN_BET);
 
-const formatMoney = (value: number) =>
-  new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+const formatMoney = (value: number, locale = 'en-US') =>
+  new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
 type Phase = 'idle' | 'playing' | 'finished';
 type FinishType = 'win' | 'lose' | null;
@@ -31,7 +34,99 @@ type StepEvent = {
   payout?: number;
 };
 
+const InfoIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+    <path d="M12 10.6v5.7M12 7.5h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="m7 7 10 10M17 7 7 17" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+  </svg>
+);
+
+const MinesLoadingScreen = ({ progress }: { progress: number }) => (
+  <div className="cm-loading" aria-hidden="true">
+    <div className="cm-loading-aura" />
+    <div className="cm-loading-scene">
+      <img className="cm-loading-diamond is-left" src={diamondAsset} alt="" />
+      <img className="cm-loading-bomb" src={bombAsset} alt="" />
+      <img className="cm-loading-diamond is-right" src={diamondAsset} alt="" />
+    </div>
+    <img className="cm-loading-title" src={titleAsset} alt="Crystal Mines" />
+    <div className="cm-loading-track"><span style={{ width: `${progress}%` }} /></div>
+  </div>
+);
+
+const MinesInfoModal = ({ bet, onClose }: { bet: number; onClose: () => void }) => {
+  const { locale, tr } = useLanguage();
+
+  return createPortal(
+    <div className="cm-modal-layer" onClick={onClose}>
+      <div className="cm-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="cm-modal-head">
+          <div><p>{tr('INFO', 'ИНФО')}</p><h2>Crystal Mines</h2></div>
+          <button type="button" onClick={onClose} aria-label={tr('Close', 'Закрыть')}><CloseIcon /></button>
+        </div>
+        <div className="cm-modal-body">
+          <section>
+            <h3>{tr('How to play', 'Как играть')}</h3>
+            <p>{tr(
+              'Open tiles one by one. Every crystal increases the multiplier; a mine ends the round.',
+              'Открывай плитки по одной. Каждый кристалл повышает множитель, а мина завершает раунд.',
+            )}</p>
+          </section>
+          <section>
+            <h3>{tr('Cashout', 'Забрать выигрыш')}</h3>
+            <p>{tr(
+              'After the first crystal you can lock in the current payout at any time.',
+              'После первого кристалла можно в любой момент забрать текущий выигрыш.',
+            )}</p>
+          </section>
+          <div className="cm-info-bet">
+            <span>{tr('Current bet', 'Текущая ставка')}</span>
+            <strong>{formatMoney(bet, locale)} GAME</strong>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
+const MinesFinalOverlay = ({ type, win, bet, onClose }: {
+  type: Exclude<FinishType, null>;
+  win: number;
+  bet: number;
+  onClose: () => void;
+}) => {
+  const { locale, tr } = useLanguage();
+  const ratio = bet > 0 ? win / bet : 0;
+  const tier = type === 'lose' ? 'is-lose' : ratio >= 7 ? 'is-epic' : ratio >= 3 ? 'is-big' : 'is-win';
+
+  return createPortal(
+    <div className={`cm-final-layer ${tier}`} onClick={onClose}>
+      <div className="cm-final-card" onClick={(event) => event.stopPropagation()}>
+        <div className="cm-final-gem">
+          <img src={type === 'lose' ? bombAsset : diamondAsset} alt="" />
+        </div>
+        <p>{type === 'lose' ? tr('ROUND OVER', 'РАУНД ОКОНЧЕН') : tr('PAYOUT', 'ВЫПЛАТА')}</p>
+        <h2>{type === 'lose' ? tr('Mine found', 'Найдена мина') : ratio >= 7 ? tr('Epic win', 'Эпический выигрыш') : ratio >= 3 ? tr('Big win', 'Большой выигрыш') : tr('You won', 'Вы выиграли')}</h2>
+        <strong>{formatMoney(win, locale)} GAME</strong>
+        <button type="button" onClick={onClose}>{tr('Continue', 'Продолжить')}</button>
+        {type === 'win' && Array.from({ length: ratio >= 7 ? 18 : ratio >= 3 ? 12 : 7 }, (_, index) => (
+          <i key={index} style={{ '--cm-fx': index } as CSSProperties} />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 export const CrystalMinesSoloGame = () => {
+  const { locale, tr } = useLanguage();
   const { canAfford, setError: setWalletError } = useSoloWallet();
   const session = useSoloSession('crystal_mines');
   const { markPublicStateHydrated, publicState, resumed, status, isSessionPlayable } = session;
@@ -42,6 +137,11 @@ export const CrystalMinesSoloGame = () => {
   const [revealedMines, setRevealedMines] = useState<number[]>([]);
   const [lastWin, setLastWin] = useState(0);
   const [finishType, setFinishType] = useState<FinishType>(null);
+  const [pendingCell, setPendingCell] = useState<number | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const [showFinal, setShowFinal] = useState(false);
+  const [loadingScreen, setLoadingScreen] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
 
   const bet = useMemo(() => {
     const value = Math.floor(Number(betInput.replace(',', '.')));
@@ -74,7 +174,7 @@ export const CrystalMinesSoloGame = () => {
     return Number((effectiveBet * multiplier).toFixed(2));
   }, [effectiveBet, multiplier]);
 
-  const cashoutValue = useMemo(() => formatMoney(cashoutRawValue), [cashoutRawValue]);
+  const cashoutValue = useMemo(() => formatMoney(cashoutRawValue, locale), [cashoutRawValue, locale]);
 
   const canStart =
     effectivePhase === 'idle' &&
@@ -85,11 +185,13 @@ export const CrystalMinesSoloGame = () => {
   const canPick =
     effectivePhase === 'playing' &&
     isSessionPlayable &&
+    pendingCell === null &&
     !session.loading;
 
   const canCashout =
     effectivePhase === 'playing' &&
     session.openedSteps > 0 &&
+    pendingCell === null &&
     !session.loading;
 
   useEffect(() => {
@@ -102,6 +204,8 @@ export const CrystalMinesSoloGame = () => {
     setRevealedMines([]);
     setLastWin(0);
     setFinishType(null);
+    setPendingCell(null);
+    setShowFinal(false);
     setPhase('playing');
 
     if (session.betCoins > 0) {
@@ -117,6 +221,8 @@ export const CrystalMinesSoloGame = () => {
     setRevealedMines([]);
     setLastWin(0);
     setFinishType(null);
+    setPendingCell(null);
+    setShowFinal(false);
     setPhase('idle');
   };
 
@@ -134,6 +240,8 @@ export const CrystalMinesSoloGame = () => {
     setRevealedMines([]);
     setLastWin(0);
     setFinishType(null);
+    setPendingCell(null);
+    setShowFinal(false);
 
     try {
       await session.start(normalizedBet);
@@ -146,15 +254,17 @@ export const CrystalMinesSoloGame = () => {
   const pickCell = async (index: number) => {
     if (!canPick || effectivePicked.has(index)) return;
 
+    setPendingCell(index);
+
     try {
       const response = await session.step('pick', { cell_index: index });
       const event = response.event as StepEvent;
 
-      setPicked((prev) => new Set(prev).add(index));
-
       if (event.reveal_mines?.length) {
         setRevealedMines(event.reveal_mines);
       }
+
+      setPicked((prev) => new Set(prev).add(index));
 
       if (event.status === 'bust' || event.status === 'completed') {
         const payout = response.payout_coins ?? event.payout ?? 0;
@@ -162,9 +272,12 @@ export const CrystalMinesSoloGame = () => {
         setPhase('finished');
         setLastWin(payout);
         setFinishType(event.status === 'bust' ? 'lose' : 'win');
+        window.setTimeout(() => setShowFinal(true), 560);
       }
     } catch {
       // handled
+    } finally {
+      setPendingCell(null);
     }
   };
 
@@ -176,10 +289,25 @@ export const CrystalMinesSoloGame = () => {
       setPhase('finished');
       setLastWin(response.payout_coins ?? 0);
       setFinishType('win');
+      window.setTimeout(() => setShowFinal(true), 240);
     } catch {
       // handled
     }
   };
+
+  useEffect(() => {
+    let frame = 0;
+    const startedAt = performance.now();
+    const duration = 1650;
+    const tick = (now: number) => {
+      const value = Math.min(1, (now - startedAt) / duration);
+      setLoadProgress((1 - Math.pow(1 - value, 2.5)) * 100);
+      if (value < 1) frame = requestAnimationFrame(tick);
+      else setLoadingScreen(false);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <main className={`solo-session-page cm-page ${finishType ? `cm-${finishType}` : ''}`}>
@@ -242,10 +370,27 @@ export const CrystalMinesSoloGame = () => {
           position: relative;
           z-index: 2;
           flex: 0 0 auto;
-          text-align: center;
+          display: grid;
+          grid-template-columns: 42px minmax(0, 1fr) 42px;
+          align-items: center;
+          gap: 8px;
           margin-top: 15px;
           margin-bottom: 5px;
         }
+
+        .cm-info-btn {
+          display: grid;
+          width: 42px;
+          height: 42px;
+          place-items: center;
+          border: 1px solid rgba(115, 225, 255, .14);
+          border-radius: 15px;
+          color: rgba(207, 245, 255, .82);
+          background: rgba(21, 45, 65, .62);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+        }
+
+        .cm-info-btn:active { transform: scale(.94); }
 
         .cm-title-img {
           display: block;
@@ -301,6 +446,10 @@ export const CrystalMinesSoloGame = () => {
 
         .cm-cell.opened .cm-tile {
           transform: rotateY(180deg);
+        }
+
+        .cm-cell.pending .cm-tile {
+          animation: cmPendingTile .78s ease-in-out infinite;
         }
 
         .cm-cell:not(:disabled):active .cm-tile {
@@ -596,11 +745,182 @@ export const CrystalMinesSoloGame = () => {
         .cm-casino-fx span:nth-child(7) { left: 77%; animation-delay: .16s; background: #ffe27a; }
         .cm-casino-fx span:nth-child(8) { left: 89%; animation-delay: .1s; background: #ffffff; }
 
+        .cm-loading {
+          position: absolute;
+          inset: 0;
+          z-index: 30;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background:
+            radial-gradient(circle at 50% 40%, rgba(25, 174, 231, .18), transparent 42%),
+            linear-gradient(180deg, #061522, #030a11);
+        }
+
+        .cm-loading-aura {
+          position: absolute;
+          width: 260px;
+          height: 260px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(46, 204, 255, .2), transparent 68%);
+          animation: cmLoadingAura 1.9s ease-in-out infinite;
+        }
+
+        .cm-loading-scene {
+          position: relative;
+          display: grid;
+          width: 220px;
+          height: 150px;
+          place-items: center;
+        }
+
+        .cm-loading-bomb,
+        .cm-loading-diamond {
+          position: absolute;
+          object-fit: contain;
+          filter: drop-shadow(0 14px 25px rgba(0, 0, 0, .36));
+        }
+
+        .cm-loading-bomb {
+          width: 104px;
+          height: 104px;
+          opacity: .5;
+          animation: cmLoadingBomb 2.8s ease-in-out infinite;
+        }
+
+        .cm-loading-diamond {
+          z-index: 2;
+          width: 86px;
+          height: 86px;
+        }
+
+        .cm-loading-diamond.is-left {
+          left: 12px;
+          bottom: 10px;
+          animation: cmLoadingGemLeft 2.1s ease-in-out infinite;
+        }
+
+        .cm-loading-diamond.is-right {
+          right: 8px;
+          top: 4px;
+          width: 70px;
+          height: 70px;
+          animation: cmLoadingGemRight 2.35s ease-in-out infinite;
+        }
+
+        .cm-loading-title {
+          position: relative;
+          width: min(78%, 310px);
+          max-height: 76px;
+          margin-top: 18px;
+          object-fit: contain;
+          filter: drop-shadow(0 12px 22px rgba(0, 0, 0, .34));
+        }
+
+        .cm-loading-track {
+          position: relative;
+          overflow: hidden;
+          width: 210px;
+          height: 7px;
+          margin-top: 24px;
+          border: 1px solid rgba(113, 225, 255, .13);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, .05);
+        }
+
+        .cm-loading-track span {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, #197ba6, #56e7ff, #d9fbff);
+          box-shadow: 0 0 14px rgba(72, 218, 255, .42);
+          transition: width .1s linear;
+        }
+
+        .cm-modal-layer,
+        .cm-final-layer {
+          position: fixed;
+          inset: 0;
+          z-index: 240;
+          display: grid;
+          place-items: center;
+          padding: 18px;
+          background: rgba(2, 8, 14, .62);
+          -webkit-backdrop-filter: blur(14px) saturate(.82);
+          backdrop-filter: blur(14px) saturate(.82);
+          animation: cmOverlayIn .2s ease both;
+        }
+
+        .cm-modal {
+          width: min(100%, 370px);
+          overflow: hidden;
+          border: 1px solid rgba(106, 224, 255, .15);
+          border-radius: 24px;
+          background: linear-gradient(180deg, rgba(20, 48, 67, .98), rgba(5, 18, 29, .99));
+          box-shadow: 0 28px 70px rgba(0, 0, 0, .48), inset 0 1px 0 rgba(255, 255, 255, .08);
+        }
+
+        .cm-modal-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 18px 18px 14px;
+          border-bottom: 1px solid rgba(255, 255, 255, .06);
+        }
+
+        .cm-modal-head p,
+        .cm-modal-head h2 { margin: 0; }
+        .cm-modal-head p { color: rgba(120, 224, 255, .64); font-size: 8px; letter-spacing: .16em; }
+        .cm-modal-head h2 { margin-top: 4px; color: #eefcff; font-size: 18px; line-height: 1.25; }
+        .cm-modal-head button { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 12px; color: rgba(255,255,255,.76); background: rgba(255,255,255,.06); }
+        .cm-modal-body { display: grid; gap: 14px; padding: 16px 18px 18px; }
+        .cm-modal-body section + section { padding-top: 14px; border-top: 1px solid rgba(255,255,255,.055); }
+        .cm-modal-body h3 { margin: 0 0 6px; color: rgba(184, 243, 255, .9); font-size: 10px; line-height: 1.4; }
+        .cm-modal-body p { margin: 0; color: rgba(255,255,255,.52); font-size: 8.5px; line-height: 1.65; }
+        .cm-info-bet { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border-radius: 14px; background: rgba(89, 218, 255, .065); }
+        .cm-info-bet span { color: rgba(255,255,255,.48); font-size: 8px; }
+        .cm-info-bet strong { color: #a7efff; font-size: 10px; }
+
+        .cm-final-card {
+          position: relative;
+          width: min(100%, 340px);
+          overflow: hidden;
+          padding: 28px 22px 22px;
+          border: 1px solid rgba(112, 231, 255, .16);
+          border-radius: 28px;
+          background: linear-gradient(180deg, rgba(19, 48, 66, .98), rgba(5, 16, 25, .99));
+          box-shadow: 0 30px 80px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.09);
+          text-align: center;
+          animation: cmFinalIn .34s cubic-bezier(.2, 1, .25, 1) both;
+        }
+
+        .cm-final-gem { position: relative; z-index: 2; display: grid; height: 88px; place-items: center; }
+        .cm-final-gem img { width: 86px; height: 86px; object-fit: contain; filter: drop-shadow(0 14px 26px rgba(40, 205, 255, .25)); }
+        .cm-final-layer.is-lose .cm-final-gem img { width: 92px; height: 92px; filter: drop-shadow(0 14px 26px rgba(255, 75, 115, .18)); }
+        .cm-final-card > p { position: relative; z-index: 2; margin: 15px 0 4px; color: rgba(132, 226, 255, .58); font-size: 8px; letter-spacing: .16em; }
+        .cm-final-card > h2 { position: relative; z-index: 2; margin: 0; color: #f2fdff; font-size: 22px; line-height: 1.3; }
+        .cm-final-card > strong { position: relative; z-index: 2; display: block; margin-top: 14px; color: #84eeff; font-size: 20px; line-height: 1.35; text-shadow: 0 0 20px rgba(81, 222, 255, .28); }
+        .cm-final-layer.is-lose .cm-final-card > strong { color: #ff869e; text-shadow: none; }
+        .cm-final-card > button { position: relative; z-index: 2; width: 100%; min-height: 43px; margin-top: 20px; border-radius: 15px; color: #041116; background: linear-gradient(135deg, #dffcff, #5de4f7); font-size: 9px; font-weight: 900; }
+        .cm-final-layer.is-lose .cm-final-card > button { color: #fff; background: rgba(255,255,255,.08); }
+        .cm-final-card > i { --cm-angle: calc(var(--cm-fx) * 29deg); position: absolute; left: 50%; top: 43%; width: 4px; height: 10px; border-radius: 999px; background: #7deaff; opacity: 0; transform: rotate(var(--cm-angle)) translateY(-35px); animation: cmFinalSpark 1.25s ease-out calc(var(--cm-fx) * 28ms) both; }
+
         @keyframes cmCrystalPop {
           0% { opacity: 0; transform: translateZ(18px) scale(.35) rotate(-12deg); }
           70% { opacity: 1; transform: translateZ(18px) scale(1.22) rotate(7deg); }
           100% { opacity: 1; transform: translateZ(18px) scale(1) rotate(0); }
         }
+
+        @keyframes cmPendingTile { 50% { filter: brightness(1.16); transform: scale(.97); } }
+        @keyframes cmLoadingAura { 50% { transform: scale(1.12); opacity: .72; } }
+        @keyframes cmLoadingBomb { 0%, 100% { transform: translateY(1px) rotate(-5deg); } 50% { transform: translateY(-7px) rotate(6deg); } }
+        @keyframes cmLoadingGemLeft { 0%, 100% { transform: translate(0, 0) rotate(-10deg); } 50% { transform: translate(6px, -9px) rotate(4deg); } }
+        @keyframes cmLoadingGemRight { 0%, 100% { transform: translate(0, 0) rotate(8deg); } 50% { transform: translate(-5px, 8px) rotate(-5deg); } }
+        @keyframes cmOverlayIn { from { opacity: 0; } }
+        @keyframes cmFinalIn { from { opacity: 0; transform: translateY(18px) scale(.95); } }
+        @keyframes cmFinalSpark { 12% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--cm-angle)) translateY(-138px) scale(.35); } }
 
         @keyframes cmMinePop {
           0% { opacity: 0; transform: translateZ(18px) scale(.35) rotate(0); }
@@ -782,6 +1102,8 @@ export const CrystalMinesSoloGame = () => {
         }
       `}</style>
 
+      {loadingScreen && <MinesLoadingScreen progress={loadProgress} />}
+
       <div className="cm-casino-fx" aria-hidden="true">
         <span />
         <span />
@@ -794,21 +1116,26 @@ export const CrystalMinesSoloGame = () => {
       </div>
 
       <div className="cm-head">
+        <button type="button" className="cm-info-btn" onClick={() => setShowInfo(true)} aria-label={tr('Information', 'Информация')}>
+          <InfoIcon />
+        </button>
         <img className="cm-title-img" src={titleAsset} alt="Crystal Mines" />
+        <span aria-hidden="true" />
       </div>
 
       <div className="cm-grid">
         {Array.from({ length: GRID }, (_, index) => {
-          const isPicked = effectivePicked.has(index);
+          const isPending = pendingCell === index;
+          const isPicked = effectivePicked.has(index) && !isPending;
           const isMine = revealedMines.includes(index);
           const isSafe = isPicked && !isMine;
-          const isOpened = isPicked || isMine;
+          const isOpened = (isPicked || isMine) && !isPending;
 
           return (
             <button
               key={index}
               type="button"
-              className={`cm-cell ${isOpened ? 'opened' : ''} ${isSafe ? 'safe' : ''} ${
+              className={`cm-cell ${isOpened ? 'opened' : ''} ${isSafe ? 'safe' : ''} ${isPending ? 'pending' : ''} ${
                 isMine ? 'mine' : ''
               }`}
               disabled={!canPick || isPicked || effectivePhase !== 'playing'}
@@ -836,12 +1163,12 @@ export const CrystalMinesSoloGame = () => {
 
       <div className="cm-panel">
         <div className="cm-stat">
-          <span>Множитель</span>
+          <span>{tr('Multiplier', 'Множитель')}</span>
           <strong>x{multiplier.toFixed(2)}</strong>
         </div>
 
         <div className="cm-stat">
-          <span>Cashout</span>
+          <span>{tr('Cashout', 'Забрать')}</span>
           <strong className="cm-money">
             {cashoutValue}
             <img className="cm-coin" src={coinIcon} alt="" />
@@ -850,8 +1177,8 @@ export const CrystalMinesSoloGame = () => {
 
         {phase === 'finished' ? (
           <div className="cm-stat">
-            <span>Итог</span>
-            <strong>{formatMoney(lastWin)}</strong>
+            <span>{tr('Result', 'Итог')}</span>
+            <strong>{formatMoney(lastWin, locale)}</strong>
           </div>
         ) : null}
 
@@ -890,11 +1217,11 @@ export const CrystalMinesSoloGame = () => {
               disabled={!canStart}
               onClick={() => void start()}
             >
-              Играть
+              {tr('Play', 'Играть')}
             </button>
           ) : phase === 'finished' ? (
             <button type="button" className="cm-btn wide" onClick={resetToIdle}>
-              Заново
+              {tr('Play again', 'Заново')}
             </button>
           ) : (
             <>
@@ -904,16 +1231,26 @@ export const CrystalMinesSoloGame = () => {
                 onClick={() => void cashout()}
                 disabled={!canCashout}
               >
-                Cashout
+                {tr('Cashout', 'Забрать')}
               </button>
 
               <button type="button" className="cm-btn" disabled>
-                Шагов: {session.openedSteps}
+                {tr('Picks', 'Ходов')}: {session.openedSteps}
               </button>
             </>
           )}
         </div>
       </div>
+
+      {showInfo && <MinesInfoModal bet={effectiveBet} onClose={() => setShowInfo(false)} />}
+      {showFinal && finishType && (
+        <MinesFinalOverlay
+          type={finishType}
+          win={lastWin}
+          bet={effectiveBet}
+          onClose={() => setShowFinal(false)}
+        />
+      )}
     </main>
   );
 };

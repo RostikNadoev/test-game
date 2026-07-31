@@ -1,3 +1,8 @@
+import fruitCascadeCard from '../assets/solo/cards/fruit-cascade-card.webp';
+import appleTrailCard from '../assets/solo/cards/apple-trail-card.webp';
+import crystalMinesCard from '../assets/solo/cards/crystal-mines-card.webp';
+import neonScratchCard from '../assets/solo/cards/neon-scratch-card.webp';
+
 export type SoloGameTone = 'ruby' | 'cyan' | 'violet' | 'lime' | 'amber';
 
 export type SoloGame = {
@@ -9,6 +14,7 @@ export type SoloGame = {
   route: string;
   tone: SoloGameTone;
   imageSrc?: string;
+  isPlaceholder?: boolean;
 };
 
 export const SOLO_GAMES: SoloGame[] = [
@@ -17,45 +23,50 @@ export const SOLO_GAMES: SoloGame[] = [
     slug: 'fruit-cascade',
     title: 'Fruit Cascade',
     tag: 'Cascade slot',
-    icon: '🍓',
+    icon: '✦',
     route: '/solo/fruit-cascade',
     tone: 'ruby',
-  },
-  {
-    id: 'royal_5x5',
-    slug: 'royal-5x5',
-    title: 'Apple Trail',
-    tag: 'Risk picks',
-    icon: '🍎',
-    route: '/solo/royal-5x5',
-    tone: 'amber',
+    imageSrc: fruitCascadeCard,
   },
   {
     id: 'crystal_mines',
     slug: 'crystal-mines',
     title: 'Crystal Mines',
     tag: 'Risk picks',
-    icon: '💎',
+    icon: '◆',
     route: '/solo/crystal-mines',
     tone: 'cyan',
+    imageSrc: crystalMinesCard,
   },
   {
-    id: 'turbo_tower',
-    slug: 'turbo-tower',
-    title: 'Turbo Tower',
-    tag: 'Upgrade',
-    icon: '⚡',
-    route: '/solo/turbo-tower',
-    tone: 'violet',
+    id: 'royal_5x5',
+    slug: 'royal-5x5',
+    title: 'Apple Trail',
+    tag: 'Risk picks',
+    icon: '●',
+    route: '/solo/royal-5x5',
+    tone: 'amber',
+    imageSrc: appleTrailCard,
   },
   {
     id: 'neon_scratch',
     slug: 'neon-scratch',
     title: 'Neon Scratch',
     tag: 'Instant',
-    icon: '🎟️',
+    icon: '◇',
     route: '/solo/neon-scratch',
     tone: 'lime',
+    imageSrc: neonScratchCard,
+  },
+  {
+    id: 'coming_soon',
+    slug: 'coming-soon',
+    title: 'Coming Soon',
+    tag: 'New game',
+    icon: '+',
+    route: '/solo/coming-soon',
+    tone: 'violet',
+    isPlaceholder: true,
   },
 ];
 
