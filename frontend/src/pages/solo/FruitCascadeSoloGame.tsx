@@ -28,10 +28,9 @@ const POP_MS = 255;
 const AFTER_DROP_MS = 150;
 const SPIN_OUT_MS = 420;
 const SPIN_IN_MS = 620;
-const SPIN_COLUMN_STAGGER_MS = 58;
-const SPIN_ROW_STAGGER_MS = 8;
-const SPIN_OUT_TOTAL_MS = SPIN_OUT_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS + (ROWS - 1) * SPIN_ROW_STAGGER_MS;
-const SPIN_IN_TOTAL_MS = SPIN_IN_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS + (ROWS - 1) * SPIN_ROW_STAGGER_MS;
+const SPIN_COLUMN_STAGGER_MS = 72;
+const SPIN_OUT_TOTAL_MS = SPIN_OUT_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS;
+const SPIN_IN_TOTAL_MS = SPIN_IN_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS;
 
 const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
 
@@ -145,7 +144,7 @@ const boardFromSymbols = (symbols: SymbolId[], phase: CellPhase = 'idle'): Cell[
       phase,
       delay:
         phase === 'spin-in'
-          ? col * SPIN_COLUMN_STAGGER_MS + row * SPIN_ROW_STAGGER_MS
+          ? col * SPIN_COLUMN_STAGGER_MS
           : col * 16 + row * 22,
       drop: phase === 'drop' ? row + 2 : 0,
       rot: 0,
@@ -154,13 +153,12 @@ const boardFromSymbols = (symbols: SymbolId[], phase: CellPhase = 'idle'): Cell[
 
 const boardForSpinOut = (cells: Cell[]): Cell[] =>
   cells.map((cell, index) => {
-    const row = Math.floor(index / COLS);
     const col = index % COLS;
 
     return {
       ...cell,
       phase: 'spin-out',
-      delay: col * SPIN_COLUMN_STAGGER_MS + row * SPIN_ROW_STAGGER_MS,
+      delay: col * SPIN_COLUMN_STAGGER_MS,
       drop: 0,
       rot: Math.round((Math.random() - 0.5) * 8),
     };
@@ -707,21 +705,16 @@ const StyleBlock = () => (
     .fc-cell {
       position: relative;
       aspect-ratio: 1;
-      border-radius: 15px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background:
-        radial-gradient(circle at 34% 20%, rgba(255,255,255,.13), transparent 38%),
-        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)),
-        rgba(32, 18, 58, .74);
-      border: 1px solid rgba(255,255,255,.075);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.10),
-        inset 0 -5px 9px rgba(0,0,0,.16);
+      overflow: visible;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
       transform: translateZ(0);
       will-change: transform, opacity;
-      contain: layout paint style;
+      contain: layout style;
     }
 
     .fc-cell-inner {
@@ -762,27 +755,31 @@ const StyleBlock = () => (
       }
 
       100% {
-        transform: translate3d(0, 660%, 0) rotate(calc(var(--rot) + 10deg)) scale(.92);
-        opacity: .08;
-        filter: blur(2px);
+        transform: translate3d(0, 720%, 0) rotate(calc(var(--rot) + 8deg)) scale(.96);
+        opacity: .12;
+        filter: blur(1.5px);
       }
     }
 
     @keyframes fcSpinColumnIn {
       0% {
-        transform: translate3d(0, -660%, 0) rotate(calc(var(--rot) - 9deg)) scale(.92);
-        opacity: .08;
-        filter: blur(2px);
+        transform: translate3d(0, -720%, 0) rotate(calc(var(--rot) - 7deg)) scale(.96);
+        opacity: .12;
+        filter: blur(1.5px);
       }
 
-      67% {
-        transform: translate3d(0, 7%, 0) rotate(calc(var(--rot) + 2deg)) scale(1.035, .97);
+      64% {
+        transform: translate3d(0, 11%, 0) rotate(calc(var(--rot) + 2deg)) scale(1.055, .94);
         opacity: 1;
         filter: blur(0);
       }
 
-      84% {
-        transform: translate3d(0, -2.8%, 0) rotate(var(--rot)) scale(.99, 1.018);
+      80% {
+        transform: translate3d(0, -5%, 0) rotate(var(--rot)) scale(.985, 1.035);
+      }
+
+      91% {
+        transform: translate3d(0, 2%, 0) rotate(var(--rot)) scale(1.012, .99);
       }
 
       100% {
@@ -815,54 +812,101 @@ const StyleBlock = () => (
 
     .fc-cell.win {
       z-index: 3;
-      border-color: var(--glow);
-      animation: fcWinMark .24s ease-out both;
+      animation: none;
     }
 
     .fc-cell.win::after {
       content: '';
       position: absolute;
-      inset: -3px;
-      border-radius: inherit;
-      opacity: .62;
+      left: 50%;
+      top: 50%;
+      width: 76%;
+      aspect-ratio: 1;
+      border-radius: 999px;
+      opacity: 0;
       pointer-events: none;
-      background: radial-gradient(circle, var(--glow), transparent 68%);
-      transform: translateZ(0);
+      background: radial-gradient(circle, color-mix(in srgb, var(--glow) 34%, transparent), transparent 67%);
+      border: 1px solid color-mix(in srgb, var(--glow) 58%, transparent);
+      box-shadow: 0 0 18px color-mix(in srgb, var(--glow) 36%, transparent);
+      transform: translate(-50%, -50%) scale(.55);
+      animation: fcWinAura ${HIGHLIGHT_MS}ms ease-out both;
     }
 
-    @keyframes fcWinMark {
+    .fc-cell.win .fc-cell-inner {
+      animation: fcWinFruit ${HIGHLIGHT_MS}ms cubic-bezier(.2, .86, .26, 1.22) both;
+      filter: drop-shadow(0 0 12px var(--glow));
+    }
+
+    @keyframes fcWinFruit {
       0% {
-        transform: translateZ(0) scale(1);
+        transform: rotate(var(--rot)) translateZ(0) scale(1);
       }
 
-      55% {
-        transform: translateZ(0) scale(1.04);
+      52% {
+        transform: rotate(calc(var(--rot) - 4deg)) translateZ(0) scale(1.17);
       }
 
       100% {
-        transform: translateZ(0) scale(1.015);
+        transform: rotate(calc(var(--rot) + 2deg)) translateZ(0) scale(1.08);
       }
     }
 
+    @keyframes fcWinAura {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(.48); }
+      45% { opacity: .78; }
+      100% { opacity: .22; transform: translate(-50%, -50%) scale(1.22); }
+    }
+
     .fc-cell.pop .fc-cell-inner {
-      animation: fcPop ${POP_MS}ms ease-in both;
+      animation: fcPop ${POP_MS}ms cubic-bezier(.45, .02, .72, .55) both;
+    }
+
+    .fc-cell.pop::before {
+      content: '';
+      position: absolute;
+      z-index: 3;
+      left: 50%;
+      top: 50%;
+      width: 42%;
+      aspect-ratio: 1;
+      border: 2px solid var(--glow);
+      border-radius: 999px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -50%) scale(.35);
+      box-shadow: 0 0 14px var(--glow);
+      animation: fcBurstRing ${POP_MS}ms ease-out both;
     }
 
     @keyframes fcPop {
       0% {
         transform: rotate(var(--rot)) scale(1);
         opacity: 1;
+        filter: blur(0) brightness(1);
       }
 
-      45% {
-        transform: rotate(var(--rot)) scale(1.14);
+      34% {
+        transform: rotate(calc(var(--rot) - 3deg)) scale(.86, 1.08);
         opacity: 1;
       }
 
-      100% {
-        transform: rotate(var(--rot)) scale(.25);
-        opacity: 0;
+      62% {
+        transform: rotate(calc(var(--rot) + 5deg)) scale(1.38);
+        opacity: 1;
+        filter: blur(0) brightness(1.34);
       }
+
+      100% {
+        transform: rotate(calc(var(--rot) + 16deg)) scale(.04);
+        opacity: 0;
+        filter: blur(2px) brightness(1.7);
+      }
+    }
+
+    @keyframes fcBurstRing {
+      0%, 42% { opacity: 0; transform: translate(-50%, -50%) scale(.35); }
+      58% { opacity: .9; }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(2.05); }
     }
 
     .fc-particles {
@@ -880,14 +924,31 @@ const StyleBlock = () => (
       height: 4px;
       border-radius: 999px;
       background: var(--glow);
+      box-shadow: 0 0 7px var(--glow);
+      opacity: 0;
       animation: fcSpark ${POP_MS}ms ease-out both;
       transform: rotate(var(--a)) translateX(0);
     }
 
+    .fc-particles span:nth-child(2n) {
+      width: 6px;
+      height: 3px;
+      border-radius: 3px;
+    }
+
     @keyframes fcSpark {
+      0%, 38% {
+        opacity: 0;
+        transform: rotate(var(--a)) translateX(2px) scale(.45);
+      }
+
+      56% {
+        opacity: 1;
+      }
+
       to {
         opacity: 0;
-        transform: rotate(var(--a)) translateX(21px) scale(.35);
+        transform: rotate(var(--a)) translateX(var(--distance)) scale(.2);
       }
     }
 
@@ -1826,7 +1887,10 @@ const StyleBlock = () => (
       .fc-cell.spin-out .fc-cell-inner,
       .fc-cell.spin-in .fc-cell-inner,
       .fc-cell.win,
+      .fc-cell.win .fc-cell-inner,
+      .fc-cell.win::after,
       .fc-cell.pop .fc-cell-inner,
+      .fc-cell.pop::before,
       .fc-particles span {
         animation: none !important;
       }
@@ -2282,10 +2346,15 @@ export const FruitCascadeSoloGame = () => {
 
                     {cell.phase === 'pop' && (
                       <div className="fc-particles">
-                        {Array.from({ length: 4 }, (_, spark) => (
+                        {Array.from({ length: 8 }, (_, spark) => (
                           <span
                             key={spark}
-                            style={{ '--a': `${spark * 90}deg` } as CSSProperties}
+                            style={
+                              {
+                                '--a': `${spark * 45}deg`,
+                                '--distance': `${23 + (spark % 3) * 5}px`,
+                              } as CSSProperties
+                            }
                           />
                         ))}
                       </div>
