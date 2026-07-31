@@ -24,7 +24,7 @@ const MIN_CLUSTER = 5;
 
 const DROP_MS = 620;
 const HIGHLIGHT_MS = 360;
-const POP_MS = 320;
+const POP_MS = 255;
 const AFTER_DROP_MS = 150;
 const SPIN_OUT_MS = 420;
 const SPIN_IN_MS = 620;
@@ -1208,19 +1208,45 @@ const StyleBlock = () => (
 
     .fc-load-stage {
       position: relative;
-      width: 244px;
-      height: 216px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 220, 145, .13);
-      border-radius: 38px;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.014)),
-        rgba(18, 8, 34, .44);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,.08),
-        inset 0 -34px 54px rgba(3, 1, 9, .30),
-        0 24px 58px rgba(0,0,0,.22);
+      width: 270px;
+      height: 220px;
+      overflow: visible;
       isolation: isolate;
+    }
+
+    .fc-load-stage::before {
+      content: '';
+      position: absolute;
+      z-index: 0;
+      left: 50%;
+      top: -24px;
+      width: 205px;
+      height: 236px;
+      transform: translateX(-50%);
+      background:
+        radial-gradient(ellipse at 50% 100%, rgba(255, 200, 79, .23), transparent 57%),
+        linear-gradient(90deg, transparent 7%, rgba(176, 107, 255, .06) 28%, rgba(255, 232, 166, .15) 50%, rgba(255, 112, 138, .06) 72%, transparent 93%);
+      filter: blur(9px);
+      -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 84%, transparent);
+      mask-image: linear-gradient(180deg, transparent, #000 18%, #000 84%, transparent);
+      animation: fcLoadBeam 1.8s ease-in-out infinite;
+    }
+
+    .fc-load-stage::after {
+      content: '';
+      position: absolute;
+      z-index: 2;
+      left: 50%;
+      bottom: 3px;
+      width: 238px;
+      height: 68px;
+      border: 1px solid rgba(255, 220, 135, .17);
+      border-radius: 50%;
+      transform: translateX(-50%) rotate(-2deg);
+      box-shadow:
+        inset 0 10px 24px rgba(255, 185, 68, .06),
+        0 0 28px rgba(176, 107, 255, .09);
+      animation: fcLoadOrbit 2.2s ease-in-out infinite;
     }
 
     .fc-load-halo {
@@ -1238,11 +1264,41 @@ const StyleBlock = () => (
 
     .fc-load-stage-grid {
       position: absolute;
-      inset: 0;
-      opacity: .32;
+      z-index: 1;
+      inset: -16px 22px 16px;
+      overflow: hidden;
+      opacity: .56;
       background:
-        linear-gradient(90deg, transparent 24.5%, rgba(255,255,255,.045) 25%, transparent 25.5%, transparent 49.5%, rgba(255,255,255,.045) 50%, transparent 50.5%, transparent 74.5%, rgba(255,255,255,.045) 75%, transparent 75.5%),
-        linear-gradient(180deg, transparent 70%, rgba(255,255,255,.05));
+        linear-gradient(90deg, transparent 16%, rgba(255,255,255,.09) 16.4%, transparent 17%, transparent 42%, rgba(255,211,77,.11) 42.4%, transparent 43%, transparent 68%, rgba(176,107,255,.12) 68.4%, transparent 69%, transparent 88%, rgba(255,255,255,.07) 88.4%, transparent 89%);
+      filter: blur(.25px);
+      -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 78%, transparent);
+      mask-image: linear-gradient(180deg, transparent, #000 18%, #000 78%, transparent);
+      animation: fcLoadStreaks 1.35s linear infinite;
+    }
+
+    .fc-load-stage-grid::before,
+    .fc-load-stage-grid::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      border-radius: 50%;
+      transform: translateX(-50%);
+    }
+
+    .fc-load-stage-grid::before {
+      bottom: 3px;
+      width: 202px;
+      height: 54px;
+      border-top: 2px solid rgba(255, 211, 77, .42);
+      filter: drop-shadow(0 0 8px rgba(255, 190, 77, .35));
+    }
+
+    .fc-load-stage-grid::after {
+      bottom: 14px;
+      width: 148px;
+      height: 34px;
+      background: radial-gradient(ellipse, rgba(255, 211, 77, .17), rgba(176, 107, 255, .06) 48%, transparent 72%);
+      filter: blur(5px);
     }
 
     .fc-load-drop {
@@ -1397,6 +1453,19 @@ const StyleBlock = () => (
 
     @keyframes fcLoadFloor {
       50% { transform: scaleX(.72); opacity: .62; }
+    }
+
+    @keyframes fcLoadBeam {
+      50% { transform: translateX(-50%) scaleX(.82); opacity: .7; }
+    }
+
+    @keyframes fcLoadOrbit {
+      50% { transform: translateX(-50%) rotate(2deg) scaleX(.9); opacity: .62; }
+    }
+
+    @keyframes fcLoadStreaks {
+      from { transform: translateY(-12px); }
+      to { transform: translateY(12px); }
     }
 
     .fc-bigwin {
@@ -1747,6 +1816,9 @@ const StyleBlock = () => (
       .fc-load-pop-ring,
       .fc-load-sparkles i,
       .fc-load-floor-glow,
+      .fc-load-stage::before,
+      .fc-load-stage::after,
+      .fc-load-stage-grid,
       .fc-load-halo,
       .fc-confetti span,
       .fc-bigwin-burst,
