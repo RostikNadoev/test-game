@@ -3,6 +3,8 @@ import appleTrailCard from '../assets/solo/cards/apple-trail-card.webp';
 import crystalMinesCard from '../assets/solo/cards/crystal-mines-card.webp';
 import neonScratchCard from '../assets/solo/cards/neon-scratch-card.webp';
 import royalVaultCard from '../assets/solo/cards/royal-vault-card.webp';
+import eclipseReelsCard from '../assets/solo/cards/eclipse-reels-card.webp';
+import fortunePushCard from '../assets/solo/cards/fortune-push-card.webp';
 
 export type SoloGameTone = 'ruby' | 'cyan' | 'violet' | 'lime' | 'amber';
 
@@ -68,6 +70,26 @@ export const SOLO_GAMES: SoloGame[] = [
     route: '/solo/royal-vault',
     tone: 'amber',
     imageSrc: royalVaultCard,
+  },
+  {
+    id: 'eclipse_reels',
+    slug: 'eclipse-reels',
+    title: 'Eclipse Reels',
+    tag: '8 orbital rays',
+    icon: '◉',
+    route: '/solo/eclipse-reels',
+    tone: 'ruby',
+    imageSrc: eclipseReelsCard,
+  },
+  {
+    id: 'fortune_push',
+    slug: 'fortune-push',
+    title: 'Fortune Push',
+    tag: 'Coin pusher',
+    icon: '◆',
+    route: '/solo/fortune-push',
+    tone: 'cyan',
+    imageSrc: fortunePushCard,
   },
 ];
 

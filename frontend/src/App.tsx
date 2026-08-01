@@ -54,6 +54,16 @@ const RoyalVaultSoloGame = lazy(() =>
     default: module.RoyalVaultSoloGame,
   })),
 );
+const EclipseReelsSoloGame = lazy(() =>
+  import("./pages/solo/EclipseReelsSoloGame").then((module) => ({
+    default: module.EclipseReelsSoloGame,
+  })),
+);
+const FortunePushSoloGame = lazy(() =>
+  import("./pages/solo/FortunePushSoloGame").then((module) => ({
+    default: module.FortunePushSoloGame,
+  })),
+);
 const NeonScratchSoloGame = lazy(() =>
   import("./pages/solo/NeonScratchSoloGame").then((module) => ({
     default: module.NeonScratchSoloGame,
@@ -440,6 +450,8 @@ function AppShell() {
                 element={<CrystalMinesSoloGame />}
               />
               <Route path="/solo/royal-vault" element={<RoyalVaultSoloGame />} />
+              <Route path="/solo/eclipse-reels" element={<EclipseReelsSoloGame />} />
+              <Route path="/solo/fortune-push" element={<FortunePushSoloGame />} />
               <Route
                 path="/solo/neon-scratch"
                 element={<NeonScratchSoloGame />}
