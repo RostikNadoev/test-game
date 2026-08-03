@@ -7194,6 +7194,7 @@ body.fruit-cascade-active .header-panel {
 
 .minimal-bet-adjuster {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
@@ -7216,10 +7217,11 @@ body.fruit-cascade-active .header-panel {
 
 .minimal-bet-value {
   display: flex;
-  min-width: 64px;
+  min-width: 76px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   color: #ffc96a;
 }
 
@@ -7231,14 +7233,11 @@ body.fruit-cascade-active .header-panel {
 }
 
 .minimal-bet-value strong {
-  max-width: 72px;
-  overflow: hidden;
   color: #fff;
-  font-size: 21px;
+  font-size: 16px;
   font-weight: 900;
   line-height: 1.25;
-  letter-spacing: -0.04em;
-  text-overflow: ellipsis;
+  letter-spacing: -0.02em;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
