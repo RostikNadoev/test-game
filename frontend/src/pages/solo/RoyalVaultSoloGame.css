@@ -353,21 +353,41 @@ body.royal-vault-active .solo-header-badge {
   will-change: transform, filter;
 }
 
-.rv-reel-track.is-rolling {
-  height: calc(var(--strip-scale) * 100%);
-  grid-template-rows: repeat(18, minmax(0, 1fr));
-  transform: translate3d(0, 0, 0);
-  animation: rvReelRoll var(--spin-duration) linear infinite;
+.rv-reel-track.is-cascade-transition {
+  position: relative;
 }
 
-.rv-reel-track.is-stopping {
-  height: calc(var(--strip-scale) * 100%);
-  grid-template-rows: repeat(18, minmax(0, 1fr));
-  animation: rvReelBrake var(--brake-duration) cubic-bezier(0.12, 0.72, 0.18, 1) both;
+.rv-symbol-transition {
+  position: relative;
+  min-height: 0;
+  overflow: visible;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
 }
 
-.rv-reel.is-rolling::after,
-.rv-reel.is-stopping::after {
+.rv-symbol-transition:last-child {
+  border-bottom: 0;
+}
+
+.rv-symbol-transition > .rv-symbol {
+  position: absolute;
+  inset: 0;
+  border-bottom: 0;
+  will-change: transform, opacity, filter;
+}
+
+.rv-symbol-transition > .rv-symbol.is-spin-out {
+  z-index: 2;
+  animation: rvCascadeSymbolOut var(--spin-out-duration) cubic-bezier(0.55, 0.02, 0.82, 0.42) both;
+  animation-delay: var(--reel-delay);
+}
+
+.rv-symbol-transition > .rv-symbol.is-spin-in {
+  z-index: 3;
+  animation: rvCascadeSymbolIn var(--spin-in-duration) cubic-bezier(0.16, 0.9, 0.19, 1) both;
+  animation-delay: var(--reel-delay);
+}
+
+.rv-reel.is-cascade-spinning::after {
   content: '';
   pointer-events: none;
   position: absolute;
@@ -425,17 +445,6 @@ body.royal-vault-active .solo-header-badge {
   background: radial-gradient(circle, color-mix(in srgb, var(--symbol-tone) 28%, transparent), transparent 70%);
   opacity: 0.2;
   transform: scale(0.7);
-}
-
-.rv-reel-track.is-rolling .rv-symbol img,
-.rv-reel-track.is-stopping .rv-symbol img {
-  transform: scaleY(1.07) scaleX(0.98);
-  filter: blur(0.75px) saturate(0.88) drop-shadow(0 9px 7px rgba(0, 0, 0, 0.34));
-  opacity: 0.78;
-}
-
-.rv-reel-track.is-stopping .rv-symbol img {
-  animation: rvSymbolBrake var(--brake-duration) ease-out both;
 }
 
 .rv-reel.is-settled .rv-reel-track {
@@ -1132,53 +1141,50 @@ body.royal-vault-active .solo-header-badge {
 .rv-loader-bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #147c55, #5fe2a2, #e0ba60); box-shadow: 0 0 10px rgba(71, 222, 152, 0.36); transition: width 70ms linear; }
 .rv-loader > small { position: relative; margin-top: 9px; color: rgba(255, 255, 255, 0.25); font-family: Inter, system-ui, sans-serif; font-size: 6px; font-weight: 800; line-height: 1.3; letter-spacing: 0.08em; }
 
-@keyframes rvReelRoll {
+@keyframes rvCascadeSymbolOut {
   0% {
     transform: translate3d(0, 0, 0);
-    filter: blur(0);
-  }
-  12% {
-    filter: blur(0.55px);
-  }
-  76% {
-    filter: blur(0.85px);
-  }
-  94% {
-    filter: blur(0.25px);
-  }
-  100% {
-    transform: translate3d(0, var(--strip-end), 0);
-    filter: blur(0);
-  }
-}
-
-@keyframes rvReelBrake {
-  0% {
-    transform: translate3d(0, 0, 0);
-    filter: blur(0.85px);
-  }
-  54% {
-    filter: blur(0.55px);
-  }
-  84% {
-    filter: blur(0.18px);
-  }
-  100% {
-    transform: translate3d(0, var(--strip-end), 0);
-    filter: blur(0);
-  }
-}
-
-@keyframes rvSymbolBrake {
-  from {
-    transform: scaleY(1.07) scaleX(0.98);
-    filter: blur(0.75px) saturate(0.88) drop-shadow(0 9px 7px rgba(0, 0, 0, 0.34));
-    opacity: 0.78;
-  }
-  to {
-    transform: scale(1);
-    filter: blur(0) saturate(1) drop-shadow(0 5px 7px rgba(0, 0, 0, 0.38));
     opacity: 1;
+    filter: blur(0);
+  }
+
+  22% {
+    transform: translate3d(0, -8%, 0) rotate(-2deg) scale(1.025);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 165%, 0) rotate(7deg) scale(0.96);
+    opacity: 0.12;
+    filter: blur(1.5px);
+  }
+}
+
+@keyframes rvCascadeSymbolIn {
+  0% {
+    transform: translate3d(0, -165%, 0) rotate(-7deg) scale(0.96);
+    opacity: 0.12;
+    filter: blur(1.5px);
+  }
+
+  64% {
+    transform: translate3d(0, 11%, 0) rotate(2deg) scale(1.055, 0.94);
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  80% {
+    transform: translate3d(0, -5%, 0) scale(0.985, 1.035);
+  }
+
+  91% {
+    transform: translate3d(0, 2%, 0) scale(1.012, 0.99);
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
   }
 }
 

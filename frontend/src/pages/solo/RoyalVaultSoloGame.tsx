@@ -22,6 +22,11 @@ type SymbolId = 'wild' | 'diamond' | 'clover' | 'coin' | 'star' | 'orb';
 type SlotBoard = SymbolId[][];
 type SpinStage = 'idle' | 'rolling' | 'lines' | 'win';
 
+type SpinTransition = {
+  from: SlotBoard;
+  to: SlotBoard;
+};
+
 type SymbolDefinition = {
   id: SymbolId;
   image: string;
@@ -70,12 +75,11 @@ type RoyalVaultWindow = Window &
   };
 
 const REEL_COUNT = 5;
-const ROW_COUNT = 3;
 const QUICK_BETS = [10, 25, 50, 100];
 const MAX_BET = 500;
-const FIRST_REEL_STOP_DELAY_MS = 700;
-const REEL_STOP_GAP_MS = 140;
-const REEL_BRAKE_MS = 420;
+const SYMBOL_SPIN_OUT_MS = 420;
+const SYMBOL_SPIN_IN_MS = 620;
+const REEL_STAGGER_MS = 72;
 const LINE_PRESENTATION_MS = 1050;
 const AFTER_LINES_PAUSE_MS = 350;
 const WIN_OVERLAY_MS = 2050;
@@ -119,32 +123,6 @@ const STARTING_BOARD: SlotBoard = [
 ];
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-
-const pickWeightedSymbol = (excludeWild = false): SymbolId => {
-  const pool = excludeWild ? SYMBOLS.filter((symbol) => symbol.id !== 'wild') : SYMBOLS;
-  const total = pool.reduce((sum, symbol) => sum + symbol.weight, 0);
-  let cursor = Math.random() * total;
-
-  for (const symbol of pool) {
-    cursor -= symbol.weight;
-    if (cursor <= 0) return symbol.id;
-  }
-
-  return pool[pool.length - 1].id;
-};
-
-const createRandomColumn = (): SymbolId[] =>
-  Array.from({ length: ROW_COUNT }, () => pickWeightedSymbol());
-
-const createSpinStrips = (current: SlotBoard, target: SlotBoard): SlotBoard =>
-  Array.from({ length: REEL_COUNT }, (_, reel) => [
-    ...current[reel],
-    ...Array.from({ length: 12 }, () => pickWeightedSymbol()),
-    ...target[reel],
-  ]);
-
-const createAnimationTarget = (): SlotBoard =>
-  Array.from({ length: REEL_COUNT }, createRandomColumn);
 
 const linePoints = (line: number[]) =>
   line.map((row, reel) => `${50 + reel * 100},${50 + row * 100}`).join(' ');
@@ -285,6 +263,18 @@ const RoyalWinOverlay = ({
   );
 };
 
+const ReelSymbol = ({ symbolId, className = '' }: { symbolId: SymbolId; className?: string }) => {
+  const symbol = SYMBOL_BY_ID[symbolId];
+
+  return (
+    <div className={`rv-symbol ${className}`} style={{ '--symbol-tone': symbol.tone } as CSSProperties}>
+      <span className="rv-symbol-glow" />
+      <img src={symbol.image} alt={symbol.label} draggable={false} />
+      {symbolId === 'wild' && <small>WILD</small>}
+    </div>
+  );
+};
+
 export const RoyalVaultSoloGame = () => {
   const { tr, locale } = useLanguage();
   const { pauseBalanceSync, previewGameBalanceChange, resumeBalanceSync } = useAuth();
@@ -294,9 +284,7 @@ export const RoyalVaultSoloGame = () => {
   const [board, setBoard] = useState<SlotBoard>(STARTING_BOARD);
   const [spinning, setSpinning] = useState(false);
   const [spinStage, setSpinStage] = useState<SpinStage>('idle');
-  const [spinStrips, setSpinStrips] = useState<SlotBoard | null>(null);
-  const [settledReels, setSettledReels] = useState(REEL_COUNT);
-  const [stoppingReel, setStoppingReel] = useState<number | null>(null);
+  const [spinTransition, setSpinTransition] = useState<SpinTransition | null>(null);
   const [bet, setBet] = useState(25);
   const [betInput, setBetInput] = useState('25');
   const [winAmount, setWinAmount] = useState(0);
@@ -375,12 +363,9 @@ export const RoyalVaultSoloGame = () => {
       return;
     }
 
-    const strips = createSpinStrips(board, createAnimationTarget());
-    const startedAt = performance.now();
     setSpinning(true);
     setSpinStage('rolling');
-    setSpinStrips(strips);
-    setSettledReels(0);
+    setSpinTransition(null);
     setWins([]);
     setActiveWin(0);
     setWinAmount(0);
@@ -403,23 +388,17 @@ export const RoyalVaultSoloGame = () => {
         cells: win.cells,
       }));
       const amount = response.payout_coins;
-      setSpinStrips(createSpinStrips(board, targetBoard));
-      const firstStopWait = Math.max(0, FIRST_REEL_STOP_DELAY_MS - (performance.now() - startedAt));
+      setSpinTransition({ from: board, to: targetBoard });
 
       for (let reel = 0; reel < REEL_COUNT; reel += 1) {
-        await sleep(reel === 0 ? firstStopWait : REEL_STOP_GAP_MS);
+        await sleep(reel === 0 ? SYMBOL_SPIN_IN_MS : REEL_STAGGER_MS);
         if (!mountedRef.current) return;
-        setStoppingReel(reel);
-        await sleep(REEL_BRAKE_MS);
-        if (!mountedRef.current) return;
-        setBoard((current) => current.map((column, index) => index === reel ? targetBoard[reel] : column));
-        setSettledReels(reel + 1);
-        setStoppingReel(null);
         haptic('stop');
         playSound('stop');
       }
 
-      setSpinStrips(null);
+      setBoard(targetBoard);
+      setSpinTransition(null);
 
       if (result.length > 0) {
         setSpinStage('lines');
@@ -450,9 +429,7 @@ export const RoyalVaultSoloGame = () => {
       }
     } catch {
       setAuto(false);
-      setSpinStrips(null);
-      setSettledReels(REEL_COUNT);
-      setStoppingReel(null);
+      setSpinTransition(null);
       haptic('error');
     } finally {
       if (balanceSyncPausedRef.current) {
@@ -590,33 +567,33 @@ export const RoyalVaultSoloGame = () => {
           <div className="rv-reel-window">
             <div className="rv-reels">
               {board.map((column, reel) => {
-                const isRolling = spinStage === 'rolling' && reel >= settledReels && spinStrips !== null;
-                const isStopping = isRolling && stoppingReel === reel;
-                const reelSymbols = isRolling ? spinStrips[reel] : column;
-                const stripEnd = -((reelSymbols.length - ROW_COUNT) / reelSymbols.length) * 100;
+                const transitionFrom = spinTransition?.from[reel];
+                const transitionTo = spinTransition?.to[reel];
+                const isTransitioning = Boolean(transitionFrom && transitionTo);
 
                 return (
-                  <div className={`rv-reel ${isStopping ? 'is-stopping' : isRolling ? 'is-rolling' : 'is-settled'}`} key={reel}>
-                    <div
-                      className={`rv-reel-track ${isStopping ? 'is-stopping' : isRolling ? 'is-rolling' : ''}`}
-                      style={{
-                        '--strip-scale': isRolling ? reelSymbols.length / ROW_COUNT : 1,
-                        '--strip-end': `${stripEnd}%`,
-                        '--spin-duration': `${720 + reel * 45}ms`,
-                        '--brake-duration': `${REEL_BRAKE_MS}ms`,
-                      } as CSSProperties}
-                    >
-                      {reelSymbols.map((symbolId, row) => {
-                        const symbol = SYMBOL_BY_ID[symbolId];
-                        const isWinning = !isRolling && winningCells.has(`${reel}-${row}`);
-                        return (
-                          <div className={`rv-symbol ${isWinning ? 'is-winning' : ''}`} key={`${reel}-${row}-${symbolId}`} style={{ '--symbol-tone': symbol.tone } as CSSProperties}>
-                            <span className="rv-symbol-glow" />
-                            <img src={symbol.image} alt={symbol.label} draggable={false} />
-                            {symbolId === 'wild' && <small>WILD</small>}
-                          </div>
-                        );
-                      })}
+                  <div className={`rv-reel ${isTransitioning ? 'is-cascade-spinning' : 'is-settled'}`} key={reel}>
+                    <div className={`rv-reel-track ${isTransitioning ? 'is-cascade-transition' : ''}`}>
+                      {isTransitioning ? transitionFrom!.map((symbolId, row) => (
+                        <div
+                          className="rv-symbol-transition"
+                          key={`${reel}-${row}`}
+                          style={{
+                            '--reel-delay': `${reel * REEL_STAGGER_MS}ms`,
+                            '--spin-out-duration': `${SYMBOL_SPIN_OUT_MS}ms`,
+                            '--spin-in-duration': `${SYMBOL_SPIN_IN_MS}ms`,
+                          } as CSSProperties}
+                        >
+                          <ReelSymbol symbolId={symbolId} className="is-spin-out" />
+                          <ReelSymbol symbolId={transitionTo![row]} className="is-spin-in" />
+                        </div>
+                      )) : column.map((symbolId, row) => (
+                        <ReelSymbol
+                          symbolId={symbolId}
+                          className={winningCells.has(`${reel}-${row}`) ? 'is-winning' : ''}
+                          key={`${reel}-${row}-${symbolId}`}
+                        />
+                      ))}
                     </div>
                   </div>
                 );
