@@ -43,7 +43,7 @@ type WithdrawalCreateResult struct {
 func CreateWithdrawal(db *gorm.DB, userID uint, gameAmount int64, walletAddress, idempotencyKey string) (*WithdrawalCreateResult, error) {
 	walletAddress = strings.TrimSpace(walletAddress)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if userID == 0 || gameAmount <= 0 || gameAmount > maxWithdrawalGameAmount {
+	if userID == 0 || gameAmount < MinimumWithdrawalGameAmount || gameAmount > maxWithdrawalGameAmount {
 		return nil, ErrInvalidWithdrawalAmount
 	}
 	if !isValidTONAddress(walletAddress) {
@@ -73,6 +73,14 @@ func CreateWithdrawal(db *gorm.DB, userID uint, gameAmount int64, walletAddress,
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+
+		eligibility, eligibilityErr := withdrawalEligibilityTx(tx, user, walletAddress, time.Now().UTC())
+		if eligibilityErr != nil {
+			return eligibilityErr
+		}
+		if !eligibility.Eligible {
+			return &WithdrawalLockedError{Eligibility: eligibility}
 		}
 
 		if user.BalanceGame+1e-9 < float64(gameAmount) {

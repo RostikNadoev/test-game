@@ -420,6 +420,7 @@ func main() {
 			wallet.POST("/exchange-ton-to-game", middleware.RateLimit(30, time.Minute), walletHandler.ExchangeTONToGame)
 			wallet.POST("/withdrawals", middleware.RateLimitByUser(10, time.Minute), walletHandler.CreateWithdrawal)
 			wallet.GET("/withdrawals", walletHandler.WithdrawalHistory)
+			wallet.GET("/withdrawal-eligibility", walletHandler.WithdrawalEligibility)
 		}
 
 		if cfg.GinMode != "release" && cfg.AllowDevAuth {

@@ -5,9 +5,15 @@ import type {
   ExchangeTonToGameResponse,
   TopUpQuoteResponse,
   WithdrawalHistoryResponse,
+  WithdrawalEligibility,
 } from './types';
 
 export const walletApi = {
+  withdrawalEligibility(walletAddress = '') {
+    const query = walletAddress ? `?wallet_address=${encodeURIComponent(walletAddress)}` : '';
+    return apiRequest<WithdrawalEligibility>(`/api/v1/wallet/withdrawal-eligibility${query}`);
+  },
+
   createWithdrawal(gameAmount: number, walletAddress: string, idempotencyKey: string) {
     return apiRequest<CreateWithdrawalResponse>('/api/v1/wallet/withdrawals', {
       method: 'POST',

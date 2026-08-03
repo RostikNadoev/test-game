@@ -5,9 +5,12 @@ import {
   ArrowRight,
   ArrowUpFromLine,
   Check,
+  ChevronRight,
   Clock3,
   CircleAlert,
+  CircleCheck,
   History,
+  LockKeyhole,
   Loader2,
   LogOut,
   WalletCards,
@@ -21,7 +24,7 @@ import {
   useTonWallet,
 } from '@tonconnect/ui-react';
 import { useAuth } from '../../auth/useAuth';
-import { api, ApiError, type WithdrawalItem } from '../../api';
+import { api, ApiError, type WithdrawalEligibility, type WithdrawalItem } from '../../api';
 import tonIcon from '../../assets/header/ton.svg';
 import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -92,6 +95,10 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawalEligibility, setWithdrawalEligibility] = useState<WithdrawalEligibility | null>(null);
+  const [isEligibilityLoading, setIsEligibilityLoading] = useState(false);
+  const [eligibilityError, setEligibilityError] = useState<string | null>(null);
+  const [isEligibilityOpen, setIsEligibilityOpen] = useState(false);
   const [withdrawalFeedback, setWithdrawalFeedback] = useState<{
     kind: 'error' | 'wallet' | 'success';
     message: string;
@@ -105,6 +112,24 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const withdrawTonAmount = parsedWithdrawGame > 0 ? parsedWithdrawGame * GAME_TO_TON_RATE : 0;
   const isTonConnected = Boolean(tonWallet && tonAddress);
   const walletName = tonWallet?.device.appName || tr('TON wallet', 'TON-кошелёк');
+
+  const loadWithdrawalEligibility = useCallback(async () => {
+    setIsEligibilityLoading(true);
+    try {
+      const response = await api.wallet.withdrawalEligibility(tonAddress);
+      setWithdrawalEligibility(response);
+      setEligibilityError(null);
+    } catch (error) {
+      setWithdrawalEligibility(null);
+      setEligibilityError(
+        error instanceof Error
+          ? error.message
+          : tr('Could not check withdrawal access', 'Не удалось проверить доступ к выводу'),
+      );
+    } finally {
+      setIsEligibilityLoading(false);
+    }
+  }, [tonAddress, tr]);
 
   const loadWithdrawalHistory = useCallback(async (withSpinner = false) => {
     if (withSpinner) setIsHistoryLoading(true);
@@ -143,12 +168,17 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     if (!shouldRender) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      if (isEligibilityOpen) {
+        setIsEligibilityOpen(false);
+        return;
+      }
+      onClose();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shouldRender, onClose]);
+  }, [isEligibilityOpen, shouldRender, onClose]);
 
   useEffect(() => {
     setWithdrawalKey(createIdempotencyKey());
@@ -165,6 +195,11 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [activeTab, isOpen, loadWithdrawalHistory]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'withdraw') return;
+    void loadWithdrawalEligibility();
+  }, [activeTab, isOpen, loadWithdrawalEligibility]);
 
   const connectWallet = async () => {
     setWalletError(null);
@@ -193,6 +228,11 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
   const submitWithdrawal = async () => {
     setWithdrawalFeedback(null);
 
+    if (!withdrawalEligibility?.eligible) {
+      setIsEligibilityOpen(true);
+      return;
+    }
+
     if (!isConnectionRestored) {
       setWithdrawalFeedback({
         kind: 'error',
@@ -212,10 +252,14 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     }
 
     const amount = Number(withdrawAmount);
-    if (!Number.isSafeInteger(amount) || amount <= 0) {
+    const minimumAmount = withdrawalEligibility.minimum_amount;
+    if (!Number.isSafeInteger(amount) || amount < minimumAmount) {
       setWithdrawalFeedback({
         kind: 'error',
-        message: tr('Enter a positive whole GAME amount.', 'Введи положительную целую сумму GAME.'),
+        message: tr(
+          `Enter a whole amount of at least ${minimumAmount} GAME.`,
+          `Введи целую сумму не меньше ${minimumAmount} GAME.`,
+        ),
       });
       return;
     }
@@ -240,6 +284,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
         // The global balance poll will retry; the withdrawal itself already exists.
       }
       setWithdrawAmount('');
+      void loadWithdrawalEligibility();
       setWithdrawalFeedback({
         kind: 'success',
         message: tr(
@@ -250,7 +295,11 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     } catch (error) {
       let message = error instanceof Error ? error.message : tr('Could not create withdrawal', 'Не удалось создать заявку');
       if (error instanceof ApiError) {
-        if (error.status === 409) {
+        if (error.status === 423) {
+          message = tr('Withdrawal conditions are not completed yet.', 'Условия вывода пока не выполнены.');
+          setIsEligibilityOpen(true);
+          void loadWithdrawalEligibility();
+        } else if (error.status === 409) {
           message = tr('Not enough GAME on your balance.', 'Недостаточно GAME на балансе.');
         } else if (error.status === 503) {
           message = tr('Withdrawals are temporarily unavailable.', 'Вывод временно недоступен.');
@@ -266,6 +315,61 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
 
   const isHistory = activeTab === 'history';
   const isDeposit = activeTab === 'deposit';
+  const eligibilityChecks = withdrawalEligibility ? [
+    {
+      key: 'wallet',
+      label: tr('Deposit wallet confirmed', 'Кошелёк пополнения подтверждён'),
+      value: withdrawalEligibility.wallet_verified
+        ? tr('Confirmed', 'Подтверждён')
+        : tr('Connect the wallet used for the latest deposit', 'Подключи кошелёк последнего пополнения'),
+      complete: withdrawalEligibility.wallet_verified,
+    },
+    {
+      key: 'games',
+      label: tr('Completed paid games', 'Завершённые платные игры'),
+      value: `${Math.min(withdrawalEligibility.games_completed, withdrawalEligibility.games_required)} / ${withdrawalEligibility.games_required}`,
+      complete: withdrawalEligibility.games_completed >= withdrawalEligibility.games_required,
+    },
+    {
+      key: 'wager',
+      label: tr('Wagering progress', 'Прогресс отыгрыша'),
+      value: `${formatBalance(Math.min(withdrawalEligibility.wagered_game, withdrawalEligibility.wager_required_game), 2)} / ${formatBalance(withdrawalEligibility.wager_required_game, 2)} GAME`,
+      complete: withdrawalEligibility.wagered_game >= withdrawalEligibility.wager_required_game,
+    },
+    {
+      key: 'balance',
+      label: tr('Minimum withdrawal balance', 'Минимальный баланс для вывода'),
+      value: `${formatBalance(withdrawalEligibility.balance_game, 2)} / ${withdrawalEligibility.minimum_amount} GAME`,
+      complete: withdrawalEligibility.balance_ready,
+    },
+    {
+      key: 'pending',
+      label: tr('No pending request', 'Нет заявки в обработке'),
+      value: withdrawalEligibility.no_pending_withdrawal
+        ? tr('Ready', 'Готово')
+        : tr('Wait for the current request', 'Дождись текущей заявки'),
+      complete: withdrawalEligibility.no_pending_withdrawal,
+    },
+    {
+      key: 'game',
+      label: tr('No active game', 'Нет активной игры'),
+      value: withdrawalEligibility.no_active_game
+        ? tr('Ready', 'Готово')
+        : tr('Finish the current game', 'Заверши текущую игру'),
+      complete: withdrawalEligibility.no_active_game,
+    },
+    {
+      key: 'cooldown',
+      label: tr('Wallet security period', 'Период безопасности кошелька'),
+      value: withdrawalEligibility.wallet_cooldown_ready
+        ? tr('Ready', 'Готово')
+        : withdrawalEligibility.wallet_cooldown_until
+          ? new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(withdrawalEligibility.wallet_cooldown_until))
+          : tr('Up to 24 hours', 'До 24 часов'),
+      complete: withdrawalEligibility.wallet_cooldown_ready,
+    },
+  ] : [];
+  const completedEligibilityChecks = eligibilityChecks.filter((item) => item.complete).length;
 
   return (
     <div className={`wallet-simple-root ${isVisible ? 'is-open' : 'is-closed'}`}>
@@ -469,6 +573,41 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
           </div>
         ) : (
           <div className="wallet-withdraw-panel" role="tabpanel">
+            {isEligibilityLoading && !withdrawalEligibility ? (
+              <div className="wallet-withdraw-lock is-loading">
+                <Loader2 size={22} className="animate-spin" />
+                <strong>{tr('Checking withdrawal access', 'Проверяем доступ к выводу')}</strong>
+              </div>
+            ) : eligibilityError ? (
+              <div className="wallet-withdraw-lock is-error">
+                <CircleAlert size={23} />
+                <strong>{tr('Withdrawal is unavailable', 'Вывод пока недоступен')}</strong>
+                <span>{tr('Access could not be checked. Try again.', 'Не удалось проверить условия. Попробуй ещё раз.')}</span>
+                <button type="button" className="press" onClick={() => void loadWithdrawalEligibility()}>
+                  {tr('Try again', 'Повторить')}
+                </button>
+              </div>
+            ) : !withdrawalEligibility?.eligible ? (
+              <div className="wallet-withdraw-lock">
+                <div className="wallet-withdraw-lock-icon"><LockKeyhole size={22} /></div>
+                <strong>{tr('Withdrawal is locked', 'Вывод пока закрыт')}</strong>
+                <span>
+                  {tr(
+                    'Complete all conditions to unlock withdrawal.',
+                    'Выполни все условия, чтобы открыть вывод.',
+                  )}
+                </span>
+                <div className="wallet-withdraw-lock-progress">
+                  <div><i style={{ width: `${(completedEligibilityChecks / Math.max(eligibilityChecks.length, 1)) * 100}%` }} /></div>
+                  <small>{completedEligibilityChecks} / {eligibilityChecks.length || 7}</small>
+                </div>
+                <button type="button" className="wallet-withdraw-rules-button press" onClick={() => setIsEligibilityOpen(true)}>
+                  {tr('View conditions', 'Посмотреть условия')}
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            ) : (
+              <>
             {isTonConnected && (
               <div className="wallet-withdraw-destination">
                 <div>
@@ -494,6 +633,7 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
                     }}
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    min={withdrawalEligibility.minimum_amount}
                     placeholder="10"
                   />
                   <span className="wallet-simple-currency">
@@ -553,9 +693,70 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
               {isWithdrawing && <Loader2 size={14} className="animate-spin" />}
               {tr('Request withdrawal', 'Отправить заявку')}
             </button>
+              </>
+            )}
           </div>
         )}
       </section>
+
+      {isEligibilityOpen && (
+        <div className="wallet-eligibility-root">
+          <button
+            type="button"
+            className="wallet-eligibility-backdrop"
+            aria-label={tr('Close conditions', 'Закрыть условия')}
+            onClick={() => setIsEligibilityOpen(false)}
+          />
+          <section className="wallet-eligibility-card" role="dialog" aria-modal="true" aria-labelledby="wallet-eligibility-title">
+            <header>
+              <div className="wallet-eligibility-mark"><LockKeyhole size={18} /></div>
+              <div>
+                <span>{tr('Withdrawal access', 'Доступ к выводу')}</span>
+                <h3 id="wallet-eligibility-title">
+                  {withdrawalEligibility?.eligible
+                    ? tr('Withdrawal is open', 'Вывод открыт')
+                    : tr('Complete the conditions', 'Выполни условия')}
+                </h3>
+              </div>
+              <button type="button" className="wallet-eligibility-close press" onClick={() => setIsEligibilityOpen(false)} aria-label={tr('Close', 'Закрыть')}>
+                <X size={16} />
+              </button>
+            </header>
+
+            {isEligibilityLoading && !withdrawalEligibility ? (
+              <div className="wallet-eligibility-loading"><Loader2 size={21} className="animate-spin" /></div>
+            ) : (
+              <>
+                <div className="wallet-eligibility-summary">
+                  <div><i style={{ width: `${(completedEligibilityChecks / Math.max(eligibilityChecks.length, 1)) * 100}%` }} /></div>
+                  <span>{completedEligibilityChecks} {tr('of', 'из')} {eligibilityChecks.length || 7}</span>
+                </div>
+
+                <div className="wallet-eligibility-list">
+                  {eligibilityChecks.map((item) => (
+                    <article key={item.key} className={item.complete ? 'is-complete' : ''}>
+                      <div className="wallet-eligibility-status">
+                        {item.complete ? <CircleCheck size={17} /> : <LockKeyhole size={14} />}
+                      </div>
+                      <div>
+                        <strong>{item.label}</strong>
+                        <span>{item.value}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <p className="wallet-eligibility-note">
+                  {tr(
+                    'Deposits require 1× wagering; bonus GAME requires 3×. Progress restarts after a completed withdrawal.',
+                    'Пополнения отыгрываются ×1, бонусные GAME — ×3. Прогресс начинается заново после завершённого вывода.',
+                  )}
+                </p>
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 };

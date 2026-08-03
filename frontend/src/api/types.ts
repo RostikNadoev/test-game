@@ -101,6 +101,25 @@ export type CreateWithdrawalResponse = {
   };
 };
 
+export type WithdrawalEligibility = {
+  eligible: boolean;
+  minimum_amount: number;
+  wallet_verified: boolean;
+  required_wallet?: string;
+  games_completed: number;
+  games_required: number;
+  wagered_game: number;
+  wager_required_game: number;
+  deposit_wager_required: number;
+  bonus_wager_required: number;
+  balance_game: number;
+  balance_ready: boolean;
+  no_pending_withdrawal: boolean;
+  no_active_game: boolean;
+  wallet_cooldown_ready: boolean;
+  wallet_cooldown_until?: string;
+};
+
 export type OnlinePresenceResponse = {
   online: number;
 };

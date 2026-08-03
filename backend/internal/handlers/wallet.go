@@ -34,7 +34,7 @@ func (h WalletHandler) CreateWithdrawal(c *gin.Context) {
 		IdempotencyKey string `json:"idempotency_key" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "game_amount must be a positive whole number"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "game_amount must be a whole number >= 10"})
 		return
 	}
 
@@ -46,15 +46,21 @@ func (h WalletHandler) CreateWithdrawal(c *gin.Context) {
 		req.IdempotencyKey,
 	)
 	if err != nil {
+		var lockedErr *services.WithdrawalLockedError
 		switch {
 		case errors.Is(err, services.ErrInvalidWithdrawalAmount):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "game_amount must be a positive whole number"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "game_amount must be a whole number >= 10"})
 		case errors.Is(err, services.ErrInvalidWalletAddress):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid TON wallet address"})
 		case errors.Is(err, services.ErrInvalidIdempotencyKey):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid idempotency key"})
 		case errors.Is(err, services.ErrInsufficientBalance):
 			c.JSON(http.StatusConflict, gin.H{"error": "insufficient balance"})
+		case errors.As(err, &lockedErr):
+			c.JSON(http.StatusLocked, gin.H{
+				"error":       "withdrawal is locked",
+				"eligibility": lockedErr.Eligibility,
+			})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create withdrawal"})
 		}
@@ -70,6 +76,19 @@ func (h WalletHandler) CreateWithdrawal(c *gin.Context) {
 		"withdrawal": withdrawalDTO(result.Details.Request),
 		"balance": gin.H{"game": result.BalanceGame},
 	})
+}
+
+func (WalletHandler) WithdrawalEligibility(c *gin.Context) {
+	eligibility, err := services.CheckWithdrawalEligibility(
+		database.DB(),
+		middleware.UserID(c),
+		c.Query("wallet_address"),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load withdrawal eligibility"})
+		return
+	}
+	c.JSON(http.StatusOK, eligibility)
 }
 
 func (WalletHandler) WithdrawalHistory(c *gin.Context) {
