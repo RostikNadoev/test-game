@@ -21,6 +21,9 @@ func Init(cfg *config.Config) error {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
 
+	// Referral tables are managed by migrations/005_referrals.sql. Keeping them
+	// out of AutoMigrate prevents GORM from trying to rename or drop PostgreSQL
+	// unique constraints created by that versioned migration.
 	if err := conn.AutoMigrate(
 		&models.User{},
 		&models.UserStats{},
@@ -34,8 +37,6 @@ func Init(cfg *config.Config) error {
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
 		&models.SoloSession{},
-		&models.ReferralProfile{},
-		&models.Referral{},
 		&models.GameSetting{},
 		&models.AdminAuditLog{},
 	); err != nil {
