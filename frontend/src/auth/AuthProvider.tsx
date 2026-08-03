@@ -124,6 +124,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [refreshBalanceNow]);
 
+  const previewGameBalanceChange = useCallback((delta: number) => {
+    if (!Number.isFinite(delta) || delta === 0) return;
+
+    setUser((currentUser) => {
+      if (!currentUser) return currentUser;
+
+      return {
+        ...currentUser,
+        balance_game: Math.max(0, Math.round((currentUser.balance_game + delta) * 1e9) / 1e9),
+      };
+    });
+  }, []);
+
   useEffect(() => {
     if (!token) return;
 
@@ -230,6 +243,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       refreshBalance,
       pauseBalanceSync,
       resumeBalanceSync,
+      previewGameBalanceChange,
       exchangeTonToGame,
       logout,
     }),
@@ -244,6 +258,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       refreshBalance,
       pauseBalanceSync,
       resumeBalanceSync,
+      previewGameBalanceChange,
       exchangeTonToGame,
       logout,
     ],

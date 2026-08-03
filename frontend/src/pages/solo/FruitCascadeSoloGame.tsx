@@ -1951,7 +1951,7 @@ const cellStyle = (cell: Cell): CSSProperties =>
 
 export const FruitCascadeSoloGame = () => {
   const { locale, tr } = useLanguage();
-  const { pauseBalanceSync, resumeBalanceSync } = useAuth();
+  const { pauseBalanceSync, previewGameBalanceChange, resumeBalanceSync } = useAuth();
   const { spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadPct, setLoadPct] = useState(0);
@@ -2150,6 +2150,7 @@ export const FruitCascadeSoloGame = () => {
     playSound('spin');
     pauseBalanceSync();
     balanceSyncPausedRef.current = true;
+    previewGameBalanceChange(-bet);
 
     const restingBoard = boardRef.current.map((cell) => ({
       ...cell,
@@ -2266,6 +2267,7 @@ export const FruitCascadeSoloGame = () => {
     playSound,
     pauseBalanceSync,
     pushToast,
+    previewGameBalanceChange,
     resumeBalanceSync,
     setError,
     soloSpin,

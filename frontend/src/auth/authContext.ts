@@ -13,6 +13,7 @@ export type AuthContextValue = {
   refreshBalance: () => Promise<void>;
   pauseBalanceSync: () => void;
   resumeBalanceSync: (refresh?: boolean) => Promise<void>;
+  previewGameBalanceChange: (delta: number) => void;
   exchangeTonToGame: (coins: number) => Promise<Balance>;
   logout: () => void;
 };
