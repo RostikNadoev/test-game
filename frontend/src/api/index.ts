@@ -8,6 +8,7 @@ import { leaderboardApi } from './leaderboard';
 import { soloApi } from './solo';
 import { turboApi } from './turbo';
 import { presenceApi } from './presence';
+import { referralsApi } from './referrals';
 import type { HealthResponse } from './types';
 
 export * from './types';
@@ -21,6 +22,7 @@ export * from './leaderboard';
 export * from './solo';
 export * from './turbo';
 export * from './presence';
+export * from './referrals';
 export { getOpponentInfo, resolvePlayersInfo } from './lobbyUtils';
 
 export const api = {
@@ -36,4 +38,5 @@ export const api = {
   solo: soloApi,
   turbo: turboApi,
   presence: presenceApi,
+  referrals: referralsApi,
 };

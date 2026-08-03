@@ -193,6 +193,25 @@ type UserSoloStats struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+type ReferralProfile struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"uniqueIndex;not null" json:"user_id"`
+	Code      string    `gorm:"size:32;uniqueIndex;not null" json:"code"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Referral struct {
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	ReferrerUserID    uint       `gorm:"index;not null" json:"referrer_user_id"`
+	ReferredUserID    uint       `gorm:"uniqueIndex;not null" json:"referred_user_id"`
+	RewardRating      int        `gorm:"not null;default:20" json:"reward_rating"`
+	ChannelVerifiedAt *time.Time `json:"channel_verified_at,omitempty"`
+	RewardedAt        *time.Time `gorm:"index" json:"rewarded_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
 type GameSetting struct {
 	Code                string    `gorm:"primaryKey" json:"code"`
 	Kind                string    `gorm:"index;not null" json:"kind"`

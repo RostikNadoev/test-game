@@ -31,6 +31,8 @@ func Open(t *testing.T) *gorm.DB {
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
 		&models.SoloSession{},
+		&models.ReferralProfile{},
+		&models.Referral{},
 		&models.GameSetting{},
 		&models.AdminAuditLog{},
 	); err != nil {

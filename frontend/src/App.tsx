@@ -82,6 +82,8 @@ const FRUIT_CASCADE_ROUTE = "/solo/fruit-cascade";
 
 const APP_LOADER_FALLBACK_MS = 3600;
 const SOLO_PAGE_LOADER_MS = 620;
+const REFERRAL_START_HANDLED_KEY = 'twingames_referral_start_handled';
+const OPEN_REFERRAL_MODAL_KEY = 'twingames_open_referral_modal';
 
 function isSoloPath(pathname: string) {
   return (
@@ -269,6 +271,21 @@ function AppShell() {
     location.pathname,
     location.search,
   ]);
+
+  useEffect(() => {
+    if (isInitialLoading) return;
+
+    const startParam =
+      getTelegramWebApp()?.initDataUnsafe?.start_param ||
+      new URLSearchParams(window.location.search).get('tgWebAppStartParam') ||
+      '';
+    if (!startParam.startsWith('ref_')) return;
+    if (window.sessionStorage.getItem(REFERRAL_START_HANDLED_KEY) === startParam) return;
+
+    window.sessionStorage.setItem(REFERRAL_START_HANDLED_KEY, startParam);
+    window.sessionStorage.setItem(OPEN_REFERRAL_MODAL_KEY, '1');
+    navigate('/rating', { replace: true });
+  }, [isInitialLoading, navigate]);
 
   useEffect(() => {
     const tg = getTelegramWebApp();

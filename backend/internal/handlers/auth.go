@@ -42,7 +42,12 @@ func (h AuthHandler) TelegramAuth(c *gin.Context) {
 		return
 	}
 
-	user, err := services.UpsertTelegramUser(database.DB(), parsed.User)
+	user, err := services.UpsertTelegramUserWithStartParam(
+		database.DB(),
+		parsed.User,
+		parsed.StartParam,
+		h.Cfg.ReferralRewardRating,
+	)
 	if err != nil {
 		if h.Cfg.GinMode == "release" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user"})
@@ -50,6 +55,22 @@ func (h AuthHandler) TelegramAuth(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user", "details": err.Error()})
 		return
+	}
+
+	checker := services.TelegramChannelMembershipChecker{
+		BotToken: h.Cfg.TelegramBotToken,
+		Channel:  h.Cfg.ReferralChannel,
+	}
+	if _, referralErr := services.CheckAndRewardReferral(
+		c.Request.Context(),
+		database.DB(),
+		user.ID,
+		checker,
+		h.Cfg.ReferralBotUsername,
+		h.Cfg.ReferralChannelURL,
+		h.Cfg.ReferralRewardRating,
+	); referralErr != nil {
+		log.Printf("referral check during auth failed for user %d: %v", user.ID, referralErr)
 	}
 
 	token, err := services.GenerateJWT(user.ID, h.Cfg)

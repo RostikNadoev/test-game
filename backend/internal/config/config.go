@@ -15,6 +15,10 @@ type Config struct {
 	AppEnv                string
 	DatabaseDSN           string
 	TelegramBotToken      string
+	ReferralBotUsername   string
+	ReferralChannel       string
+	ReferralChannelURL    string
+	ReferralRewardRating  int
 	WithdrawalBotToken    string
 	WithdrawalAdminChatID int64
 	WithdrawalAdminUserID int64
@@ -41,6 +45,10 @@ func Load() *Config {
 		AppEnv:                getEnv("APP_ENV", "local"),
 		DatabaseDSN:           getEnv("DATABASE_DSN", "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable TimeZone=UTC"),
 		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
+		ReferralBotUsername:   strings.TrimPrefix(getEnv("REFERRAL_BOT_USERNAME", "twingames_bot"), "@"),
+		ReferralChannel:       normalizeTelegramUsername(getEnv("REFERRAL_CHANNEL", "tw1ngames")),
+		ReferralChannelURL:    getEnv("REFERRAL_CHANNEL_URL", "https://t.me/tw1ngames"),
+		ReferralRewardRating:  getEnvAsInt("REFERRAL_REWARD_RATING", 20),
 		WithdrawalBotToken:    getEnv("WITHDRAWAL_BOT_TOKEN", ""),
 		WithdrawalAdminChatID: getEnvAsInt64("WITHDRAWAL_ADMIN_CHAT_ID", 0),
 		WithdrawalAdminUserID: getEnvAsInt64("WITHDRAWAL_ADMIN_USER_ID", 0),
@@ -144,4 +152,15 @@ func splitCSV(s string) []string {
 		return []string{"*"}
 	}
 	return out
+}
+
+func normalizeTelegramUsername(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "@") {
+		return value
+	}
+	return "@" + value
 }

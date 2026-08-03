@@ -131,6 +131,7 @@ func main() {
 	lobbyHandler := handlers.LobbyHandler{Hub: lobbyStore}
 	matchHandler := handlers.MatchHandler{Hub: lobbyStore}
 	leaderboardHandler := handlers.LeaderboardHandler{}
+	referralHandler := handlers.ReferralHandler{Cfg: cfg}
 	soloHandler := handlers.SoloHandler{}
 	turboHandler := handlers.TurboHandler{Manager: turboManager}
 	presenceHandler := handlers.PresenceHandler{Manager: presenceManager}
@@ -358,6 +359,13 @@ func main() {
 		}
 
 		api.GET("/leaderboard", middleware.AuthRequired(cfg), leaderboardHandler.List)
+
+		referrals := api.Group("/referrals")
+		referrals.Use(middleware.AuthRequired(cfg))
+		{
+			referrals.GET("/me", referralHandler.Status)
+			referrals.POST("/check", middleware.RateLimitByUser(10, time.Minute), referralHandler.Check)
+		}
 
 		users := api.Group("/users")
 		users.Use(middleware.AuthRequired(cfg))

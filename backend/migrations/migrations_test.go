@@ -81,3 +81,22 @@ func TestPvpMinimumBetMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestReferralMigrationDefinesUniqueAttribution(t *testing.T) {
+	path := filepath.Join("005_referrals.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read referral migration: %v", err)
+	}
+	content := strings.ToLower(string(raw))
+	for _, required := range []string{
+		"create table if not exists referral_profiles",
+		"create table if not exists referrals",
+		"referred_user_id bigint not null unique",
+		"referrer_user_id <> referred_user_id",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("referral migration missing: %s", required)
+		}
+	}
+}

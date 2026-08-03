@@ -7,6 +7,9 @@ export type TelegramSafeAreaInset = {
 
 export type TelegramWebApp = {
   initData?: string;
+  initDataUnsafe?: {
+    start_param?: string;
+  };
   ready?: () => void;
   expand?: () => void;
   disableVerticalSwipes?: () => void;
@@ -18,6 +21,7 @@ export type TelegramWebApp = {
   contentSafeAreaInset?: TelegramSafeAreaInset;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  openTelegramLink?: (url: string) => void;
   isVersionAtLeast?: (version: string) => boolean;
   lockOrientation?: () => void;
   unlockOrientation?: () => void;

@@ -34,6 +34,8 @@ func Init(cfg *config.Config) error {
 		&models.LobbyPlayerRecord{},
 		&models.SoloRound{},
 		&models.SoloSession{},
+		&models.ReferralProfile{},
+		&models.Referral{},
 		&models.GameSetting{},
 		&models.AdminAuditLog{},
 	); err != nil {

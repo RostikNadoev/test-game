@@ -136,6 +136,24 @@ export type GamesResponse = {
   count: number;
 };
 
+export type ReferralStatus = {
+  code: string;
+  invite_url: string;
+  channel_url: string;
+  reward_rating: number;
+  invited_count: number;
+  rewarded_count: number;
+  earned_rating: number;
+  incoming_pending: boolean;
+  incoming_rewarded: boolean;
+  subscription_verified: boolean;
+};
+
+export type ReferralCheckResponse = ReferralStatus & {
+  subscribed: boolean;
+  reward_granted: boolean;
+};
+
 export type LobbyStatus = 'waiting' | 'playing' | 'finished';
 
 export type LobbyPlayerInfo = {

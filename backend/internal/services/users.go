@@ -21,6 +21,10 @@ func displayName(u telegram.WebAppUser) string {
 }
 
 func UpsertTelegramUser(db *gorm.DB, tg telegram.WebAppUser) (*models.User, error) {
+	return UpsertTelegramUserWithStartParam(db, tg, "", 20)
+}
+
+func UpsertTelegramUserWithStartParam(db *gorm.DB, tg telegram.WebAppUser, startParam string, referralReward int) (*models.User, error) {
 	var user models.User
 	err := db.Where("telegram_id = ?", tg.ID).First(&user).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
@@ -28,22 +32,30 @@ func UpsertTelegramUser(db *gorm.DB, tg telegram.WebAppUser) (*models.User, erro
 	}
 
 	if err == gorm.ErrRecordNotFound {
-		user = models.User{
-			TelegramID:  tg.ID,
-			Username:    tg.Username,
-			FirstName:   tg.FirstName,
-			LastName:    tg.LastName,
-			DisplayName: displayName(tg),
-			PhotoURL:    tg.PhotoURL,
-		}
-		if err := db.Create(&user).Error; err != nil {
+		err = db.Transaction(func(tx *gorm.DB) error {
+			user = models.User{
+				TelegramID:  tg.ID,
+				Username:    tg.Username,
+				FirstName:   tg.FirstName,
+				LastName:    tg.LastName,
+				DisplayName: displayName(tg),
+				PhotoURL:    tg.PhotoURL,
+			}
+			if err := tx.Create(&user).Error; err != nil {
+				return err
+			}
+
+			stats := models.UserStats{UserID: user.ID, Rating: 1000, FavoriteMode: "none"}
+			if err := tx.Create(&stats).Error; err != nil {
+				return err
+			}
+			user.Stats = stats
+
+			return attachReferralOnRegistrationTx(tx, user.ID, startParam, referralReward)
+		})
+		if err != nil {
 			return nil, err
 		}
-		stats := models.UserStats{UserID: user.ID, Rating: 1000, FavoriteMode: "none"}
-		if err := db.Create(&stats).Error; err != nil {
-			return nil, err
-		}
-		user.Stats = stats
 		return &user, nil
 	}
 
