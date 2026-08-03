@@ -363,7 +363,7 @@ body.royal-vault-active .solo-header-badge {
   height: calc(var(--strip-scale) * 100%);
   grid-template-rows: repeat(18, minmax(0, 1fr));
   transform: translate3d(0, 0, 0);
-  animation: rvReelRoll var(--spin-duration) cubic-bezier(0.16, 0.74, 0.16, 1) forwards;
+  animation: rvReelRoll var(--spin-duration) linear infinite;
 }
 
 .rv-reel.is-rolling::after {
@@ -472,21 +472,22 @@ body.royal-vault-active .solo-header-badge {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+  stroke-dasharray: 700;
+  stroke-dashoffset: 700;
 }
 
 .rv-payline-glow {
   stroke: rgba(78, 255, 174, 0.26);
   stroke-width: 17;
   filter: blur(6px);
+  animation: rvDrawLine 960ms cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
 }
 
 .rv-payline-stroke {
   stroke: #69f2aa;
   stroke-width: 4;
-  stroke-dasharray: 520;
-  stroke-dashoffset: 520;
   filter: drop-shadow(0 0 5px rgba(80, 255, 174, 0.9));
-  animation: rvDrawLine 540ms cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
+  animation: rvDrawLine 900ms cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
 }
 
 .rv-line-number {
@@ -515,16 +516,19 @@ body.royal-vault-active .solo-header-badge {
 
 .rv-win-reveal {
   pointer-events: none;
-  position: absolute;
-  z-index: 20;
-  inset: 13px 9px 41px;
+  position: fixed;
+  z-index: 1400;
+  inset: 0;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 16px;
-  background: rgba(1, 12, 8, 0.32);
-  -webkit-backdrop-filter: blur(6px) saturate(0.78);
-  backdrop-filter: blur(6px) saturate(0.78);
+  padding: 18px;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(32, 142, 94, 0.22), transparent 46%),
+    rgba(1, 7, 5, 0.72);
+  -webkit-backdrop-filter: blur(14px) saturate(0.76);
+  backdrop-filter: blur(14px) saturate(0.76);
   animation: rvInlineWinFade 240ms ease-out both;
 }
 
@@ -748,13 +752,12 @@ body.royal-vault-active .solo-header-badge {
 .rv-actions {
   display: grid;
   min-height: 57px;
-  grid-template-columns: minmax(74px, 1fr) minmax(134px, 1.42fr) minmax(74px, 1fr);
+  grid-template-columns: minmax(92px, 0.72fr) minmax(168px, 1.55fr);
   align-items: stretch;
   gap: 7px;
 }
 
-.rv-auto-btn,
-.rv-demo-mark {
+.rv-auto-btn {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -842,30 +845,6 @@ body.royal-vault-active .solo-header-badge {
   font-size: 11px;
   line-height: 1.25;
   letter-spacing: -0.02em;
-}
-
-.rv-demo-mark {
-  flex-direction: column;
-  gap: 3px;
-}
-
-.rv-demo-mark span {
-  color: #d4b35f;
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 8px;
-  font-weight: 1000;
-  line-height: 1;
-  letter-spacing: 0.12em;
-}
-
-.rv-demo-mark small {
-  color: rgba(236, 226, 198, 0.28);
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 5px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-align: center;
 }
 
 .rv-modal-layer {
@@ -1216,7 +1195,7 @@ body.royal-vault-active .solo-header-badge {
   .rv-bet-panel { padding: 4px; }
   .rv-bet-options button { height: 28px; }
   .rv-actions { min-height: 49px; }
-  .rv-auto-btn, .rv-demo-mark { border-radius: 15px; }
+  .rv-auto-btn { border-radius: 15px; }
   .rv-spin-btn { border-radius: 16px; }
 }
 
@@ -1224,10 +1203,22 @@ body.royal-vault-active .solo-header-badge {
   .rv-content { padding-inline: 9px; }
   .rv-stats { gap: 7px; }
   .rv-stats > b { padding-inline: 6px; }
-  .rv-actions { grid-template-columns: 68px minmax(122px, 1.42fr) 68px; gap: 5px; }
+  .rv-actions { grid-template-columns: 76px minmax(148px, 1.42fr); gap: 5px; }
   .rv-spin-btn { gap: 3px; }
   .rv-spin-icon { width: 21px; height: 21px; }
-  .rv-demo-mark small { font-size: 4.5px; }
+}
+
+.rv-stats > b,
+.rv-control-label strong,
+.rv-bet-options button,
+.rv-auto-btn,
+.rv-spin-btn strong,
+.rv-result-strip,
+.rv-pay-row strong,
+.rv-pay-row > span {
+  overflow: visible;
+  padding-block: 1px 2px;
+  line-height: 1.32;
 }
 
 @media (prefers-reduced-motion: reduce) {

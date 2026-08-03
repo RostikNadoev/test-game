@@ -906,8 +906,8 @@ const StyleBlock = () => (
       height: 100%;
       touch-action: none;
       cursor: grab;
-      opacity: 1;
-      transition: opacity .35s ease, transform .35s ease;
+      opacity: 0;
+      transition: transform .35s ease;
     }
 
     .ns-scratch-primer {
@@ -923,7 +923,11 @@ const StyleBlock = () => (
       transition: opacity .08s linear;
     }
 
-    .ns-card.mask-ready .ns-scratch-primer,
+    .ns-card.mask-ready .ns-scratch-canvas {
+      opacity: 1;
+    }
+
+    .ns-card.primer-hidden .ns-scratch-primer,
     .ns-card.revealed .ns-scratch-primer {
       opacity: 0;
     }
@@ -1162,10 +1166,14 @@ const StyleBlock = () => (
 
     .ns-start-btn {
       position: relative;
+      display: flex;
       width: min(100%, 230px);
       height: 58px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
       border-radius: 20px;
-      padding: 0;
+      padding: 4px 12px 5px;
       border: 0;
       overflow: hidden;
       color: #06131b;
@@ -1208,7 +1216,8 @@ const StyleBlock = () => (
       z-index: 1;
       display: block;
       font-size: 16px;
-      line-height: 1;
+      padding-block: 1px 2px;
+      line-height: 1.28;
     }
 
     .ns-start-sub {
@@ -1220,7 +1229,8 @@ const StyleBlock = () => (
       font-size: 7px;
       letter-spacing: .12em;
       text-transform: uppercase;
-      line-height: 1;
+      padding-block: 1px;
+      line-height: 1.3;
     }
 
     .ns-final-layer {
@@ -1779,9 +1789,11 @@ const ScratchCard = ({
   const revealedRef = useRef(revealed);
   const lastCheckRef = useRef(0);
   const progressPillRef = useRef<HTMLDivElement | null>(null);
+  const primerFrameRef = useRef<number[]>([]);
 
   const [progress, setProgress] = useState(revealed ? 100 : 0);
   const [maskReady, setMaskReady] = useState(revealed);
+  const [primerHidden, setPrimerHidden] = useState(revealed);
 
   useEffect(() => {
     revealedRef.current = revealed;
@@ -1867,6 +1879,15 @@ const ScratchCard = ({
 
     setProgress(0);
     setMaskReady(true);
+    setPrimerHidden(false);
+    primerFrameRef.current.forEach((frame) => window.cancelAnimationFrame(frame));
+    primerFrameRef.current = [];
+
+    const firstFrame = window.requestAnimationFrame(() => {
+      const secondFrame = window.requestAnimationFrame(() => setPrimerHidden(true));
+      primerFrameRef.current.push(secondFrame);
+    });
+    primerFrameRef.current.push(firstFrame);
   }, [tr]);
 
   const completeReveal = useCallback(() => {
@@ -2008,6 +2029,7 @@ const ScratchCard = ({
     lastPointRef.current = null;
     drawingRef.current = false;
     setMaskReady(false);
+    setPrimerHidden(false);
 
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -2029,6 +2051,8 @@ const ScratchCard = ({
 
     return () => {
       resizeObserver?.disconnect();
+      primerFrameRef.current.forEach((frame) => window.cancelAnimationFrame(frame));
+      primerFrameRef.current = [];
     };
   }, [card.id, drawMask]);
 
@@ -2044,7 +2068,7 @@ const ScratchCard = ({
 
   return (
     <div
-      className={`ns-card ${revealed ? 'revealed' : ''} ${maskReady ? 'mask-ready' : ''}`}
+      className={`ns-card ${revealed ? 'revealed' : ''} ${maskReady ? 'mask-ready' : ''} ${primerHidden ? 'primer-hidden' : ''}`}
       data-prize={card.prize.id}
       data-index={card.index}
     >

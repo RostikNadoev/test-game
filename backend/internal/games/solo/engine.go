@@ -17,6 +17,9 @@ func SpinInstant(game string, bet float64) (any, float64, error) {
 	case "fruit_cascade":
 		outcome, payout := SpinFruitCascade(bet, rng)
 		return outcome, payout, nil
+	case "royal_vault":
+		outcome, payout := SpinRoyalVault(bet, rng)
+		return outcome, payout, nil
 	default:
 		return nil, 0, ErrUnsupportedGame
 	}

@@ -56,10 +56,6 @@ export const SoloGames = () => {
                           ? tr('Find crystals, avoid mines', 'Ищи кристаллы, избегай мин')
                           : game.id === 'royal_vault'
                             ? tr('Classic slot · 10 paylines', 'Классический слот · 10 линий')
-                            : game.id === 'eclipse_reels'
-                              ? tr('Orbital slot · 8 rays', 'Орбитальный слот · 8 лучей')
-                              : game.id === 'fortune_push'
-                                ? tr('Drop coins and push prizes', 'Сбрасывай монеты и толкай призы')
                             : tr('Scratch and reveal prizes', 'Стирай и открывай призы')}
                 </p>
               </div>

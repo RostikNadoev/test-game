@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { useAuth } from '../../auth/useAuth';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
 import { useLanguage } from '../../i18n/LanguageContext';
 
@@ -33,6 +34,7 @@ const SPIN_OUT_TOTAL_MS = SPIN_OUT_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS;
 const SPIN_IN_TOTAL_MS = SPIN_IN_MS + (COLS - 1) * SPIN_COLUMN_STAGGER_MS;
 
 const QUICK_BETS = [1, 5, 10, 25, 50, 100, 250, 500];
+const MAX_BET = 500;
 
 type SymbolId = 'cherry' | 'lemon' | 'orange' | 'grape' | 'strawberry' | 'watermelon' | 'wild';
 type CellPhase = 'idle' | 'drop' | 'win' | 'pop' | 'spin-out' | 'spin-in';
@@ -393,7 +395,7 @@ const LoadingScreen = ({ progress }: { progress: number }) => (
 );
 
 const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount: number }) => {
-  const { locale, tr } = useLanguage();
+  const { language, locale, tr } = useLanguage();
   const effectCount = tier === 'epic' ? 26 : tier === 'mega' ? 19 : tier === 'big' ? 13 : 7;
   const [shown, setShown] = useState(0);
 
@@ -434,8 +436,14 @@ const BigWinOverlay = ({ tier, amount }: { tier: Exclude<BigTier, null>; amount:
         ))}
       </div>
 
-      <div className={`fc-bigwin-label ${tier}`}>
-        {tier === 'epic'
+      <div className={`fc-bigwin-label ${tier} ${language === 'ru' ? 'is-ru' : ''}`}>
+        {language === 'ru' && tier !== 'win' ? (
+          <>
+            {tier === 'epic' ? 'ЭПИЧЕСКИЙ' : tier === 'mega' ? 'МЕГА' : 'БОЛЬШОЙ'}
+            <br />
+            ВЫИГРЫШ
+          </>
+        ) : tier === 'epic'
           ? tr('EPIC WIN', 'ЭПИЧЕСКИЙ ВЫИГРЫШ')
           : tier === 'mega'
             ? tr('MEGA WIN', 'МЕГА ВЫИГРЫШ')
@@ -1094,12 +1102,31 @@ const StyleBlock = () => (
 
     .fc-bet-number {
       display: block;
+      width: 100%;
       max-width: 100%;
       overflow: hidden;
+      padding: 0 6px;
+      border: 0;
+      outline: 0;
+      appearance: textfield;
+      background: transparent;
+      color: #fff;
+      font-family: inherit;
       text-overflow: ellipsis;
+      text-align: center;
       font-size: 17px;
       line-height: 1.1;
-      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .fc-bet-number::-webkit-outer-spin-button,
+    .fc-bet-number::-webkit-inner-spin-button {
+      margin: 0;
+      appearance: none;
+    }
+
+    .fc-bet-number:disabled {
+      opacity: .58;
     }
 
     .fc-bet-chip-row {
@@ -1211,6 +1238,7 @@ const StyleBlock = () => (
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 0 8px;
       color: #1a1024;
       font-size: 17px;
       background: radial-gradient(circle at 38% 28%, #fff6c2, #ffbe4f 56%, #d8730d);
@@ -1573,6 +1601,9 @@ const StyleBlock = () => (
 
     .fc-bigwin-label {
       position: relative;
+      width: 100%;
+      padding-inline: 16px;
+      text-align: center;
       font-size: 43px;
       line-height: .95;
       letter-spacing: .03em;
@@ -1594,6 +1625,18 @@ const StyleBlock = () => (
     .fc-bigwin-label.epic {
       font-size: 51px;
       color: #9fffc4;
+    }
+
+    .fc-bigwin-label.is-ru {
+      width: min(100%, 390px);
+      font-size: 30px;
+      line-height: 1.18;
+      letter-spacing: .015em;
+    }
+
+    .fc-bigwin-label.is-ru.mega,
+    .fc-bigwin-label.is-ru.epic {
+      font-size: 32px;
     }
 
     @keyframes fcBigPop {
@@ -1908,11 +1951,13 @@ const cellStyle = (cell: Cell): CSSProperties =>
 
 export const FruitCascadeSoloGame = () => {
   const { locale, tr } = useLanguage();
+  const { pauseBalanceSync, resumeBalanceSync } = useAuth();
   const { spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadPct, setLoadPct] = useState(0);
   const [board, setBoard] = useState<Cell[]>(() => makeBoard());
   const [bet, setBet] = useState(1);
+  const [betInput, setBetInput] = useState('1');
   const [spinning, setSpinning] = useState(false);
   const [auto, setAuto] = useState(false);
   const [muted, setMuted] = useState(() => localStorage.getItem('fruit-cascade-muted') === '1');
@@ -1932,6 +1977,7 @@ export const FruitCascadeSoloGame = () => {
   const spinningRef = useRef(spinning);
   const autoRef = useRef(auto);
   const winShownRef = useRef(0);
+  const balanceSyncPausedRef = useRef(false);
 
   boardRef.current = board;
   mutedRef.current = muted;
@@ -2102,6 +2148,8 @@ export const FruitCascadeSoloGame = () => {
 
     haptic('spin');
     playSound('spin');
+    pauseBalanceSync();
+    balanceSyncPausedRef.current = true;
 
     const restingBoard = boardRef.current.map((cell) => ({
       ...cell,
@@ -2196,6 +2244,15 @@ export const FruitCascadeSoloGame = () => {
     } catch {
       // wallet error shown in bar
       setBoard(restingBoard);
+    } finally {
+      if (balanceSyncPausedRef.current) {
+        balanceSyncPausedRef.current = false;
+        try {
+          await resumeBalanceSync(true);
+        } catch {
+          // the normal balance polling will retry
+        }
+      }
     }
 
     setMultiplier(1);
@@ -2207,7 +2264,9 @@ export const FruitCascadeSoloGame = () => {
     canAfford,
     haptic,
     playSound,
+    pauseBalanceSync,
     pushToast,
+    resumeBalanceSync,
     setError,
     soloSpin,
     walletLoading,
@@ -2223,8 +2282,13 @@ export const FruitCascadeSoloGame = () => {
 
       audioRef.current?.close().catch(() => undefined);
       audioRef.current = null;
+
+      if (balanceSyncPausedRef.current) {
+        balanceSyncPausedRef.current = false;
+        void resumeBalanceSync(true).catch(() => undefined);
+      }
     };
-  }, []);
+  }, [resumeBalanceSync]);
 
   useEffect(() => {
     localStorage.setItem('fruit-cascade-muted', muted ? '1' : '0');
@@ -2269,7 +2333,11 @@ export const FruitCascadeSoloGame = () => {
     haptic('tap');
     playSound('tap');
 
-    setBet((value) => Math.max(1, value + delta));
+    setBet((value) => {
+      const next = Math.min(MAX_BET, Math.max(1, value + delta));
+      setBetInput(String(next));
+      return next;
+    });
   };
 
   const chooseBet = (value: number) => {
@@ -2279,6 +2347,25 @@ export const FruitCascadeSoloGame = () => {
     playSound('tap');
 
     setBet(value);
+    setBetInput(String(value));
+  };
+
+  const updateBetInput = (value: string) => {
+    if (spinning) return;
+
+    const cleaned = value.replace(/\D/g, '').slice(0, 3);
+    setBetInput(cleaned);
+
+    const numeric = Number(cleaned);
+    if (Number.isFinite(numeric) && numeric >= 1) {
+      setBet(Math.min(MAX_BET, numeric));
+    }
+  };
+
+  const commitBetInput = () => {
+    const numeric = Math.min(MAX_BET, Math.max(1, Math.floor(Number(betInput) || 1)));
+    setBet(numeric);
+    setBetInput(String(numeric));
   };
 
   const toggleMute = () => {
@@ -2412,10 +2499,21 @@ export const FruitCascadeSoloGame = () => {
                 -
               </button>
 
-              <div className="fc-bet-value">
+              <label className="fc-bet-value">
                 <span className="fc-bet-label">{tr('BET', 'СТАВКА')}</span>
-                <span className="fc-bet-number">{formatMoney(bet, locale)}</span>
-              </div>
+                <input
+                  className="fc-bet-number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint="done"
+                  value={betInput}
+                  disabled={spinning}
+                  onChange={(event) => updateBetInput(event.currentTarget.value)}
+                  onBlur={commitBetInput}
+                  aria-label={tr('Bet amount', 'Сумма ставки')}
+                />
+              </label>
 
               <button
                 type="button"
@@ -2477,7 +2575,7 @@ export const FruitCascadeSoloGame = () => {
             >
               <span className="fc-spin-ring" />
               <span className="fc-spin-core">
-                {spinning ? <span className="fc-spin-loader" /> : tr('SPIN', 'КРУТИТЬ')}
+                {spinning ? <span className="fc-spin-loader" /> : tr('SPIN', 'СПИН')}
               </span>
             </button>
 

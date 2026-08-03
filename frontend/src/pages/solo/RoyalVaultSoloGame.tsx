@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useSoloWallet } from '../../hooks/useSoloWallet';
 import { useLanguage } from '../../i18n/LanguageContext';
 import iconDiamond from '../../assets/solo/scratch/icon-diamond.webp';
 import iconCoin from '../../assets/solo/scratch/icon-coin.webp';
@@ -43,6 +44,18 @@ type WinPresentation = {
   tier: 'regular' | 'big' | 'royal';
 };
 
+type ServerRoyalVaultOutcome = {
+  board: SlotBoard;
+  wins: Array<{
+    line_index: number;
+    symbol: SymbolId;
+    count: number;
+    amount: number;
+    cells: string[];
+  }>;
+  total_win: number;
+};
+
 type TelegramHaptics = {
   impactOccurred?: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
   notificationOccurred?: (type: 'error' | 'success' | 'warning') => void;
@@ -57,8 +70,12 @@ type RoyalVaultWindow = Window &
 
 const REEL_COUNT = 5;
 const ROW_COUNT = 3;
-const LINE_COUNT = 10;
 const QUICK_BETS = [10, 25, 50, 100];
+const FIRST_REEL_STOP_DELAY_MS = 1450;
+const REEL_STOP_GAP_MS = 520;
+const LINE_PRESENTATION_MS = 1250;
+const AFTER_LINES_PAUSE_MS = 850;
+const WIN_OVERLAY_MS = 2050;
 
 const SYMBOLS: SymbolDefinition[] = [
   { id: 'wild', image: iconCrown, label: 'Wild', weight: 7, payouts: [18, 48, 140], tone: '#f9d879' },
@@ -99,7 +116,6 @@ const STARTING_BOARD: SlotBoard = [
 ];
 
 const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-const roundCredits = (value: number) => Math.round(value * 100) / 100;
 
 const pickWeightedSymbol = (excludeWild = false): SymbolId => {
   const pool = excludeWild ? SYMBOLS.filter((symbol) => symbol.id !== 'wild') : SYMBOLS;
@@ -124,48 +140,8 @@ const createSpinStrips = (current: SlotBoard, target: SlotBoard): SlotBoard =>
     ...target[reel],
   ]);
 
-const createOutcome = (): SlotBoard => {
-  const board = Array.from({ length: REEL_COUNT }, createRandomColumn);
-
-  if (Math.random() < 0.48) {
-    const line = PAYLINES[Math.floor(Math.random() * PAYLINES.length)];
-    const symbol = pickWeightedSymbol(true);
-    const roll = Math.random();
-    const count = roll > 0.94 ? 5 : roll > 0.78 ? 4 : 3;
-
-    for (let reel = 0; reel < count; reel += 1) {
-      board[reel][line[reel]] = reel > 0 && Math.random() < 0.12 ? 'wild' : symbol;
-    }
-  }
-
-  return board;
-};
-
-const evaluateBoard = (board: SlotBoard, totalBet: number): WinLine[] => {
-  const lineBet = totalBet / LINE_COUNT;
-
-  return PAYLINES.flatMap((line, lineIndex) => {
-    const ids = line.map((row, reel) => board[reel][row]);
-    const target = ids.find((id) => id !== 'wild') ?? 'wild';
-    let count = 0;
-
-    for (const id of ids) {
-      if (id === target || id === 'wild') count += 1;
-      else break;
-    }
-
-    if (count < 3) return [];
-
-    const payout = SYMBOL_BY_ID[target].payouts[count - 3] * lineBet;
-    return [{
-      lineIndex,
-      symbol: target,
-      count,
-      amount: roundCredits(payout),
-      cells: Array.from({ length: count }, (_, reel) => `${reel}-${line[reel]}`),
-    }];
-  });
-};
+const createAnimationTarget = (): SlotBoard =>
+  Array.from({ length: REEL_COUNT }, createRandomColumn);
 
 const linePoints = (line: number[]) =>
   line.map((row, reel) => `${50 + reel * 100},${50 + row * 100}`).join(' ');
@@ -276,8 +252,33 @@ const LoadingScreen = ({ progress }: { progress: number }) => {
   );
 };
 
+const RoyalWinOverlay = ({
+  presentation,
+  format,
+}: {
+  presentation: WinPresentation;
+  format: (value: number) => string;
+}) => {
+  const { tr } = useLanguage();
+
+  return createPortal(
+    <div className={`rv-win-reveal is-${presentation.tier}`} aria-live="polite">
+      <div className="rv-win-reveal-card">
+        <span className="rv-win-reveal-icon"><img src={iconCrown} alt="" draggable={false} /></span>
+        <small>{tr('TOTAL WIN', 'ОБЩИЙ ВЫИГРЫШ')}</small>
+        <strong>+{format(presentation.amount)}</strong>
+        <p>{presentation.lineCount === 1
+          ? tr('1 winning line', '1 выигрышная линия')
+          : tr(`${presentation.lineCount} winning lines`, `${presentation.lineCount} выигрышных линий`)}</p>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 export const RoyalVaultSoloGame = () => {
   const { tr, locale } = useLanguage();
+  const { balance, spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [board, setBoard] = useState<SlotBoard>(STARTING_BOARD);
@@ -286,7 +287,6 @@ export const RoyalVaultSoloGame = () => {
   const [spinStrips, setSpinStrips] = useState<SlotBoard | null>(null);
   const [settledReels, setSettledReels] = useState(REEL_COUNT);
   const [bet, setBet] = useState(25);
-  const [balance, setBalance] = useState(1000);
   const [winAmount, setWinAmount] = useState(0);
   const [wins, setWins] = useState<WinLine[]>([]);
   const [activeWin, setActiveWin] = useState(0);
@@ -321,20 +321,20 @@ export const RoyalVaultSoloGame = () => {
 
     if (kind === 'spin') {
       const source = ctx.createBufferSource();
-      const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.46), ctx.sampleRate);
+      const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 1.25), ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let index = 0; index < data.length; index += 1) data[index] = (Math.random() * 2 - 1) * (1 - index / data.length);
       source.buffer = buffer;
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
       filter.frequency.setValueAtTime(620, now);
-      filter.frequency.exponentialRampToValueAtTime(1300, now + 0.42);
+      filter.frequency.exponentialRampToValueAtTime(1300, now + 1.18);
       gain.gain.setValueAtTime(0.0001, now);
       gain.gain.exponentialRampToValueAtTime(0.055, now + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.46);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.23);
       source.connect(filter).connect(gain);
       source.start(now);
-      source.stop(now + 0.48);
+      source.stop(now + 1.25);
       return;
     }
 
@@ -354,15 +354,16 @@ export const RoyalVaultSoloGame = () => {
   const winningCells = useMemo(() => new Set(activeLine?.cells ?? []), [activeLine]);
 
   const spin = useCallback(async () => {
-    if (spinning) return;
-    if (balance < bet) {
+    if (spinning || walletLoading) return;
+    if (!canAfford(bet)) {
       setAuto(false);
+      setError('insufficient balance');
       haptic('error');
       return;
     }
 
-    const targetBoard = createOutcome();
-    const strips = createSpinStrips(board, targetBoard);
+    const strips = createSpinStrips(board, createAnimationTarget());
+    const startedAt = performance.now();
     setSpinning(true);
     setSpinStage('rolling');
     setSpinStrips(strips);
@@ -371,52 +372,71 @@ export const RoyalVaultSoloGame = () => {
     setActiveWin(0);
     setWinAmount(0);
     setWinPresentation(null);
-    setBalance((value) => roundCredits(value - bet));
     haptic('tap');
     playSound('spin');
 
-    for (let reel = 0; reel < REEL_COUNT; reel += 1) {
-      await sleep(reel === 0 ? 900 : 165);
-      if (!mountedRef.current) return;
-      setBoard((current) => current.map((column, index) => index === reel ? targetBoard[reel] : column));
-      setSettledReels(reel + 1);
-      haptic('stop');
-      playSound('stop');
-    }
+    try {
+      const response = await soloSpin('royal_vault', bet);
+      const outcome = response.outcome as ServerRoyalVaultOutcome;
+      const targetBoard = outcome.board;
+      const result: WinLine[] = (outcome.wins ?? []).map((win) => ({
+        lineIndex: win.line_index,
+        symbol: win.symbol,
+        count: win.count,
+        amount: win.amount,
+        cells: win.cells,
+      }));
+      const amount = response.payout_coins;
+      const firstStopWait = Math.max(0, FIRST_REEL_STOP_DELAY_MS - (performance.now() - startedAt));
 
-    setSpinStrips(null);
-    const result = evaluateBoard(targetBoard, bet);
-    const amount = roundCredits(result.reduce((sum, line) => sum + line.amount, 0));
-
-    if (result.length > 0) {
-      setSpinStage('lines');
-      setWins(result);
-
-      for (let lineIndex = 0; lineIndex < result.length; lineIndex += 1) {
-        setActiveWin(lineIndex);
-        await sleep(680);
+      for (let reel = 0; reel < REEL_COUNT; reel += 1) {
+        await sleep(reel === 0 ? firstStopWait : REEL_STOP_GAP_MS);
         if (!mountedRef.current) return;
+        setBoard((current) => current.map((column, index) => index === reel ? targetBoard[reel] : column));
+        setSettledReels(reel + 1);
+        haptic('stop');
+        playSound('stop');
       }
 
-      setSpinStage('win');
-      setWinPresentation({
-        amount,
-        lineCount: result.length,
-        tier: amount >= bet * 6 ? 'royal' : amount >= bet * 2 ? 'big' : 'regular',
-      });
-      setWinAmount(amount);
-      setBalance((value) => roundCredits(value + amount));
-      haptic('win');
-      playSound('win');
+      setSpinStrips(null);
 
-      await sleep(1650);
-      if (!mountedRef.current) return;
-      setWinPresentation(null);
+      if (result.length > 0) {
+        setSpinStage('lines');
+        setWins(result);
+
+        for (let lineIndex = 0; lineIndex < result.length; lineIndex += 1) {
+          setActiveWin(lineIndex);
+          await sleep(LINE_PRESENTATION_MS);
+          if (!mountedRef.current) return;
+        }
+
+        await sleep(AFTER_LINES_PAUSE_MS);
+        if (!mountedRef.current) return;
+
+        setSpinStage('win');
+        setWinAmount(amount);
+        setWinPresentation({
+          amount,
+          lineCount: result.length,
+          tier: amount >= bet * 6 ? 'royal' : amount >= bet * 2 ? 'big' : 'regular',
+        });
+        haptic('win');
+        playSound('win');
+
+        await sleep(WIN_OVERLAY_MS);
+        if (!mountedRef.current) return;
+        setWinPresentation(null);
+      }
+    } catch {
+      setAuto(false);
+      setSpinStrips(null);
+      setSettledReels(REEL_COUNT);
+      haptic('error');
     }
 
     setSpinStage('idle');
     setSpinning(false);
-  }, [balance, bet, board, haptic, playSound, spinning]);
+  }, [bet, board, canAfford, haptic, playSound, setError, soloSpin, spinning, walletLoading]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -457,13 +477,13 @@ export const RoyalVaultSoloGame = () => {
 
   useEffect(() => {
     if (!auto || spinning || loading) return undefined;
-    if (balance < bet) {
+    if (!canAfford(bet)) {
       setAuto(false);
       return undefined;
     }
     const timer = window.setTimeout(() => void spin(), wins.length ? 1250 : 420);
     return () => window.clearTimeout(timer);
-  }, [auto, balance, bet, loading, spin, spinning, wins.length]);
+  }, [auto, bet, canAfford, loading, spin, spinning, wins.length]);
 
   const selectBet = (value: number) => {
     if (spinning) return;
@@ -494,7 +514,7 @@ export const RoyalVaultSoloGame = () => {
         </header>
 
         <div className="rv-stats">
-          <div><span>{tr('DEMO BALANCE', 'ДЕМО-БАЛАНС')}</span><strong>{format(balance)}</strong></div>
+          <div><span>{tr('BALANCE', 'БАЛАНС')}</span><strong>{format(balance)}</strong></div>
           <i />
           <div><span>{tr('LAST WIN', 'ВЫИГРЫШ')}</span><strong className={winAmount > 0 ? 'is-win' : ''}>{format(winAmount)}</strong></div>
           <b>{tr('10 LINES', '10 ЛИНИЙ')}</b>
@@ -516,7 +536,7 @@ export const RoyalVaultSoloGame = () => {
                       style={{
                         '--strip-scale': isRolling ? reelSymbols.length / ROW_COUNT : 1,
                         '--strip-end': `${stripEnd}%`,
-                        '--spin-duration': `${900 + reel * 165}ms`,
+                        '--spin-duration': `${720 + reel * 45}ms`,
                       } as CSSProperties}
                     >
                       {reelSymbols.map((symbolId, row) => {
@@ -547,19 +567,6 @@ export const RoyalVaultSoloGame = () => {
             <span className="rv-line-number rv-line-number-right">{activeLine ? activeLine.lineIndex + 1 : ''}</span>
           </div>
 
-          {winPresentation && (
-            <div className={`rv-win-reveal is-${winPresentation.tier}`} aria-live="polite">
-              <div className="rv-win-reveal-card">
-                <span className="rv-win-reveal-icon"><img src={iconCrown} alt="" draggable={false} /></span>
-                <small>{tr('TOTAL WIN', 'ОБЩИЙ ВЫИГРЫШ')}</small>
-                <strong>+{format(winPresentation.amount)}</strong>
-                <p>{winPresentation.lineCount === 1
-                  ? tr('1 winning line', '1 выигрышная линия')
-                  : tr(`${winPresentation.lineCount} winning lines`, `${winPresentation.lineCount} выигрышных линий`)}</p>
-              </div>
-            </div>
-          )}
-
           <div className="rv-result-strip" aria-live="polite">
             {spinStage === 'rolling' ? (
               <><span className="rv-status-dot" />{tr('THE VAULT IS TURNING', 'ХРАНИЛИЩЕ ВРАЩАЕТСЯ')}</>
@@ -589,15 +596,16 @@ export const RoyalVaultSoloGame = () => {
             <button type="button" className={`rv-auto-btn ${auto ? 'active' : ''}`} onClick={() => { setAuto((value) => !value); haptic('tap'); playSound('tap'); }}>
               <span>{auto ? tr('AUTO ON', 'АВТО ВКЛ') : tr('AUTO', 'АВТО')}</span><i />
             </button>
-            <button type="button" className="rv-spin-btn" disabled={spinning || balance < bet} onClick={() => void spin()} aria-label={tr('Spin reels', 'Крутить барабаны')}>
+            <button type="button" className="rv-spin-btn" disabled={spinning || walletLoading || !canAfford(bet)} onClick={() => void spin()} aria-label={tr('Spin reels', 'Крутить барабаны')}>
               <span className="rv-spin-shine" />
               <span className="rv-spin-icon"><SpinIcon /></span>
               <strong>{spinning ? tr('SPINNING', 'КРУТИМ') : tr('SPIN', 'КРУТИТЬ')}</strong>
             </button>
-            <div className="rv-demo-mark"><span>DEMO</span><small>{tr('FRONTEND ONLY', 'ТОЛЬКО ФРОНТ')}</small></div>
           </div>
         </footer>
       </div>
+
+      {winPresentation && <RoyalWinOverlay presentation={winPresentation} format={format} />}
 
       {showInfo && <PaytableModal onClose={() => setShowInfo(false)} />}
     </div>

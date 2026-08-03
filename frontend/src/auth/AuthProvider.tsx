@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -35,6 +36,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<ApiUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const balanceSyncPauseCountRef = useRef(0);
 
   const saveToken = useCallback((nextToken: string | null) => {
     setToken(nextToken);
@@ -90,8 +92,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(response.user);
   }, []);
 
-  const refreshBalance = useCallback(async () => {
+  const refreshBalanceNow = useCallback(async (force = false) => {
     const response = await api.users.balance();
+
+    if (!force && balanceSyncPauseCountRef.current > 0) return;
 
     setUser((currentUser) => {
       if (!currentUser) return currentUser;
@@ -103,6 +107,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       };
     });
   }, []);
+
+  const refreshBalance = useCallback(async () => {
+    if (balanceSyncPauseCountRef.current > 0) return;
+    await refreshBalanceNow();
+  }, [refreshBalanceNow]);
+
+  const pauseBalanceSync = useCallback(() => {
+    balanceSyncPauseCountRef.current += 1;
+  }, []);
+
+  const resumeBalanceSync = useCallback(async (refresh = false) => {
+    balanceSyncPauseCountRef.current = Math.max(0, balanceSyncPauseCountRef.current - 1);
+    if (refresh && balanceSyncPauseCountRef.current === 0) {
+      await refreshBalanceNow(true);
+    }
+  }, [refreshBalanceNow]);
 
   useEffect(() => {
     if (!token) return;
@@ -208,6 +228,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       refreshUser,
       refreshProfile,
       refreshBalance,
+      pauseBalanceSync,
+      resumeBalanceSync,
       exchangeTonToGame,
       logout,
     }),
@@ -220,6 +242,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       refreshUser,
       refreshProfile,
       refreshBalance,
+      pauseBalanceSync,
+      resumeBalanceSync,
       exchangeTonToGame,
       logout,
     ],

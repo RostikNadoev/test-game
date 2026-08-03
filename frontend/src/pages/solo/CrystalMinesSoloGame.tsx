@@ -22,6 +22,19 @@ const QUICK_BETS = [10, 50, 100].filter((value) => value >= MIN_BET);
 const formatMoney = (value: number, locale = 'en-US') =>
   new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
 
+const restoreMinesViewport = () => {
+  const resetScroll = () => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    document.querySelector<HTMLElement>('.cm-page')?.parentElement?.scrollTo(0, 0);
+  };
+
+  window.requestAnimationFrame(resetScroll);
+  window.setTimeout(resetScroll, 180);
+  window.setTimeout(resetScroll, 420);
+};
+
 type Phase = 'idle' | 'playing' | 'finished';
 type FinishType = 'win' | 'lose' | null;
 
@@ -254,6 +267,8 @@ export const CrystalMinesSoloGame = () => {
     }
 
     session.reset();
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    restoreMinesViewport();
     setBetInput(String(normalizedBet));
     setPicked(new Set());
     setRevealedMines([]);
@@ -341,9 +356,9 @@ export const CrystalMinesSoloGame = () => {
 
         .solo-session-page.cm-page {
           width: 100%;
-          height: 100dvh;
+          height: 100%;
           min-height: 0 !important;
-          max-height: 100dvh;
+          max-height: 100%;
           overflow: hidden !important;
           overscroll-behavior: none;
           box-sizing: border-box;
@@ -607,7 +622,7 @@ export const CrystalMinesSoloGame = () => {
           outline: none;
           color: #fff;
           background: transparent;
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 800;
           line-height: 1;
         }
@@ -732,37 +747,6 @@ export const CrystalMinesSoloGame = () => {
         .cm-chip:disabled {
           opacity: .48;
         }
-
-        .cm-casino-fx {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          z-index: 3;
-          overflow: hidden;
-        }
-
-        .cm-casino-fx span {
-          position: absolute;
-          top: -18px;
-          width: 7px;
-          height: 14px;
-          border-radius: 999px;
-          background: rgba(82,255,229,.9);
-          opacity: 0;
-        }
-
-        .cm-win .cm-casino-fx span {
-          animation: cmConfetti 1.2s ease-out both;
-        }
-
-        .cm-casino-fx span:nth-child(1) { left: 8%; animation-delay: .02s; background: #52ffe5; }
-        .cm-casino-fx span:nth-child(2) { left: 18%; animation-delay: .08s; background: #ffffff; }
-        .cm-casino-fx span:nth-child(3) { left: 29%; animation-delay: .14s; background: #52ffe5; }
-        .cm-casino-fx span:nth-child(4) { left: 41%; animation-delay: .04s; background: #ffe27a; }
-        .cm-casino-fx span:nth-child(5) { left: 53%; animation-delay: .12s; background: #ffffff; }
-        .cm-casino-fx span:nth-child(6) { left: 66%; animation-delay: .06s; background: #52ffe5; }
-        .cm-casino-fx span:nth-child(7) { left: 77%; animation-delay: .16s; background: #ffe27a; }
-        .cm-casino-fx span:nth-child(8) { left: 89%; animation-delay: .1s; background: #ffffff; }
 
         .cm-loading {
           position: absolute;
@@ -1045,22 +1029,6 @@ export const CrystalMinesSoloGame = () => {
           100% { opacity: 1; transform: translateZ(18px) scale(1) rotate(0); }
         }
 
-        @keyframes cmConfetti {
-          0% {
-            opacity: 0;
-            transform: translateY(0) rotate(0deg) scale(.7);
-          }
-
-          12% {
-            opacity: 1;
-          }
-
-          100% {
-            opacity: 0;
-            transform: translateY(105dvh) rotate(420deg) scale(1);
-          }
-        }
-
         @keyframes cmWinGlow {
           0% { opacity: 0; transform: scale(.96); }
           20% { opacity: 1; transform: scale(1); }
@@ -1220,17 +1188,6 @@ export const CrystalMinesSoloGame = () => {
 
       {loadingScreen && <MinesLoadingScreen progress={loadProgress} />}
 
-      <div className="cm-casino-fx" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
-
       <div className="cm-head">
         <button type="button" className="cm-info-btn" onClick={() => setShowInfo(true)} aria-label={tr('Information', 'Информация')}>
           <InfoIcon />
@@ -1302,6 +1259,7 @@ export const CrystalMinesSoloGame = () => {
               value={betInput}
               disabled={effectivePhase === 'playing' || phase === 'finished'}
               onChange={(event) => setBetInput(event.currentTarget.value)}
+              onBlur={restoreMinesViewport}
             />
           </label>
 

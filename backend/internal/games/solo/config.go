@@ -32,6 +32,7 @@ type GameConfig struct {
 var catalog = map[string]GameConfig{
 	"neon_scratch":  {Code: "neon_scratch", Title: "Lucky Scratch", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
 	"fruit_cascade": {Code: "fruit_cascade", Title: "Fruit Cascade", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
+	"royal_vault":   {Code: "royal_vault", Title: "Royal Vault", Mode: ModeInstant, MinBet: 1, MaxBet: 500},
 	"royal_5x5":     {Code: "royal_5x5", Title: "Apple Trail", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 	"crystal_mines": {Code: "crystal_mines", Title: "Crystal Mines", Mode: ModeSession, MinBet: 1, MaxBet: 500},
 	"turbo_tower":   {Code: "turbo_tower", Title: "Turbo Tower", Mode: ModeSession, MinBet: 1, MaxBet: 500},
@@ -43,6 +44,8 @@ func NormalizeGame(code string) string {
 		return "neon_scratch"
 	case "fruit-cascade":
 		return "fruit_cascade"
+	case "royal-vault":
+		return "royal_vault"
 	case "royal-5x5":
 		return "royal_5x5"
 	case "crystal-mines":
