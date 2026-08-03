@@ -1,15 +1,19 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ChevronLeft, Loader2, Users } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Loader2, Minus, Plus, Users } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth/useAuth';
 import { getGameByCode } from '../data/games';
 import coinIcon from '../assets/solo/scratch/icon-coin.webp';
 import { useLanguage } from '../i18n/LanguageContext';
 
-const MIN_BET = 10;
-const MAX_BET = 1000;
-const presetBets = [50, 100, 250, 500];
+const FALLBACK_MIN_BET = 2;
+const FALLBACK_MAX_BET = 500;
+const BET_STEP = 1;
+const presetBets = [2, 10, 50, 100, 250, 500];
+
+const clampBet = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(value)));
 
 const toErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof ApiError) return error.message;
@@ -21,11 +25,13 @@ export const CreateLobby = () => {
   const { gameId } = useParams();
   const navigate = useNavigate();
   const { user, refreshBalance } = useAuth();
-  const { localize, tr } = useLanguage();
+  const { locale, localize, tr } = useLanguage();
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const [lobbyName, setLobbyName] = useState('');
   const [bet, setBet] = useState(100);
+  const [minBet, setMinBet] = useState(FALLBACK_MIN_BET);
+  const [maxBet, setMaxBet] = useState(FALLBACK_MAX_BET);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -34,12 +40,52 @@ export const CreateLobby = () => {
   const game = useMemo(() => getGameByCode(gameId || ''), [gameId]);
   const gameName = game?.displayName || tr('Game', 'Игра');
   const userCoins = Math.floor(user?.balance_game ?? 0);
-  const betProgress = ((bet - MIN_BET) / (MAX_BET - MIN_BET)) * 100;
+  const betProgress = maxBet === minBet
+    ? 100
+    : ((bet - minBet) / (maxBet - minBet)) * 100;
+  const availablePresets = presetBets.filter(
+    (value) => value >= minBet && value <= maxBet,
+  );
+  const minBetTon = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 1,
+  }).format(minBet / 10);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void api.lobbies.games()
+      .then((response) => {
+        if (cancelled) return;
+
+        const settings = response.games.find((item) => item.code === gameId);
+        if (!settings) return;
+
+        const nextMin = Math.max(
+          FALLBACK_MIN_BET,
+          Math.ceil(settings.min_bet ?? FALLBACK_MIN_BET),
+        );
+        const nextMax = Math.max(
+          nextMin,
+          Math.floor(settings.max_bet ?? FALLBACK_MAX_BET),
+        );
+
+        setMinBet(nextMin);
+        setMaxBet(nextMax);
+        setBet((current) => clampBet(current, nextMin, nextMax));
+      })
+      .catch(() => {
+        // The server remains authoritative; safe defaults keep the form usable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gameId]);
 
   const canAttemptCreate =
     Boolean(gameId) &&
-    bet >= MIN_BET &&
-    bet <= MAX_BET &&
+    bet >= minBet &&
+    bet <= maxBet &&
     bet <= userCoins &&
     !isSubmitting;
 
@@ -260,12 +306,36 @@ export const CreateLobby = () => {
         <div className="minimal-form-divider" />
 
         <div className="minimal-bet-head">
-          <div>
+          <div className="minimal-bet-copy">
             <span className="minimal-field-label">{tr('Bet', 'Ставка')}</span>
+            <small>
+              {tr('Minimum', 'Минимум')}: {minBet} GAME = {minBetTon} TON
+            </small>
+          </div>
+
+          <div className="minimal-bet-adjuster">
+            <button
+              type="button"
+              onClick={() => setBet((current) => clampBet(current - BET_STEP, minBet, maxBet))}
+              disabled={bet <= minBet}
+              className="minimal-bet-step press"
+              aria-label={tr('Decrease bet', 'Уменьшить ставку')}
+            >
+              <Minus size={15} />
+            </button>
             <div className="minimal-bet-value">
               <img src={coinIcon} alt="" draggable={false} />
               <strong>{bet}</strong>
             </div>
+            <button
+              type="button"
+              onClick={() => setBet((current) => clampBet(current + BET_STEP, minBet, maxBet))}
+              disabled={bet >= maxBet}
+              className="minimal-bet-step press"
+              aria-label={tr('Increase bet', 'Увеличить ставку')}
+            >
+              <Plus size={15} />
+            </button>
           </div>
         </div>
 
@@ -276,23 +346,24 @@ export const CreateLobby = () => {
           <input
             id="create-lobby-bet-range"
             type="range"
-            min={MIN_BET}
-            max={MAX_BET}
-            step={10}
+            min={minBet}
+            max={maxBet}
+            step={BET_STEP}
             value={bet}
-            onChange={(event) => setBet(Number(event.target.value))}
+            onChange={(event) => setBet(clampBet(Number(event.target.value), minBet, maxBet))}
             aria-label={tr('Bet', 'Ставка')}
+            aria-valuetext={`${bet} GAME`}
             className="minimal-bet-range"
           />
         </div>
 
         <div className="minimal-range-values">
-          <span>{MIN_BET}</span>
-          <span>{MAX_BET}</span>
+          <span>{minBet} GAME</span>
+          <span>{maxBet} GAME</span>
         </div>
 
         <div className="minimal-preset-grid">
-          {presetBets.map((value) => (
+          {availablePresets.map((value) => (
             <button
               key={value}
               type="button"

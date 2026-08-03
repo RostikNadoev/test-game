@@ -146,6 +146,8 @@ func ListEnabledPvpGames() []catalog.PvpGame {
 			catalog.PvpGame{
 				Code:        row.Code,
 				DisplayName: row.Title,
+				MinBet:      row.MinBet,
+				MaxBet:      row.MaxBet,
 			},
 		)
 	}
@@ -236,6 +238,9 @@ func UpdateGameSetting(
 	}
 
 	if value, ok := patch["min_bet"].(float64); ok && value > 0 {
+		if row.Kind == "pvp" && value < catalog.MinPvpBet {
+			return nil, errors.New("pvp min_bet cannot be below 2")
+		}
 		row.MinBet = value
 	}
 

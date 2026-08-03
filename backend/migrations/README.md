@@ -18,6 +18,7 @@ This folder contains versioned SQL migrations for PostgreSQL.
 psql "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable" -f backend/migrations/001_baseline.sql
 psql "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable" -f backend/migrations/002_admin.sql
 psql "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable" -f backend/migrations/003_withdrawals.sql
+psql "host=localhost user=postgres password=postgres dbname=tg_lobbies port=5432 sslmode=disable" -f backend/migrations/004_pvp_min_bet.sql
 ```
 
 Or via Docker:

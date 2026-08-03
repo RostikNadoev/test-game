@@ -63,3 +63,21 @@ func TestWithdrawalMigrationDefinesRequestTable(t *testing.T) {
 		}
 	}
 }
+
+func TestPvpMinimumBetMigration(t *testing.T) {
+	path := filepath.Join("004_pvp_min_bet.sql")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pvp minimum bet migration: %v", err)
+	}
+	content := strings.ToLower(string(raw))
+	for _, required := range []string{
+		"update game_settings",
+		"set min_bet = 2",
+		"where kind = 'pvp'",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("pvp minimum bet migration missing: %s", required)
+		}
+	}
+}

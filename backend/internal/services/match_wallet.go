@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const matchRakePercent = 0.05
+const matchRakePercent = 0.08
 
 var (
 	ErrMatchNotFound       = errors.New("match not found")

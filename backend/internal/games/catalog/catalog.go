@@ -3,7 +3,14 @@ package catalog
 type PvpGame struct {
 	Code        string `json:"code"`
 	DisplayName string `json:"display_name"`
+	MinBet      float64 `json:"min_bet,omitempty"`
+	MaxBet      float64 `json:"max_bet,omitempty"`
 }
+
+const (
+	MinPvpBet     = 2.0
+	DefaultMaxBet = 500.0
+)
 
 var PvpGames = []PvpGame{
 	{Code: "plinko_pvp", DisplayName: "Plinko PvP"},

@@ -18,8 +18,8 @@ func DefaultGameSettings() []models.GameSetting {
 			Kind:      "pvp",
 			Enabled:   true,
 			Title:     game.DisplayName,
-			MinBet:    1,
-			MaxBet:    500,
+			MinBet:    MinPvpBet,
+			MaxBet:    DefaultMaxBet,
 			SortOrder: order,
 		})
 		order++
@@ -53,6 +53,14 @@ func SeedGameSettingsIfEmpty(db *gorm.DB) error {
 		}).Create(&item).Error; err != nil {
 			return err
 		}
+	}
+
+	// The PvP minimum is a product-wide limit. Bring existing rows created with
+	// the old 1 GAME default forward without overwriting stricter admin values.
+	if err := db.Model(&models.GameSetting{}).
+		Where("kind = ? AND min_bet < ?", "pvp", MinPvpBet).
+		Update("min_bet", MinPvpBet).Error; err != nil {
+		return err
 	}
 
 	return nil

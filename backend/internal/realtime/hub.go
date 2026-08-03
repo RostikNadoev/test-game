@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"tg-lobbies-base/internal/games/catalog"
 	"tg-lobbies-base/internal/services"
 
 	"gorm.io/gorm"
@@ -237,8 +238,8 @@ func (h *Hub) CreateLobby(userID uint, name string, game string, betCoins float6
 	if !IsSupportedGame(game) {
 		return nil, errors.New("unsupported game")
 	}
-	if betCoins <= 0 {
-		return nil, errors.New("bet_coins must be greater than 0")
+	if betCoins < catalog.MinPvpBet-1e-9 {
+		return nil, errors.New("bet_coins must be at least 2")
 	}
 
 	if !services.IsPvpGameSupported(game) {

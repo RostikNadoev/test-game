@@ -7175,9 +7175,43 @@ body.fruit-cascade-active .header-panel {
 
 .minimal-bet-head {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
+}
+
+.minimal-bet-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.minimal-bet-copy small {
+  color: rgba(255, 255, 255, 0.36);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.minimal-bet-adjuster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.minimal-bet-step {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.minimal-bet-step:disabled {
+  opacity: 0.28;
 }
 
 .minimal-bet-value {
@@ -7231,16 +7265,16 @@ body.fruit-cascade-active .header-panel {
 
 .minimal-range-wrap {
   position: relative;
-  height: 34px;
+  height: 44px;
   margin-top: 14px;
 }
 
 .minimal-range-track {
   position: absolute;
   top: 50%;
-  right: 0;
-  left: 0;
-  height: 5px;
+  right: 12px;
+  left: 12px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
@@ -7257,11 +7291,55 @@ body.fruit-cascade-active .header-panel {
 .minimal-bet-range {
   position: absolute;
   inset: 0;
+  appearance: none;
+  -webkit-appearance: none;
   width: 100%;
-  height: 34px;
+  height: 44px;
   margin: 0;
-  opacity: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
   cursor: pointer;
+  touch-action: pan-y;
+}
+
+.minimal-bet-range::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.minimal-bet-range::-webkit-slider-thumb {
+  width: 26px;
+  height: 26px;
+  margin-top: -9px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 3px solid #17171d;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px #ffc96a, 0 6px 18px rgba(0, 0, 0, 0.42);
+}
+
+.minimal-bet-range::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.minimal-bet-range::-moz-range-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.minimal-bet-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #17171d;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px #ffc96a, 0 6px 18px rgba(0, 0, 0, 0.42);
 }
 
 .minimal-range-values {
@@ -7276,7 +7354,7 @@ body.fruit-cascade-active .header-panel {
 
 .minimal-preset-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-top: 12px;
 }
@@ -7297,6 +7375,22 @@ body.fruit-cascade-active .header-panel {
   color: #09090d;
   border-color: #fff;
   background: #fff;
+}
+
+@media (max-width: 360px) {
+  .minimal-bet-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .minimal-bet-adjuster {
+    justify-content: space-between;
+  }
+
+  .minimal-bet-value {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 .minimal-primary-button {

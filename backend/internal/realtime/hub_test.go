@@ -100,6 +100,24 @@ func TestHubCreateInsufficientBalance(t *testing.T) {
 	}
 }
 
+func TestHubRejectsLobbyBetBelowTwoGame(t *testing.T) {
+	db := testdb.Open(t)
+	testdb.SeedUser(t, db, 1, 100)
+
+	hub := NewHub(db)
+	if _, err := hub.CreateLobby(1, "Too small", "plinko_pvp", 1); err == nil || err.Error() != "bet_coins must be at least 2" {
+		t.Fatalf("expected minimum bet error, got %v", err)
+	}
+
+	lobby, err := hub.CreateLobby(1, "Minimum bet", "plinko_pvp", 2)
+	if err != nil {
+		t.Fatalf("create lobby with minimum bet: %v", err)
+	}
+	if lobby.BetCoins != 2 {
+		t.Fatalf("bet = %.2f, want 2", lobby.BetCoins)
+	}
+}
+
 func mapHubError(err error) error {
 	if err.Error() == "insufficient balance" {
 		return services.ErrInsufficientBalance

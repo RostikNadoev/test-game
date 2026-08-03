@@ -44,7 +44,7 @@ func TestReserveBetRefundAndSettle(t *testing.T) {
 	user1 = testdb.ReloadUser(t, db, 1)
 	user2 = testdb.ReloadUser(t, db, 2)
 
-	expectedPayout := roundMoney(bet * 2 * (1 - matchRakePercent))
+	const expectedPayout = 18.4 // 20 GAME pot minus the 8% platform rake.
 	if user1.BalanceGame != roundMoney(90+expectedPayout) {
 		t.Fatalf("winner balance = %.2f, want %.2f", user1.BalanceGame, roundMoney(90+expectedPayout))
 	}

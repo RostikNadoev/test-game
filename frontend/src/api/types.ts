@@ -127,6 +127,8 @@ export type OnlinePresenceResponse = {
 export type BackendGame = {
   code: string;
   display_name: string;
+  min_bet?: number;
+  max_bet?: number;
 };
 
 export type GamesResponse = {

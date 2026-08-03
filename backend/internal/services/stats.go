@@ -9,8 +9,8 @@ import (
 
 const (
 	ratingWinDelta  = 25
-	ratingLossDelta = 15
-	ratingDrawDelta = 5
+	ratingLossDelta = 20
+	ratingDrawDelta = 0
 )
 
 func ApplyMatchResult(db *gorm.DB, winnerID, loserID uint, game string, draw bool) error {
