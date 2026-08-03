@@ -72,11 +72,12 @@ type RoyalVaultWindow = Window &
 const REEL_COUNT = 5;
 const ROW_COUNT = 3;
 const QUICK_BETS = [10, 25, 50, 100];
-const FIRST_REEL_STOP_DELAY_MS = 1450;
-const REEL_STOP_GAP_MS = 240;
-const REEL_BRAKE_MS = 620;
-const LINE_PRESENTATION_MS = 1250;
-const AFTER_LINES_PAUSE_MS = 850;
+const MAX_BET = 500;
+const FIRST_REEL_STOP_DELAY_MS = 700;
+const REEL_STOP_GAP_MS = 140;
+const REEL_BRAKE_MS = 420;
+const LINE_PRESENTATION_MS = 1050;
+const AFTER_LINES_PAUSE_MS = 350;
 const WIN_OVERLAY_MS = 2050;
 
 const SYMBOLS: SymbolDefinition[] = [
@@ -287,7 +288,7 @@ const RoyalWinOverlay = ({
 export const RoyalVaultSoloGame = () => {
   const { tr, locale } = useLanguage();
   const { pauseBalanceSync, previewGameBalanceChange, resumeBalanceSync } = useAuth();
-  const { balance, spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
+  const { spin: soloSpin, loading: walletLoading, canAfford, setError } = useSoloWallet();
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [board, setBoard] = useState<SlotBoard>(STARTING_BOARD);
@@ -297,6 +298,7 @@ export const RoyalVaultSoloGame = () => {
   const [settledReels, setSettledReels] = useState(REEL_COUNT);
   const [stoppingReel, setStoppingReel] = useState<number | null>(null);
   const [bet, setBet] = useState(25);
+  const [betInput, setBetInput] = useState('25');
   const [winAmount, setWinAmount] = useState(0);
   const [wins, setWins] = useState<WinLine[]>([]);
   const [activeWin, setActiveWin] = useState(0);
@@ -534,10 +536,29 @@ export const RoyalVaultSoloGame = () => {
   const selectBet = (value: number) => {
     if (spinning) return;
     setBet(value);
+    setBetInput(String(value));
     setWinAmount(0);
     setWins([]);
     haptic('tap');
     playSound('tap');
+  };
+
+  const updateBetInput = (value: string) => {
+    if (spinning) return;
+
+    const cleaned = value.replace(/\D/g, '').slice(0, 3);
+    setBetInput(cleaned);
+
+    const numeric = Number(cleaned);
+    setBet(cleaned === '' ? 1 : Math.min(MAX_BET, Math.max(1, numeric)));
+    setWinAmount(0);
+    setWins([]);
+  };
+
+  const commitBetInput = () => {
+    const numeric = Math.min(MAX_BET, Math.max(1, Math.floor(Number(betInput) || 1)));
+    setBet(numeric);
+    setBetInput(String(numeric));
   };
 
   if (loading) {
@@ -560,8 +581,6 @@ export const RoyalVaultSoloGame = () => {
         </header>
 
         <div className="rv-stats">
-          <div><span>{tr('BALANCE', 'БАЛАНС')}</span><strong>{format(balance)}</strong></div>
-          <i />
           <div><span>{tr('LAST WIN', 'ВЫИГРЫШ')}</span><strong className={winAmount > 0 ? 'is-win' : ''}>{format(winAmount)}</strong></div>
           <b>{tr('10 LINES', '10 ЛИНИЙ')}</b>
         </div>
@@ -632,7 +651,24 @@ export const RoyalVaultSoloGame = () => {
 
         <footer className="rv-controls">
           <div className="rv-bet-panel">
-            <div className="rv-control-label"><span>{tr('TOTAL BET', 'ОБЩАЯ СТАВКА')}</span><strong>{format(bet)}</strong></div>
+            <label className="rv-control-label">
+              <span>{tr('TOTAL BET', 'ОБЩАЯ СТАВКА')}</span>
+              <input
+                className="rv-bet-input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                enterKeyHint="done"
+                value={betInput}
+                disabled={spinning}
+                onChange={(event) => updateBetInput(event.currentTarget.value)}
+                onBlur={commitBetInput}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+                aria-label={tr('Bet amount', 'Сумма ставки')}
+              />
+            </label>
             <div className="rv-bet-options">
               {QUICK_BETS.map((value) => (
                 <button type="button" key={value} disabled={spinning} className={bet === value ? 'active' : ''} onClick={() => selectBet(value)}>{value}</button>

@@ -170,7 +170,7 @@ body.royal-vault-active .solo-header-badge {
   display: grid;
   min-height: 43px;
   flex: 0 0 auto;
-  grid-template-columns: 1fr 1px 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   border: 1px solid rgba(255, 236, 184, 0.075);
@@ -211,12 +211,6 @@ body.royal-vault-active .solo-header-badge {
 .rv-stats > div strong.is-win {
   color: #6ef1ad;
   text-shadow: 0 0 15px rgba(75, 232, 154, 0.24);
-}
-
-.rv-stats > i {
-  width: 1px;
-  height: 24px;
-  background: rgba(255, 255, 255, 0.07);
 }
 
 .rv-stats > b {
@@ -709,11 +703,33 @@ body.royal-vault-active .solo-header-badge {
   padding-left: 7px;
 }
 
-.rv-control-label strong {
+.rv-bet-input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid rgba(229, 193, 99, 0.22);
+  border-radius: 0;
+  outline: 0;
+  padding: 0 2px 1px 0;
   color: #f1e7cb;
+  background: transparent;
+  font-family: 'Supercell', Inter, system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.2;
   letter-spacing: -0.035em;
+  caret-color: #e6c366;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.rv-bet-input:focus {
+  border-bottom-color: rgba(229, 193, 99, 0.72);
+  color: #fff0bf;
+}
+
+.rv-bet-input:disabled {
+  opacity: 0.62;
 }
 
 .rv-bet-options {
@@ -1219,6 +1235,7 @@ body.royal-vault-active .solo-header-badge {
   .rv-stats { min-height: 38px; padding-block: 4px; }
   .rv-machine { padding-top: 10px; border-radius: 21px; }
   .rv-bet-panel { padding: 4px; }
+  .rv-bet-input { height: 20px; }
   .rv-bet-options button { height: 28px; }
   .rv-actions { min-height: 49px; }
   .rv-auto-btn { border-radius: 15px; }
@@ -1235,7 +1252,7 @@ body.royal-vault-active .solo-header-badge {
 }
 
 .rv-stats > b,
-.rv-control-label strong,
+.rv-bet-input,
 .rv-bet-options button,
 .rv-auto-btn,
 .rv-spin-btn strong,
