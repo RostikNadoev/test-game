@@ -10,12 +10,12 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../../auth/useAuth';
 import { useSoloWallet } from '../../hooks/useSoloWallet';
 import { useLanguage } from '../../i18n/LanguageContext';
-import iconDiamond from '../../assets/solo/scratch/icon-diamond.webp';
-import iconCoin from '../../assets/solo/scratch/icon-coin.webp';
-import iconClover from '../../assets/solo/scratch/icon-clover.webp';
-import iconOrb from '../../assets/solo/scratch/icon-orb.webp';
-import iconStar from '../../assets/solo/scratch/icon-star.webp';
-import iconCrown from '../../assets/solo/scratch/icon-crown.webp';
+import amethystHourglass from '../../assets/solo/royal-vault/symbols/amethyst-hourglass.webp';
+import emeraldKey from '../../assets/solo/royal-vault/symbols/emerald-key.webp';
+import goldenChalice from '../../assets/solo/royal-vault/symbols/golden-chalice.webp';
+import rubyCompass from '../../assets/solo/royal-vault/symbols/ruby-compass.webp';
+import sapphireSignet from '../../assets/solo/royal-vault/symbols/sapphire-signet.webp';
+import vaultCrest from '../../assets/solo/royal-vault/symbols/vault-crest.webp';
 import './RoyalVaultSoloGame.css';
 
 type SymbolId = 'wild' | 'diamond' | 'clover' | 'coin' | 'star' | 'orb';
@@ -26,6 +26,7 @@ type SymbolDefinition = {
   id: SymbolId;
   image: string;
   label: string;
+  labelRu: string;
   weight: number;
   payouts: [number, number, number];
   tone: string;
@@ -84,12 +85,12 @@ const AFTER_LINES_PAUSE_MS = 350;
 const WIN_OVERLAY_MS = 2050;
 
 const SYMBOLS: SymbolDefinition[] = [
-  { id: 'wild', image: iconCrown, label: 'Wild', weight: 7, payouts: [18, 48, 140], tone: '#f9d879' },
-  { id: 'diamond', image: iconDiamond, label: 'Diamond', weight: 9, payouts: [24, 64, 190], tone: '#d8fff8' },
-  { id: 'clover', image: iconClover, label: 'Clover', weight: 12, payouts: [12, 32, 84], tone: '#70f4a3' },
-  { id: 'coin', image: iconCoin, label: 'Coin', weight: 14, payouts: [9, 22, 58], tone: '#ffd66d' },
-  { id: 'star', image: iconStar, label: 'Star', weight: 18, payouts: [6, 15, 38], tone: '#ff91cc' },
-  { id: 'orb', image: iconOrb, label: 'Orb', weight: 22, payouts: [4, 10, 26], tone: '#9fc7ff' },
+  { id: 'wild', image: vaultCrest, label: 'Vault Crest', labelRu: 'Герб хранилища', weight: 7, payouts: [18, 48, 140], tone: '#f3c66a' },
+  { id: 'diamond', image: sapphireSignet, label: 'Sapphire Signet', labelRu: 'Сапфировая печать', weight: 9, payouts: [24, 64, 190], tone: '#4fa8ff' },
+  { id: 'clover', image: emeraldKey, label: 'Emerald Key', labelRu: 'Изумрудный ключ', weight: 12, payouts: [12, 32, 84], tone: '#4de28b' },
+  { id: 'coin', image: goldenChalice, label: 'Golden Chalice', labelRu: 'Золотой кубок', weight: 14, payouts: [9, 22, 58], tone: '#ffbd55' },
+  { id: 'star', image: rubyCompass, label: 'Ruby Compass', labelRu: 'Рубиновый компас', weight: 18, payouts: [6, 15, 38], tone: '#ff5a74' },
+  { id: 'orb', image: amethystHourglass, label: 'Amethyst Hourglass', labelRu: 'Аметистовые часы', weight: 22, payouts: [4, 10, 26], tone: '#b16cff' },
 ];
 
 const SYMBOL_BY_ID = SYMBOLS.reduce<Record<SymbolId, SymbolDefinition>>(
@@ -206,8 +207,8 @@ const PaytableModal = ({ onClose }: { onClose: () => void }) => {
 
         <p className="rv-modal-copy">
           {tr(
-            'Match 3 or more symbols from the left reel. The crown is Wild and replaces any symbol.',
-            'Собери 3 или больше символов слева направо. Корона — Wild и заменяет любой символ.',
+            'Match 3 or more symbols from the left reel. The Vault Crest is Wild and replaces any symbol.',
+            'Собери 3 или больше символов слева направо. Герб хранилища — Wild и заменяет любой символ.',
           )}
         </p>
 
@@ -215,7 +216,7 @@ const PaytableModal = ({ onClose }: { onClose: () => void }) => {
           {SYMBOLS.map((symbol) => (
             <div className="rv-pay-row" key={symbol.id}>
               <img src={symbol.image} alt={symbol.label} draggable={false} />
-              <div><strong>{symbol.label}</strong><small>{symbol.id === 'wild' ? tr('WILD SYMBOL', 'WILD-СИМВОЛ') : tr('3 · 4 · 5 symbols', '3 · 4 · 5 символов')}</small></div>
+              <div><strong>{tr(symbol.label, symbol.labelRu)}</strong><small>{symbol.id === 'wild' ? tr('WILD SYMBOL', 'WILD-СИМВОЛ') : tr('3 · 4 · 5 symbols', '3 · 4 · 5 символов')}</small></div>
               <span>{symbol.payouts.join(' · ')}</span>
             </div>
           ))}
@@ -239,7 +240,7 @@ const LoadingScreen = ({ progress }: { progress: number }) => {
     <div className="rv-loader">
       <div className="rv-loader-halo" />
       <div className="rv-loader-mark">
-        {[iconDiamond, iconCrown, iconClover].map((image, index) => (
+        {[sapphireSignet, vaultCrest, emeraldKey].map((image, index) => (
           <span key={image} style={{ '--loader-index': index } as CSSProperties}><img src={image} alt="" draggable={false} /></span>
         ))}
       </div>
