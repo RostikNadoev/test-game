@@ -22,6 +22,7 @@ import {
   readStoredPlayersInfo,
 } from '../../hooks/useLobbyMatchFinish';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { calculateMatchWinnerProfit } from '../../utils/matchEconomy';
 import {
   PremiumGameResultModal,
   type ResultTheme,
@@ -328,7 +329,7 @@ export const QuickEmojiChat = () => {
   const technicalNet = presence?.draw
     ? 0
     : didWin
-      ? Math.round(betCoins * 0.9 * 100) / 100
+      ? calculateMatchWinnerProfit(betCoins)
       : -betCoins;
 
   return (

@@ -296,6 +296,7 @@ export default function BallzDuelGame() {
   const lastAutomaticSyncKeyRef = useRef('');
   const aimReadyRef = useRef(false);
   const pointerActiveRef = useRef(false);
+  const sliderPointerActiveRef = useRef(false);
 
   const lastFrameRef = useRef(0);
   const accumulatorRef = useRef(0);
@@ -657,6 +658,46 @@ export default function BallzDuelGame() {
     },
     [match.myAvailableBalls, match.phaseRef],
   );
+
+  const updateSelectedBallsFromSlider = useCallback(
+    (element: HTMLInputElement, clientX: number) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0) return;
+
+      const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+      const maxBalls = Math.max(1, match.myAvailableBalls);
+      changeSelectedBalls(1 + ratio * (maxBalls - 1));
+    },
+    [changeSelectedBalls, match.myAvailableBalls],
+  );
+
+  const handleSliderPointerDown = (
+    event: ReactPointerEvent<HTMLInputElement>,
+  ) => {
+    event.stopPropagation();
+    event.preventDefault();
+    sliderPointerActiveRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateSelectedBallsFromSlider(event.currentTarget, event.clientX);
+  };
+
+  const handleSliderPointerMove = (
+    event: ReactPointerEvent<HTMLInputElement>,
+  ) => {
+    event.stopPropagation();
+    if (!sliderPointerActiveRef.current) return;
+    updateSelectedBallsFromSlider(event.currentTarget, event.clientX);
+  };
+
+  const handleSliderPointerEnd = (
+    event: ReactPointerEvent<HTMLInputElement>,
+  ) => {
+    event.stopPropagation();
+    if (!sliderPointerActiveRef.current) return;
+    updateSelectedBallsFromSlider(event.currentTarget, event.clientX);
+    sliderPointerActiveRef.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
 
   const updateAimFromPointer = useCallback(
     (clientX: number, clientY: number) => {
@@ -1804,6 +1845,7 @@ export default function BallzDuelGame() {
           </div>
 
           <input
+            data-allow-native-touch
             type="range"
             min={1}
             max={Math.max(1, match.myAvailableBalls)}
@@ -1817,9 +1859,13 @@ export default function BallzDuelGame() {
             onChange={(event) =>
               changeSelectedBalls(Number(event.target.value))
             }
-            onPointerDown={(event) => event.stopPropagation()}
-            onPointerMove={(event) => event.stopPropagation()}
-            onPointerUp={(event) => event.stopPropagation()}
+            onPointerDown={handleSliderPointerDown}
+            onPointerMove={handleSliderPointerMove}
+            onPointerUp={handleSliderPointerEnd}
+            onPointerCancel={(event) => {
+              event.stopPropagation();
+              sliderPointerActiveRef.current = false;
+            }}
             className="ballz-balls-range block w-full cursor-pointer disabled:opacity-30"
             style={{ color: theme.accent }}
             aria-label="Количество шаров в залпе"

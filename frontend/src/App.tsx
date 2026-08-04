@@ -293,8 +293,22 @@ function AppShell() {
     tg?.ready?.();
     tg?.expand?.();
     tg?.disableVerticalSwipes?.();
+
+    const isMobileTelegram = tg?.platform === "android" || tg?.platform === "ios";
+    const supportsFullscreen =
+      !tg?.isVersionAtLeast || tg.isVersionAtLeast("8.0");
+
+    if (isMobileTelegram && supportsFullscreen) {
+      try {
+        tg?.requestFullscreen?.();
+      } catch {
+        // Older Telegram clients can expose the method before it is available.
+      }
+    }
+
     applyTelegramViewportMetrics();
     tg?.onEvent?.("contentSafeAreaChanged", applyTelegramViewportMetrics);
+    tg?.onEvent?.("fullscreenChanged", applyTelegramViewportMetrics);
     tg?.onEvent?.("viewportChanged", applyTelegramViewportMetrics);
     window.visualViewport?.addEventListener(
       "resize",
@@ -308,6 +322,7 @@ function AppShell() {
 
     return () => {
       tg?.offEvent?.("contentSafeAreaChanged", applyTelegramViewportMetrics);
+      tg?.offEvent?.("fullscreenChanged", applyTelegramViewportMetrics);
       tg?.offEvent?.("viewportChanged", applyTelegramViewportMetrics);
       window.visualViewport?.removeEventListener(
         "resize",
@@ -327,7 +342,16 @@ function AppShell() {
     if (!isPlayableGameRoute) return;
 
     const tg = getTelegramWebApp();
-    const preventNativeSwipe = (event: Event) => event.preventDefault();
+    const preventNativeSwipe = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('input, textarea, select, [data-allow-native-touch]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+    };
 
     tg?.expand?.();
     tg?.disableVerticalSwipes?.();

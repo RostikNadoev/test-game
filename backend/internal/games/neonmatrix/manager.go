@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"tg-lobbies-base/internal/matcheconomy"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -692,7 +693,7 @@ func (s *Session) winnerProfitLocked() float64 {
 	if s.phase != PhaseMatchOver || s.winnerUserID == 0 {
 		return 0
 	}
-	return roundToTwo(s.betCoins * 0.90)
+	return matcheconomy.WinnerProfit(s.betCoins)
 }
 
 func (s *Session) broadcastLocked(messageType string) {

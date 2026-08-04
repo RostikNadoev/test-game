@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"tg-lobbies-base/internal/matcheconomy"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -410,7 +411,7 @@ func (r *room) publicStateLocked(now time.Time) PublicState {
 
 	winnerProfit := 0.0
 	if r.phase == PhaseFinished && !r.draw && r.winnerUserID != 0 {
-		winnerProfit = roundMoney(r.betCoins * 0.8)
+		winnerProfit = matcheconomy.WinnerProfit(r.betCoins)
 	}
 
 	state := PublicState{

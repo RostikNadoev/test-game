@@ -10,6 +10,7 @@ import {
 import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
 import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
+import { calculateMatchWinnerProfit } from '../utils/matchEconomy';
 
 type Phase = 'ready' | 'flying' | 'scoring' | 'settling';
 
@@ -3327,7 +3328,7 @@ export const DunkShotGame = () => {
             serverState.draw
               ? 0
               : winnerUserId === myUserId
-                ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+                ? calculateMatchWinnerProfit(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
                 : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
           }
           netLabel="Чистый результат"

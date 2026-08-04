@@ -17,6 +17,7 @@ import {
   type TowerStackSocketClient,
   type TowerStackStateMessage,
 } from '../api/towerStackWs';
+import { calculateMatchWinnerProfit } from '../utils/matchEconomy';
 
 /* ============================================================================
  * TowerStackGame.tsx — premium 1v1 tower-stacking duel for a Telegram Mini App.
@@ -823,7 +824,6 @@ const readStoredBet = () => {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 };
 
-const roundToTwo = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
 const formatReward = (value: number) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 
@@ -1280,7 +1280,7 @@ export function TowerStackGame({ onExit }: TowerStackGameProps = {}) {
   const loserProfile = winnerIsPlayer ? opponentProfile : myProfile;
   const winnerScore = winnerIsPlayer ? playerScore : rivalScore;
   const loserScore = winnerIsPlayer ? rivalScore : playerScore;
-  const displayedReward = didWin ? roundToTwo(betCoins * 0.9) : 0;
+  const displayedReward = didWin ? calculateMatchWinnerProfit(betCoins) : 0;
   const countdownValue = phase === 'ready' ? COUNTDOWN_FROM : countdown;
 
   if (!lobbyId || !token) {

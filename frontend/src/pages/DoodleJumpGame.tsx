@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PremiumGameResultModal } from "../components/Game/PremiumGameResultModal";
 import { useArcadeRaceOnline } from "../hooks/useArcadeRaceOnline";
+import { calculateMatchWinnerProfit } from "../utils/matchEconomy";
 
 type MatchPhase = "countdown" | "playing" | "finished";
 type PlatformType = "normal" | "moving" | "breakable" | "spring";
@@ -1586,7 +1587,7 @@ export const DoodleJumpGame = () => {
             match.draw
               ? 0
               : match.winnerUserId === match.myUserId
-                ? Math.round((Number(window.sessionStorage.getItem("twingames_active_bet")) || 0) * 90) / 100
+                ? calculateMatchWinnerProfit(Number(window.sessionStorage.getItem("twingames_active_bet")) || 0)
                 : -(Number(window.sessionStorage.getItem("twingames_active_bet")) || 0)
           }
           netLabel="Чистый результат"

@@ -9,6 +9,7 @@ import {
 } from "../api/plinkoWs";
 import { useAuth } from "../auth/useAuth";
 import coinIcon from "../assets/solo/scratch/icon-coin.webp";
+import { calculateMatchWinnerProfit } from "../utils/matchEconomy";
 
 const CFG = {
   VW: 360, VH: 520,
@@ -644,7 +645,6 @@ const readLobbyId = (locationState: LocationState, search: string) => {
   );
 };
 
-const roundMoney = (value: number) => Math.round(Math.max(0, value) * 100) / 100;
 const formatMoney = (value: number) =>
   new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
 
@@ -1713,7 +1713,7 @@ export default function PlinkoPvpGame() {
     ? -1
     : visualIndexForUser(serverState.winner_user_id);
   const didWin = serverState?.winner_user_id === myUserId;
-  const netReward = didWin ? roundMoney(betCoins * 0.9) : 0;
+  const netReward = didWin ? calculateMatchWinnerProfit(betCoins) : 0;
 
   return (
     <div className="plinko-root relative z-0 flex w-full flex-col overflow-hidden overscroll-none select-none bg-transparent text-white">

@@ -16,6 +16,7 @@ import {
 import type { LobbyPlayerInfo } from '../api/types';
 import { useAuth } from '../auth/useAuth';
 import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
+import { calculateMatchWinnerProfit } from '../utils/matchEconomy';
 
 type Team = 'home' | 'away';
 type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
@@ -2023,7 +2024,7 @@ export const DiscFootballGame = () => {
           winnerUserID={winnerUserId}
           netResult={
             winnerUserId === myUserId
-              ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+              ? calculateMatchWinnerProfit(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
               : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
           }
           netLabel="Чистый результат"

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"tg-lobbies-base/internal/matcheconomy"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -1109,8 +1110,7 @@ func (s *Session) winnerProfitLocked() float64 {
 		return 0
 	}
 
-	// В интерфейсе показывается чистая прибыль победителя: 90% его ставки.
-	return roundToTwo(s.betCoins * 0.90)
+	return matcheconomy.WinnerProfit(s.betCoins)
 }
 
 func roundToTwo(value float64) float64 {

@@ -18,6 +18,7 @@ import {
 import type { LobbyPlayerInfo } from '../api/types';
 import { PremiumGameResultModal } from '../components/Game/PremiumGameResultModal';
 import { getTelegramWebApp } from '../types/telegram';
+import { calculateMatchWinnerProfit } from '../utils/matchEconomy';
 
 /* ========================================================================== */
 /* Physics Duel — online lockstep/replay version                              */
@@ -1219,7 +1220,7 @@ export const PhysicsDuel: React.FC<PhysicsDuelProps> = ({ onExit }) => {
             outcome === 'DRAW'
               ? 0
               : outcome === 'VICTORY'
-                ? Math.round((Number(window.sessionStorage.getItem('twingames_active_bet')) || 0) * 90) / 100
+                ? calculateMatchWinnerProfit(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
                 : -(Number(window.sessionStorage.getItem('twingames_active_bet')) || 0)
           }
           netLabel="Чистый результат"

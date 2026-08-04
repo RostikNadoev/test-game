@@ -12,6 +12,7 @@ import coinIcon from '../../assets/solo/scratch/icon-coin.webp';
 import { useAuth } from '../../auth/useAuth';
 import { getGameByCode } from '../../data/games';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { calculateMatchWinnerProfit } from '../../utils/matchEconomy';
 import {
   ACTIVE_LOBBY_KEY,
   enterTurboRound,
@@ -335,7 +336,7 @@ export const TurboSeriesController = () => {
   const netResult = status.draw
     ? 0
     : didWin
-      ? Math.round(status.bet_coins * 0.9)
+      ? calculateMatchWinnerProfit(status.bet_coins)
       : -status.bet_coins;
   const finalOutcomeTitle = isTechnicalFinish
     ? status.draw

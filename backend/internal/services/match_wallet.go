@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"tg-lobbies-base/internal/matcheconomy"
 	"tg-lobbies-base/internal/models"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-const matchRakePercent = 0.08
 
 var (
 	ErrMatchNotFound       = errors.New("match not found")
@@ -203,7 +202,7 @@ func SettleMatch(db *gorm.DB, lobbyID string, winnerUserID *uint) (*models.Match
 			}
 		} else {
 			pot := roundMoney(match.BetCoins * 2)
-			payout := roundMoney(pot * (1 - matchRakePercent))
+			payout := matcheconomy.WinnerPayout(pot)
 
 			if err := markBetSettledTx(tx, match.Player1ID, lobbyID); err != nil {
 				return err
